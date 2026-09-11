@@ -1,0 +1,101 @@
+# ======================================================================
+# Every push and every pull request, against a real Postgres.
+#
+# Not a mock. The schema tests exist to prove the database refuses what the
+# design says it refuses, and a fake database refuses nothing.
+# ======================================================================
+
+name: test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: paltas
+          POSTGRES_PASSWORD: paltas
+          POSTGRES_DB: paltas_api
+        ports: ["5432:5432"]
+        # Without this the job races the database and fails on a cold runner
+        # roughly one time in five, which is worse than failing every time.
+        options: >-
+          --health-cmd="pg_isready -U paltas"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    env:
+      TEST_DATABASE_URL: postgresql://paltas:paltas@127.0.0.1:5432/paltas_api
+      DATABASE_URL: postgresql://paltas:paltas@127.0.0.1:5432/paltas_api
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # The Prisma client is generated from the schema alone and needs no
+      # database. It DOES need to reach binaries.prisma.sh; if that ever
+      # becomes a problem in CI, the failure is here and obvious rather than
+      # buried in a test.
+      - run: npx prisma generate
+
+      - name: Test
+        run: npm test
+
+      # Proves the image still builds, without pushing it anywhere. Render
+      # builds from source too, so a broken Dockerfile is a broken deploy and
+      # this is where it should be found.
+      - name: Build the image
+        run: docker build -t paltas-api:ci .
+
+  # ------------------------------------------------------------------
+  # A second, cheap job whose only purpose is to fail loudly if a secret
+  # is ever committed. The repository is private, and that is not a
+  # reason to relax about it: a private repository is one access grant
+  # away from being read by somebody it was not meant for.
+  # ------------------------------------------------------------------
+  secrets:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: No .env may be committed
+        run: |
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo "::error::.env is committed. Remove it and rotate everything in it."
+            exit 1
+          fi
+          echo "no .env in the tree"
+
+      - name: No credential-shaped strings
+        run: |
+          # Deliberately narrow: real key prefixes and PEM headers, not a
+          # heuristic that cries wolf on the word "secret" in a comment.
+          if git grep -nIE '(sk_live_[A-Za-z0-9]{10,}|AIza[A-Za-z0-9_-]{30,}|ghp_[A-Za-z0-9]{30,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|GOCSPX-[A-Za-z0-9_-]{20,})' -- . ; then
+            echo "::error::something credential-shaped is committed. Rotate it, then remove it."
+            exit 1
+          fi
+          echo "nothing credential-shaped found"
+
+      - name: No secret may be named NEXT_PUBLIC_
+        run: |
+          # The service refuses to start on one of these at runtime. This
+          # catches it at review time instead, which is cheaper.
+          if git grep -nIE 'NEXT_PUBLIC_[A-Z_]*(SECRET|KEY|TOKEN|PASSWORD|DATABASE)' -- . ':!test/' ':!.github/'; then
+            echo "::error::a secret is named NEXT_PUBLIC_, which compiles it into the browser bundle."
+            exit 1
+          fi
+          echo "no leaky names"

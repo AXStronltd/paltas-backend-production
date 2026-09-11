@@ -1,0 +1,354 @@
+// ======================================================================
+// THE PALTAS DATA MODEL.
+//
+// Every enum below is copied from `assets/session.js` in the frontend, value
+// for value. That is deliberate and it is the whole point: the session object
+// this API returns is handed to the frontend untranslated, so a value the
+// database can hold that the frontend cannot read is a bug the schema should
+// have prevented.
+//
+// The chain the frontend reads, in order:
+//
+//   USER  →  ORGANIZATION  →  SUBSCRIPTION  →  ENTITLEMENT[]
+//                          →  MEMBERSHIP(role, scope)  →  WORKSPACE
+//
+//   Entitlement decides which CONSOLE exists.   Role decides what is INSIDE it.
+//   They are different questions and this schema keeps them in different tables.
+// ======================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  // The pg driver adapter. Prisma then talks to Postgres through node-postgres
+  // instead of a native query-engine binary, which means: no 15 MB engine
+  // downloaded at image build, no openssl dependency in the container, and one
+  // fewer thing that can be the wrong build for the wrong libc.
+  previewFeatures = ["driverAdapters"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------- enums
+
+/// The five products. PLATFORM is PALTAS's own staff console.
+enum Product {
+  PROPERTY_MANAGEMENT
+  AGENT_HOST
+  HOTEL_MANAGEMENT
+  SECURITY_MANAGEMENT
+  GUEST_PORTAL
+  PLATFORM
+}
+
+/// TRIALING, ACTIVE and PAST_DUE all open the console. The wall is CANCELED
+/// and EXPIRED — and even then nothing is deleted.
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+  EXPIRED
+}
+
+/// Verification NEVER closes a console. It restricts `publish` and `payout`
+/// and nothing else — see lib/rights.js, which is the only place that decides.
+enum VerificationStatus {
+  NOT_STARTED
+  PENDING
+  ADDITIONAL_INFORMATION_REQUIRED
+  REJECTED
+  COMPLETE
+}
+
+/// A role is a job. Every value here exists in the frontend's ROLES table.
+enum Role {
+  OWNER
+  MANAGER
+  OPERATIONS
+  HOST
+  LEASING
+  PROMO_CONTRIBUTOR
+  FINANCE
+  RECEPTIONIST
+  SECURITY_MANAGER
+  GM
+  FRONT_DESK
+  HOUSEKEEPING
+  ENGINEERING
+  FNB
+  GUEST
+  GUARD
+  // PALTAS staff. Three roles, and the split between them is the product's
+  // only real guarantee about what reaches the public homepage.
+  MARKETING
+  COMPLIANCE
+  PUBLISHER
+}
+
+enum EntitlementStatus {
+  ACTIVE
+  SUSPENDED
+  ENDED
+}
+
+enum OrgStatus {
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+/// The promotion workflow. Twelve states, and exactly one of them is public —
+/// see the `PUBLIC_STATES` constant in src/lib/promotions.js, which is the one
+/// place that decides and the only thing GET /promotions/public consults.
+enum PromotionStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  CHANGES_REQUESTED
+  RESUBMITTED
+  MARKETING_APPROVED
+  FINAL_APPROVED
+  SCHEDULED
+  PUBLISHED
+  PAUSED
+  EXPIRED
+  REJECTED
+}
+
+// ---------------------------------------------------------------- people
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  name      String   @default("")
+  phone     String   @default("")
+  /// Google's stable subject claim. NOT the email: people change emails, and
+  /// Google's `sub` is the only identifier Google promises never to reuse.
+  googleSub String?  @unique
+  picture   String   @default("")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  sessions    Session[]
+  promotions  Promotion[]      @relation("PromotionAuthor")
+  events      PromotionEvent[]
+
+  @@index([googleSub])
+}
+
+/// A signed-in browser. Rows here are the reason a sign-out is real: deleting
+/// the row ends the session everywhere, which a self-contained JWT cannot do.
+model Session {
+  id        String   @id @default(cuid())
+  /// The cookie holds a random token; this column holds its SHA-256. A leaked
+  /// database backup is then not a pile of working session cookies.
+  tokenHash String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  /// Which organization this browser is currently acting for. A person can
+  /// belong to several; the session remembers which one they chose.
+  orgId     String?
+  userAgent String   @default("")
+  ip        String   @default("")
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// --------------------------------------------------------- the company
+
+model Organization {
+  id        String    @id @default(cuid())
+  name      String
+  country   String    @default("ke")
+  city      String    @default("")
+  size      String    @default("")
+  status    OrgStatus @default(ACTIVE)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  subscription Subscription?
+  verification Verification?
+  workspace    Workspace?
+  entitlements Entitlement[]
+  memberships  Membership[]
+  promotions   Promotion[]
+}
+
+model Subscription {
+  id        String             @id @default(cuid())
+  orgId     String             @unique
+  org       Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  status    SubscriptionStatus @default(TRIALING)
+  plan      String             @default("")
+  planKey   String             @default("")
+  trialDays Int                @default(30)
+  seats     Int                @default(1)
+  trialEnds DateTime?
+  updatedAt DateTime           @updatedAt
+}
+
+model Entitlement {
+  id      String            @id @default(cuid())
+  orgId   String
+  org     Organization      @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  product Product
+  status  EntitlementStatus @default(ACTIVE)
+  since   DateTime          @default(now())
+
+  /// One entitlement per product per company. An account holding both "host"
+  /// and "agent" holds ONE product, and counting it twice sent that customer
+  /// to a workspace door offering the same console twice.
+  @@unique([orgId, product])
+}
+
+model Membership {
+  id     String       @id @default(cuid())
+  userId String
+  user   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  role   Role         @default(OWNER)
+  /// What this person may see inside the company, as JSON: `{"all": true}` or
+  /// `{"sites": ["ST-1", "ST-3"]}`. A guard on two gates is not a guard on
+  /// every gate, and the frontend already reads this shape.
+  scope  Json         @default("{\"all\": true}")
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+}
+
+model Verification {
+  id        String             @id @default(cuid())
+  orgId     String             @unique
+  org       Organization       @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  status    VerificationStatus @default(NOT_STARTED)
+  /// `[{ kind, name, uploadedAt, status }]`. File bytes are not in this
+  /// database — this is the register of what was supplied, not the store.
+  documents Json               @default("[]")
+  updatedAt DateTime           @updatedAt
+}
+
+model Workspace {
+  id        String       @id @default(cuid())
+  orgId     String       @unique
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  status    String       @default("ACTIVE")
+  /// Which console this company lands in when several are entitled.
+  preferred String       @default("")
+  updatedAt DateTime     @updatedAt
+}
+
+// --------------------------------------------------------- promotions
+
+model Promotion {
+  id             String       @id @default(cuid())
+  /// The human-facing reference, PR-0001. Sequential per deployment, and what
+  /// a customer quotes when they ring up.
+  ref            String       @unique
+  orgId          String
+  org            Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  title          String       @default("")
+  headline       String       @default("")
+  subtitle       String       @default("")
+  description    String       @default("")
+  type           String       @default("")
+  offer          String       @default("")
+
+  startDate      DateTime?
+  endDate        DateTime?
+
+  destination    String       @default("")
+  ctaLabel       String       @default("")
+  ctaDestination String       @default("")
+  terms          String       @default("")
+
+  image          String       @default("")
+  /// `{ name, w, h, mb, busy }` — the properties the creative check reads.
+  imageMeta      Json?
+
+  placement      String       @default("discover")
+  audience       String       @default("all")
+  language       String       @default("en")
+  priority       Int          @default(50)
+
+  /// ---- market targeting -------------------------------------------------
+  /// All optional, all NARROWING. A promotion carrying none of them is
+  /// global, which is the right default because most campaigns are.
+  ///
+  /// Null, never an empty array: "I did not target this" and "I targeted
+  /// nothing" are different statements, and the second one read as a filter
+  /// hides the promotion everywhere.
+  countries        String[]
+  excludeCountries String[]
+  regions          String[]
+  cities           String[]
+  currencies       String[]
+  languages        String[]
+  /// The strongest two, and the ones worth reaching for. Naming Kenya is a
+  /// guess that M-Pesa is on there; asking whether M-Pesa resolves is the
+  /// fact, and it stays true the day a provider is switched off.
+  requiresPayment  String?
+  requiresService  String?
+  requiresProduct  String?
+
+  status         PromotionStatus @default(DRAFT)
+  /// True when the assistant drafted any of the copy. Kept because a reviewer
+  /// is entitled to know, and because the customer was told it would be.
+  aiDrafted      Boolean      @default(false)
+
+  createdById    String
+  createdBy      User         @relation("PromotionAuthor", fields: [createdById], references: [id])
+  reviewedBy     String       @default("")
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  events         PromotionEvent[]
+
+  /// The index GET /promotions/public actually uses. It is the only query in
+  /// the product an anonymous visitor can cause, so it is the one that has to
+  /// stay fast when there are a hundred thousand rows.
+  @@index([status, startDate, endDate])
+  @@index([orgId, status])
+}
+
+/// Every decision, with who and why. Append-only: nothing here is ever edited
+/// or removed, because "what exactly did PALTAS ask me for, and when" is a
+/// question a customer is entitled to a straight answer to.
+model PromotionEvent {
+  id          String          @id @default(cuid())
+  promotionId String
+  promotion   Promotion       @relation(fields: [promotionId], references: [id], onDelete: Cascade)
+  /// "created", "submitted", "changes requested", "published", …
+  what        String
+  /// The message shown to the customer. On a changes-requested event this is
+  /// the ONLY thing they see, which is why the API refuses an empty one.
+  why         String          @default("")
+  /// The state the promotion was left in by this event.
+  status      PromotionStatus
+  byId        String?
+  by          User?           @relation(fields: [byId], references: [id], onDelete: SetNull)
+  /// Kept as text as well as a relation: a reviewer who later leaves the
+  /// company must not erase the fact that they made the decision.
+  byName      String          @default("")
+  at          DateTime        @default(now())
+
+  @@index([promotionId, at])
+}
+
+/// One row, holding the promotion counter. A sequence in its own table rather
+/// than counting existing rows: two people creating a promotion in the same
+/// second must not both be told they made PR-0007.
+model Counter {
+  name  String @id
+  value Int    @default(0)
+}

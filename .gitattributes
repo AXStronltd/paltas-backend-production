@@ -1,0 +1,11 @@
+# Normalise line endings so a Windows checkout does not produce a diff on
+# every file the moment somebody saves one.
+* text=auto eol=lf
+
+# These are checked out as-is.
+*.png binary
+*.jpg binary
+
+# Generated, and enormous. GitHub still stores it — it just stops it from
+# drowning a pull request.
+package-lock.json linguist-generated=true -diff

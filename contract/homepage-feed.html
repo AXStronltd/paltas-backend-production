@@ -1,0 +1,71 @@
+<!--
+  ====================================================================
+  WIRING THE HOMEPAGE TO THE PROMOTION FEED.
+
+  The pushed `index.html` already has the intake point — `window.PALTAS
+  .discover.feed(rows)` — and its own comment says so:
+
+      "The homepage is a static page with no session, so in this build
+       nothing calls it: PALTAS_APPROVED is empty and the carousel shows
+       PALTAS's own campaigns alone. When the backend exists, one GET
+       /promotions/public on page load hands its rows to
+       window.PALTAS.discover.feed(rows) and the carousel redraws — no
+       other line on this page changes."
+
+  This is that one call. Paste it into `index.html` immediately before the
+  closing </body> tag. It is the ONLY change the homepage needs.
+
+  Three things it deliberately does NOT do:
+
+    · It does not send credentials. The public feed takes no session and
+      must not — a homepage that needs a cookie to show a promotion is a
+      homepage that shows nothing to a first-time visitor.
+
+    · It does not fall back to anything on failure. If the call fails the
+      carousel keeps showing PALTAS's own campaigns, which is exactly
+      what it shows today. Nothing is invented and nothing disappears.
+
+    · It does not block the page. The carousel has already drawn by the
+      time this answers; feed() redraws it.
+  ====================================================================
+-->
+<script>
+(function () {
+  var BASE = String(
+    window.PALTAS_PROMOTIONS_API || window.PALTAS_API_BASE || ""
+  ).replace(/\/+$/, "");
+  if (!BASE) return;   /* no API configured — PALTAS's own campaigns only */
+
+  function load() {
+    fetch(BASE + "/promotions/public", { credentials: "omit" })
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) {
+        if (!d || !d.promotions || !d.promotions.length) return;
+        if (!window.PALTAS || !window.PALTAS.discover) return;
+        var accepted = window.PALTAS.discover.feed(d.promotions);
+        /*
+         * The count is worth logging. Handed twelve rows and accepting two
+         * means the intake's own filter did its job; handed twelve and
+         * accepting zero means something is wrong with the DATA rather than
+         * with the call, and those two failures look identical on screen.
+         */
+        if (window.console) {
+          console.info(
+            "PALTAS promotions: " + accepted + " of " + d.promotions.length +
+            " accepted onto the carousel"
+          );
+        }
+      })
+      .catch(function () {
+        /* Silent on purpose. The carousel is already showing PALTAS's own
+           campaigns; an error banner over a working carousel helps nobody. */
+      });
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", load);
+  } else {
+    load();
+  }
+})();
+</script>

@@ -1,0 +1,59 @@
+# ======================================================================
+# Render blueprint for the PALTAS API.
+#
+# A NEW DATABASE, DELIBERATELY.
+#
+# This does not reference the existing `paltas-db`. The start command runs
+# `prisma migrate deploy`, and the seed data in that database (58 listings,
+# 12 photographs) has an unresolved provenance question — so nothing here
+# may migrate it. `paltas-api-db` below is a separate instance that this
+# service owns outright.
+#
+# If you later decide the two should share a database, that is a decision to
+# make once the provenance question is settled, and a migration to plan
+# rather than a URL to paste.
+# ======================================================================
+
+services:
+  - type: web
+    name: paltas-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: frankfurt          # same region as the database, or every query pays a round trip
+    plan: starter
+    healthCheckPath: /health
+    autoDeploy: false          # deploys are a decision, not a side effect of a push
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+
+      - key: DATABASE_URL
+        fromDatabase:
+          name: paltas-api-db
+          property: connectionString
+
+      # Render generates this once and keeps it. It is never in the repo.
+      - key: SESSION_SECRET
+        generateValue: true
+
+      # sync: false means "Render will ask you for this in the dashboard".
+      # Secrets are entered there, by a person, and never committed.
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+
+      - key: PUBLIC_URL
+        sync: false            # e.g. https://api.paltas.io
+      - key: APP_URL
+        sync: false            # e.g. https://paltas.io
+      - key: ALLOWED_ORIGINS
+        sync: false            # optional; staging or local origins
+
+databases:
+  - name: paltas-api-db
+    databaseName: paltas_api
+    user: paltas_api
+    region: frankfurt
+    plan: basic-256mb

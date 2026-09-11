@@ -1,0 +1,457 @@
+/* ====================================================================== *
+ * THE API, END TO END.
+ *
+ * The real Express app, the real routes, the real Prisma client, a real
+ * Postgres. It signs people in by writing a session row directly, because the
+ * Google half is already tested in google.test.js and putting a real Google
+ * round trip in here would test Google rather than PALTAS.
+ *
+ * ── WHY THIS MAY SKIP ──────────────────────────────────────────────────
+ *
+ * It needs a generated Prisma client, and `prisma generate` downloads an
+ * engine from binaries.prisma.sh. If that host is unreachable — some CI
+ * sandboxes block it — this file skips with a message rather than failing,
+ * and everything in rules.test.js, google.test.js, config.test.js and
+ * schema.test.js still runs.
+ *
+ * To run it:
+ *     npx prisma generate
+ *     TEST_DATABASE_URL=postgresql://…  npm test
+ * ====================================================================== */
+
+import test from "node:test";
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+
+process.env.DATABASE_URL = DB || "postgresql://unused@127.0.0.1:1/none";
+process.env.SESSION_SECRET ||= "test-secret";
+process.env.GOOGLE_CLIENT_ID ||= "test-client.apps.googleusercontent.com";
+process.env.GOOGLE_CLIENT_SECRET ||= "test-client-secret";
+process.env.PUBLIC_URL ||= "http://127.0.0.1:8080";
+process.env.APP_URL ||= "http://127.0.0.1:8899";
+process.env.INSECURE_COOKIES = "1";
+
+/* Decide up front whether this file can run at all. */
+let skip = DB ? false : "no TEST_DATABASE_URL — skipping API tests";
+let createApp, db, pg;
+
+if (!skip) {
+  try {
+    ({ default: pg } = await import("pg"));
+    ({ db } = await import("../src/db.js"));
+    ({ createApp } = await import("../src/server.js"));
+    /* Touch the client so a missing engine fails HERE, with a useful message,
+       rather than inside the first test. */
+    await db.$queryRaw`SELECT 1`;
+  } catch (e) {
+    skip = "Prisma client unavailable (run `npx prisma generate`): " + String(e.message).slice(0, 120);
+  }
+}
+
+/* ---------------------------------------------------------------- rig */
+
+let server, base, pool;
+
+async function boot() {
+  pool = new pg.Pool({ connectionString: DB });
+  await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
+  const root = join(HERE, "..", "prisma", "migrations");
+  for (const dir of readdirSync(root).sort()) {
+    const p = join(root, dir, "migration.sql");
+    if (existsSync(p)) await pool.query(readFileSync(p, "utf8"));
+  }
+
+  const app = createApp();
+  await new Promise((r) => { server = app.listen(0, r); });
+  base = `http://127.0.0.1:${server.address().port}`;
+}
+
+/** Sign somebody in the way the Google callback does: a real session row. */
+async function signIn({ email, name, orgId }) {
+  const user = await db.user.upsert({
+    where: { email },
+    create: { email, name, googleSub: "sub_" + email },
+    update: {},
+  });
+  const token = crypto.randomBytes(32).toString("base64url");
+  await db.session.create({
+    data: {
+      tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
+      userId: user.id,
+      orgId: orgId || null,
+      expiresAt: new Date(Date.now() + 3600_000),
+    },
+  });
+  return { user, cookie: `paltas_session=${token}` };
+}
+
+async function call(path, { method = "GET", body, cookie } = {}) {
+  const res = await fetch(base + path, {
+    method,
+    headers: {
+      ...(body ? { "content-type": "application/json" } : {}),
+      ...(cookie ? { cookie } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+    redirect: "manual",
+  });
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch { /* a redirect has no body */ }
+  return { status: res.status, json, text, headers: res.headers };
+}
+
+/** A company with a product, a role and a subscription, made directly. */
+async function makeCompany({ name, email, person, product, role, subscription = "ACTIVE",
+                             verification = "COMPLETE" }) {
+  const org = await db.organization.create({
+    data: {
+      name,
+      subscription: { create: { status: subscription } },
+      verification: { create: { status: verification } },
+      workspace: { create: { preferred: product } },
+      entitlements: { create: [{ product }] },
+    },
+  });
+  const { user, cookie } = await signIn({ email, name: person, orgId: org.id });
+  await db.membership.create({ data: { userId: user.id, orgId: org.id, role } });
+  return { org, user, cookie };
+}
+
+if (!skip) { test.before(boot); }
+test.after(async () => {
+  if (server) await new Promise((r) => server.close(r));
+  if (pool) await pool.end();
+  if (db) await db.$disconnect();
+});
+
+/* ================================================================ */
+test("health says whether the database is actually reachable", { skip }, async () => {
+  const r = await call("/health");
+  assert.equal(r.status, 200);
+  assert.equal(r.json.ok, true);
+});
+
+test("an unsigned-in caller gets 401 from the session, not a crash", { skip }, async () => {
+  const r = await call("/auth/session");
+  assert.equal(r.status, 401);
+  assert.equal(r.json.signedIn, false);
+});
+
+test("the session is never cached by anything in between", { skip }, async () => {
+  const { cookie } = await signIn({ email: "cache@example.com", name: "C" });
+  const r = await call("/auth/session", { cookie });
+  assert.match(r.headers.get("cache-control") || "", /no-store/);
+});
+
+test("POST /auth/sessions points at Google rather than pretending to work", { skip }, async () => {
+  const r = await call("/auth/sessions", { method: "POST", body: {} });
+  assert.equal(r.status, 400);
+  assert.equal(r.json.error, "use_google");
+  assert.match(r.json.signInUrl, /\/auth\/google$/);
+});
+
+test("signing out really ends the session", { skip }, async () => {
+  const { cookie } = await signIn({ email: "out@example.com", name: "O" });
+  assert.equal((await call("/auth/session", { cookie })).status, 200);
+
+  const bye = await call("/auth/sessions", { method: "DELETE", cookie });
+  assert.equal(bye.status, 200);
+
+  /* The same cookie, immediately afterwards. A JWT would still work here. */
+  assert.equal((await call("/auth/session", { cookie })).status, 401);
+});
+
+/* ================================================================ */
+test("the session object is exactly the shape the frontend reads", { skip }, async () => {
+  const { cookie } = await makeCompany({
+    name: "Marina Vista Hotels", email: "gm@marina.test", person: "Layla Hassan",
+    product: "HOTEL_MANAGEMENT", role: "OWNER",
+  });
+  const r = await call("/auth/session", { cookie });
+  assert.equal(r.status, 200);
+  const s = r.json;
+
+  for (const k of ["user", "organization", "subscription", "entitlements",
+                   "verification", "memberships", "workspace"]) {
+    assert.ok(k in s, `the session is missing ${k}`);
+  }
+  assert.deepEqual(Object.keys(s.user).sort(), ["email", "id", "name", "phone"]);
+  assert.equal(s.organization.name, "Marina Vista Hotels");
+  assert.equal(s.entitlements[0].product, "HOTEL_MANAGEMENT");
+  assert.equal(s.memberships[0].role, "OWNER");
+  assert.equal(s.subscription.status, "ACTIVE");
+  assert.equal(s.verification.status, "COMPLETE");
+});
+
+test("a person with no company gets a session and no organization", { skip }, async () => {
+  const { cookie } = await signIn({ email: "nobody@example.com", name: "Nobody" });
+  const r = await call("/auth/session", { cookie });
+  assert.equal(r.status, 200, "a signed-in person with no company should still have a session");
+  assert.equal(r.json.organization, null);
+  assert.deepEqual(r.json.memberships, []);
+});
+
+/* ================================================================ */
+test("creating a company makes every row in one go", { skip }, async () => {
+  const { cookie } = await signIn({ email: "founder@example.com", name: "A Founder" });
+  const r = await call("/organizations", {
+    method: "POST", cookie,
+    body: { name: "Akram Hotel", country: "ae", city: "Dubai", work: ["hotel"] },
+  });
+
+  assert.equal(r.status, 201);
+  assert.equal(r.json.organization.name, "Akram Hotel");
+  assert.equal(r.json.entitlements[0].product, "HOTEL_MANAGEMENT");
+  assert.equal(r.json.memberships[0].role, "OWNER");
+  /* A new company is TRIALING. ACTIVE means somebody paid. */
+  assert.equal(r.json.subscription.status, "TRIALING");
+  assert.equal(r.json.verification.status, "NOT_STARTED");
+  assert.equal(r.json.workspace.preferred, "HOTEL_MANAGEMENT");
+});
+
+test("the six lines of work map to products, and two lines can mean one product", { skip }, async () => {
+  const { cookie } = await signIn({ email: "dev@example.com", name: "D" });
+  const r = await call("/organizations", {
+    method: "POST", cookie,
+    body: { name: "Alma Real Estate", work: ["develop", "own_let", "manage"] },
+  });
+  assert.equal(r.status, 201);
+  assert.equal(r.json.entitlements.length, 1, "three property lines should be one product");
+  assert.equal(r.json.entitlements[0].product, "PROPERTY_MANAGEMENT");
+});
+
+test("nobody can grant themselves the PALTAS staff console", { skip }, async () => {
+  const { cookie } = await signIn({ email: "chancer@example.com", name: "C" });
+  const r = await call("/organizations", {
+    method: "POST", cookie,
+    body: { name: "Totally Legitimate Ltd", products: ["PLATFORM"] },
+  });
+  assert.equal(r.status, 403, "PLATFORM was grantable at signup");
+  assert.match(r.json.message, /granted by PALTAS/i);
+});
+
+test("a company with no stated work is refused, and told what to send", { skip }, async () => {
+  const { cookie } = await signIn({ email: "empty@example.com", name: "E" });
+  const r = await call("/organizations", { method: "POST", cookie, body: { name: "X" } });
+  assert.equal(r.status, 400);
+  assert.match(r.json.message, /Say what the company does/i);
+});
+
+/* ================================================================ */
+test("a customer writes a promotion; it is a DRAFT whatever they send", { skip }, async () => {
+  const { cookie } = await makeCompany({
+    name: "Coast Hotels", email: "coast@example.com", person: "Wanjiru Kamau",
+    product: "HOTEL_MANAGEMENT", role: "PROMO_CONTRIBUTOR",
+  });
+
+  const r = await call("/promotions", {
+    method: "POST", cookie,
+    body: { title: "Coast weekend", headline: "Two nights on the coast", status: "PUBLISHED" },
+  });
+  assert.equal(r.status, 201);
+  assert.equal(r.json.status, "DRAFT", "a request set its own status");
+  assert.match(r.json.id, /^PR-\d{4}$/);
+  assert.equal(r.json.createdBy, "Wanjiru Kamau");
+  assert.equal(r.json.reviewHistory.length, 1);
+});
+
+test("an incomplete promotion cannot be submitted, and is told which parts", { skip }, async () => {
+  const { cookie } = await makeCompany({
+    name: "Half Done Ltd", email: "half@example.com", person: "H",
+    product: "HOTEL_MANAGEMENT", role: "OWNER",
+  });
+  const made = await call("/promotions", {
+    method: "POST", cookie, body: { headline: "Something", title: "t" },
+  });
+  const r = await call(`/promotions/${made.json.id}/submit`, { method: "POST", cookie });
+  assert.equal(r.status, 400);
+  assert.match(r.json.message, /not ready to submit/i);
+  assert.ok(Array.isArray(r.json.details));
+});
+
+test("a customer cannot publish their own promotion by any route", { skip }, async () => {
+  const { cookie } = await makeCompany({
+    name: "Impatient Ltd", email: "imp@example.com", person: "I",
+    product: "HOTEL_MANAGEMENT", role: "OWNER",
+  });
+  const made = await call("/promotions", { method: "POST", cookie, body: complete() });
+
+  for (const path of ["publish", "schedule", "review/approve"]) {
+    const r = await call(`/promotions/${made.json.id}/${path}`, { method: "POST", cookie });
+    assert.equal(r.status, 403, `a customer could ${path}`);
+  }
+});
+
+test("one company cannot see another's promotions", { skip }, async () => {
+  const a = await makeCompany({
+    name: "Company A", email: "a@example.com", person: "A",
+    product: "HOTEL_MANAGEMENT", role: "OWNER",
+  });
+  const b = await makeCompany({
+    name: "Company B", email: "b@example.com", person: "B",
+    product: "HOTEL_MANAGEMENT", role: "OWNER",
+  });
+
+  const mine = await call("/promotions", { method: "POST", cookie: a.cookie, body: complete() });
+
+  const list = await call("/promotions", { cookie: b.cookie });
+  assert.equal(list.json.promotions.length, 0, "another company's promotion was listed");
+
+  /* And asking for it by reference answers "does not exist", not "forbidden" —
+     a 403 would confirm the reference is real. */
+  const direct = await call(`/promotions/${mine.json.id}`, { cookie: b.cookie });
+  assert.equal(direct.status, 404);
+
+  /* And scope=all is refused rather than quietly narrowed. */
+  const all = await call("/promotions?scope=all", { cookie: b.cookie });
+  assert.equal(all.status, 403);
+});
+
+/* ================================================================ */
+test("the whole workflow, by the three people it takes", { skip }, async () => {
+  const hotel = await makeCompany({
+    name: "Marina Vista", email: "hotel@example.com", person: "Layla Hassan",
+    product: "HOTEL_MANAGEMENT", role: "OWNER",
+  });
+  const paltas = await db.organization.create({
+    data: {
+      name: "PALTAS",
+      subscription: { create: { status: "ACTIVE" } },
+      verification: { create: { status: "COMPLETE" } },
+      workspace: { create: { preferred: "PLATFORM" } },
+      entitlements: { create: [{ product: "PLATFORM" }] },
+    },
+  });
+  const marketing = await signIn({ email: "grace@paltas.io", name: "Grace Wambui", orgId: paltas.id });
+  await db.membership.create({
+    data: { userId: marketing.user.id, orgId: paltas.id, role: "MARKETING" } });
+  const publisher = await signIn({ email: "ahmed@paltas.io", name: "Ahmed Akboole", orgId: paltas.id });
+  await db.membership.create({
+    data: { userId: publisher.user.id, orgId: paltas.id, role: "PUBLISHER" } });
+
+  /* 1 — the customer writes and submits. */
+  const made = await call("/promotions", { method: "POST", cookie: hotel.cookie, body: complete() });
+  const ref = made.json.id;
+  const sub = await call(`/promotions/${ref}/submit`, { method: "POST", cookie: hotel.cookie });
+  assert.equal(sub.json.status, "SUBMITTED");
+
+  /* Not public. */
+  assert.equal(await publicCount(), 0);
+
+  /* 2 — marketing cannot publish, and says so. */
+  const tryPublish = await call(`/promotions/${ref}/publish`,
+    { method: "POST", cookie: marketing.cookie });
+  assert.equal(tryPublish.status, 403, "MARKETING published something");
+  assert.match(tryPublish.json.message, /publisher/i);
+
+  /* 3 — sending it back needs a real message. */
+  const empty = await call(`/promotions/${ref}/review/changes`,
+    { method: "POST", cookie: marketing.cookie, body: { message: "no" } });
+  assert.equal(empty.status, 400);
+  assert.match(empty.json.message, /Say what needs to change/i);
+
+  const back = await call(`/promotions/${ref}/review/changes`, {
+    method: "POST", cookie: marketing.cookie,
+    body: { message: "Please add the vehicle type and the number of bags the price covers." },
+  });
+  assert.equal(back.json.status, "CHANGES_REQUESTED");
+  const last = back.json.reviewHistory.at(-1);
+  assert.equal(last.by, "Grace Wambui");
+  assert.match(last.why, /number of bags/);
+
+  /* 4 — the customer fixes it. Coming back is a RESUBMISSION. */
+  await call(`/promotions/${ref}`, {
+    method: "PATCH", cookie: hotel.cookie,
+    body: { description: "Two nights on the coast, breakfast for two included." },
+  });
+  const again = await call(`/promotions/${ref}/submit`, { method: "POST", cookie: hotel.cookie });
+  assert.equal(again.json.status, "RESUBMITTED");
+
+  /* 5 — marketing approves. Still not public. */
+  const approved = await call(`/promotions/${ref}/review/approve`,
+    { method: "POST", cookie: marketing.cookie });
+  assert.equal(approved.json.status, "MARKETING_APPROVED");
+  assert.equal(await publicCount(), 0, "marketing approval put something on the homepage");
+
+  /* 6 — the publisher publishes. NOW it is public. */
+  const live = await call(`/promotions/${ref}/publish`, { method: "POST", cookie: publisher.cookie });
+  assert.equal(live.json.status, "PUBLISHED");
+  assert.equal(await publicCount(), 1);
+
+  /* 7 — and pausing takes it straight back off. */
+  const paused = await call(`/promotions/${ref}/pause`, {
+    method: "POST", cookie: publisher.cookie,
+    body: { message: "Paused at the customer's request while they change the dates." },
+  });
+  assert.equal(paused.json.status, "PAUSED");
+  assert.equal(await publicCount(), 0);
+
+  /* Nothing was deleted. */
+  const still = await call(`/promotions/${ref}`, { cookie: hotel.cookie });
+  assert.equal(still.status, 200);
+  assert.ok(still.json.reviewHistory.length >= 6, "the history was not kept in full");
+});
+
+test("scheduling is not publishing, even inside the dates", { skip }, async () => {
+  const paltas = await db.organization.findFirst({ where: { name: "PALTAS" } });
+  const publisher = await signIn({ email: "ahmed@paltas.io", name: "Ahmed Akboole", orgId: paltas.id });
+
+  const hotel = await makeCompany({
+    name: "Scheduler Ltd", email: "sched@example.com", person: "S",
+    product: "HOTEL_MANAGEMENT", role: "OWNER",
+  });
+  const made = await call("/promotions", { method: "POST", cookie: hotel.cookie, body: complete() });
+  const ref = made.json.id;
+  await call(`/promotions/${ref}/submit`, { method: "POST", cookie: hotel.cookie });
+
+  const marketing = await db.user.findUnique({ where: { email: "grace@paltas.io" } });
+  assert.ok(marketing);
+  const g = await signIn({ email: "grace@paltas.io", name: "Grace Wambui", orgId: paltas.id });
+  await call(`/promotions/${ref}/review/approve`, { method: "POST", cookie: g.cookie });
+
+  const before = await publicCount();
+  const s = await call(`/promotions/${ref}/schedule`, { method: "POST", cookie: publisher.cookie });
+  assert.equal(s.json.status, "SCHEDULED");
+  assert.equal(await publicCount(), before, "a SCHEDULED promotion reached the homepage");
+});
+
+test("the public feed needs no session and leaks nothing", { skip }, async () => {
+  const r = await call("/promotions/public");
+  assert.equal(r.status, 200, "the homepage needed a session to read promotions");
+  assert.ok(Array.isArray(r.json.promotions));
+  for (const p of r.json.promotions) {
+    assert.equal(p.status, "PUBLISHED");
+    assert.ok(!("createdBy" in p), "the public feed named an author");
+    assert.ok(!("reviewHistory" in p), "the public feed carried a review history");
+  }
+  assert.match(r.headers.get("cache-control") || "", /public/);
+});
+
+/* ------------------------------------------------------------ helpers */
+
+async function publicCount() {
+  const r = await call("/promotions/public");
+  return r.json.promotions.length;
+}
+
+function complete() {
+  const year = new Date().getFullYear();
+  return {
+    title: "Coast weekend",
+    headline: "Two nights on the coast",
+    subtitle: "With breakfast.",
+    description: "Two nights on the coast with breakfast for two included.",
+    type: "destination", offer: "Breakfast included", destination: "Diani",
+    startDate: `${year - 1}-01-01`, endDate: `${year + 1}-12-31`,
+    ctaLabel: "See the offer", ctaDestination: "index.html?go=stay",
+    terms: "Selected room types, subject to availability. Direct bookings only.",
+    placement: "discover", audience: "travellers", language: "en", priority: 60,
+  };
+}

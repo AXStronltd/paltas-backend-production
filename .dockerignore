@@ -1,0 +1,27 @@
+# What must never enter the build context.
+#
+# Without this file, `docker build` uploads everything in the directory to the
+# daemon — including a local .env and a 200 MB node_modules built for the wrong
+# platform. The .env line is the one that matters: a secret that reaches the
+# build context can end up in an image layer, and an image layer is forever.
+
+.env
+.env.*
+!.env.example
+
+node_modules/
+npm-debug.log*
+
+.git/
+.github/
+.gitignore
+
+# The tests and the contract fixtures are not part of the running service.
+test/
+contract/
+
+*.md
+!README.md
+
+.DS_Store
+coverage/
