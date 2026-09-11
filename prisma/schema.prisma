@@ -17,12 +17,11 @@
 // ======================================================================
 
 generator client {
-  provider        = "prisma-client-js"
-  // The pg driver adapter. Prisma then talks to Postgres through node-postgres
-  // instead of a native query-engine binary, which means: no 15 MB engine
-  // downloaded at image build, no openssl dependency in the container, and one
-  // fewer thing that can be the wrong build for the wrong libc.
-  previewFeatures = ["driverAdapters"]
+  provider = "prisma-client-js"
+  // No preview features. The `driverAdapters` one was tried and taken back
+  // out — see the long comment in src/db.js for why: it could not be tested
+  // where this was written, and the query path is the wrong place to ship
+  // something unverified.
 }
 
 datasource db {

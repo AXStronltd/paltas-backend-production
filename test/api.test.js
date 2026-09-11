@@ -50,7 +50,17 @@ if (!skip) {
        rather than inside the first test. */
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
-    skip = "Prisma client unavailable (run `npx prisma generate`): " + String(e.message).slice(0, 120);
+    /*
+     * A SHORT, ACTIONABLE REASON — not 120 characters of a Prisma stack.
+     *
+     * These eighteen are the only end-to-end tests in the suite. If they are
+     * skipping, the person running `npm test` needs to notice and needs to
+     * know what to do, so the reason names the fix rather than the symptom.
+     */
+    const m = String(e && e.message);
+    skip = /did not initialize|locate the Query Engine|generate/.test(m)
+      ? "RUN `npx prisma generate` FIRST — these 18 end-to-end tests cannot run without it"
+      : "database unreachable: " + m.slice(0, 90);
   }
 }
 
@@ -129,6 +139,22 @@ test.after(async () => {
   if (server) await new Promise((r) => server.close(r));
   if (pool) await pool.end();
   if (db) await db.$disconnect();
+
+  if (skip) {
+    console.log(
+      "\n" +
+      "  ┌────────────────────────────────────────────────────────────────┐\n" +
+      "  │  THE 18 END-TO-END API TESTS DID NOT RUN.                      │\n" +
+      "  │                                                                │\n" +
+      "  │  " + String(skip).slice(0, 60).padEnd(60) + "  │\n" +
+      "  │                                                                │\n" +
+      "  │  Everything else passed, and everything else is a rule or a    │\n" +
+      "  │  schema check. These are the only tests that exercise the      │\n" +
+      "  │  real routes against a real database. Do not deploy without    │\n" +
+      "  │  seeing them green.                                            │\n" +
+      "  └────────────────────────────────────────────────────────────────┘\n"
+    );
+  }
 });
 
 /* ================================================================ */
