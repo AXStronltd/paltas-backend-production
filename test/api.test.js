@@ -217,8 +217,8 @@ test("the session object is exactly the shape the frontend reads", { skip }, asy
   assert.equal(r.status, 200);
   const s = r.json;
 
-  for (const k of ["user", "organization", "subscription", "entitlements",
-                   "verification", "memberships", "workspace"]) {
+  for (const k of ["v", "signedIn", "user", "organization", "subscription",
+                   "entitlements", "verification", "memberships", "workspace"]) {
     assert.ok(k in s, `the session is missing ${k}`);
   }
   assert.deepEqual(Object.keys(s.user).sort(), ["email", "id", "name", "phone"]);
@@ -227,6 +227,48 @@ test("the session object is exactly the shape the frontend reads", { skip }, asy
   assert.equal(s.memberships[0].role, "OWNER");
   assert.equal(s.subscription.status, "ACTIVE");
   assert.equal(s.verification.status, "COMPLETE");
+});
+
+test("the session carries the shape version the frontend gates on", { skip }, async () => {
+  /*
+   * `v` LOOKS INERT AND IS THE OPPOSITE.
+   *
+   * assets/console.js:
+   *
+   *     var VERSION = 2;
+   *     function read() { ... return o.v === VERSION ? o : migrate(o); }
+   *
+   * `migrate()` upgrades a VERSION-1 session, which was a flat object of
+   * `{ email, who, caps, sub, plan }`. A response without `v` is therefore
+   * not read as "one field short" — it is read as an OLD session and handed
+   * to a migrator looking for keys this service has never sent. It finds
+   * none, and returns a blank.
+   *
+   * Running the frontend's own Session module against this service's real
+   * response, with `v` absent: signedIn stayed true and the company name,
+   * the email, both entitlements and the membership all came back empty.
+   * `resolve()` then answered NOT_ENTITLED and sent the person to
+   * index.html — signed in, and locked out of every console they own.
+   *
+   * `contract/backend.md` §1 never mentioned the field, which is why it was
+   * missing: the contract was incomplete and this service implemented the
+   * contract. So the test is here rather than in contract.test.js, which can
+   * only ever check what the document already says.
+   */
+  const { cookie } = await makeCompany({
+    name: "Shape Version Ltd", email: "v@shape.test", person: "V",
+    product: "PROPERTY_MANAGEMENT", role: "OWNER",
+  });
+  const r = await call("/auth/session", { cookie });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.v, 2,
+    "the session must carry v:2 — without it the frontend migrates it to a blank session");
+
+  /* And on the other branch too: somebody who has signed in but has no
+     company still has to be able to reach the workspace picker. */
+  const { cookie: alone } = await signIn({ email: "alone@shape.test", name: "Alone" });
+  const r2 = await call("/auth/session", { cookie: alone });
+  assert.equal(r2.json.v, 2, "a session with no organization needs the version too");
 });
 
 test("a person with no company gets a session and no organization", { skip }, async () => {

@@ -15,6 +15,33 @@
 
 import { db } from "../db.js";
 
+/* ====================================================================== *
+ * THE SHAPE VERSION. THE SESSION IS WORTHLESS WITHOUT IT.
+ *
+ * The frontend does not merely tolerate this field, it GATES ON IT. In
+ * `assets/console.js`:
+ *
+ *     var VERSION = 2;
+ *     function read() { ... return o.v === VERSION ? o : migrate(o); }
+ *
+ * `migrate()` upgrades a version-1 session, and a version-1 session is a
+ * flat object of `{ email, who, caps, sub, plan }`. So a response without
+ * `v` is not read as "a session missing one field" — it is read as an OLD
+ * session, handed to a migrator that looks for keys this service has never
+ * sent, finds none of them, and returns a BLANK session.
+ *
+ * The result, confirmed by running the frontend's own Session module
+ * against this service's real response: signedIn stays true, and the
+ * company name, the email, every entitlement and every membership come back
+ * empty. `resolve()` then answers NOT_ENTITLED and sends the person to
+ * index.html. Signed in, and locked out of every console they own, with
+ * nothing on screen to explain it.
+ *
+ * One integer. It must track `VERSION` in assets/console.js, and
+ * test/contract.test.js fails if it is ever absent.
+ * ====================================================================== */
+const SHAPE_VERSION = 2;
+
 /**
  * Everything the frontend needs about who is signed in.
  *
@@ -47,6 +74,7 @@ export async function sessionView(sessionRow) {
     memberships.find((m) => m.orgId === sessionRow.orgId) || memberships[0] || null;
 
   const base = {
+    v: SHAPE_VERSION,
     signedIn: true,
     user: {
       id: user.id,
@@ -65,15 +93,35 @@ export async function sessionView(sessionRow) {
       scope: m.scope,
     })),
     workspace: { status: "ACTIVE", preferred: "" },
-    /* Not part of the contract, but the frontend's own session has it and it
-       costs nothing to be consistent: a person is a consumer of the
-       marketplace as well as a member of a company. */
+    /*
+     * CONSUMER, BY THE FRONTEND'S OWN RULE.
+     *
+     * `migrate()` in assets/console.js states it: somebody is a consumer when
+     * they hold the guest portal, or hold nothing at all. Here, in the branch
+     * for a person with no company, they hold nothing — so this is true, and
+     * true for the right reason.
+     *
+     * It used to be hardcoded true for EVERYBODY, a hotel group on a paid
+     * subscription included. Nothing in the built frontend reads the field
+     * today, so nothing was visibly wrong, which is the only reason it
+     * survived this long.
+     */
     consumer: true,
   };
 
   if (!current) return base;
 
   const org = current.org;
+
+  /* ONE ENTITLEMENT PER PRODUCT. The unique constraint guarantees it in the
+     database; this filter guarantees it even if that constraint is ever
+     relaxed, because an account listed twice for one product sent that
+     customer to a door offering the same console twice. */
+  const entitlements = dedupe(
+    org.entitlements
+      .filter((e) => e.status === "ACTIVE")
+      .map((e) => ({ product: e.product, status: e.status, since: day(e.since) }))
+  );
 
   return {
     ...base,
@@ -97,15 +145,11 @@ export async function sessionView(sessionRow) {
          is the safe reading of "nobody has ever paid for this". */
       : { status: "EXPIRED", plan: "", planKey: "", trialDays: 0, seats: 1 },
 
-    /* ONE ENTITLEMENT PER PRODUCT. The unique constraint guarantees it in the
-       database; this filter guarantees it even if that constraint is ever
-       relaxed, because an account listed twice for one product sent that
-       customer to a door offering the same console twice. */
-    entitlements: dedupe(
-      org.entitlements
-        .filter((e) => e.status === "ACTIVE")
-        .map((e) => ({ product: e.product, status: e.status, since: day(e.since) }))
-    ),
+    entitlements,
+
+    /* A business is not a consumer. See the note in `base` above for the rule
+       and where it comes from. */
+    consumer: entitlements.every((e) => e.product === "GUEST_PORTAL"),
 
     verification: org.verification
       ? { status: org.verification.status, documents: org.verification.documents || [] }
