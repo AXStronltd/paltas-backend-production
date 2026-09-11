@@ -4,11 +4,11 @@
  * Every decision that matters is a pure function, on purpose, so that it can
  * be tested exhaustively without a database, a session or a network:
  *
- *   who may do what            lib/rights.js
- *   what may follow what       lib/promotions.js  TRANSITIONS
- *   what the world may see     lib/promotions.js  isPubliclyVisible
- *   what a check says          lib/promotions.js  contentCheck / creativeCheck
- *   what a request may set     lib/promotions.js  cleanPromotionInput
+ *   who may do what            domain/rights.js
+ *   what may follow what       domain/promotions.js  TRANSITIONS
+ *   what the world may see     domain/promotions.js  isPubliclyVisible
+ *   what a check says          domain/promotions.js  contentCheck / creativeCheck
+ *   what a request may set     domain/promotions.js  cleanPromotionInput
  *
  * These are the tests that would catch the bugs worth catching. A route that
  * forgets to call one of them is a wiring mistake; a rule that is wrong is a
@@ -21,13 +21,13 @@ import assert from "node:assert/strict";
 import {
   PROMOTION_RIGHTS, can, promotionRights, subscriptionOpens,
   verificationRestricts, whyNot,
-} from "../src/lib/rights.js";
+} from "../src/domain/rights.js";
 
 import {
   CREATIVE_RULES, PUBLIC_STATES, TRANSITIONS, cleanPromotionInput,
   contentCheck, creativeCheck, isPubliclyVisible, isPublicState,
   publicWhere, toPublicWire, toWire,
-} from "../src/lib/promotions.js";
+} from "../src/domain/promotions.js";
 
 const ALL_STATES = [
   "DRAFT", "SUBMITTED", "UNDER_REVIEW", "CHANGES_REQUESTED", "RESUBMITTED",

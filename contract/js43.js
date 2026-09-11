@@ -58,6 +58,20 @@
   ).replace(/\/+$/, "");
   if (!BASE) return;   /* no server configured — js40's mock store stands */
 
+  /*
+   * "/api" IS THE VALUE TO USE, not "https://api.paltas.io".
+   *
+   * netlify.toml proxies /api/* through to Render, so a relative base keeps
+   * every request on the app's own origin. That is what makes the session
+   * cookie first-party — and a third-party cookie is one Safari refuses to
+   * store at all, which is sign-in failing on every iPhone with nothing in
+   * the console to say why.
+   *
+   * An absolute cross-origin base still works here, and is still the right
+   * thing for a local backend on another port. It is just not what should be
+   * deployed.
+   */
+
   /* ----------------------------------------------------------- the wire */
 
   function call(path, opts) {

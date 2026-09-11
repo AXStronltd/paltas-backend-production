@@ -39,7 +39,7 @@ These are in the browser too, where they decide which buttons somebody is
 offered. That is a courtesy. These are the copies that decide.
 
 **1. Exactly one state is public.**
-`PUBLIC_STATES` in `src/lib/promotions.js` holds `PUBLISHED` and nothing else.
+`PUBLIC_STATES` in `src/domain/promotions.js` holds `PUBLISHED` and nothing else.
 `MARKETING_APPROVED` is not public. `FINAL_APPROVED` is not public.
 `SCHEDULED` is not public. A promotion reaches the homepage when its state is
 `PUBLISHED`, **and** today is inside its dates, **and** it has a headline and a
@@ -278,23 +278,34 @@ message and nothing else.
 
 ```
 src/
+  server.js              the app, the middleware order, graceful shutdown
   config.js              every setting, read once, checked at boot
   db.js                  one Prisma client for the process
-  server.js              the app, the middleware order, graceful shutdown
+
+  domain/                THE RULES. No Express, no req, no res.
+    rights.js              who may do what — the copy that counts
+    promotions.js          the public gate, the state machine, the checks
+    session-view.js        the object the frontend reads, assembled
+
+  http/                  THE PLUMBING. Knows about requests, not about rules.
+    index.js               one import for the places that compose all of it
+    session.js             who is calling, and the four guards
+    cors.js                which browsers may call
+    rate-limit.js          too many requests
+    security-headers.js    headers on every response
+    errors.js              refusals a person can act on
+
   auth/
-    google.js            OAuth + PKCE, ID token verification
-    sessions.js          session rows, cookies
-  lib/
-    rights.js            WHO MAY DO WHAT — the copy that counts
-    promotions.js        the public gate, the state machine, the checks
-    session-view.js      the object the frontend reads, assembled
-    middleware.js        session, CORS, rate limit, headers
-    errors.js            refusals a person can act on
-  routes/
+    google.js              OAuth + PKCE, ID token verification
+    sessions.js            session rows, cookies
+
+  routes/                Thin. Each one checks a right, calls a rule, answers.
     auth.js  organizations.js  promotions.js
 ```
 
-Every decision that matters is a **pure function** in `lib/`, so it can be
-tested exhaustively without a database, a session or a network — and it is.
-A route that forgets to call one is a wiring mistake; a rule that is wrong is
-somebody's draft on the homepage.
+**`domain/` and `http/` is the split that matters.** Everything in `domain/`
+is a pure function of its arguments — no request, no response, no database
+handle — which is why the rules can be tested exhaustively without any of
+those, and why 91 of the tests need nothing running at all. A route that
+forgets to call one is a wiring mistake; a rule that is wrong is somebody's
+draft on the homepage.

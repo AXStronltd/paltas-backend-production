@@ -12,7 +12,7 @@
  *   the client claims. `req.actor` is assembled from the session row.
  *
  *   IT OWNS THE ARROWS. A promotion moves along the state machine in
- *   lib/promotions.js or it does not move. There is no arrow from DRAFT to
+ *   domain/promotions.js or it does not move. There is no arrow from DRAFT to
  *   PUBLISHED, so no request can draw one.
  *
  *   IT DECIDES WHAT THE WORLD SEES. One function, one index, three conditions,
@@ -21,15 +21,14 @@
 
 import { Router } from "express";
 import { db } from "../db.js";
-import { badRequest, forbidden, hidden, notFound } from "../lib/errors.js";
 import {
-  requireOpenSubscription, requireOrganization, requireSession, rateLimit,
-} from "../lib/middleware.js";
-import { can, whyNot } from "../lib/rights.js";
+  rateLimit, requireOpenSubscription, requireOrganization, requireSession,
+} from "../http/index.js";
+import { can, whyNot } from "../domain/rights.js";
 import {
   TRANSITIONS, cleanPromotionInput, contentCheck, creativeCheck,
   isPubliclyVisible, publicWhere, toPublicWire, toWire, transitionRefusal,
-} from "../lib/promotions.js";
+} from "../domain/promotions.js";
 
 export const promotionRoutes = Router();
 

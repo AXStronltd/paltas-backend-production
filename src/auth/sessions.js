@@ -84,13 +84,19 @@ export function setSessionCookie(res, token, expiresAt) {
     /* JavaScript cannot read it. An XSS bug then cannot steal the session,
        which is the difference between a bad day and a very bad day. */
     httpOnly: true,
-    /* Only over HTTPS. Required anyway once sameSite is "none". */
+    /* Only over HTTPS. Required outright once sameSite is "none". */
     secure: config.secureCookies,
-    /* The API and the app are on different hostnames in every real deployment,
-       so the cookie has to survive a cross-site request. "none" is what makes
-       that work, and it is safe here precisely because it is paired with an
-       origin allow-list and httpOnly. */
-    sameSite: config.secureCookies ? "none" : "lax",
+    /*
+     * "lax" when the app and the API share an origin, "none" when they do
+     * not — decided in config.js from the two URLs rather than set by hand.
+     *
+     * "lax" is the one to want. A "none" cookie is third-party, and Safari
+     * blocks third-party cookies by default: sign-in then fails on every
+     * iPhone, silently, because the cookie is never stored at all. Proxying
+     * the API under the app's own domain is what avoids that, and it is what
+     * netlify.toml in the frontend repository does.
+     */
+    sameSite: config.cookieSameSite,
     expires: expiresAt,
     path: "/",
   });
@@ -100,7 +106,9 @@ export function clearSessionCookie(res) {
   res.clearCookie(COOKIE, {
     httpOnly: true,
     secure: config.secureCookies,
-    sameSite: config.secureCookies ? "none" : "lax",
+    /* Must match how it was set, or the browser keeps the old one and the
+       person stays signed in after pressing sign out. */
+    sameSite: config.cookieSameSite,
     path: "/",
   });
 }

@@ -31,6 +31,8 @@
 -->
 <script>
 (function () {
+  /* "/api" in production — see netlify.toml. A relative base keeps the call
+     same-origin, which is what makes the session cookie first-party. */
   var BASE = String(
     window.PALTAS_PROMOTIONS_API || window.PALTAS_API_BASE || ""
   ).replace(/\/+$/, "");

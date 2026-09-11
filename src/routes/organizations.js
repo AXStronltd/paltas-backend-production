@@ -14,9 +14,8 @@
 
 import { Router } from "express";
 import { db } from "../db.js";
-import { badRequest, conflict, forbidden } from "../lib/errors.js";
-import { requireSession } from "../lib/middleware.js";
-import { sessionView } from "../lib/session-view.js";
+import { badRequest, conflict, forbidden, requireSession } from "../http/index.js";
+import { sessionView } from "../domain/session-view.js";
 
 export const organizationRoutes = Router();
 
@@ -115,7 +114,7 @@ organizationRoutes.post("/", requireSession(), async (req, res, next) => {
           },
 
           /* NOT_STARTED, explicitly. It restricts publishing and payouts and
-             opens every console — see lib/rights.js. */
+             opens every console — see domain/rights.js. */
           verification: { create: { status: "NOT_STARTED", documents: [] } },
 
           workspace: { create: { status: "ACTIVE", preferred } },

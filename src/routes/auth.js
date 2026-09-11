@@ -12,9 +12,8 @@ import {
   COOKIE, clearSessionCookie, createSession, destroySession,
   setSessionCookie, switchOrganization,
 } from "../auth/sessions.js";
-import { sessionView } from "../lib/session-view.js";
-import { badRequest, unauthorized, forbidden } from "../lib/errors.js";
-import { requireSession, rateLimit } from "../lib/middleware.js";
+import { sessionView } from "../domain/session-view.js";
+import { badRequest, forbidden, rateLimit, requireSession, unauthorized } from "../http/index.js";
 
 export const authRoutes = Router();
 

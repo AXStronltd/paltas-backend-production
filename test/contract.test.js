@@ -48,7 +48,7 @@ test("every field §1 names is in the session this API returns", { skip }, async
   const promised = [...block[1].matchAll(/^\s*"(\w+)":/gm)].map((m) => m[1]);
   assert.ok(promised.length >= 7, `only found ${promised.length} fields in §1`);
 
-  const view = src("lib/session-view.js");
+  const view = src("domain/session-view.js");
   for (const field of promised) {
     assert.match(view, new RegExp(`\\b${field}\\s*:`),
       `§1 promises \`${field}\` and sessionView() does not build it`);
@@ -75,7 +75,7 @@ test("every enum value §1 allows is one the database can hold", { skip }, async
 });
 
 test("§1's three rules are the three the code actually implements", { skip }, async () => {
-  const rights = src("lib/rights.js");
+  const rights = src("domain/rights.js");
 
   /* 1 — verification restricts publish and payout, and nothing else. */
   assert.match(md, /Verification never closes a console/i);
@@ -153,7 +153,7 @@ test("every PromoAPI method §4b names has an endpoint behind it", { skip }, asy
 });
 
 test("§4b's permission table is the table the server enforces", { skip }, async () => {
-  const rights = src("lib/rights.js");
+  const rights = src("domain/rights.js");
   const table = md.match(/\| Role \| May \|\n\|[-\s|]+\n([\s\S]*?)\n\n/);
   assert.ok(table, "§4b's role table is not where it was");
 
@@ -179,7 +179,7 @@ test("§4b's permission table is the table the server enforces", { skip }, async
 });
 
 test("§4b's public rule is the rule the server applies", { skip }, async () => {
-  const promo = src("lib/promotions.js");
+  const promo = src("domain/promotions.js");
 
   /* The blockquote in §4b that states the rule. */
   const rule = md.match(/> A promotion is visible to the public \*\*only\*\*([\s\S]*?)\n\n/);
@@ -305,7 +305,7 @@ function fieldsTheHomepageReads() {
 
 test("this API sends every field the pushed homepage reads", { skip: skipIndex }, async () => {
   const wanted = fieldsTheHomepageReads();
-  const promo = src("lib/promotions.js");
+  const promo = src("domain/promotions.js");
   const wire = promo.match(/export function toPublicWire\(p\) \{([\s\S]*?)\n\}/);
   assert.ok(wire, "toPublicWire is gone");
 
@@ -359,7 +359,7 @@ test("an empty targeting list never reaches the carousel as a filter", { skip: s
    * market — and the customer would see an approved, published promotion
    * appear on no page, with nothing to explain it.
    */
-  const promo = src("lib/promotions.js");
+  const promo = src("domain/promotions.js");
   const t = promo.match(/function targeting\(p\) \{([\s\S]*?)\n\}/);
   assert.ok(t, "targeting() is gone");
   for (const f of ["countries", "excludeCountries", "regions", "cities", "currencies", "languages"]) {

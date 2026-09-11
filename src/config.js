@@ -63,6 +63,18 @@ function read(env) {
   const publicUrl = String(env.PUBLIC_URL).replace(/\/+$/, "");
   const appUrl = String(env.APP_URL).replace(/\/+$/, "");
 
+  /*
+   * Are they the same origin? `https://paltas.io/api` and `https://paltas.io`
+   * are — the path does not change the origin, and that is exactly the
+   * arrangement a Netlify proxy produces.
+   */
+  const sameOrigin = (() => {
+    try {
+      const a = new URL(publicUrl), b = new URL(appUrl);
+      return a.protocol === b.protocol && a.host === b.host;
+    } catch (e) { return false; }
+  })();
+
   return {
     env: env.NODE_ENV || "development",
     port: Number(env.PORT) || 8080,
@@ -93,10 +105,39 @@ function read(env) {
     origins: [appUrl, ...String(env.ALLOWED_ORIGINS || "")
       .split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean)],
 
-    /* Cookies are cross-site the moment the API and the app are on different
-       hostnames, which they are in every real deployment. SameSite=None then
-       REQUIRES Secure, so this is on unless you are explicitly on http. */
+    /* Secure unless something explicitly turns it off for local http. */
     secureCookies: env.INSECURE_COOKIES !== "1",
+
+    /*
+     * ── SAME-ORIGIN OR CROSS-SITE, AND WHY IT DECIDES THE COOKIE ────────
+     *
+     * If the app and this API answer on the same origin — which they do when
+     * Netlify proxies /api/* through to Render — the session cookie is
+     * FIRST-PARTY and `SameSite=Lax` is correct.
+     *
+     * If they are on different hostnames (paltas.io talking to
+     * api.paltas.io) the cookie is THIRD-PARTY, which needs
+     * `SameSite=None; Secure` — and Safari blocks third-party cookies
+     * outright, Chrome is removing them, and Firefox partitions them. On that
+     * setup sign-in works in your browser and silently fails on every iPhone,
+     * with no error anywhere, because the cookie is simply never stored.
+     *
+     * So the shape of the deployment decides the cookie, and the service
+     * works it out rather than being told twice and getting it wrong once.
+     */
+    sameOrigin,
+    cookieSameSite: env.COOKIE_SAMESITE || (sameOrigin ? "lax" : "none"),
+
+    /*
+     * How many proxies sit in front of this service. Render is one. Netlify
+     * proxying to Render is two.
+     *
+     * It matters because `req.ip` is what the rate limiter counts by: trust
+     * too few hops and every request looks like it came from the proxy, so
+     * one noisy visitor throttles everybody; trust too many and a caller can
+     * spoof X-Forwarded-For and never be throttled at all.
+     */
+    trustProxyHops: Number(env.TRUST_PROXY_HOPS) || (sameOrigin ? 2 : 1),
 
     /* How long a sign-in lasts before the person signs in again. */
     sessionDays: Number(env.SESSION_DAYS) || 14,

@@ -11,10 +11,9 @@ import cookieParser from "cookie-parser";
 
 import { config } from "./config.js";
 import { db, closeDb } from "./db.js";
-import { errorHandler, notFound } from "./lib/errors.js";
 import {
-  cors, rateLimit, securityHeaders, withSession,
-} from "./lib/middleware.js";
+  cors, errorHandler, notFound, rateLimit, securityHeaders, withSession,
+} from "./http/index.js";
 import { pruneExpiredSessions } from "./auth/sessions.js";
 import { authRoutes } from "./routes/auth.js";
 import { organizationRoutes } from "./routes/organizations.js";
@@ -32,7 +31,7 @@ export function createApp() {
      arrive in headers. Without this, every request looks like it came from
      the proxy — which breaks rate limiting and makes secure cookies look
      insecure. */
-  app.set("trust proxy", 1);
+  app.set("trust proxy", config.trustProxyHops);
   app.disable("x-powered-by");
 
   app.use(securityHeaders());
