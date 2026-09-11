@@ -1,0 +1,206 @@
+/* ====================================================================== *
+ * WHO MAY TOUCH WHAT, ACROSS THE SIX PRODUCTS.
+ *
+ * rights.js does this for promotions, where the frontend's backend.md sets
+ * out the table role by role and the server's job is only to enforce it
+ * again. Nothing equivalent is written down for property, hotel, agent or
+ * security: the built console decides what a guard sees by hiding sections,
+ * and hiding a section is not a permission.
+ *
+ * ────────────────────────────────────────────────────────────────────────
+ * SO READ THIS TABLE BEFORE TRUSTING IT. It is a proposal, not a
+ * transcription. It was derived from what each role's name means in the
+ * business and from which sections the console shows them — which is
+ * evidence, but it is not the same as somebody deciding. Two entries in
+ * particular are judgement calls worth arguing about:
+ *
+ *   - A GUARD may write incidents and visits and may delete nothing. A
+ *     guard who can delete a visit log can delete the record of the visit
+ *     they let through.
+ *   - FINANCE may read every product and write only money. Reading is how
+ *     an invoice gets raised against the right lease; writing a lease is
+ *     not a finance job.
+ *
+ * If either is wrong, this file is the only place to change it.
+ * ────────────────────────────────────────────────────────────────────────
+ *
+ * The shape is deliberately small. Nineteen roles against thirty-four
+ * resources is six hundred boxes nobody will ever check, so resources are
+ * grouped into eight AREAS, and a role gets one of four LEVELS in each.
+ * Adding a resource means naming its area, not editing a matrix.
+ * ====================================================================== */
+
+/** The eight areas. Every resource in registry.js names one of them. */
+export const AREAS = [
+  "property",     // sites, buildings, units, leases, projects, assets
+  "maintenance",  // work orders and their history
+  "hotel",        // rooms, reservations, folios, services
+  "agent",        // listings, leads, viewings, deals
+  "security",     // zones, visits, passes, vehicles, incidents, shifts, patrols, deliveries
+  "people",       // the parties a company deals with
+  "documents",    // the document register
+  "finance",      // invoices, payments, expenses, payouts
+];
+
+/**
+ * The four levels, in order. Each includes everything below it.
+ *
+ * `manage` is separated from `write` for one reason: DELETION. Most roles
+ * that need to do a job need to create and correct records; almost none of
+ * them need to make a record disappear, and the ones that do are the ones a
+ * company would name if asked.
+ */
+export const LEVELS = ["none", "read", "write", "manage"];
+const RANK = Object.fromEntries(LEVELS.map((l, i) => [l, i]));
+
+/** Shorthand, so the table below reads as a table rather than as JSON. */
+const all = (level) => Object.fromEntries(AREAS.map((a) => [a, level]));
+
+/* ====================================================================== *
+ * THE TABLE.
+ * ====================================================================== */
+
+export const ROLE_AREAS = {
+  /* ---- the people who run the company ---- */
+
+  OWNER: all("manage"),
+  MANAGER: all("manage"),
+
+  /** A hotel's general manager runs the hotel and its building; security is
+      somebody else's department, and they can see it but not run it. */
+  GM: {
+    ...all("write"),
+    hotel: "manage", property: "manage", maintenance: "manage",
+    people: "manage", documents: "manage",
+    security: "read", agent: "write", finance: "write",
+  },
+
+  OPERATIONS: {
+    ...all("read"),
+    property: "write", maintenance: "write", people: "write", documents: "write",
+  },
+
+  /* ---- the specialists ---- */
+
+  /** Money in and money out, and read access everywhere so an invoice can be
+      raised against the right lease, folio or deal. */
+  FINANCE: { ...all("read"), finance: "manage" },
+
+  LEASING: {
+    ...all("none"),
+    agent: "manage", property: "write", people: "write",
+    documents: "write", finance: "read",
+  },
+
+  /** A host runs listings and stays. They are often not an employee of the
+      company at all, which is why they see no finance and no security. */
+  HOST: {
+    ...all("none"),
+    agent: "write", hotel: "write", people: "write", property: "read",
+  },
+
+  /* ---- the hotel floor ---- */
+
+  FRONT_DESK: {
+    ...all("none"),
+    hotel: "write", people: "write", security: "read", property: "read",
+  },
+
+  /** Housekeeping changes the state of rooms and needs to know who is in
+      them. It has no business creating a reservation. */
+  HOUSEKEEPING: { ...all("none"), hotel: "write", maintenance: "write" },
+
+  ENGINEERING: { ...all("none"), maintenance: "write", property: "read", hotel: "read" },
+
+  FNB: { ...all("none"), hotel: "write" },
+
+  /* ---- the front desk of a building, which is not a hotel's ---- */
+
+  RECEPTIONIST: {
+    ...all("none"),
+    security: "write", people: "write", property: "read", documents: "read",
+  },
+
+  /* ---- security ---- */
+
+  SECURITY_MANAGER: {
+    ...all("none"),
+    security: "manage", people: "read", property: "read", documents: "read",
+  },
+
+  /**
+   * WRITE, NEVER MANAGE — and this one is not a detail.
+   *
+   * A guard logs visits, raises incidents, walks patrols. A guard who can
+   * DELETE a visit can delete the record of the person they waved through,
+   * and the log stops being evidence of anything. Corrections are events on
+   * top, which is why the incident history is append-only.
+   */
+  GUARD: { ...all("none"), security: "write", people: "read" },
+
+  /* ---- the roles that belong to the promotion workflow, not to a product ---- */
+
+  PROMO_CONTRIBUTOR: all("none"),
+  MARKETING: all("none"),
+  COMPLIANCE: all("none"),
+  PUBLISHER: all("none"),
+
+  /**
+   * A guest is not staff. The guest portal reads a guest's OWN stay through
+   * its own endpoints, and nothing here.
+   */
+  GUEST: all("none"),
+};
+
+/* ====================================================================== *
+ * ASKING THE TABLE.
+ * ====================================================================== */
+
+/** What this actor may do in an area. Unknown role → nothing. */
+export function levelFor(actor, area) {
+  if (!actor) return "none";
+  const row = ROLE_AREAS[actor.role];
+  if (!row) return "none";
+  return row[area] || "none";
+}
+
+/** Which level each verb needs. */
+export const ACT_LEVEL = {
+  list: "read", get: "read",
+  create: "write", update: "write",
+  delete: "manage",
+};
+
+export function allows(actor, area, act) {
+  const need = ACT_LEVEL[act];
+  if (!need) return false;
+  return RANK[levelFor(actor, area)] >= RANK[need];
+}
+
+/**
+ * Why not — a sentence, or null when it IS allowed.
+ *
+ * Same contract as whyNot() in rights.js: it returns a reason rather than
+ * throwing, so the route picks the status code and the person reads
+ * something that tells them what to do next.
+ */
+export function whyNotArea(actor, area, act, label) {
+  if (!actor) return "You are not signed in.";
+
+  const have = levelFor(actor, area);
+  const need = ACT_LEVEL[act];
+  const thing = label || area;
+
+  if (have === "none") {
+    return `The role “${actor.role}” has no access to ${thing}.`;
+  }
+  if (RANK[have] < RANK[need]) {
+    if (need === "manage" && have === "write") {
+      return `The role “${actor.role}” can create and correct ${thing}, but not delete. ` +
+             `Deleting belongs to an owner or a manager — and for anything with a ` +
+             `history, correcting it is usually what was meant.`;
+    }
+    return `The role “${actor.role}” can only ${have} ${thing}.`;
+  }
+  return null;
+}

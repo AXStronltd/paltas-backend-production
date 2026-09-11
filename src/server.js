@@ -18,6 +18,7 @@ import { pruneExpiredSessions } from "./auth/sessions.js";
 import { authRoutes } from "./routes/auth.js";
 import { organizationRoutes } from "./routes/organizations.js";
 import { promotionRoutes } from "./routes/promotions.js";
+import { productRoutes } from "./routes/products.js";
 
 const log = {
   info: (...a) => console.log(new Date().toISOString(), ...a),
@@ -64,6 +65,10 @@ export function createApp() {
   app.use("/auth", authRoutes);
   app.use("/organizations", organizationRoutes);
   app.use("/promotions", promotionRoutes);
+
+  /* The six products. Every path under here is organization-scoped and
+     permission-checked by construction — see http/resource.js. */
+  app.use("/", productRoutes);
 
   app.use((req, _res, next) => next(notFound(`No endpoint at ${req.method} ${req.path}.`)));
   app.use(errorHandler(log));

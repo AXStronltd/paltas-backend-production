@@ -1,7 +1,8 @@
 # paltas-backend
 
-The PALTAS API. Sessions, organizations and the promotion workflow — the first
-slice of the contract written down in `backend.md` in the frontend repository.
+The PALTAS API. Sign-in, organizations, the promotion workflow, and the six
+products — the contract written down in `backend.md` in the frontend
+repository.
 
 It is a separate service from the frontend on purpose. The frontend is a static
 site with no build step; this is a small Express app with a database. Neither
@@ -26,10 +27,32 @@ Google  ──sign in──▶  paltas-backend  ──▶  Postgres
 | **Organizations** | `POST /organizations` creates the whole chain in one transaction and returns the session. |
 | **Promotions** | The full workflow: write, submit, review, approve, publish, pause — with the roles enforced server-side. |
 | **The public feed** | `GET /promotions/public`, the only endpoint an anonymous visitor can reach. |
+| **The six products** | Property, Development, Hotel, Agent & Host, Security and the shared money spine — 150 endpoints over 28 resources. **[ROUTES.md](ROUTES.md)** is the reference. |
 
-What it does **not** do yet: the create endpoints in `backend.md` §2 (every
-console form), the named endpoints in §3, and the market service in §4c. Those
-are the next slices and none of them blocks this one.
+Most of those 150 are not written by hand. They are built from 28 declarations
+in `src/domain/registry.js`, which is the reason they are all scoped to one
+company, permission-checked and audited in the same way — there is no code
+path in which a product endpoint is not. `src/http/resource.js` is that
+framework, and it is 400 lines rather than thirty route files.
+
+What it does **not** do yet: the market service in `backend.md` §4c, which is
+why `PALTAS_API_BASE` must stay unset. And the `Plan`/`AddOn` layer, which is
+waiting on two product decisions — see the end of [AUDIT.md](AUDIT.md).
+
+**Testing, honestly stated.** 204 tests, 169 passing, 0 failing, 35 skipped.
+
+The skipped 35 need a generated Prisma client, and `prisma generate`
+downloads an engine from a host this was built behind a firewall from. So
+the product API is exercised two other ways instead: `test/fake-prisma.js`
+holds rows in memory so the real app, routers and guards run here — that
+found and fixed three real bugs, one of which left paid invoices showing as
+unpaid — and `test/migration.test.js` runs the real migrations against a
+real PostgreSQL 16 and compares the result to `schema.prisma` column by
+column. `prisma validate` also passes, which caught 29 enums that would have
+failed at `prisma generate`.
+
+What remains untested is the join: real Prisma issuing real SQL. See
+[RUN.md](RUN.md) — three commands on a machine with internet.
 
 ---
 

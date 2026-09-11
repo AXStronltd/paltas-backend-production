@@ -14,6 +14,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
+import { connectOrExplain } from "./db-help.js";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -29,6 +30,16 @@ let ready = false;
 async function connect() {
   if (ready) return pool;
   pool = new pg.Pool({ connectionString: URL_ });
+
+  /*
+   * Prove the connection works BEFORE running a migration, so a
+   * configuration problem reads as a configuration problem. Without this the
+   * first thing that fails is a CREATE TYPE, and the natural — and entirely
+   * wrong — response to that is to start editing the schema.
+   */
+  const probe = new pg.Client({ connectionString: URL_ });
+  await connectOrExplain(probe, URL_);
+  await probe.end();
   /* Rebuild from nothing on every run: a test that depends on what the last
      run left behind is a test that passes once.
 

@@ -6,5 +6,6 @@ export { errorHandler, ApiError, badRequest, conflict, forbidden, hidden,
 export { cors } from "./cors.js";
 export { rateLimit } from "./rate-limit.js";
 export { securityHeaders } from "./security-headers.js";
+export { resourceRouter, clean } from "./resource.js";
 export { withSession, requireSession, requireOrganization,
          requireOpenSubscription, requireProduct } from "./session.js";

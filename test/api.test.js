@@ -39,6 +39,7 @@ process.env.INSECURE_COOKIES = "1";
 
 /* Decide up front whether this file can run at all. */
 let skip = DB ? false : "no TEST_DATABASE_URL — skipping API tests";
+let dbHelp = null;
 let createApp, db, pg;
 
 if (!skip) {
@@ -53,14 +54,22 @@ if (!skip) {
     /*
      * A SHORT, ACTIONABLE REASON — not 120 characters of a Prisma stack.
      *
-     * These eighteen are the only end-to-end tests in the suite. If they are
+     * These, with products-api.test.js, are the only end-to-end tests in
+     * the suite — everything else is a rule or a schema check. If they are
      * skipping, the person running `npm test` needs to notice and needs to
      * know what to do, so the reason names the fix rather than the symptom.
      */
     const m = String(e && e.message);
-    skip = /did not initialize|locate the Query Engine|generate/.test(m)
-      ? "RUN `npx prisma generate` FIRST — these 18 end-to-end tests cannot run without it"
-      : "database unreachable: " + m.slice(0, 90);
+    if (/did not initialize|locate the Query Engine|generate/.test(m)) {
+      skip = "RUN `npx prisma generate` FIRST — the end-to-end tests cannot run without it";
+    } else {
+      /* A configuration failure gets its own explanation, printed in full at
+         the end of the run rather than truncated into a skip reason. */
+      const { explain } = await import("./db-help.js");
+      const help = explain(e, DB);
+      if (help) { skip = "database configuration — see below"; dbHelp = help; }
+      else skip = "database unreachable: " + m.slice(0, 90);
+    }
   }
 }
 
@@ -140,11 +149,14 @@ test.after(async () => {
   if (pool) await pool.end();
   if (db) await db.$disconnect();
 
+  if (dbHelp) {
+    console.log("\n" + "─".repeat(72) + "\n" + dbHelp + "\n" + "─".repeat(72) + "\n");
+  }
   if (skip) {
     console.log(
       "\n" +
       "  ┌────────────────────────────────────────────────────────────────┐\n" +
-      "  │  THE 18 END-TO-END API TESTS DID NOT RUN.                      │\n" +
+      "  │  THE END-TO-END API TESTS DID NOT RUN.                         │\n" +
       "  │                                                                │\n" +
       "  │  " + String(skip).slice(0, 60).padEnd(60) + "  │\n" +
       "  │                                                                │\n" +
