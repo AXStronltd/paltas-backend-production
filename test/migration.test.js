@@ -34,14 +34,18 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { connectOrExplain } from "./db-help.js";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { connectOrExplain, freshSchema, poolInSchema } from "./db-help.js";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const URL_ = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const skip = URL_ ? false : "no TEST_DATABASE_URL — skipping migration tests";
+
+/* This file's own schema. It DROPs and rebuilds on every run, so it must not
+   be a schema any other test file is reading — see db-help.js. */
+const SCHEMA = "test_migration";
 
 const schema = readFileSync(join(HERE, "..", "prisma", "schema.prisma"), "utf8");
 
@@ -100,33 +104,21 @@ let db = null;
 
 async function introspect() {
   if (db) return db;
-  pool = new pg.Pool({ connectionString: URL_ });
+  pool = poolInSchema(pg, URL_, SCHEMA);
 
   const probe = new pg.Client({ connectionString: URL_ });
   await connectOrExplain(probe, URL_);
   await probe.end();
 
-  await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-  const root = join(HERE, "..", "prisma", "migrations");
-  for (const d of readdirSync(root).sort()) {
-    const p = join(root, d, "migration.sql");
-    if (!existsSync(p)) continue;
-    try {
-      await pool.query(readFileSync(p, "utf8"));
-    } catch (e) {
-      /* Which file, and which statement. A bare syntax error against 800
-         lines of concatenated SQL is a scavenger hunt. */
-      throw new Error(`migration ${d} failed: ${e.message}\n  (${e.position ? "at character " + e.position : ""})`);
-    }
-  }
+  await freshSchema(pool, SCHEMA);
 
   const columns = await pool.query(`
     SELECT table_name, column_name, data_type, udt_name, is_nullable, column_default
       FROM information_schema.columns
-     WHERE table_schema = 'public'`);
+     WHERE table_schema = '${SCHEMA}'`);
 
   const indexes = await pool.query(`
-    SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = 'public'`);
+    SELECT tablename, indexname, indexdef FROM pg_indexes WHERE schemaname = '${SCHEMA}'`);
 
   const fks = await pool.query(`
     SELECT con.conname   AS name,
@@ -135,13 +127,13 @@ async function introspect() {
       FROM pg_constraint con
       JOIN pg_class rel ON rel.oid = con.conrelid
       JOIN pg_namespace n ON n.oid = rel.relnamespace
-     WHERE con.contype = 'f' AND n.nspname = 'public'`);
+     WHERE con.contype = 'f' AND n.nspname = '${SCHEMA}'`);
 
   const enums = await pool.query(`
     SELECT t.typname AS name, e.enumlabel AS value
       FROM pg_type t JOIN pg_enum e ON e.enumtypid = t.oid
       JOIN pg_namespace n ON n.oid = t.typnamespace
-     WHERE n.nspname = 'public'
+     WHERE n.nspname = '${SCHEMA}'
      ORDER BY t.typname, e.enumsortorder`);
 
   const byTable = new Map();

@@ -22,14 +22,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
+/* Reading the migrations off disk is db-help.js's job now, so the filesystem
+   and path imports this file used to need have gone with it. */
+import { explain, freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
+
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
-process.env.DATABASE_URL = DB || "postgresql://unused@127.0.0.1:1/none";
+/* This file's own schema. It DROPs and rebuilds on every run, so it must not
+   be a schema any other test file is reading — see db-help.js. Prisma is
+   pointed at it HERE, before src/db.js is imported, because the client reads
+   DATABASE_URL once when it is constructed. */
+const SCHEMA = "test_api";
+
+process.env.DATABASE_URL =
+  DB ? urlForSchema(DB, SCHEMA) : "postgresql://unused@127.0.0.1:1/none";
 process.env.SESSION_SECRET ||= "test-secret";
 process.env.GOOGLE_CLIENT_ID ||= "test-client.apps.googleusercontent.com";
 process.env.GOOGLE_CLIENT_SECRET ||= "test-client-secret";
@@ -65,7 +72,6 @@ if (!skip) {
     } else {
       /* A configuration failure gets its own explanation, printed in full at
          the end of the run rather than truncated into a skip reason. */
-      const { explain } = await import("./db-help.js");
       const help = explain(e, DB);
       if (help) { skip = "database configuration — see below"; dbHelp = help; }
       else skip = "database unreachable: " + m.slice(0, 90);
@@ -78,13 +84,8 @@ if (!skip) {
 let server, base, pool;
 
 async function boot() {
-  pool = new pg.Pool({ connectionString: DB });
-  await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-  const root = join(HERE, "..", "prisma", "migrations");
-  for (const dir of readdirSync(root).sort()) {
-    const p = join(root, dir, "migration.sql");
-    if (existsSync(p)) await pool.query(readFileSync(p, "utf8"));
-  }
+  pool = poolInSchema(pg, DB, SCHEMA);
+  await freshSchema(pool, SCHEMA);
 
   const app = createApp();
   await new Promise((r) => { server = app.listen(0, r); });

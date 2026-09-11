@@ -11,6 +11,12 @@
  * So the common failures are named here with what to actually do.
  * ====================================================================== */
 
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+
 /** Hide the password before a connection string goes anywhere near a log. */
 export function redact(url) {
   return String(url || "").replace(/(:\/\/[^:/@]+):[^@]*@/, "$1:****@");
@@ -128,5 +134,62 @@ export async function connectOrExplain(client, url) {
     e.code = err.code;
     e.configuration = true;
     throw e;
+  }
+}
+
+/* ====================================================================== *
+ * ONE SCHEMA PER TEST FILE.
+ *
+ * Every file here that needs a database rebuilds it from nothing, because a
+ * test that depends on what the last run left behind is a test that passes
+ * once. Four files doing that to `public` is a different problem entirely:
+ * `node --test` runs FILES IN PARALLEL, so one file's DROP SCHEMA deletes
+ * the tables another file is halfway through using.
+ *
+ * The failures then land everywhere except the file that caused them — 83
+ * of them, saying things like `relation "Promotion" does not exist`, and
+ * not one of them a bug in the product. It reads exactly like the schema is
+ * broken, which is the worst possible way for a test harness to fail.
+ *
+ * So each file works inside a schema of its own and they stop colliding.
+ * Serialising the suite would also have made it pass, and would have been
+ * the wrong fix: it hides the sharing rather than removing it, and every
+ * future run pays for it in wall-clock time.
+ * ====================================================================== */
+
+/** The DATABASE_URL Prisma needs in order to work inside one schema. */
+export function urlForSchema(url, schema) {
+  const u = new URL(String(url));
+  u.searchParams.set("schema", schema);
+  return u.toString();
+}
+
+/**
+ * A pool whose every connection resolves names inside `schema`.
+ *
+ * Passed as `options` rather than run as `SET search_path` after
+ * connecting, because a Pool opens connections lazily and replaces them:
+ * anything set on one connection is not true of the next one handed out.
+ */
+export function poolInSchema(pg, url, schema) {
+  return new pg.Pool({ connectionString: url, options: `-c search_path=${schema}` });
+}
+
+/** Empty `schema`, then apply every migration into it in Prisma's order. */
+export async function freshSchema(pool, schema) {
+  await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE; CREATE SCHEMA "${schema}";`);
+  const root = join(HERE, "..", "prisma", "migrations");
+  for (const dir of readdirSync(root).sort()) {
+    const file = join(root, dir, "migration.sql");
+    if (!existsSync(file)) continue;
+    try {
+      await pool.query(readFileSync(file, "utf8"));
+    } catch (e) {
+      /* Which file, and where in it. A bare syntax error against 800 lines
+         of concatenated SQL is a scavenger hunt. */
+      throw new Error(
+        `migration ${dir} failed: ${e.message}` +
+        (e.position ? `\n  (at character ${e.position})` : ""));
+    }
   }
 }

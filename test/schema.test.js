@@ -14,22 +14,24 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { connectOrExplain } from "./db-help.js";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { fileURLToPath } from "node:url";
-import { dirname, join } from "node:path";
+import { connectOrExplain, freshSchema, poolInSchema } from "./db-help.js";
 
-const HERE = dirname(fileURLToPath(import.meta.url));
+/* Reading the migrations is db-help.js's job now, so the filesystem and path
+   imports this file used to need have gone with it. */
 const URL_ = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
 const skip = URL_ ? false : "no TEST_DATABASE_URL — skipping database tests";
+
+/* This file's own schema. It DROPs and rebuilds on every run, so it must not
+   be a schema any other test file is reading — see db-help.js. */
+const SCHEMA = "test_schema";
 
 let pool;
 let ready = false;
 
 async function connect() {
   if (ready) return pool;
-  pool = new pg.Pool({ connectionString: URL_ });
+  pool = poolInSchema(pg, URL_, SCHEMA);
 
   /*
    * Prove the connection works BEFORE running a migration, so a
@@ -45,22 +47,12 @@ async function connect() {
 
      EVERY migration, in order — not just the first. A second migration that
      has never been applied in a test is a second migration nobody has run. */
-  await pool.query("DROP SCHEMA public CASCADE; CREATE SCHEMA public;");
-  for (const sql of allMigrations()) await pool.query(sql);
+  await freshSchema(pool, SCHEMA);
   ready = true;
   return pool;
 }
 
 const q = (text, params) => pool.query(text, params);
-
-/** Every migration.sql, in the order Prisma applies them. */
-function allMigrations() {
-  const root = join(HERE, "..", "prisma", "migrations");
-  return readdirSync(root).sort()
-    .map((d) => join(root, d, "migration.sql"))
-    .filter((p) => existsSync(p))
-    .map((p) => readFileSync(p, "utf8"));
-}
 
 /** The minimum rows a company needs, made the way POST /organizations makes them. */
 async function makeCompany({ id, email, product = "HOTEL_MANAGEMENT", role = "OWNER" }) {
@@ -91,7 +83,7 @@ async function refuses(fn, what) {
 test("the migration applies to an empty database", { skip }, async () => {
   await connect();
   const { rows } = await q(
-    `SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY 1`);
+    `SELECT tablename FROM pg_tables WHERE schemaname='${SCHEMA}' ORDER BY 1`);
   const names = rows.map((r) => r.tablename);
   for (const t of ["User", "Session", "Organization", "Subscription", "Entitlement",
                    "Membership", "Verification", "Workspace", "Promotion",
@@ -113,9 +105,17 @@ test("every enum holds exactly the values the frontend reads", { skip }, async (
                       "SCHEDULED", "PUBLISHED", "PAUSED", "EXPIRED", "REJECTED"],
   };
   for (const [type, values] of Object.entries(want)) {
+    /*
+     * THE NAMESPACE FILTER IS NOT OPTIONAL. Every test file that needs a
+     * database builds the whole schema in one of its own, so `SubscriptionStatus`
+     * exists several times over in this server. Without `nspname` this asked
+     * for all of them at once and compared four copies against five values.
+     */
     const { rows } = await q(
       `SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
-       WHERE t.typname = $1 ORDER BY e.enumsortorder`, [type]);
+       JOIN pg_namespace n ON n.oid = t.typnamespace
+       WHERE t.typname = $1 AND n.nspname = '${SCHEMA}'
+       ORDER BY e.enumsortorder`, [type]);
     assert.deepEqual(rows.map((r) => r.enumlabel), values, `${type} does not match`);
   }
 });
@@ -124,7 +124,8 @@ test("a role the frontend knows about is a role the database accepts", { skip },
   await connect();
   const { rows } = await q(
     `SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid
-     WHERE t.typname = 'Role'`);
+     JOIN pg_namespace n ON n.oid = t.typnamespace
+     WHERE t.typname = 'Role' AND n.nspname = '${SCHEMA}'`);
   const have = new Set(rows.map((r) => r.enumlabel));
   /* The three that carry the promotion workflow, and the narrow contributor
      role. If any of these is missing, a person cannot be given their job. */
@@ -233,7 +234,9 @@ test("the promotion counter cannot hand out the same number twice", { skip }, as
 
 test("the public feed's index is the one the query uses", { skip }, async () => {
   await connect();
-  const { rows } = await q(`SELECT indexname FROM pg_indexes WHERE tablename='Promotion'`);
+  const { rows } = await q(
+    `SELECT indexname FROM pg_indexes
+      WHERE tablename='Promotion' AND schemaname='${SCHEMA}'`);
   const names = rows.map((r) => r.indexname);
   assert.ok(names.includes("Promotion_status_startDate_endDate_idx"),
     "the public feed has no index to use");
