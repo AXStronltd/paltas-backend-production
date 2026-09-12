@@ -69,7 +69,7 @@ const PAGES = [
  */
 const out = (a) => Array.from(a || []);
 
-function openPage(page, { probe = false } = {}) {
+function openPage(page, { probe = false, inlineToo = false } = {}) {
   const w = makeWindow({ href: "https://paltas.io/" + page });
   for (const src of scriptsOf(page)) {
     let code = readFileSync(join(FE, src), "utf8");
@@ -87,8 +87,28 @@ function openPage(page, { probe = false } = {}) {
         "console.js no longer has the two screen-wrapping sites this test " +
         "instruments — it found " + n + ". The probe is stale, not the code.");
     }
-    w.loadCode(code, src);
+      w.loadCode(code, src);
+    }
+
+  /*
+   * AND THE PAGE'S OWN INLINE SCRIPTS.
+   *
+   * This only ever loaded `src=` files, so index.html's four inline blocks —
+   * where the hero, the search box, the carousels and the card renderers
+   * actually live — were never executed by any test. The page could have
+   * thrown on its first line and every check here would still have passed.
+   *
+   * Running them found three holes in dom-shim.js rather than in the page
+   * (no Image, no element scrollTo, and an element querySelector that returned
+   * null while the document's returned a node) — which is the point: a harness
+   * that has never run the code cannot be trusted about it.
+   */
+  if (inlineToo) {
+    const html = readFileSync(join(FE, page), "utf8");
+    const blocks = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)];
+    blocks.forEach((m, i) => w.loadCode(m[1], `${page}#inline${i}`));
   }
+
   return w;
 }
 
@@ -278,4 +298,57 @@ test("every adapter reads the envelope key its endpoint actually returns",
   assert.deepEqual(wrong, [],
     "these adapters read a key their endpoint does not return, so the screen " +
     "shows an empty list and blames the data:\n  " + wrong.join("\n  "));
+});
+
+test("the homepage's own inline scripts run without throwing", { skip }, () => {
+  /*
+   * index.html is 7,000 lines and most of its behaviour is inline: the hero
+   * slideshow, the search box, the discovery carousels, the card renderers.
+   * None of it was covered until this test, because the loader only read
+   * `src=` files.
+   */
+  let w;
+  assert.doesNotThrow(() => { w = openPage("index.html", { inlineToo: true }); },
+    "index.html threw while running its own inline scripts. In a browser that " +
+    "stops everything after the throw — the carousels, the search and the card " +
+    "renderers all live in those blocks.");
+
+  const unexpected = w.calls.fetch.filter((u) => !/\/health$/.test(u));
+  assert.deepEqual(unexpected, [],
+    "the homepage called out at load beyond the health probe: " + unexpected.join(", "));
+
+  assert.ok(w.win.document.getElementById("heroWhere"),
+    "the search field is gone from the homepage");
+  assert.ok(w.win.PALTAS && w.win.PALTAS.discover,
+    "PALTAS.discover is missing, so the public promotions feed cannot fill");
+});
+
+test("the public marketplace is not capped at the dashboard's 1280px", { skip }, () => {
+  /*
+   * Two different decisions that happened to share a number. The ~22 embedded
+   * dashboard demos are framed at 1280px ON PURPOSE — dense tables stretched
+   * across a 2560px screen are harder to read. The public marketplace was
+   * simply inheriting it.
+   *
+   * This asserts they stay separate: the public shells expand, and the demo
+   * frame survives.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  for (const cls of ["topbar-inner", "smartbar-inner", "hero-content", "sp-inner",
+                     "flow-inner", "roles-inner", "foot-inner", "pl-wrap"]) {
+    const rx = new RegExp("[.,]" + cls + "\\b[^{]*\\{[^}]*max-width: *min\\(2400px");
+    assert.ok(rx.test(html) || html.includes("." + cls + ",") || html.includes("." + cls + "\n"),
+      `.${cls} is not covered by the public width rule`);
+  }
+  assert.match(html, /max-width: min\(2400px, 100%\)/,
+    "the public containers no longer expand");
+
+  /* The demo frame is still there, and prose is still bounded. */
+  assert.ok((html.match(/max-width:1280px/g) || []).length >= 8,
+    "the embedded dashboard demos have lost their 1280px frame");
+  for (const ch of ["34ch", "60ch"]) {
+    assert.ok(html.includes("max-width:" + ch),
+      `the ${ch} prose limit is gone — expanding a container must not widen running text`);
+  }
 });

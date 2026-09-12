@@ -42,9 +42,19 @@ export function makeWindow({ href = "https://paltas.io/" } = {}) {
       removeAttribute(k){ delete this.attributes[k]; },
       hasAttribute(k){ return k in this.attributes; },
       addEventListener(){}, removeEventListener(){}, dispatchEvent(){ return true; },
-      querySelector(){ return null; }, querySelectorAll(){ return []; },
+      /* An ELEMENT's querySelector answers like the document's, for the same
+         reason: returning null makes `el.querySelector(x).addEventListener(…)`
+         throw on a page that works. The two were inconsistent, and the
+         inconsistency read as a page bug. */
+      querySelector(){ return (this.__q ||= node("div")); },
+      querySelectorAll(){ return []; },
       closest(){ return null; }, contains(){ return false; }, focus(){}, blur(){}, click(){},
       scrollIntoView(){}, getBoundingClientRect: () => ({top:0,left:0,width:0,height:0,bottom:0,right:0}),
+      /* A real element can be scrolled. A carousel calls these on its rail, and
+         without them the page throws where a browser would not. */
+      scrollTo(){}, scrollBy(){}, animate: () => ({ cancel(){}, finished: Promise.resolve() }),
+      get scrollWidth(){ return 0; }, get clientWidth(){ return 0; },
+      get offsetWidth(){ return 0; }, get offsetHeight(){ return 0; },
       remove(){}, cloneNode(){ return node(tag); },
     };
     return el;
@@ -89,13 +99,33 @@ export function makeWindow({ href = "https://paltas.io/" } = {}) {
                          addEventListener(){}, removeEventListener(){} }),
     CustomEvent: class { constructor(t,o){ this.type=t; Object.assign(this,o||{}); } },
     Event: class { constructor(t){ this.type=t; } },
-    requestAnimationFrame: (f) => setTimeout(f, 0), cancelAnimationFrame: clearTimeout,
-    setTimeout, clearTimeout, setInterval, clearInterval, queueMicrotask,
+    requestAnimationFrame: (f) => { const t = setTimeout(f, 0); t.unref?.(); return t; },
+    cancelAnimationFrame: clearTimeout,
+    /*
+     * TIMERS THAT DO NOT HOLD THE PROCESS OPEN.
+     *
+     * A page with a carousel calls setInterval, and Node keeps running until
+     * every timer is cleared — so loading index.html hung forever instead of
+     * finishing. unref() lets the callback still fire while the process is
+     * free to exit, which is what a test needs and what a browser tab does
+     * anyway when it is closed.
+     */
+    setTimeout: (fn, ms, ...a) => { const t = setTimeout(fn, ms, ...a); t.unref?.(); return t; },
+    setInterval: (fn, ms, ...a) => { const t = setInterval(fn, ms, ...a); t.unref?.(); return t; },
+    clearTimeout, clearInterval, queueMicrotask,
     alert(){}, confirm: () => true, prompt: () => null, scrollTo(){}, getComputedStyle: () => ({}),
     /* Nothing may reach the network. A load-time fetch is itself a finding. */
     fetch: (u, o) => { calls.fetch.push(String(u)); return Promise.reject(new Error("network disabled in smoke test")); },
     URL, URLSearchParams, FormData: class {}, Headers: class {}, Request: class {}, Response: class {},
     AbortController, AbortSignal, TextEncoder, TextDecoder, btoa, atob,
+    /* Pages preload photographs with `new Image()`. Without it the very first
+       inline script throws and nothing after it runs — which looked like a page
+       bug and was a hole in this shim. */
+    Image: class { constructor(){ this.onload=null; this.onerror=null; }
+                   set src(v){ this._src=v; } get src(){ return this._src; } },
+    IntersectionObserver: class { observe(){} unobserve(){} disconnect(){} },
+    ResizeObserver: class { observe(){} unobserve(){} disconnect(){} },
+    MutationObserver: class { observe(){} disconnect(){} takeRecords(){ return []; } },
     crypto: { getRandomValues: (a) => a, randomUUID: () => "00000000-0000-4000-8000-000000000000" },
     Intl, JSON, Math, Date, Promise, Array, Object, String, Number, Boolean, RegExp, Error, Map, Set,
     WeakMap, WeakSet, Symbol, BigInt, Proxy, Reflect, isNaN, isFinite, parseInt, parseFloat, escape, unescape,
