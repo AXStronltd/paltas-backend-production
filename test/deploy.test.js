@@ -24,6 +24,9 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
 const DOCKERFILE = readFileSync("Dockerfile", "utf8");
+const DOCKERIGNORE = existsSync(".dockerignore")
+  ? readFileSync(".dockerignore", "utf8").split("\n")
+  : [];
 
 /** Every path the Dockerfile copies into the image. */
 function copied() {
@@ -34,6 +37,47 @@ function copied() {
     out.push(...parts);
   }
   return out;
+}
+
+/**
+ * Is this path excluded from the build context?
+ *
+ * THE GAP THAT LET A SECOND BUILD FAIL.
+ *
+ * The test below checked the Dockerfile's COPY lines and passed, while the
+ * build failed on the very line it had just approved:
+ *
+ *     COPY contract/market-config.js: "/contract/market-config.js": not found
+ *
+ * Because .dockerignore said `contract/`. The file was in the repository, in
+ * git, and named in the Dockerfile — and never in the build context, so the
+ * COPY had nothing to copy. A COPY of an ignored path is not a typo a reviewer
+ * spots; it is two correct-looking files that contradict each other.
+ *
+ * Later patterns win, and a leading ! is an exception — the same precedence
+ * Docker uses.
+ */
+function dockerIgnored(path) {
+  let out = false;
+  for (const raw of DOCKERIGNORE) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const neg = line.startsWith("!");
+    const pat = (neg ? line.slice(1) : line).replace(/\/+$/, "");
+    if (matches(path, pat)) out = !neg;
+  }
+  return out;
+}
+
+/** Glob matching, to the extent .dockerignore uses one: * and a path prefix. */
+function matches(path, pat) {
+  if (path === pat) return true;
+  const rx = new RegExp("^" + pat
+    .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*\*/g, "\u0000")
+    .replace(/\*/g, "[^/]*")
+    .replace(/\u0000/g, ".*") + "(/.*)?$");
+  return rx.test(path);
 }
 
 /** Walk src/ for every file. */
@@ -151,4 +195,76 @@ test("the blueprint does not deploy on a push, and says so", () => {
   /* Secrets are entered by a person in the dashboard. */
   assert.doesNotMatch(yaml, /GOOGLE_CLIENT_SECRET:\s*\n?\s*value:/,
     "a secret has a literal value in render.yaml");
+});
+
+test("every path the Dockerfile copies is actually in the build context", () => {
+  /*
+   * A COPY and a .dockerignore that disagree is a build failure, not a warning:
+   *
+   *     COPY contract/market-config.js: "/contract/market-config.js": not found
+   *
+   * and the file is sitting right there in git. This is the test that would
+   * have caught it before a deploy did.
+   */
+  const problems = [];
+  for (const src of copied()) {
+    const path = src.replace(/^\.\//, "");
+    /* Wildcard sources (package-lock.json*) are allowed to match nothing. */
+    if (path.includes("*")) continue;
+    if (!existsSync(path)) {
+      problems.push(`${path} is copied by the Dockerfile and does not exist`);
+      continue;
+    }
+    if (dockerIgnored(path)) {
+      problems.push(`${path} is copied by the Dockerfile and EXCLUDED by .dockerignore`);
+    }
+  }
+  assert.deepEqual(problems, [],
+    "the Dockerfile and .dockerignore contradict each other, so the build will " +
+    "fail on a line that looks correct:\n  " + problems.join("\n  "));
+});
+
+test("every contract file is either excluded by name or the one the server reads", () => {
+  /*
+   * THE COST OF BEING EXPLICIT, PAID BY A TEST.
+   *
+   * .dockerignore names the contract files to keep out individually, because a
+   * `!` exception inside an excluded directory behaves differently between
+   * builders and a failed deploy had already cost time once. The price of that
+   * certainty is that a NEW file in contract/ would ship silently.
+   *
+   * This is the test that stops it. Add a file to contract/ and either exclude
+   * it or say it belongs in the image — but do it deliberately.
+   */
+  const keep = new Set(["market-config.js"]);
+  const stowaways = [];
+  for (const f of readdirSync("contract")) {
+    const path = "contract/" + f;
+    if (keep.has(f)) {
+      assert.ok(!dockerIgnored(path),
+        `${path} is what the server reads at runtime and it is excluded`);
+      continue;
+    }
+    if (!dockerIgnored(path)) stowaways.push(path);
+  }
+  assert.deepEqual(stowaways, [],
+    "these contract files would be shipped in the image and nobody decided that:\n  " +
+    stowaways.join("\n  ") +
+    "\nAdd each to .dockerignore, or add it to `keep` here with the reason it belongs.");
+});
+
+test(".dockerignore still keeps out the things that must never ship", () => {
+  /*
+   * Re-including one file from contract/ must not have re-included the rest,
+   * and must certainly not have loosened .env or node_modules. Asserted by
+   * name, because this is the file where a loosened pattern is invisible.
+   */
+  for (const path of [".env", ".env.local", "node_modules/x", "test/deploy.test.js",
+                      "contract/backend.md", "contract/js43.js", ".git/config"]) {
+    assert.ok(dockerIgnored(path), `${path} would now enter the build context`);
+  }
+  /* And the one exception still applies. */
+  assert.ok(!dockerIgnored("contract/market-config.js"),
+    "the file the server reads at runtime is excluded again");
+  assert.ok(!dockerIgnored("src/server.js"), "src/ is excluded, which cannot be right");
 });

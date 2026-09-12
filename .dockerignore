@@ -16,9 +16,38 @@ npm-debug.log*
 .github/
 .gitignore
 
-# The tests and the contract fixtures are not part of the running service.
+# The tests are not part of the running service.
 test/
-contract/
+
+# ----------------------------------------------------------------------
+# THE CONTRACT DIRECTORY, FILE BY FILE.
+#
+# This said `contract/`, and the comment above it said the contract fixtures
+# "are not part of the running service". That stopped being true when
+# src/domain/market.js began reading contract/market-config.js with readFileSync
+# AT IMPORT TIME, and the result was a build that failed on the line that copies
+# it:
+#
+#     COPY contract/market-config.js: "/contract/market-config.js": not found
+#
+# The file was in the repository and named in the Dockerfile. It was simply never
+# in the build context.
+#
+# NAMED INDIVIDUALLY RATHER THAN `contract/*` PLUS AN EXCEPTION.
+#
+# A `!` exception inside an excluded directory is the kind of thing that works
+# in one builder and not the next, and I could not run a real docker build here
+# to find out which this is. A failed deploy has already cost time once; listing
+# the five files that must stay out needs no negation and cannot be read two
+# ways. test/deploy.test.js enumerates this directory and fails if a NEW file
+# appears that is neither excluded here nor the one file the service reads — so
+# the cost of being explicit is paid by a test, not by a surprise.
+# ----------------------------------------------------------------------
+contract/backend.md
+contract/homepage-feed.html
+contract/homepage-intake.js
+contract/js43.js
+contract/netlify.toml
 
 *.md
 !README.md
