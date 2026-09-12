@@ -19,6 +19,9 @@ import { authRoutes } from "./routes/auth.js";
 import { organizationRoutes } from "./routes/organizations.js";
 import { promotionRoutes } from "./routes/promotions.js";
 import { productRoutes } from "./routes/products.js";
+import { marketRoutes } from "./routes/market.js";
+import { guestRoutes } from "./routes/guest.js";
+import { platformRoutes } from "./routes/platform.js";
 
 const log = {
   info: (...a) => console.log(new Date().toISOString(), ...a),
@@ -34,6 +37,39 @@ export function createApp() {
      insecure. */
   app.set("trust proxy", config.trustProxyHops);
   app.disable("x-powered-by");
+
+  /* ------------------------------------------------------------------ *
+   * MONEY ON THE WIRE.
+   *
+   * Money is stored as BigInt — see prisma/migrations/…_money_bigint. A
+   * BigInt cannot be JSON-serialised: `JSON.stringify({a: 1n})` throws
+   * "Do not know how to serialize a BigInt", which would be a 500 on every
+   * response carrying an amount.
+   *
+   * So it goes out as a JSON NUMBER, not a string. The frontend reads money
+   * as numbers and does arithmetic on it in 135 screens; sending strings
+   * would be exact and would break every one of them. A number is exact
+   * here too, up to Number.MAX_SAFE_INTEGER — 9,007,199,254,740,991 minor
+   * units, or about ninety trillion major. The largest figure this platform
+   * actually holds is 5.4e11, so the margin is roughly four orders of
+   * magnitude.
+   *
+   * AND IT REFUSES RATHER THAN ROUNDS. Above MAX_SAFE_INTEGER a JS number
+   * silently stops being exact: 9007199254740993 becomes …92. Money that is
+   * quietly wrong is worse than a request that failed, so that case throws
+   * and the error handler turns it into a 500 naming the field. It should
+   * never happen; if it ever does, somebody needs to know rather than to
+   * reconcile a ledger that disagrees with itself.
+   * ------------------------------------------------------------------ */
+  app.set("json replacer", function (key, value) {
+    if (typeof value !== "bigint") return value;
+    if (value > 9007199254740991n || value < -9007199254740991n) {
+      throw new Error(
+        `${key} is ${value} minor units, which is past the point a JSON number ` +
+        `stays exact. Refusing to send a figure that would be silently wrong.`);
+    }
+    return Number(value);
+  });
 
   app.use(securityHeaders());
   app.use(cors());
@@ -65,6 +101,40 @@ export function createApp() {
   app.use("/auth", authRoutes);
   app.use("/organizations", organizationRoutes);
   app.use("/promotions", promotionRoutes);
+
+  /* ------------------------------------------------------------------ *
+   * THE PLATFORM CATALOGUE — AND IT MUST STAY ABOVE productRoutes.
+   *
+   * These four are public and belong to no organization. productRoutes
+   * below applies requireSession() at "/" with no path, so ANY path that
+   * reaches it answers 401 — which is exactly why these four answered 401
+   * for months before they existed, rather than 404.
+   *
+   * Registered after it they would be dead, and the failure would read as
+   * an authentication problem rather than a routing one.
+   * test/market-api.test.js asserts this order.
+   * ------------------------------------------------------------------ */
+  app.use(marketRoutes);
+
+  /* ------------------------------------------------------------------ *
+   * THE GUEST PORTAL — and it must stay above productRoutes too.
+   *
+   * A guest holds no membership, so requireOrganization() below would refuse
+   * them before they reached a single one of their own endpoints. These are
+   * scoped to a PERSON rather than a company — see routes/guest.js.
+   * ------------------------------------------------------------------ */
+  app.use(guestRoutes);
+
+  /* ------------------------------------------------------------------ *
+   * THE PALTAS STAFF CONSOLE — above productRoutes, like the others.
+   *
+   * It is the ONE place in this service that reads across tenants, and it is
+   * a separate file for exactly that reason: the organization filter in
+   * http/resource.js stays unconditional, and this narrow door sits beside it
+   * rather than inside it. Read-only, and every read is audited naming the
+   * member of staff. See the long note in routes/platform.js.
+   * ------------------------------------------------------------------ */
+  app.use(platformRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

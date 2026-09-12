@@ -297,6 +297,19 @@ export function createFakeDb() {
     if (d.startsWith("cuid(") || d.startsWith("uuid(")) {
       return "c" + crypto.randomBytes(12).toString("hex");
     }
+    /*
+     * A Json column's default is written in the schema as a quoted string
+     * CONTAINING json — `scope Json @default("{\"all\": true}")`. Real Prisma
+     * hands back the parsed object. So must this: returning the raw text would
+     * give every caller a string where production gives an object, and a fake
+     * that disagrees with the service on a field's TYPE is worse than no fake,
+     * because the tests still pass.
+     *
+     * Found by site scope. `Membership.scope` arrived here as the characters
+     * `{\"all\": true}`, so `scope.all` was undefined, so the filter read an
+     * unrestricted member as a restricted one and refused a legitimate write.
+     */
+    if (f.type === "Json" && d.startsWith('"')) return JSON.parse(JSON.parse(d));
     if (d.startsWith('"')) return d.slice(1, -1);
     if (d === "true") return true;
     if (d === "false") return false;

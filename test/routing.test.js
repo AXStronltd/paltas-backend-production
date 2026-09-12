@@ -110,11 +110,28 @@ test("a resource that keeps its own create has one, and the framework skips it",
   /* Both halves, because either alone is a broken endpoint: a declaration
      that opts out with nothing to fall through to is a 404 on a path the
      documentation promises. */
-  assert.match(framework, /if \(!resource\.ownCreate\) \{/,
-    "the framework no longer honours `ownCreate` — every hand-written create is " +
-    "shadowed again");
+  assert.match(framework, /if \(!resource\.ownCreate && !resource\.noCreate\) \{/,
+    "the framework no longer honours `ownCreate`/`noCreate` — every hand-written " +
+    "create is shadowed again, and a resource staff must not create would gain " +
+    "a create endpoint");
 
   const own = handWritten();
+
+  /*
+   * `noCreate` is the other half. `ownCreate` means "written by hand elsewhere
+   * in this service"; `noCreate` means "written by somebody who is not staff".
+   * So unlike ownCreate there must be NO route — a POST for it would be the
+   * very endpoint the declaration exists to prevent.
+   */
+  for (const [slug, r] of Object.entries(RESOURCES)) {
+    if (!r.noCreate) continue;
+    assert.ok(typeof r.noCreate === "string" && r.noCreate.length > 30,
+      `${slug}.noCreate must say WHY, in a sentence a reviewer can check`);
+    assert.ok(
+      !own.some((o) => o.verb === "POST" && o.path === `/${slug}`),
+      `${slug} declares noCreate, and routes/products.js has a POST /${slug} anyway`);
+  }
+
   for (const [slug, r] of Object.entries(RESOURCES)) {
     if (!r.ownCreate) continue;
     assert.ok(typeof r.ownCreate === "string" && r.ownCreate.length > 30,
@@ -167,6 +184,10 @@ test("a column the database insists on is a field the API insists on", () => {
 
   const problems = [];
   for (const [slug, r] of Object.entries(RESOURCES)) {
+    /* A resource nothing creates through this API has no create to get wrong.
+       `guest-requests` is made by the guest, where the stay and the party come
+       from their session rather than from a body. */
+    if (r.noCreate) continue;
     const name = r.model.charAt(0).toUpperCase() + r.model.slice(1);
     const body = models.get(name) || "";
 

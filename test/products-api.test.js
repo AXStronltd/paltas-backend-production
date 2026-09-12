@@ -230,6 +230,9 @@ test("the wall holds for every resource, not only the one somebody tested", { sk
   }
 
   for (const [slug, r] of Object.entries(RESOURCES)) {
+    /* Nothing creates these through the staff API — see `noCreate`. Their wall
+       is covered by the guest portal's own tests, where the caller is a guest. */
+    if (r.noCreate) continue;
     const body = await bodyFor(slug, r);
     const made = await call(`/${slug}`, { method: "POST", cookie: a.cookie, body });
     assert.equal(made.status, 201, `could not create a ${slug}: ${made.text}`);
@@ -331,6 +334,74 @@ test("a cancelled subscription closes the door without deleting anything", { ski
 /* ================================================================ *
  * 3. MONEY.
  * ================================================================ */
+
+test("money at the scale this platform actually deals in", { skip }, async () => {
+  /*
+   * THE BUG THIS TEST EXISTS FOR.
+   *
+   * Money is a count of MINOR UNITS, which is right. It was stored in
+   * Prisma's `Int` — PostgreSQL INT4 — which caps at 2,147,483,647 minor
+   * units, or KES 21,474,836. Against the figures in the product:
+   *
+   *     Riverside Court, Nairobi      96,000,000,000 minor    45x over
+   *     Marina Vista Tower, Dubai    410,000,000,000 minor   190x over
+   *     Hudson Yards 41, New York    540,000,000,000 minor   250x over
+   *
+   * It did not round and it did not truncate. PostgreSQL refused the write
+   * and the API answered 500: "Unable to fit integer value into an INT4".
+   * Every property worth more than about twenty-one million shillings was
+   * unsaveable.
+   *
+   * It survived because development figures were RENTS, which fit, and
+   * product figures are VALUATIONS, which do not.
+   */
+  const a = await company({ products: EVERYTHING, role: "OWNER" });
+
+  for (const [name, value] of [["Riverside Court", 96_000_000_000],
+                               ["Marina Vista Tower", 410_000_000_000],
+                               ["Hudson Yards 41", 540_000_000_000]]) {
+    const made = await call("/sites", { method: "POST", cookie: a.cookie,
+      body: { name, value, kind: "RESIDENTIAL" } });
+    assert.equal(made.status, 201, `${name} could not be stored: ${made.text}`);
+    assert.equal(made.json.site.value, value, `${name} came back changed`);
+    /* A JSON number, not a string — 135 screens do arithmetic on this. */
+    assert.equal(typeof made.json.site.value, "number");
+  }
+
+  /* And it survives the round trip out of the database. */
+  const back = await call("/sites", { cookie: a.cookie });
+  const hudson = back.json.sites.find((s) => s.name === "Hudson Yards 41");
+  assert.equal(hudson.value, 540_000_000_000);
+});
+
+test("an invoice total is exact at that scale, and still rounds tax the same way", { skip }, async () => {
+  const a = await company({ products: EVERYTHING, role: "OWNER" });
+  const inv = await call("/invoices", { method: "POST", cookie: a.cookie,
+    body: { currency: "KES", status: "SENT" } });
+  const id = inv.json.invoice.id;
+
+  /* 540,000,000,000 at 16% = 86,400,000,000 tax. Exact, not approximately. */
+  await call(`/invoices/${id}/lines`, { method: "POST", cookie: a.cookie,
+    body: { detail: "Sale", quantity: 1, unitPrice: 540_000_000_000, taxBps: 1600 } });
+  const big = await call(`/invoices/${id}`, { cookie: a.cookie });
+  assert.equal(big.json.invoice.total, 626_400_000_000);
+
+  /*
+   * ROUNDING, NOT TRUNCATION.
+   *
+   * BigInt division truncates toward zero; the Number version used
+   * Math.round. On a 16% line that is one minor unit per line — the kind of
+   * discrepancy that makes a customer's books disagree with their invoice by
+   * a few cents and nobody can say why. 333 * 0.16 = 53.28, which rounds to
+   * 53, so the total is 386 and not 385.
+   */
+  const inv2 = await call("/invoices", { method: "POST", cookie: a.cookie,
+    body: { currency: "KES", status: "SENT" } });
+  await call(`/invoices/${inv2.json.invoice.id}/lines`, { method: "POST", cookie: a.cookie,
+    body: { detail: "rounding", quantity: 1, unitPrice: 333, taxBps: 1600 } });
+  const r = await call(`/invoices/${inv2.json.invoice.id}`, { cookie: a.cookie });
+  assert.equal(r.json.invoice.total, 386, "tax is being truncated instead of rounded");
+});
 
 test("an invoice total is computed from its lines, and cannot be sent", { skip }, async () => {
   const c = await company({ products: EVERYTHING, role: "FINANCE" });
@@ -559,4 +630,93 @@ test("signing out of the product API is the same as never signing in", { skip },
     const res = await call(path);
     assert.equal(res.status, 401, `${path} answered an anonymous caller with ${res.status}`);
   }
+});
+
+/* ================================================================ *
+ * THE TWO LISTS THE FRAMEWORK CANNOT BUILD.
+ *
+ * Membership has no orgId of its own in the sense the framework needs, and
+ * FolioLine is two joins from its company. Both are therefore hand-written,
+ * which means neither inherits the wall the framework gives everything else
+ * — so each one gets its own tests rather than riding on the tenancy sweep.
+ * ================================================================ */
+
+test("the staff directory lists this company's people and nobody else's",
+  { skip }, async () => {
+  const mine = await company({ products: ["PROPERTY_MANAGEMENT"], role: "MANAGER" });
+  const other = await company({ products: ["PROPERTY_MANAGEMENT"], role: "MANAGER" });
+
+  const r = await call("/members", { cookie: mine.cookie });
+  assert.equal(r.status, 200, r.text.slice(0, 200));
+  assert.equal(r.json.members.length, 1, "expected exactly this company's one member");
+  assert.equal(r.json.members[0].role, "MANAGER");
+  assert.ok(r.json.members[0].name, "a directory with no names is not a directory");
+
+  /* The other company's person must not appear, by name or by id. */
+  const body = JSON.stringify(r.json);
+  assert.ok(!body.includes(other.user.id), "another company's user id leaked");
+  assert.ok(!body.includes(other.org.id), "another company's org id leaked");
+});
+
+test("the staff directory says how many sites, never which", { skip }, async () => {
+  /*
+   * A directory that lists every gate each guard covers is a map of where the
+   * company is thin. The count answers "is this person site-restricted?",
+   * which is what the screen needs.
+   */
+  const c = await company({ products: ["SECURITY_MANAGEMENT"], role: "MANAGER" });
+  const site = await db.site.create({ data: { orgId: c.org.id, name: "North Gate" } });
+  await db.membership.updateMany({
+    where: { orgId: c.org.id }, data: { scope: { sites: [site.id] } } });
+
+  const r = await call("/members", { cookie: c.cookie });
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.json.members[0].scope, { sites: 1 });
+  assert.ok(!JSON.stringify(r.json).includes(site.id), "a site id leaked into the directory");
+});
+
+test("the staff directory cannot be written through", { skip }, async () => {
+  /* A role is changed through the membership flow. A directory that accepts
+     PATCH is a directory somebody promotes themselves in. */
+  const c = await company({ products: ["PROPERTY_MANAGEMENT"], role: "MANAGER" });
+  for (const [method, path] of [["POST", "/members"], ["PATCH", "/members/x"],
+                                ["DELETE", "/members/x"]]) {
+    const r = await call(path, { method, body: { role: "OWNER" }, cookie: c.cookie });
+    assert.ok(r.status === 404 || r.status === 405,
+      `${method} ${path} answered ${r.status} — the directory is writable`);
+  }
+  const after = await db.membership.findFirst({ where: { orgId: c.org.id } });
+  assert.equal(after.role, "MANAGER", "the role changed");
+});
+
+test("folio lines are scoped through their folio, and need the hotel product",
+  { skip }, async () => {
+  const hotel = await company({ products: ["HOTEL_MANAGEMENT"], role: "MANAGER" });
+  const other = await company({ products: ["HOTEL_MANAGEMENT"], role: "MANAGER" });
+
+  /* One charge in each company, so "scoped" means something. */
+  for (const [c, tag] of [[hotel, "mine"], [other, "theirs"]]) {
+    const res = await db.reservation.create({
+      data: { orgId: c.org.id, ref: "RES-" + tag, guestName: "Guest " + tag,
+              roomNumber: "101", nights: 2, rate: 1000n },
+    });
+    const folio = await db.folio.create({ data: { orgId: c.org.id, reservationId: res.id } });
+    await db.folioLine.create({
+      data: { folioId: folio.id, kind: "charge", detail: "Room " + tag, amount: 1000n },
+    });
+  }
+
+  const r = await call("/folio-lines", { cookie: hotel.cookie });
+  assert.equal(r.status, 200, r.text.slice(0, 200));
+  const rows = r.json["folio-lines"];
+  assert.equal(rows.length, 1, "expected one line — got " + rows.length);
+  assert.match(rows[0].detail, /mine/);
+  assert.equal(rows[0].roomNumber, "101", "the room is what makes the line readable");
+  assert.ok(!("postedBy" in rows[0]), "postedBy is staff information, not a report line");
+  assert.ok(!JSON.stringify(r.json).includes("theirs"), "another company's charge leaked");
+
+  /* A company without the product has no folios to read. */
+  const noHotel = await company({ products: ["PROPERTY_MANAGEMENT"], role: "MANAGER" });
+  const denied = await call("/folio-lines", { cookie: noHotel.cookie });
+  assert.equal(denied.status, 403, "a company with no hotel product read folio lines");
 });

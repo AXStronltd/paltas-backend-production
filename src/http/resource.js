@@ -34,6 +34,9 @@ import { RESOURCES } from "../domain/registry.js";
 import { allows, whyNotArea } from "../domain/access.js";
 import { badRequest, conflict, forbidden, hidden } from "./errors.js";
 import { clean } from "../domain/input.js";
+/* Site scope lives in the domain, not here — products.js needs the same
+   rule for its summary counts, and one copy of a filter is the point. */
+import { scopeWhere, scopedSites } from "../domain/scope.js";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "./session.js";
@@ -174,7 +177,13 @@ export function resourceRouter(slug) {
        * everything below narrows it further. There is no branch in which
        * orgId is absent and none in which it comes from the request.
        */
-      const where = { orgId: req.actor.orgId };
+      /* Narrowed to the company, and then to this person's remit inside it.
+         Both in one literal, so nothing can be inserted between the filter
+         and the query it belongs to — see the note on scopedSites(). */
+      const where = {
+        orgId: req.actor.orgId,
+        ...(scopeWhere(req.actor, resource, slug) || {}),
+      };
 
       if (req.query.status) {
         where[resource.statusField || "status"] =
@@ -225,7 +234,8 @@ export function resourceRouter(slug) {
   router.get("/:id", may("get"), async (req, res, next) => {
     try {
       const row = await model().findFirst({
-        where: { id: req.params.id, orgId: req.actor.orgId },
+        where: { id: req.params.id, orgId: req.actor.orgId,
+                 ...(scopeWhere(req.actor, resource, slug) || {}) },
         include: withHistory(resource),
       });
       if (!row) throw hidden();
@@ -246,11 +256,31 @@ export function resourceRouter(slug) {
    * still looks correct when you read it. test/routing.test.js exists
    * because that had already happened once.
    */
-  if (!resource.ownCreate) {
+  /*
+   * `noCreate` — nothing creates this through the staff API at all, not even a
+   * hand-written route. `ownCreate` means "written by hand elsewhere in this
+   * service"; `noCreate` means "written by somebody who is not staff". The
+   * guest portal is the first of those.
+   */
+  if (!resource.ownCreate && !resource.noCreate) {
   router.post("/", may("create"), async (req, res, next) => {
     try {
       const data = clean(resource, req.body, { partial: false });
       await checkReferences(resource, data, req.actor.orgId);
+
+      /*
+       * AND IT CANNOT BE WRITTEN OUTSIDE THE REMIT EITHER.
+       *
+       * Narrowing reads alone would let a guard on one gate file an incident
+       * against another, then never see it again — a record nobody asked for,
+       * in a place they cannot reach.
+       */
+      const allowed = scopedSites(req.actor);
+      if (allowed !== null && data.siteId && !allowed.includes(String(data.siteId))) {
+        throw forbidden(
+          "That site is not part of your remit. You can only add " + label +
+          " at the sites you are assigned to.");
+      }
 
       if (resource.numbered) data[resource.numbered] = await nextNumber(resource, slug, req.actor.orgId);
 
@@ -280,7 +310,8 @@ export function resourceRouter(slug) {
   router.patch("/:id", may("update"), async (req, res, next) => {
     try {
       const before = await model().findFirst({
-        where: { id: req.params.id, orgId: req.actor.orgId },
+        where: { id: req.params.id, orgId: req.actor.orgId,
+                 ...(scopeWhere(req.actor, resource, slug) || {}) },
       });
       if (!before) throw hidden();
 
@@ -322,7 +353,8 @@ export function resourceRouter(slug) {
       if (resource.noDelete) throw forbidden(resource.noDelete);
 
       const { count } = await model().deleteMany({
-        where: { id: req.params.id, orgId: req.actor.orgId },
+        where: { id: req.params.id, orgId: req.actor.orgId,
+                 ...(scopeWhere(req.actor, resource, slug) || {}) },
       });
       if (!count) throw hidden();
 

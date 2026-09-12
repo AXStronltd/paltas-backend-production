@@ -108,6 +108,27 @@ export const TRANSITIONS = {
     right: "requestChanges",
     needsMessage: true,
   },
+  /*
+   * FINAL APPROVAL — the twelfth state, and until now the unreachable one.
+   *
+   * `FINAL_APPROVED` was declared in the enum, listed in four `from:` arrays,
+   * given a right in rights.js (PUBLISHER.approveFinal) and a sentence in
+   * whoCan() — and no transition ever wrote it. A promotion could only go
+   * MARKETING_APPROVED -> PUBLISHED, so the state existed everywhere except
+   * in the one place that could produce it.
+   *
+   * It is a real step, not ceremony: marketing approving the COPY and a
+   * publisher clearing it to GO are different judgements by different people,
+   * which is the whole reason no role here is a superset of the one before it.
+   * Publishing straight from MARKETING_APPROVED stays allowed, because that is
+   * what the console does today and removing it would break a working queue.
+   */
+  approveFinal: {
+    from: ["MARKETING_APPROVED"],
+    to: () => "FINAL_APPROVED",
+    right: "approveFinal",
+  },
+
   publish: {
     from: ["MARKETING_APPROVED", "FINAL_APPROVED", "SCHEDULED", "PAUSED"],
     to: () => "PUBLISHED",
@@ -123,6 +144,30 @@ export const TRANSITIONS = {
     to: () => "PAUSED",
     right: "pause",
     needsMessage: true,
+  },
+
+  /*
+   * EXPIRED — recording what the dates already decided.
+   *
+   * `publicWhere()` has always hidden a promotion once `endDate` passed, so
+   * nothing has ever leaked past its window. But the ROW still read PUBLISHED,
+   * which meant the database disagreed with the product: a customer asking
+   * "is my campaign still running" got one answer from the homepage and a
+   * different one from their own dashboard.
+   *
+   * This writes the state down. It does not change what the public sees —
+   * that was already correct — it makes the record honest.
+   *
+   * NOT automatic. A sweep needs something to run it on a schedule, and this
+   * service has no scheduler; inventing a timer inside a web process that
+   * Render may run more than one of would expire things twice. So it is an
+   * explicit publisher action, and the dates remain the thing that actually
+   * governs visibility until a scheduled job calls it.
+   */
+  expire: {
+    from: ["PUBLISHED", "SCHEDULED", "PAUSED"],
+    to: () => "EXPIRED",
+    right: "publish",
   },
 };
 
@@ -146,6 +191,7 @@ const pastTense = (a) => ({
   submit: "submitted", claim: "taken for review", approveMarketing: "approved",
   requestChanges: "sent back", reject: "turned down", publish: "published",
   schedule: "scheduled", pause: "paused",
+  approveFinal: "given final approval", expire: "expired",
 }[a] || a);
 
 /* --------------------------------------------------------- the checks */

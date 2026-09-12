@@ -225,7 +225,14 @@ const ACTIONS = {
     say: () => "Approved for final review." },
   "review/changes": { action: "requestChanges", what: () => "changes requested", say: () => "" },
   "review/reject": { action: "reject", what: () => "not accepted", say: () => "" },
+  /* Marketing approved the copy; a publisher clears it to go. Two people,
+     two rights — see the note on approveFinal in domain/promotions.js. */
+  "final/approve": { action: "approveFinal", what: () => "given final approval",
+    say: () => "Cleared for publishing." },
   "publish": { action: "publish", what: () => "published", say: () => "Live on paltas.io." },
+  /* Writes down what the dates already decided. The public feed has always
+     hidden an out-of-window promotion; this makes the row agree. */
+  "expire": { action: "expire", what: () => "expired", say: () => "Its run has ended." },
   "schedule": { action: "schedule", what: () => "scheduled", say: () => "" },
   "pause": { action: "pause", what: () => "paused", say: () => "" },
 };

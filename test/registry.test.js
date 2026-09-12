@@ -67,6 +67,9 @@ const modelName = (accessor) => accessor.charAt(0).toUpperCase() + accessor.slic
 const NEVER_WRITABLE = {
   id: "assigned by the database",
   orgId: "comes from the session, never from the request — that is the whole tenancy rule",
+  userId: "the bridge from a company's record of a person to their login. Set when " +
+          "somebody proves they are that party by signing in; a caller who could " +
+          "send it could claim to be anybody the company has on file",
   ref: "allocated per company by the framework; a caller choosing one could collide or impersonate",
   code: "same as ref — a pass code is allocated, never chosen by the person it admits",
   createdAt: "set once, by the database",
@@ -79,6 +82,23 @@ const NEVER_WRITABLE = {
   total: "computed from the invoice lines; a caller who can send a total can send zero",
   paid: "computed from the payments; same reason",
   net: "gross minus fees — a third number that must follow from the other two",
+};
+
+/*
+ * PER-RESOURCE exemptions, for columns that are writable SOMEWHERE but not
+ * through this resource. NEVER_WRITABLE above is keyed by column name and so
+ * applies everywhere — adding `kind` to it would stop catching a genuinely
+ * forgotten `kind` on some other resource, which is the bug that list exists
+ * to find.
+ */
+const NOT_WRITABLE_HERE = {
+  "guest-requests": {
+    reservationId: "the guest's own stay, resolved from their session at POST /guest/requests",
+    partyId: "which guest they are, resolved from Party.userId — never sent",
+    kind: "the guest chose it; staff answering must not be able to change what was asked",
+    detail: "the guest's own words",
+    note: "the guest's own words",
+  },
 };
 
 /* ================================================================ */
@@ -104,7 +124,20 @@ test("every field a request may write is a real column", () => {
       /* And the kind has to match, or the value is coerced into a column that
          cannot hold it. */
       const want = {
-        string: "String", text: "String", int: "Int", money: "Int",
+        string: "String", text: "String", int: "Int",
+        /*
+         * money is BigInt, not Int, and the difference is not cosmetic.
+         *
+         * Prisma's Int is PostgreSQL INT4, which caps at 2,147,483,647 minor
+         * units — KES 21,474,836. A Nairobi valuation of KES 960,000,000 is
+         * 96 billion minor units, so the write did not round or truncate: it
+         * was REFUSED, and the API answered 500. See the note in
+         * prisma/migrations/…_money_bigint.
+         *
+         * If this ever reads "Int" again, every property worth more than
+         * about twenty-one million shillings becomes unsaveable.
+         */
+        money: "BigInt",
         float: "Float", bool: "Boolean", date: "DateTime", json: "Json",
       }[kind] || (kind.startsWith("enum:") ? kind.slice(5)
                 : kind.startsWith("id:") ? "String" : null);
@@ -137,6 +170,7 @@ test("every column is either writable or deliberately not", () => {
     for (const [name, col] of cols) {
       if (name in r.fields) continue;
       if (name in NEVER_WRITABLE) continue;
+      if ((NOT_WRITABLE_HERE[slug] || {})[name]) continue;
       if (MODELS.has(col.type)) continue;              // a relation, written via its id
       problems.push(
         `${slug}: ${modelName(r.model)}.${name} (${col.type}) can be written by nothing. ` +

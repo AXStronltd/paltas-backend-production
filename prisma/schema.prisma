@@ -133,6 +133,9 @@ model User {
 
   memberships     Membership[]
   sessions        Session[]
+  /// The company records that are this person — see Party.userId. A guest
+  /// staying at two hotels is two parties and one user.
+  parties         Party[]
   promotions      Promotion[]      @relation("PromotionAuthor")
   events          PromotionEvent[]
   /// What this person did. SetNull on delete: the record outlives the account.
@@ -176,6 +179,17 @@ model Session {
 
   @@index([userId])
   @@index([expiresAt])
+  /**
+   * DRIFT, CORRECTED.
+   * Migration 20260911160000_session_org_fk created this index and the schema
+   * never declared it, so `prisma migrate diff` wanted to DROP it — a schema
+   * change arriving as a side effect of an unrelated migration.
+   * It is declared rather than dropped because it should be there: `org` is a
+   * foreign key with onDelete: SetNull, and without an index on it, deleting a
+   * company scans every session row in the service to find the handful that
+   * point at it.
+   */
+  @@index([orgId])
 }
 
 // --------------------------------------------------------- the company
@@ -209,38 +223,59 @@ model Organization {
   auditEvents AuditEvent[]
 
   /// ---- property & development ----
-  leases     Lease[]
-  projects   Project[]
-  workOrders WorkOrder[]
-  assets     Asset[]
+  leases        Lease[]
+  projects      Project[]
+  investors     Investor[]
+  distributions Distribution[]
+  capitalCalls  CapitalCall[]
+  workOrders    WorkOrder[]
+  assets        Asset[]
 
   /// ---- hotel ----
   rooms         Room[]
   reservations  Reservation[]
   folios        Folio[]
   hotelServices HotelService[]
+  guestRequests GuestRequest[]
+  channels      Channel[]
+  rateRules     RateRule[]
+  groupBookings GroupBooking[]
+  auditTasks    NightAuditTask[]
 
   /// ---- agent & host ----
-  listings Listing[]
-  leads    Lead[]
-  viewings Viewing[]
-  deals    Deal[]
+  listings      Listing[]
+  leads         Lead[]
+  viewings      Viewing[]
+  deals         Deal[]
+  conversations Conversation[]
+  messages      Message[]
+  opsTasks      OpsTask[]
+  pricingRules  PricingRule[]
 
   /// ---- security ----
-  zones       Zone[]
-  visits      Visit[]
-  passes      Pass[]
-  vehicles    Vehicle[]
-  incidents   Incident[]
-  guardShifts GuardShift[]
-  patrols     Patrol[]
-  deliveries  Delivery[]
+  zones          Zone[]
+  visits         Visit[]
+  passes         Pass[]
+  vehicles       Vehicle[]
+  incidents      Incident[]
+  guardShifts    GuardShift[]
+  patrols        Patrol[]
+  deliveries     Delivery[]
+  cameras        Camera[]
+  guardTasks     GuardTask[]
+  emergencyPlans EmergencyPlan[]
 
   /// ---- money ----
   invoices Invoice[]
   payments Payment[]
   expenses Expense[]
   payouts  Payout[]
+
+  /**
+   * Held BY the platform, ABOUT this company.
+   */
+  moderationItems ModerationItem[]
+  complianceCases ComplianceCase[]
 }
 
 model Subscription {
@@ -455,6 +490,74 @@ model Counter {
 /// Kept as a repeated pair rather than a shared type because Prisma has no
 /// composite scalar, and a comment is cheaper than getting it wrong.
 
+/// WHAT A GUEST ASKED FOR.
+///
+/// One table for the four things the guest portal lets somebody do: order a
+/// service, book the airport transfer, report a problem, and ask a question.
+/// They are the same shape — a request against a stay, with a state and a
+/// reply — so they are one table with a `kind` rather than four that drift.
+///
+/// NOT A WorkOrder, DELIBERATELY. A work order is the company's internal job,
+/// raised by staff and assigned to staff. "Could I have more towels" is not
+/// that — and a guest must never be able to read the company's work queue to
+/// find out what else is broken in the building.
+model GuestRequest {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Which stay it belongs to. Required: a request with no stay has nobody to
+  /// bill it to and nowhere to deliver it.
+  reservationId String
+  reservation   Reservation @relation(fields: [reservationId], references: [id], onDelete: Cascade)
+
+  /// Who asked — the guest's own Party row. This is how a guest's requests are
+  /// found without trusting anything the browser said about who they are.
+  partyId String?
+  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+
+  kind   GuestRequestKind
+  detail String             @default("")
+  /// Free text from the guest — a time, a room number, a preference.
+  note   String             @default("")
+  status GuestRequestStatus @default(OPEN)
+
+  /// What the hotel said back. On a closed request it is the only thing the
+  /// guest sees, which is why an empty one reads badly.
+  response   String    @default("")
+  resolvedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, status])
+  @@index([reservationId])
+  @@index([partyId])
+}
+
+enum GuestRequestKind {
+  SERVICE
+  TRANSFER
+  ISSUE
+  QUESTION
+  /// A guest ASKS to check in or out. They cannot do it themselves: the room
+  /// has to be ready, the identity seen and the payment authorised, and all
+  /// three are the property's call. The portal raises the request; staff move
+  /// the reservation. Calling it CHECK_IN rather than CHECKED_IN is the whole
+  /// distinction.
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum GuestRequestStatus {
+  OPEN
+  ACKNOWLEDGED
+  IN_PROGRESS
+  DONE
+  DECLINED
+  CANCELLED
+}
+
 // ---------------------------------------------------------------- shared
 
 /// WHERE. A site is the physical thing a company operates: an estate, a
@@ -477,7 +580,7 @@ model Site {
   /// How many units the site holds, and what it is worth in minor units.
   /// Both come straight off the `portfolio` screen, which shows them.
   unitCount Int      @default(0)
-  value     Int      @default(0)
+  value     BigInt   @default(0)
   country   String   @default("")
   lat       Float?
   lng       Float?
@@ -487,22 +590,25 @@ model Site {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  buildings   Building[]
-  zones       Zone[]
-  units       Unit[]
-  visitors    Visit[]
-  passes      Pass[]
-  vehicles    Vehicle[]
-  incidents   Incident[]
-  patrols     Patrol[]
-  guardShifts GuardShift[]
-  deliveries  Delivery[]
-  workOrders  WorkOrder[]
-  rooms       Room[]
-  assets      Asset[]
-  expenses    Expense[]
-  projects    Project[]
-  services    HotelService[]
+  buildings     Building[]
+  zones         Zone[]
+  units         Unit[]
+  visitors      Visit[]
+  passes        Pass[]
+  vehicles      Vehicle[]
+  incidents     Incident[]
+  patrols       Patrol[]
+  guardShifts   GuardShift[]
+  deliveries    Delivery[]
+  workOrders    WorkOrder[]
+  rooms         Room[]
+  assets        Asset[]
+  expenses      Expense[]
+  projects      Project[]
+  services      HotelService[]
+  Camera        Camera[]
+  GuardTask     GuardTask[]
+  EmergencyPlan EmergencyPlan[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -577,15 +683,17 @@ model Unit {
   floor        Int?
   sqm          Int?
   /// Asking rent per month, in minor units.
-  rent         Int        @default(0)
+  rent         BigInt     @default(0)
   currency     String     @default("KES")
   status       UnitStatus @default(VACANT)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  leases   Lease[]
-  listings Listing[]
+  leases      Lease[]
+  listings    Listing[]
+  OpsTask     OpsTask[]
+  PricingRule PricingRule[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -621,6 +729,22 @@ model Party {
   orgId String
   org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
+  /// ---- THE GUEST BRIDGE ----
+  ///
+  /// A Party is a record a COMPANY keeps — a tenant, an owner, a guest. A User
+  /// is somebody who signs in. They were never connected, which is exactly why
+  /// the guest portal had no way to know whose stay it was looking at: a guest
+  /// holds no membership, so nothing in the session said which Party they are.
+  ///
+  /// NULLABLE, and usually null. Most parties never sign in — a vendor, a
+  /// contractor, a tenant who pays by standing order. It is set only when a
+  /// person proves they are this party by signing in.
+  ///
+  /// SetNull on delete: the company's record of the person outlives their
+  /// account. Deleting a login must not delete a tenant.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   name  String
   kind  PartyKind @default(CONTACT)
   email String    @default("")
@@ -635,18 +759,24 @@ model Party {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  leases       Lease[]       @relation("LeaseTenant")
+  leases       Lease[]        @relation("LeaseTenant")
   deals        Deal[]
   viewings     Viewing[]
   reservations Reservation[]
   invoices     Invoice[]
-  visits       Visit[]       @relation("VisitHost")
-  expenses     Expense[]     @relation("ExpenseVendor")
-  payouts      Payout[]      @relation("PayoutBeneficiary")
+  visits       Visit[]        @relation("VisitHost")
+  expenses     Expense[]      @relation("ExpenseVendor")
+  payouts      Payout[]       @relation("PayoutBeneficiary")
+  GuestRequest GuestRequest[]
+  GroupBooking GroupBooking[]
+  Conversation Conversation[]
 
   @@index([orgId])
   @@index([orgId, kind])
   @@index([orgId, name])
+  /// The guest portal's first query on every request: "which parties am I?"
+  /// It is not allowed to be a table scan.
+  @@index([userId])
 }
 
 enum PartyKind {
@@ -755,9 +885,9 @@ model Lease {
   tenantName String      @default("")
   unitRef    String      @default("")
   /// Minor units.
-  rent       Int         @default(0)
+  rent       BigInt      @default(0)
   currency   String      @default("KES")
-  deposit    Int         @default(0)
+  deposit    BigInt      @default(0)
   startsOn   DateTime?
   endsOn     DateTime?
   status     LeaseStatus @default(ACTIVE)
@@ -795,12 +925,13 @@ model Project {
   dueOn    DateTime?
   stage    ProjectStage @default(PLANNING)
   /// Minor units.
-  budget   Int          @default(0)
-  spent    Int          @default(0)
+  budget   BigInt       @default(0)
+  spent    BigInt       @default(0)
   currency String       @default("KES")
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  CapitalCall CapitalCall[]
 
   @@index([orgId])
   @@index([orgId, stage])
@@ -999,13 +1130,14 @@ model Reservation {
   source     String            @default("DIRECT")
   status     ReservationStatus @default(CONFIRMED)
   /// Minor units. The quoted rate, not the running total — that is the folio.
-  rate       Int               @default(0)
+  rate       BigInt            @default(0)
   currency   String            @default("KES")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  folio Folio?
+  folio         Folio?
+  guestRequests GuestRequest[]
 
   @@unique([orgId, ref])
   @@index([orgId, status])
@@ -1050,7 +1182,7 @@ model FolioLine {
   kind     String   @default("charge")
   detail   String   @default("")
   /// Minor units. Negative for a payment or a refund.
-  amount   Int
+  amount   BigInt
   postedBy String   @default("")
   at       DateTime @default(now())
 
@@ -1096,15 +1228,16 @@ model Listing {
   channel   String        @default("PALTAS")
   kind      ListingKind   @default(LONG_LET)
   /// Minor units.
-  price     Int           @default(0)
+  price     BigInt        @default(0)
   currency  String        @default("KES")
   status    ListingStatus @default(DRAFT)
   ownerName String        @default("")
   mandate   String        @default("")
   note      String        @default("")
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  ModerationItem ModerationItem[]
 
   @@index([orgId, status])
 }
@@ -1134,7 +1267,7 @@ model Lead {
   /// Which property they are asking about, as typed on the `sales` screen.
   property String    @default("")
   /// Minor units.
-  budget   Int       @default(0)
+  budget   BigInt    @default(0)
   currency String    @default("KES")
   stage    LeadStage @default(NEW)
   source   String    @default("PALTAS")
@@ -1187,8 +1320,8 @@ model Deal {
 
   name     String
   /// Minor units, both.
-  value    Int       @default(0)
-  fee      Int       @default(0)
+  value    BigInt    @default(0)
+  fee      BigInt    @default(0)
   currency String    @default("KES")
   stage    DealStage @default(OFFER)
   closesOn DateTime?
@@ -1461,8 +1594,9 @@ model GuardShift {
   signedInAt  DateTime?
   signedOutAt DateTime?
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+  GuardTask GuardTask[]
 
   @@index([orgId, startsAt])
 }
@@ -1557,9 +1691,9 @@ model Invoice {
   /// MINOR UNITS, AND SERVER-COMPUTED. Sum of the lines, recomputed on every
   /// write. Never read from a request body: a client that can name its own
   /// total can name zero.
-  total    Int    @default(0)
+  total    BigInt @default(0)
   /// Sum of non-void payments. Also recomputed, never sent.
-  paid     Int    @default(0)
+  paid     BigInt @default(0)
   currency String @default("KES")
 
   issuedOn DateTime?
@@ -1597,7 +1731,7 @@ model InvoiceLine {
   detail    String
   quantity  Int    @default(1)
   /// Minor units, per unit of quantity.
-  unitPrice Int    @default(0)
+  unitPrice BigInt @default(0)
   /// Basis points — 1600 is 16%. A percentage stored as a Float is the same
   /// rounding bug as a Float amount, one layer up.
   taxBps    Int    @default(0)
@@ -1620,7 +1754,7 @@ model Payment {
   invoice   Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   /// Minor units. Positive for a receipt, negative for a refund.
-  amount     Int
+  amount     BigInt
   currency   String        @default("KES")
   method     PaymentMethod @default(CASH)
   /// The provider's own identifier — an M-Pesa code, a card charge id. The
@@ -1665,7 +1799,7 @@ model Expense {
   detail      String
   category    String        @default("")
   /// Minor units.
-  amount      Int           @default(0)
+  amount      BigInt        @default(0)
   currency    String        @default("KES")
   spentOn     DateTime?
   /// Whether it can be billed on to an owner or a tenant. A cost nobody
@@ -1699,9 +1833,9 @@ model Payout {
   party   Party?       @relation("PayoutBeneficiary", fields: [partyId], references: [id], onDelete: SetNull)
 
   /// Minor units, gross, then what was withheld, then what was sent.
-  gross    Int    @default(0)
-  fees     Int    @default(0)
-  net      Int    @default(0)
+  gross    BigInt @default(0)
+  fees     BigInt @default(0)
+  net      BigInt @default(0)
   currency String @default("KES")
 
   periodFrom DateTime?
@@ -1723,4 +1857,560 @@ enum PayoutStatus {
   SENT
   FAILED
   CANCELLED
+}
+
+/**
+ * ====================================================================== *
+ * PROPERTY DEVELOPMENT.
+ * Not a separate Product value, deliberately. `Project` has always been area
+ * `property` / product PROPERTY_MANAGEMENT, and development is what a
+ * property company does with a project. Adding PROPERTY_DEVELOPMENT to the
+ * enum would mean every existing company stopped being entitled to screens it
+ * uses today — removing working functionality in order to tidy a label.
+ * ======================================================================
+ */
+
+model Investor {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  name      String
+  kind      InvestorKind   @default(INDIVIDUAL)
+  units     Int            @default(0)
+  /// Minor units, and BigInt: a development fund in KES passes INT4 long
+  /// before it passes anything else.
+  committed BigInt         @default(0)
+  paid      BigInt         @default(0)
+  currency  String         @default("KES")
+  /// Basis points, so 9.2% is 920 and no yield is ever stored as a float.
+  yieldBps  Int            @default(0)
+  since     DateTime?
+  status    InvestorStatus @default(ACTIVE)
+  note      String         @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  distributions Distribution[]
+  capitalCalls  CapitalCall[]
+
+  @@index([orgId])
+  @@index([orgId, name])
+}
+
+enum InvestorKind {
+  INDIVIDUAL
+  FUND
+  COMPANY
+  TRUST
+  JOINT_VENTURE
+}
+
+enum InvestorStatus {
+  PROSPECT
+  ACTIVE
+  EXITED
+  SUSPENDED
+}
+
+model Distribution {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  investorId String?
+  investor   Investor? @relation(fields: [investorId], references: [id], onDelete: SetNull)
+
+  period   String
+  amount   BigInt             @default(0)
+  currency String             @default("KES")
+  status   DistributionStatus @default(DECLARED)
+  paidOn   DateTime?
+  note     String             @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, investorId])
+}
+
+enum DistributionStatus {
+  DECLARED
+  APPROVED
+  PAID
+  CANCELLED
+}
+
+model CapitalCall {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  investorId String?
+  investor   Investor? @relation(fields: [investorId], references: [id], onDelete: SetNull)
+  projectId  String?
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  ref      String
+  amount   BigInt            @default(0)
+  currency String            @default("KES")
+  dueOn    DateTime?
+  status   CapitalCallStatus @default(OUTSTANDING)
+  note     String            @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, investorId])
+}
+
+enum CapitalCallStatus {
+  DRAFT
+  OUTSTANDING
+  PART_PAID
+  PAID
+  OVERDUE
+  CANCELLED
+}
+
+/**
+ * ====================================================================== *
+ * HOTEL MANAGEMENT — distribution, yield, groups, night audit.
+ * ======================================================================
+ */
+
+model Channel {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  name          String
+  /// The one-letter badge the console already draws.
+  mark          String        @default("")
+  status        ChannelStatus @default(DISCONNECTED)
+  /// How many of this property's room types are mapped, out of how many.
+  mapped        Int           @default(0)
+  total         Int           @default(0)
+  /// Basis points: 15% commission is 1500.
+  commissionBps Int           @default(0)
+  lastSyncAt    DateTime?
+  note          String        @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+}
+
+enum ChannelStatus {
+  DISCONNECTED
+  LIVE
+  PAUSED
+  ERROR
+}
+
+model RateRule {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  name     String
+  /// The condition in the operator's own words. A rule ENGINE is a product
+  /// decision nobody has made; recording the rule a human applies is not.
+  whenText String  @default("")
+  /// Signed basis points: +18% is 1800, -15% is -1500.
+  moveBps  Int     @default(0)
+  active   Boolean @default(true)
+  /// How many nights this rule has actually moved. Counted, never guessed.
+  hits     Int     @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+}
+
+model GroupBooking {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  partyId String?
+  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+
+  ref      String
+  orgName  String             @default("")
+  event    String             @default("")
+  rooms    Int                @default(0)
+  nights   Int                @default(1)
+  fromOn   DateTime?
+  value    BigInt             @default(0)
+  currency String             @default("KES")
+  /// What has been settled, in MINOR UNITS — not a percentage. A percentage
+  /// of a total that moves is how two screens come to disagree.
+  paid     BigInt             @default(0)
+  status   GroupBookingStatus @default(ENQUIRY)
+  note     String             @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+}
+
+enum GroupBookingStatus {
+  ENQUIRY
+  HELD
+  CONFIRMED
+  ARRIVED
+  DEPARTED
+  CANCELLED
+}
+
+model NightAuditTask {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  title  String
+  detail String    @default("")
+  /// The night this checklist belongs to.
+  runOn  DateTime
+  done   Boolean   @default(false)
+  doneAt DateTime?
+  doneBy String    @default("")
+  /// Keeps the checklist in the operator's order rather than alphabetical.
+  seq    Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, runOn])
+}
+
+/**
+ * ====================================================================== *
+ * SECURITY MANAGEMENT — devices, duties, emergency procedure.
+ * ======================================================================
+ */
+
+model Camera {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  siteId String?
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: SetNull)
+
+  name       String
+  place      String       @default("")
+  status     CameraStatus @default(ONLINE)
+  /// Deliberately NO stream URL and NO credentials. A camera's address is a
+  /// way into a customer's building, and listing which cameras exist and
+  /// whether they answer needs neither.
+  lastSeenAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+}
+
+enum CameraStatus {
+  ONLINE
+  OFFLINE
+  DEGRADED
+  MAINTENANCE
+}
+
+model GuardTask {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  siteId  String?
+  site    Site?       @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  shiftId String?
+  shift   GuardShift? @relation(fields: [shiftId], references: [id], onDelete: SetNull)
+
+  title  String
+  /// The time of night it is due, as the rota writes it — "02:00".
+  dueAt  String          @default("")
+  status GuardTaskStatus @default(DUE)
+  note   String          @default("")
+  doneAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, shiftId])
+}
+
+enum GuardTaskStatus {
+  DUE
+  DONE
+  MISSED
+  SKIPPED
+}
+
+model EmergencyPlan {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  siteId String?
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: SetNull)
+
+  kind      String
+  where     String          @default("")
+  procedure String          @default("")
+  drillNote String          @default("")
+  lastDrill DateTime?
+  status    EmergencyStatus @default(READY)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+}
+
+enum EmergencyStatus {
+  READY
+  REVIEW_DUE
+  GAP
+}
+
+/**
+ * ====================================================================== *
+ * AGENT & HOST — conversations, turnover, pricing.
+ * ======================================================================
+ */
+
+model Conversation {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  partyId String?
+  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+
+  /// Who the thread is with, kept alongside partyId so it survives the
+  /// contact being removed — the same reason Reservation keeps guestName.
+  withName String
+  subject  String   @default("")
+  /// Denormalised for the list, which is the only screen that needs it and
+  /// would otherwise read every message of every thread to draw one column.
+  lastText String   @default("")
+  lastAt   DateTime @default(now())
+  unread   Int      @default(0)
+  closed   Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages Message[]
+
+  @@index([orgId])
+  @@index([orgId, lastAt])
+}
+
+model Message {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  /// IN from the contact, OUT from this company. Not a userId: a message may
+  /// have been sent by somebody who has since left.
+  direction  MessageDirection @default(IN)
+  authorName String           @default("")
+  body       String
+  /**
+   * `createdAt` IS the message time, rather than a separate `at`.
+   * Two columns meaning "when" is how they come to disagree, and a message is
+   * not append-only — `readAt` is set later — so it cannot join the
+   * APPEND_ONLY list in relations.test.js and skip timestamps. One column,
+   * the schema's own convention.
+   */
+  readAt     DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([conversationId, createdAt])
+}
+
+enum MessageDirection {
+  IN
+  OUT
+}
+
+model OpsTask {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  unitId String?
+  unit   Unit?   @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  title    String
+  assignee String        @default("")
+  dueAt    DateTime?
+  status   OpsTaskStatus @default(SCHEDULED)
+  note     String        @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+}
+
+enum OpsTaskStatus {
+  SCHEDULED
+  IN_PROGRESS
+  DONE
+  CANCELLED
+}
+
+model PricingRule {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  unitId String?
+  unit   Unit?   @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  /// Kept alongside unitId for the same reason as Conversation.withName.
+  label      String
+  base       BigInt  @default(0)
+  currency   String  @default("KES")
+  /// Signed basis points, like RateRule.moveBps: +15% is 1500.
+  weekendBps Int     @default(0)
+  monthlyBps Int     @default(0)
+  minNights  Int     @default(1)
+  auto       Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+}
+
+/**
+ * ====================================================================== *
+ * THE PLATFORM'S OWN WORK.
+ * These carry an orgId and it is the SUBJECT company, not the owner: a
+ * moderation item is PALTAS's record ABOUT a customer. So they are NOT
+ * registry resources — a company may not open a moderation case on itself —
+ * and they are read through src/routes/platform.js, the one cross-tenant
+ * reader in the service.
+ * ======================================================================
+ */
+
+model ModerationItem {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  listingId String?
+  listing   Listing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
+
+  title      String
+  reason     String             @default("")
+  severity   ModerationSeverity @default(MEDIUM)
+  status     ModerationStatus   @default(WAITING)
+  decidedBy  String             @default("")
+  decidedAt  DateTime?
+  decidedWhy String             @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([status, createdAt])
+}
+
+enum ModerationSeverity {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ModerationStatus {
+  WAITING
+  UPHELD
+  DISMISSED
+  REMOVED
+}
+
+model ComplianceCase {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref       String
+  kind      String
+  /// The person the case concerns, by name. NOT a userId — a data request may
+  /// come from somebody who never had an account.
+  subject   String           @default("")
+  detail    String           @default("")
+  dueOn     DateTime?
+  status    ComplianceStatus @default(OPEN)
+  closedAt  DateTime?
+  closedWhy String           @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([ref])
+  @@index([orgId])
+  @@index([status, dueOn])
+}
+
+enum ComplianceStatus {
+  OPEN
+  IN_PROGRESS
+  WAITING_ON_CUSTOMER
+  CLOSED
+  ESCALATED
+}
+
+/**
+ * ====================================================================== *
+ * THE PRICE LIST.
+ * The one model here with NO organization: a plan is PALTAS's catalogue, the
+ * same for everybody, like a country code. Giving it an orgId would invite
+ * exactly the bug that would then hide — a company quietly editing the price
+ * it is charged.
+ * ======================================================================
+ */
+
+model Plan {
+  id   String @id @default(cuid())
+  code String @unique
+
+  name        String
+  /// Minor units, per month, in `currency`.
+  price       BigInt  @default(0)
+  currency    String  @default("KES")
+  /// "Up to 2 properties" — the limit as the price list states it, beside the
+  /// number the service can actually enforce.
+  limitText   String  @default("")
+  propertyCap Int?
+  includes    String  @default("")
+  seq         Int     @default(0)
+  active      Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

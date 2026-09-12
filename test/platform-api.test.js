@@ -1,0 +1,397 @@
+/* ====================================================================== *
+ * THE PALTAS STAFF CONSOLE, AND THE WALL IT IS ALLOWED THROUGH.
+ *
+ * This is the only file in the service that reads across tenants. So these
+ * are not "does it work" tests — they are tests that the door is narrow:
+ * who may open it, what comes through it, and whether anybody can tell it is
+ * there.
+ *
+ * The failure being prevented: a customer's OWNER finding that being an owner
+ * of their company makes them an owner of ours.
+ * ====================================================================== */
+
+import test from "node:test";
+import assert from "node:assert/strict";
+import crypto from "node:crypto";
+import { freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
+
+const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
+
+const SCHEMA = "test_platform";
+process.env.DATABASE_URL =
+  DB ? urlForSchema(DB, SCHEMA) : "postgresql://unused@127.0.0.1:1/none";
+process.env.SESSION_SECRET ||= "test-secret-that-is-long-enough-to-pass";
+process.env.GOOGLE_CLIENT_ID ||= "test-client.apps.googleusercontent.com";
+process.env.GOOGLE_CLIENT_SECRET ||= "test-client-secret";
+process.env.PUBLIC_URL ||= "http://127.0.0.1:8080";
+process.env.APP_URL ||= "http://127.0.0.1:8899";
+process.env.INSECURE_COOKIES = "1";
+
+let skip = DB ? false : "no TEST_DATABASE_URL — skipping platform console tests";
+let createApp, db, pg;
+
+if (!skip) {
+  try {
+    ({ default: pg } = await import("pg"));
+    ({ db } = await import("../src/db.js"));
+    ({ createApp } = await import("../src/server.js"));
+    await db.$queryRaw`SELECT 1`;
+  } catch (e) {
+    const m = String(e && e.message);
+    skip = /did not initialize|locate the Query Engine|generate/.test(m)
+      ? "RUN `npx prisma generate` FIRST" : "database unreachable: " + m.slice(0, 90);
+  }
+}
+
+let server, base, pool;
+test.before(async () => {
+  if (skip) return;
+  pool = poolInSchema(pg, DB, SCHEMA);
+  await freshSchema(pool, SCHEMA);
+  server = createApp().listen(0);
+  await new Promise((r) => server.once("listening", r));
+  base = `http://127.0.0.1:${server.address().port}`;
+});
+test.after(async () => { if (server) server.close(); if (pool) await pool.end(); });
+
+async function call(path, { method = "GET", body, cookie } = {}) {
+  const res = await fetch(base + path, {
+    method,
+    headers: { ...(body ? { "content-type": "application/json" } : {}),
+               ...(cookie ? { cookie } : {}) },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json = null; try { json = JSON.parse(text); } catch { /* */ }
+  return { status: res.status, json, text };
+}
+
+let seq = 0;
+
+async function company({ products, role, name }) {
+  const n = ++seq;
+  const org = await db.organization.create({
+    data: { name: name || `Company ${n}`, country: "ke",
+      subscription: { create: { status: "ACTIVE", plan: "Pro", seats: 5 } },
+      verification: { create: { status: "COMPLETE" } },
+      workspace: { create: { status: "ACTIVE" } },
+      entitlements: { create: products.map((p) => ({ product: p })) } },
+  });
+  const email = `u${n}-${Date.now()}@t.test`;
+  const user = await db.user.create({
+    data: { email, name: `User ${n}`, phone: "+254700000000", googleSub: `sub${n}-${Date.now()}` },
+  });
+  await db.membership.create({ data: { userId: user.id, orgId: org.id, role } });
+  const token = crypto.randomBytes(32).toString("base64url");
+  await db.session.create({
+    data: { tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
+            userId: user.id, orgId: org.id, expiresAt: new Date(Date.now() + 3600_000) },
+  });
+  return { org, user, cookie: `paltas_session=${token}` };
+}
+
+const PATHS = ["/platform/organizations", "/platform/users", "/platform/entitlements",
+               "/platform/audit", "/platform/summary",
+               /* The four the console's remaining screens needed. Added to
+                  PATHS rather than tested separately, so every existing check
+                  in this file — the refusal, the audit trail, the staff-role
+                  requirement — applies to them automatically. A new endpoint
+                  that skips the door is the bug this prevents. */
+               "/platform/moderation", "/platform/compliance",
+               "/platform/verifications", "/platform/plans"];
+
+/* ================================================================ */
+
+test("owning YOUR company grants nothing on OURS", { skip }, async () => {
+  /* The whole point of the console being a separate door. An OWNER with every
+     customer product is still a customer. */
+  const customer = await company({
+    products: ["PROPERTY_MANAGEMENT", "HOTEL_MANAGEMENT", "AGENT_HOST", "SECURITY_MANAGEMENT"],
+    role: "OWNER",
+  });
+  for (const p of PATHS) {
+    const r = await call(p, { cookie: customer.cookie });
+    assert.equal(r.status, 403, `a customer OWNER reached ${p}`);
+  }
+});
+
+test("an unsigned-in caller gets 401, not a hint", { skip }, async () => {
+  for (const p of PATHS) {
+    const r = await call(p);
+    assert.equal(r.status, 401, `${p} answered ${r.status} without a session`);
+  }
+});
+
+test("the refusal says the same thing whatever the reason", { skip }, async () => {
+  /*
+   * A caller probing this console must learn only that it is not for them.
+   * "You need the PLATFORM entitlement" tells somebody exactly what to go
+   * looking for — so the wrong entitlement and the wrong role read alike.
+   */
+  const noEntitlement = await company({ products: ["HOTEL_MANAGEMENT"], role: "OWNER" });
+  const wrongRole = await company({ products: ["PLATFORM"], role: "GUARD" });
+
+  const a = await call("/platform/organizations", { cookie: noEntitlement.cookie });
+  const b = await call("/platform/organizations", { cookie: wrongRole.cookie });
+  assert.equal(a.status, 403);
+  assert.equal(b.status, 403);
+  assert.equal(a.json.message, b.json.message,
+    "the two refusals differ, which tells a prober which half they got wrong");
+  assert.doesNotMatch(a.json.message, /entitlement|role|PLATFORM/i,
+    "the refusal names what is missing");
+});
+
+test("a PLATFORM holder with a staff role sees every customer", { skip }, async () => {
+  await company({ products: ["HOTEL_MANAGEMENT"], role: "OWNER", name: "Marina Vista Hotels" });
+  await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER", name: "Alma Real Estate" });
+  const staff = await company({ products: ["PLATFORM"], role: "MARKETING", name: "PALTAS" });
+
+  const r = await call("/platform/organizations", { cookie: staff.cookie });
+  assert.equal(r.status, 200, r.text);
+  const names = r.json.organizations.map((o) => o.name);
+  assert.ok(names.includes("Marina Vista Hotels"), "a customer is missing");
+  assert.ok(names.includes("Alma Real Estate"), "a customer is missing");
+
+  const hotel = r.json.organizations.find((o) => o.name === "Marina Vista Hotels");
+  assert.deepEqual(hotel.products, ["HOTEL_MANAGEMENT"]);
+  assert.equal(hotel.subscription.status, "ACTIVE");
+  assert.equal(hotel.verification, "COMPLETE");
+});
+
+test("staff get COUNTS of a customer's records, never the records", { skip }, async () => {
+  const customer = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER",
+                                   name: "Counted Ltd" });
+  await db.site.create({ data: { orgId: customer.org.id, name: "Riverside Court",
+                                 value: 96_000_000_000n } });
+  await db.unit.create({ data: { orgId: customer.org.id, ref: "RC-12B", rent: 14_200_000n } });
+
+  const staff = await company({ products: ["PLATFORM"], role: "COMPLIANCE" });
+  const r = await call("/platform/organizations?q=Counted", { cookie: staff.cookie });
+  const row = r.json.organizations.find((o) => o.name === "Counted Ltd");
+
+  assert.equal(row.counts.sites, 1);
+  assert.equal(row.counts.units, 1);
+  /*
+   * AND NOT WHAT IS IN THEM. A support console that returns a customer's site
+   * names and valuations is a back door with a nicer label.
+   */
+  const body = JSON.stringify(r.json);
+  assert.ok(!body.includes("Riverside Court"), "a customer's site name came through");
+  assert.ok(!body.includes("96000000000"), "a customer's valuation came through");
+  assert.ok(!body.includes("RC-12B"), "a customer's unit reference came through");
+});
+
+test("the user list carries memberships, not personal details", { skip }, async () => {
+  const customer = await company({ products: ["HOTEL_MANAGEMENT"], role: "GM",
+                                   name: "Personal Details Ltd" });
+  const staff = await company({ products: ["PLATFORM"], role: "PUBLISHER" });
+
+  const r = await call("/platform/users", { cookie: staff.cookie });
+  assert.equal(r.status, 200);
+  const them = r.json.users.find((u) => u.email === customer.user.email);
+  assert.ok(them, "the customer's user is missing");
+  assert.equal(them.memberships[0].organizationName, "Personal Details Ltd");
+  assert.equal(them.memberships[0].role, "GM");
+
+  /* Support does not need to ring a customer's staff, and a Google subject
+     claim is an identifier for Google's benefit. */
+  const body = JSON.stringify(r.json);
+  assert.ok(!body.includes("+254700000000"), "a user's phone number came through");
+  assert.ok(!/googleSub|sub\d+-/.test(body), "a Google subject claim came through");
+});
+
+test("the audit list shows that something happened, not what was in it", { skip }, async () => {
+  const customer = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+  /* A real write, which records a `detail` containing the customer's fields. */
+  await call("/sites", { method: "POST", cookie: customer.cookie,
+                         body: { name: "Secret Tower", value: 1_000_000 } });
+
+  const staff = await company({ products: ["PLATFORM"], role: "OWNER" });
+  const r = await call("/platform/audit", { cookie: staff.cookie });
+  assert.equal(r.status, 200);
+  const created = r.json.events.find((e) => e.action === "create" && e.entity === "site");
+  assert.ok(created, "the customer's write is not in the log");
+  assert.ok(created.who, "the log does not say who");
+  assert.equal("detail" in created, false,
+    "the audit list returns `detail`, which carries the customer's own field values");
+});
+
+test("every read is audited, naming the member of staff", { skip }, async () => {
+  /*
+   * "Who looked at whose data" has to be answerable without anybody's
+   * cooperation. Written against PALTAS's own organization, so a customer's
+   * trail does not fill with our support activity.
+   */
+  const staff = await company({ products: ["PLATFORM"], role: "MARKETING", name: "PALTAS Audit" });
+  const before = await db.auditEvent.count({ where: { orgId: staff.org.id } });
+
+  for (const p of PATHS) await call(p, { cookie: staff.cookie });
+
+  const after = await db.auditEvent.findMany({
+    where: { orgId: staff.org.id, action: "platform.read" },
+    select: { entity: true, actorId: true, actorName: true },
+  });
+  assert.ok(after.length >= PATHS.length,
+    `${PATHS.length} reads produced ${after.length} audit rows`);
+  assert.equal(after[0].actorId, staff.user.id);
+  assert.ok(after[0].actorName, "the audit row does not name the member of staff");
+  assert.ok(after.length > before, "nothing was written");
+});
+
+test("the console is read-only — it cannot change a customer's business", { skip }, async () => {
+  /* Supporting a customer means seeing what they see, not changing it behind
+     them. The promotion queues are the one place staff act, and they have
+     their own routes and their own rights table. */
+  const staff = await company({ products: ["PLATFORM"], role: "OWNER" });
+  for (const p of PATHS) {
+    for (const method of ["POST", "PATCH", "DELETE"]) {
+      const r = await call(p, { method, cookie: staff.cookie, body: { name: "x" } });
+      assert.ok(r.status === 404 || r.status === 401 || r.status === 403,
+        `${method} ${p} answered ${r.status} — the console is meant to be read-only`);
+    }
+  }
+});
+
+test("it never reaches the resource framework", { skip }, async () => {
+  /*
+   * THE STRUCTURAL GUARANTEE, asserted on the source.
+   *
+   * The alternative design was to make the organization filter in
+   * http/resource.js conditional on holding PLATFORM. That would turn the one
+   * line this product's promise rests on into an `if`. This asserts the
+   * separation is real and not just intended.
+   */
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/routes/platform.js", import.meta.url), "utf8");
+  for (const forbidden of ["resourceRouter", "RESOURCES", "domain/registry"]) {
+    assert.ok(!src.includes(forbidden),
+      `routes/platform.js references ${forbidden} — the cross-tenant console must not ` +
+      `go through the org-scoped framework`);
+  }
+  const framework = readFileSync(new URL("../src/http/resource.js", import.meta.url), "utf8");
+  assert.ok(!/isPlatform|PLATFORM/.test(framework),
+    "http/resource.js knows about PLATFORM — the organization filter has been made " +
+    "conditional, which is the design this console exists to avoid");
+});
+
+test("paging is capped, however large a limit is asked for", { skip }, async () => {
+  const staff = await company({ products: ["PLATFORM"], role: "OWNER" });
+  const r = await call("/platform/organizations?limit=100000", { cookie: staff.cookie });
+  assert.equal(r.status, 200);
+  assert.ok(r.json.organizations.length <= 200, "the cap can be raised by asking");
+});
+
+/* ================================================================ *
+ * THE FOUR NEW QUEUES.
+ * ================================================================ */
+
+test("the moderation queue names the company, never the listing's contents",
+  { skip }, async () => {
+  const staff = await company({ products: ["PLATFORM"], role: "COMPLIANCE", name: "PALTAS" });
+  const cust = await company({ products: ["AGENT_HOST"], role: "OWNER", name: "Fast Lets" });
+
+  const listing = await db.listing.create({
+    data: { orgId: cust.org.id, title: "3-bed apartment, Kilimani",
+            price: 9_500_000n, currency: "KES" },
+  });
+  await db.moderationItem.create({
+    data: { orgId: cust.org.id, listingId: listing.id,
+            title: "3-bed apartment, Kilimani",
+            reason: "Photographs taken from another listing", severity: "HIGH" },
+  });
+
+  const r = await call("/platform/moderation", { cookie: staff.cookie });
+  assert.equal(r.status, 200, r.text.slice(0, 200));
+  assert.equal(r.json.items.length, 1);
+  const it = r.json.items[0];
+  assert.equal(it.organizationName, "Fast Lets");
+  assert.equal(it.severity, "HIGH");
+  assert.equal(it.status, "WAITING");
+  assert.equal(it.listingId, listing.id, "the queue must say WHICH listing");
+  /* The listing's own fields are the customer's copy. Knowing which listing is
+     held is the queue's job; reading its price is not. */
+  assert.ok(!JSON.stringify(r.json).includes("9500000"), "the listing's price leaked");
+
+  /* And a customer cannot read the queue at all, not even their own row. */
+  const denied = await call("/platform/moderation", { cookie: cust.cookie });
+  assert.equal(denied.status, 403, "a customer read the moderation queue");
+});
+
+test("a compliance case carries its clock, and only staff see it", { skip }, async () => {
+  const staff = await company({ products: ["PLATFORM"], role: "COMPLIANCE", name: "PALTAS" });
+  const cust = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+  const due = new Date(Date.now() + 21 * 86400_000);
+  await db.complianceCase.create({
+    data: { orgId: cust.org.id, ref: "C-2209", kind: "Data request",
+            subject: "Grace Wanjiru",
+            detail: "Asked for every record held about her", dueOn: due },
+  });
+
+  const r = await call("/platform/compliance", { cookie: staff.cookie });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.cases.length, 1);
+  assert.equal(r.json.cases[0].ref, "C-2209");
+  assert.equal(r.json.cases[0].status, "OPEN");
+  assert.ok(r.json.cases[0].dueOn, "a statutory case with no due date is unworkable");
+
+  assert.equal((await call("/platform/compliance", { cookie: cust.cookie })).status, 403);
+});
+
+test("the verification queue says what KIND of document, never the document",
+  { skip }, async () => {
+  const staff = await company({ products: ["PLATFORM"], role: "COMPLIANCE", name: "PALTAS" });
+  const waiting = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER",
+                                  name: "Coastal Homes Mombasa" });
+  await db.verification.update({
+    where: { orgId: waiting.org.id },
+    data: {
+      status: "PENDING",
+      documents: [
+        { kind: "identity", url: "https://files.example/passport-scan.pdf" },
+        { kind: "ownership", url: "https://files.example/title-deed.pdf" },
+      ],
+    },
+  });
+
+  const r = await call("/platform/verifications?status=PENDING", { cookie: staff.cookie });
+  assert.equal(r.status, 200, r.text.slice(0, 200));
+  const row = r.json.queue.find((q) => q.organizationName === "Coastal Homes Mombasa");
+  assert.ok(row, "the company waiting for approval is not in the queue");
+  assert.deepEqual(row.documentKinds, ["identity", "ownership"]);
+  assert.equal(row.documentCount, 2);
+  assert.ok(row.contactName, "a queue with nobody to contact cannot be worked");
+
+  /*
+   * THE FILES THEMSELVES DO NOT LEAVE.
+   *
+   * A passport scan is not something a support queue needs in order to say
+   * "identity is still outstanding".
+   */
+  const body = JSON.stringify(r.json);
+  assert.ok(!body.includes("passport-scan"), "a document URL leaked");
+  assert.ok(!body.includes("title-deed"), "a document URL leaked");
+  assert.ok(!/https?:\/\//.test(body), "the queue returned a URL of some kind");
+});
+
+test("the price list is the same for everybody, and has no company", { skip }, async () => {
+  const staff = await company({ products: ["PLATFORM"], role: "OWNER", name: "PALTAS" });
+  await db.plan.createMany({
+    data: [
+      { code: "basic", name: "Basic", price: 1_800_000n, seq: 1,
+        limitText: "Up to 2 properties", propertyCap: 2 },
+      { code: "business", name: "Business", price: 6_400_000n, seq: 2,
+        limitText: "Up to 10 properties", propertyCap: 10 },
+    ],
+    skipDuplicates: true,
+  });
+
+  const r = await call("/platform/plans", { cookie: staff.cookie });
+  assert.equal(r.status, 200, r.text.slice(0, 200));
+  assert.ok(r.json.plans.length >= 2);
+  const basic = r.json.plans.find((p) => p.code === "basic");
+  assert.equal(basic.price, 1_800_000, "a price list that rounds is not a price list");
+  assert.equal(basic.propertyCap, 2);
+  /* No orgId anywhere: a plan belongs to nobody, which is what stops a company
+     editing the price it is charged. */
+  assert.ok(!("organization" in basic) && !("orgId" in basic));
+});

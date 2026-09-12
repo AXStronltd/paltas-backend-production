@@ -204,6 +204,67 @@ test("an unverified company can do everything except publish", () => {
 });
 
 /* ================================================================ */
+test("every one of the twelve states can actually be reached", () => {
+  /*
+   * THE BUG THIS TEST EXISTS FOR.
+   *
+   * `FINAL_APPROVED` was in the enum, in four `from:` arrays, in rights.js as
+   * PUBLISHER.approveFinal and in whoCan() — and NO transition ever wrote it.
+   * The state existed everywhere except in the one place that could produce
+   * it. `EXPIRED` was the same: the public feed hid an out-of-window
+   * promotion correctly, but the row still said PUBLISHED, so a customer's
+   * dashboard and the homepage disagreed about whether their campaign was
+   * running.
+   *
+   * A state in the enum that nothing can write is a state the product claims
+   * to have and does not. Counting arrows is how that gets caught.
+   */
+  const reachable = new Set(["DRAFT"]);          // where every promotion starts
+  for (const t of Object.values(TRANSITIONS)) {
+    for (const from of t.from) reachable.add(t.to(from));
+  }
+  const declared = ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "CHANGES_REQUESTED",
+                    "RESUBMITTED", "MARKETING_APPROVED", "FINAL_APPROVED",
+                    "SCHEDULED", "PUBLISHED", "PAUSED", "EXPIRED", "REJECTED"];
+  const unreachable = declared.filter((s) => !reachable.has(s));
+  assert.deepEqual(unreachable, [],
+    `these states are declared but no transition writes them: ${unreachable.join(", ")}`);
+  assert.equal(reachable.size, 12);
+});
+
+test("final approval is a separate judgement from marketing approval", () => {
+  /* Marketing approving the COPY and a publisher clearing it to GO are
+     different decisions by different people — which is the reason no role
+     here is a superset of the one before it. */
+  assert.ok(TRANSITIONS.approveFinal, "approveFinal transition is missing");
+  assert.deepEqual(TRANSITIONS.approveFinal.from, ["MARKETING_APPROVED"]);
+  assert.equal(TRANSITIONS.approveFinal.to("MARKETING_APPROVED"), "FINAL_APPROVED");
+  assert.equal(TRANSITIONS.approveFinal.right, "approveFinal");
+
+  /* And publishing straight from MARKETING_APPROVED stays allowed, because
+     that is what the console does today and removing it would break a
+     working queue. */
+  assert.ok(TRANSITIONS.publish.from.includes("MARKETING_APPROVED"));
+});
+
+test("expiring is a publisher's act, and only from a live state", () => {
+  assert.ok(TRANSITIONS.expire, "expire transition is missing");
+  assert.equal(TRANSITIONS.expire.to("PUBLISHED"), "EXPIRED");
+  assert.equal(TRANSITIONS.expire.right, "publish");
+  /* Nothing in a draft or a review queue has a run to end. */
+  for (const s of ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "CHANGES_REQUESTED",
+                   "RESUBMITTED", "REJECTED", "MARKETING_APPROVED", "FINAL_APPROVED"]) {
+    assert.ok(!TRANSITIONS.expire.from.includes(s), `expire should not be reachable from ${s}`);
+  }
+});
+
+test("EXPIRED is still not public, however it was reached", () => {
+  /* The whole reason the state is safe to write: one state is public. */
+  assert.equal(PUBLIC_STATES.has("EXPIRED"), false);
+  assert.equal(PUBLIC_STATES.has("FINAL_APPROVED"), false);
+  assert.equal(PUBLIC_STATES.size, 1);
+});
+
 test("there is no arrow from DRAFT to PUBLISHED", () => {
   assert.ok(!TRANSITIONS.publish.from.includes("DRAFT"),
     "a draft could be published in one step");

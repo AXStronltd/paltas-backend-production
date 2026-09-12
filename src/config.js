@@ -47,6 +47,38 @@ function refuseLeakyNames(env) {
   }
 }
 
+/*
+ * THE ORIGINS THIS PLATFORM IS ACTUALLY DEPLOYED ON.
+ *
+ * APP_URL covers wherever the frontend is configured to live, and
+ * ALLOWED_ORIGINS covers whatever somebody adds later. Both are environment
+ * settings, which means both can be wrong or missing in a dashboard nobody
+ * has opened — and a missing origin does not fail loudly. It fails as a CORS
+ * error in one browser, on one deployment, for one person.
+ *
+ * These two are written down because they are facts about the deployment, not
+ * preferences: the Netlify production site and the domain it is moving to.
+ * Naming them here means the API answers both the moment it starts, and the
+ * environment can still add more.
+ *
+ * STILL AN ALLOW-LIST, AND STILL NEVER "*". The session is a cookie, so a
+ * wildcard with credentials hands it to whatever site asks. Adding two known
+ * hostnames is the opposite of that.
+ */
+const PRODUCTION_ORIGINS = [
+  "https://paltas.io",
+  "https://www.paltas.io",
+  "https://paltas-frontend.netlify.app",
+];
+
+/** Same origin listed twice is one origin. Order is kept; first wins. */
+function dedupe(list) {
+  const seen = new Set();
+  return list
+    .map((o) => String(o || "").trim().replace(/\/+$/, ""))
+    .filter((o) => o && !seen.has(o) && (seen.add(o), true));
+}
+
 function read(env) {
   refuseLeakyNames(env);
 
@@ -102,8 +134,12 @@ function read(env) {
      * asks. Extra origins (a staging URL, a local file server used for
      * testing) go in ALLOWED_ORIGINS, comma separated.
      */
-    origins: [appUrl, ...String(env.ALLOWED_ORIGINS || "")
-      .split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean)],
+    origins: dedupe([
+      appUrl,
+      ...PRODUCTION_ORIGINS,
+      ...String(env.ALLOWED_ORIGINS || "")
+        .split(",").map((s) => s.trim().replace(/\/+$/, "")).filter(Boolean),
+    ]),
 
     /* Secure unless something explicitly turns it off for local http. */
     secureCookies: env.INSECURE_COOKIES !== "1",

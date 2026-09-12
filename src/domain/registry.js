@@ -230,6 +230,54 @@ export const RESOURCES = {
     order: [{ name: "asc" }],
   },
 
+  /*
+   * WHAT GUESTS HAVE ASKED FOR — the staff side of the guest portal.
+   *
+   * The guest writes these through routes/guest.js, scoped to themselves. This
+   * is the other half: the hotel reading its own queue, scoped to the
+   * organization like everything else, so a front desk can acknowledge, answer
+   * and close them.
+   *
+   * `kind`, `detail` and `note` are the GUEST'S words and are not writable
+   * here — staff answering a request must not be able to rewrite what was
+   * asked. What staff may set is the state and the reply.
+   */
+  "guest-requests": {
+    model: "guestRequest", area: "hotel", product: "HOTEL_MANAGEMENT",
+    label: "guest requests",
+    fields: {
+      status: "enum:GuestRequestStatus",
+      response: "text",
+      resolvedAt: "date",
+    },
+    required: [],
+    search: ["detail", "note", "response"],
+    order: [{ createdAt: "desc" }],
+    include: {
+      reservation: { select: { id: true, ref: true, guestName: true, roomNumber: true } },
+    },
+    /*
+     * A GUEST'S REQUEST IS NOT DELETED.
+     *
+     * "I asked for this and nobody came" is a complaint a property has to be
+     * able to answer months later. Declining one is a state with a reason
+     * attached; removing the row removes the evidence.
+     */
+    /*
+     * NOTHING CREATES ONE THROUGH THE STAFF API.
+     *
+     * A guest request is made BY THE GUEST, at POST /guest/requests, scoped to
+     * them. A front desk raising one on a guest's behalf would be a record
+     * saying a guest asked for something they did not ask for — so the staff
+     * create endpoint is not registered at all, rather than registered and
+     * guarded.
+     */
+    noCreate: "A guest request is made by the guest at POST /guest/requests. " +
+              "Staff acknowledge, answer and close it; they do not raise it.",
+    noDelete: "A guest request is declined with a reason, never deleted — " +
+              "PATCH it to DECLINED and say why in `response`.",
+  },
+
   /* ================================================== AGENT & HOST */
 
   listings: {
@@ -370,6 +418,9 @@ export const RESOURCES = {
     },
     required: ["guard"],
     search: ["guard", "post"],
+    /* The site's NAME, so a rota can say where a shift is. A column of ids
+       tells a supervisor nothing. */
+    include: { site: { select: { id: true, name: true } } },
     order: [{ startsAt: "desc" }],
   },
 
@@ -454,7 +505,16 @@ export const RESOURCES = {
      */
     ownCreate: "POST /payments is hand-written in routes/products.js — it takes the " +
                "currency from the invoice and recomputes what is owed.",
-    include: { invoice: { select: { id: true, ref: true, total: true, currency: true } } },
+    include: { invoice: {
+        select: {
+          id: true, ref: true, total: true, currency: true,
+          /* WHO the money came from. Without this the finance screens read
+             `payment.invoice.party.name` and get nothing, so every row in the
+             ledger showed its payer as "—" — a real payment with an unnamed
+             payer, which is not much use on a reconciliation screen. */
+          party: { select: { id: true, name: true } },
+        },
+      } },
   },
 
   expenses: {
@@ -469,6 +529,17 @@ export const RESOURCES = {
     required: ["detail"],
     search: ["detail", "category"],
     order: [{ spentOn: "desc" }],
+    /*
+     * WHO WAS PAID, WITHOUT A SECOND REQUEST.
+     *
+     * An expense carries a `partyId` and nothing read it back, so a finance
+     * screen listing fifty expenses could show fifty amounts and not one
+     * vendor name — or make fifty more requests to find them. `payouts` has
+     * always included its party for exactly this reason; this is the same two
+     * columns, and no more than two: an include without a `select` is how a
+     * contact's phone number ends up in a list nobody meant to expose it in.
+     */
+    include: { party: { select: { id: true, name: true } } },
   },
 
   payouts: {
@@ -490,6 +561,216 @@ export const RESOURCES = {
     order: [{ createdAt: "desc" }],
     include: { party: { select: { id: true, name: true } } },
   },
+  /* ================================================================ *
+   * PROPERTY DEVELOPMENT.
+   *
+   * Area `property`, product PROPERTY_MANAGEMENT — the same pair `projects`
+   * has always used. See the note above Investor in schema.prisma for why
+   * this is not its own product value.
+   * ================================================================ */
+
+  investors: {
+    model: "investor", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "investors",
+    fields: {
+      name: "string", kind: "enum:InvestorKind", units: "int",
+      committed: "money", paid: "money", currency: "string",
+      yieldBps: "int", since: "date", status: "enum:InvestorStatus",
+      note: "text",
+    },
+    required: ["name"],
+    search: ["name", "note"],
+    order: [{ name: "asc" }],
+  },
+
+  distributions: {
+    model: "distribution", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "distributions",
+    fields: {
+      investorId: "id:investor", period: "string", amount: "money",
+      currency: "string", status: "enum:DistributionStatus",
+      paidOn: "date", note: "text",
+    },
+    required: ["period"],
+    search: ["period", "note"],
+    order: [{ createdAt: "desc" }],
+    include: { investor: { select: { id: true, name: true } } },
+  },
+
+  "capital-calls": {
+    model: "capitalCall", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "capital calls",
+    fields: {
+      investorId: "id:investor", projectId: "id:project", ref: "string",
+      amount: "money", currency: "string", dueOn: "date",
+      status: "enum:CapitalCallStatus", note: "text",
+    },
+    required: ["ref"],
+    search: ["ref", "note"],
+    order: [{ createdAt: "desc" }],
+    include: {
+      investor: { select: { id: true, name: true } },
+      project: { select: { id: true, name: true } },
+    },
+    prefix: "CC",
+  },
+
+  /* ================================================================ *
+   * HOTEL MANAGEMENT.
+   * ================================================================ */
+
+  channels: {
+    model: "channel", area: "hotel", product: "HOTEL_MANAGEMENT",
+    label: "channels",
+    fields: {
+      name: "string", mark: "string", status: "enum:ChannelStatus",
+      mapped: "int", total: "int", commissionBps: "int",
+      lastSyncAt: "date", note: "text",
+    },
+    required: ["name"],
+    search: ["name", "note"],
+    order: [{ name: "asc" }],
+  },
+
+  "rate-rules": {
+    model: "rateRule", area: "hotel", product: "HOTEL_MANAGEMENT",
+    label: "rate rules",
+    fields: {
+      name: "string", whenText: "text", moveBps: "int",
+      active: "bool", hits: "int",
+    },
+    required: ["name"],
+    search: ["name", "whenText"],
+    order: [{ name: "asc" }],
+  },
+
+  "group-bookings": {
+    model: "groupBooking", area: "hotel", product: "HOTEL_MANAGEMENT",
+    label: "group bookings",
+    fields: {
+      partyId: "id:party", ref: "string", orgName: "string", event: "string",
+      rooms: "int", nights: "int", fromOn: "date", value: "money",
+      currency: "string", paid: "money",
+      status: "enum:GroupBookingStatus", note: "text",
+    },
+    required: ["ref"],
+    search: ["ref", "orgName", "event"],
+    order: [{ fromOn: "asc" }],
+    include: { party: { select: { id: true, name: true } } },
+    prefix: "GRP",
+  },
+
+  "audit-tasks": {
+    model: "nightAuditTask", area: "hotel", product: "HOTEL_MANAGEMENT",
+    label: "night audit tasks",
+    fields: {
+      title: "string", detail: "text", runOn: "date", done: "bool",
+      doneAt: "date", doneBy: "string", seq: "int",
+    },
+    required: ["title", "runOn"],
+    search: ["title", "detail"],
+    order: [{ seq: "asc" }],
+  },
+
+  /* ================================================================ *
+   * SECURITY MANAGEMENT.
+   * ================================================================ */
+
+  cameras: {
+    model: "camera", area: "security", product: "SECURITY_MANAGEMENT",
+    label: "cameras",
+    fields: {
+      siteId: "id:site", name: "string", place: "string",
+      status: "enum:CameraStatus", lastSeenAt: "date",
+    },
+    required: ["name"],
+    search: ["name", "place"],
+    order: [{ name: "asc" }],
+    include: { site: { select: { id: true, name: true } } },
+  },
+
+  "guard-tasks": {
+    model: "guardTask", area: "security", product: "SECURITY_MANAGEMENT",
+    label: "guard tasks",
+    fields: {
+      siteId: "id:site", shiftId: "id:guardShift", title: "string",
+      dueAt: "string", status: "enum:GuardTaskStatus", note: "text",
+      doneAt: "date",
+    },
+    required: ["title"],
+    search: ["title", "note"],
+    order: [{ dueAt: "asc" }],
+  },
+
+  "emergency-plans": {
+    model: "emergencyPlan", area: "security", product: "SECURITY_MANAGEMENT",
+    label: "emergency plans",
+    fields: {
+      siteId: "id:site", kind: "string", where: "string",
+      procedure: "text", drillNote: "text", lastDrill: "date",
+      status: "enum:EmergencyStatus",
+    },
+    required: ["kind"],
+    search: ["kind", "where", "procedure"],
+    order: [{ kind: "asc" }],
+    include: { site: { select: { id: true, name: true } } },
+  },
+
+  /* ================================================================ *
+   * AGENT & HOST.
+   * ================================================================ */
+
+  conversations: {
+    model: "conversation", area: "agent", product: "AGENT_HOST",
+    label: "conversations",
+    fields: {
+      partyId: "id:party", withName: "string", subject: "string",
+      lastText: "text", lastAt: "date", unread: "int", closed: "bool",
+    },
+    required: ["withName"],
+    search: ["withName", "subject", "lastText"],
+    order: [{ lastAt: "desc" }],
+    include: { party: { select: { id: true, name: true } } },
+  },
+
+  messages: {
+    model: "message", area: "agent", product: "AGENT_HOST",
+    label: "messages",
+    fields: {
+      conversationId: "id:conversation", direction: "enum:MessageDirection",
+      authorName: "string", body: "text", readAt: "date",
+    },
+    required: ["conversationId", "body"],
+    search: ["body", "authorName"],
+    order: [{ createdAt: "desc" }],
+  },
+
+  "ops-tasks": {
+    model: "opsTask", area: "agent", product: "AGENT_HOST",
+    label: "turnover tasks",
+    fields: {
+      unitId: "id:unit", title: "string", assignee: "string",
+      dueAt: "date", status: "enum:OpsTaskStatus", note: "text",
+    },
+    required: ["title"],
+    search: ["title", "assignee", "note"],
+    order: [{ dueAt: "asc" }],
+    include: { unit: { select: { id: true, ref: true } } },
+  },
+
+  "pricing-rules": {
+    model: "pricingRule", area: "agent", product: "AGENT_HOST",
+    label: "pricing rules",
+    fields: {
+      unitId: "id:unit", label: "string", base: "money", currency: "string",
+      weekendBps: "int", monthlyBps: "int", minNights: "int", auto: "bool",
+    },
+    required: ["label"],
+    search: ["label"],
+    order: [{ label: "asc" }],
+    include: { unit: { select: { id: true, ref: true } } },
+  },
+
 };
 
 /** `/hotel/rooms` → the declaration, or undefined. */

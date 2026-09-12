@@ -96,9 +96,41 @@ test("extra origins are parsed, trimmed and de-slashed", () => {
     ...ok,
     ALLOWED_ORIGINS: " https://staging.paltas.io/ , http://127.0.0.1:8899 ,, ",
   });
-  assert.deepEqual(c.origins, [
-    "https://paltas.io", "https://staging.paltas.io", "http://127.0.0.1:8899",
-  ]);
+  /* Trailing slashes removed, whitespace trimmed, empty entries dropped. */
+  assert.ok(c.origins.includes("https://staging.paltas.io"), "trailing slash not removed");
+  assert.ok(c.origins.includes("http://127.0.0.1:8899"), "whitespace not trimmed");
+  assert.equal(c.origins.filter((o) => o === "").length, 0, "an empty entry survived");
+});
+
+test("the deployment's own origins are allowed without anybody setting a variable", () => {
+  /*
+   * WHY THESE ARE IN CODE AND NOT ONLY IN THE ENVIRONMENT.
+   *
+   * APP_URL and ALLOWED_ORIGINS are both dashboard settings, so both can be
+   * missing or wrong in a console nobody has opened — and a missing origin
+   * does not fail loudly at boot. It fails as a CORS error, in one browser, on
+   * one deployment, for one person, long after the deploy looked fine.
+   *
+   * The production hostnames are facts about where this is deployed, not
+   * preferences, so they are written down.
+   */
+  const c = readConfig({ ...ok });
+  for (const o of ["https://paltas.io", "https://www.paltas.io",
+                   "https://paltas-frontend.netlify.app"]) {
+    assert.ok(c.origins.includes(o), `${o} is not allowed to call the API`);
+  }
+});
+
+test("it is still an allow-list, and an origin listed twice is listed once", () => {
+  /* APP_URL repeats a production origin here. A duplicate is harmless to a
+     Set but makes the list misleading to read, and a wildcard would be a
+     different thing entirely — the session is a cookie, so "*" with
+     credentials hands it to whatever site asks. */
+  const c = readConfig({ ...ok, ALLOWED_ORIGINS: "https://paltas.io, https://paltas.io/" });
+  assert.equal(c.origins.filter((o) => o === "https://paltas.io").length, 1,
+    "https://paltas.io appears more than once");
+  assert.equal(c.origins.includes("*"), false, "a wildcard origin must never appear");
+  assert.ok(c.origins.length >= 3);
 });
 
 test("cookies are secure unless something explicitly turns that off", () => {

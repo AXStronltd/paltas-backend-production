@@ -117,6 +117,22 @@ const EXEMPT = [
          "PUBLIC_STATES, not from tenancy, and rules.test.js covers that " +
          "exhaustively.",
   },
+  {
+    file: "platform.js",
+    /* Marked at EVERY query site, not once at the top of the file — a reviewer
+       reading any one of these queries sees the exemption beside it, and a new
+       query added without the marker fails this test rather than inheriting a
+       blanket pass. */
+    match: /CROSS-TENANT BY DESIGN — requirePlatform\(\) above, read-only, audited below\./,
+    why: "The PALTAS staff console. It is cross-tenant BY DESIGN — supporting a " +
+         "customer means being able to see them — and it is a separate file for " +
+         "exactly that reason, so the organization filter in http/resource.js " +
+         "stays unconditional rather than becoming an `if`. Its safety comes from " +
+         "requirePlatform() (the PLATFORM entitlement AND a staff role), from " +
+         "being read-only, from returning counts rather than contents, and from " +
+         "auditing every read. platform-api.test.js covers all four, and asserts " +
+         "this file never touches the resource framework.",
+  },
 ];
 
 /* ================================================================ */
@@ -156,7 +172,16 @@ test("a model with no organization of its own inherits one from its parent", () 
    * transitively, and a query that joins through the parent is scoped.
    */
   const owned = orgOwned();
-  const ROOTS = new Set(["User", "Organization", "Counter"]);
+  /*
+   * The models that belong to NOBODY, on purpose.
+   *
+   * A User spans companies, an Organization IS the company, a Counter is
+   * per-company by its `name` rather than a column — and a Plan is PALTAS's
+   * price list, the same for every customer, like a country code. Giving Plan
+   * an orgId would invite exactly the bug it would then hide: a company
+   * quietly editing the price it is charged.
+   */
+  const ROOTS = new Set(["User", "Organization", "Counter", "Plan"]);
 
   for (const [name, body] of models()) {
     if (owned.has(name) || orgReferencing().has(name) || ROOTS.has(name)) continue;
@@ -315,6 +340,19 @@ test("nothing trusts an organization id sent by the caller", () => {
   const offenders = [];
   for (const file of routeFiles()) {
     const name = file.split("/").pop();
+    /*
+     * THE STAFF CONSOLE IS NOT MAKING A TRUST DECISION.
+     *
+     * `GET /platform/audit?organization=…` narrows a list the caller may
+     * already see in full — every PLATFORM staff member can read every
+     * company, so naming one is a FILTER, not an escalation. There is nothing
+     * a membership check could add: the answer would be the same either way.
+     *
+     * Skipped here rather than given a fake membership lookup, because a
+     * check that exists only to satisfy a test is worse than no check: the
+     * next reader believes it does something.
+     */
+    if (name === "platform.js") continue;
     const text = readFileSync(file, "utf8");
     for (const m of text.matchAll(/req\.(body|query|params)\??\.\w*[Oo]rg\w*/g)) {
       const line = text.slice(0, m.index).split("\n").length;
@@ -381,10 +419,10 @@ test("every query the resource framework makes is scoped to one company", () => 
     /(?:model\(\)|db\[[^\]]+\])\.(findMany|findFirst|findUnique|updateMany|deleteMany|create|count)\(/g)) {
     const line = text.slice(0, m.index).split("\n").length;
 
-    /* Thirty lines BACK, because `where` is very often built well above the
-       call — `const where = { orgId }; if (…) where.x = …`. A window that
-       only looks forward reports that as unscoped, and a test that cries
-       wolf is one people learn to ignore. */
+    /* A window BACK, because `where` is very often built well above the call
+       — `const where = { orgId }; if (…) where.x = …`. A window that only
+       looks forward reports that as unscoped, and a test that cries wolf is
+       one people learn to ignore. */
     const context = lines.slice(Math.max(0, line - 30), line + 14).join("\n");
 
     const exempt = EXEMPT_HERE.find((e) => context.includes("function " + e.fn));
@@ -392,9 +430,44 @@ test("every query the resource framework makes is scoped to one company", () => 
 
     /* A create puts orgId IN, the rest filter BY it. Both count; neither
        may be absent. */
-    if (!/orgId/.test(context)) {
-      problems.push(`resource.js:${line}  .${m[1]}()  — no orgId anywhere near it`);
+    if (/orgId/.test(context)) continue;
+
+    /*
+     * AND IF IT IS NOT IN THE WINDOW, FOLLOW THE VARIABLE.
+     *
+     * A fixed lookback is the fragile part of this test: the list query
+     * builds `where` and then spends thirty lines narrowing it by status,
+     * id fields, search and paging, so one more line of narrowing pushes
+     * `orgId` out of sight and this test fails on code that is correct.
+     *
+     * Widening the window would be the easy fix and the wrong one — it
+     * weakens every other case to accommodate one. So instead: when the
+     * call passes `where` (or `where: NAME`), find where that variable was
+     * declared and look THERE. That is the actual invariant — not "orgId is
+     * nearby" but "the filter this query uses was built with orgId" — and
+     * it cannot be defeated by adding lines.
+     */
+    const call = lines.slice(line - 1, line + 12).join("\n");
+    /* Either `where: NAME` or the shorthand `where,` — which is what the list
+       query actually writes, and what this test missed the first time. */
+    const passed = call.match(/\bwhere\s*:\s*([A-Za-z_$][\w$]*)\s*[,\n}]/)
+                || call.match(/\bwhere\s*[,\n]/);
+    if (passed) {
+      const name = passed[1] || "where";
+      /* The nearest declaration ABOVE the call wins — the same one the
+         running code would have closed over. */
+      const before = text.slice(0, m.index);
+      const decl = [...before.matchAll(
+        new RegExp("(?:const|let|var)\\s+" + name + "\\s*=\\s*\\{", "g"))].pop();
+      if (decl) {
+        /* From the declaration to the call — everything that built it. */
+        const built = before.slice(decl.index);
+        if (/orgId/.test(built)) continue;
+      }
     }
+
+    problems.push(`resource.js:${line}  .${m[1]}()  — no orgId anywhere near it, ` +
+      `and no org-scoped \`where\` it could be using`);
   }
 
   assert.ok(problems.length === 0,
@@ -402,10 +475,20 @@ test("every query the resource framework makes is scoped to one company", () => 
     "in the product API is built from this file, so one unscoped query here is " +
     "unscoped everywhere:\n  " + problems.join("\n  "));
 
-  /* And the specific line the whole design rests on. */
-  assert.match(text, /const where = \{ orgId: req\.actor\.orgId \}/,
-    "the list endpoint no longer starts from a scoped `where` — that one line is " +
-    "what makes every list in the product API safe");
+  /*
+   * And the specific thing the whole design rests on: the list `where` OPENS
+   * with the session's organization.
+   *
+   * `\{\s*orgId` is the assertion — `{` then whitespace then orgId, so no other
+   * key can precede it and nothing can be spread in ahead of it. What comes
+   * AFTER is allowed to grow: site scope narrows it further in the same
+   * literal, and the next thing will too. Pinning the exact characters
+   * `{ orgId: req.actor.orgId }` would fail on a correct narrowing, which
+   * teaches whoever hits it to loosen the regex rather than read it.
+   */
+  assert.match(text, /const where = \{\s*orgId: req\.actor\.orgId\b/,
+    "the list endpoint no longer starts from a scoped `where` — that is what " +
+    "makes every list in the product API safe");
   assert.match(text, /data: \{ \.\.\.data, orgId: req\.actor\.orgId \}/,
     "create no longer puts the session's organization LAST. Spread order is what " +
     "stops a declaration that mistakenly allowed orgId from letting a request choose it.");

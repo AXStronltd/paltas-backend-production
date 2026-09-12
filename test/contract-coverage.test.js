@@ -140,7 +140,7 @@ const STATUS = {
   "GET /onboarding/next":
     ["later", "the frontend owns onboarding today"],
   "PUT /{system}/{screen}":
-    ["served", "PATCH /<resource>/:id, on all 28 resources"],
+    ["served", "PATCH /<resource>/:id, on every resource in the registry"],
 
   /* ---- somebody else's job ----------------------------------------- */
   "GET https://paltas.io":

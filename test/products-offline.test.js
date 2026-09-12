@@ -169,12 +169,19 @@ test("one company cannot read, change or delete another's rows", { skip }, async
   assert.equal(still.json.site.name, "A's headquarters", "the other company changed it anyway");
 });
 
-test("the wall holds for every one of the 28 resources", { skip }, async () => {
+/* The count comes from the registry, not from a number typed here: it said 28
+   for as long as there were 43 resources, and a stale number in a test name is
+   a quiet claim that the sweep is smaller than it is. */
+test(`the wall holds for every one of the ${Object.keys(RESOURCES).length} resources`,
+  { skip }, async () => {
   const a = await company({ products: EVERYTHING, role: "OWNER" });
   const b = await company({ products: EVERYTHING, role: "OWNER" });
 
   const created = {};
   for (const [slug, r] of Object.entries(RESOURCES)) {
+    /* Nothing creates these through the staff API — see `noCreate`. Their wall
+       is covered by the guest portal's own tests, where the caller is a guest. */
+    if (r.noCreate) continue;
     const made = await call(`/${slug}`, {
       method: "POST", cookie: a.cookie, body: sample(r, `A's ${slug}`, created),
     });

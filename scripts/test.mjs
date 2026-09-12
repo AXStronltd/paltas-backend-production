@@ -17,6 +17,12 @@
  * service. So the flag is added only when it will be understood, and when
  * it is not, the files that need it skip themselves and say so.
  *
+ * frontend-contract.test.js is the same arrangement for the OTHER repository:
+ * it loads the frontend's real script tags under a small DOM and checks the
+ * two repositories still agree. It looks for `../paltas-frontend 2` beside
+ * this one, or wherever PALTAS_FRONTEND points, and skips when neither is
+ * there — a backend checkout on its own is not a broken backend.
+ *
  * Everything else — the schema against a real PostgreSQL, the rules, the
  * contract coverage — runs on any Node 18 or later.
  * ====================================================================== */

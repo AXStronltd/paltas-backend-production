@@ -29,6 +29,7 @@ import { RESOURCES } from "../domain/registry.js";
 import { resourceRouter } from "../http/resource.js";
 import { clean } from "../domain/input.js";
 import { allows, whyNotArea } from "../domain/access.js";
+import { scopedTo } from "../domain/scope.js";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.js";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
@@ -87,6 +88,52 @@ async function audit(req, action, entity, entityId, detail) {
  * customer's own books would then disagree with their bank.
  * ====================================================================== */
 
+/* ====================================================================== *
+ * MONEY ARITHMETIC, NOW IN BigInt.
+ *
+ * Amounts are BigInt since prisma/migrations/…_money_bigint — INT4 could not
+ * hold a Nairobi valuation. That changes arithmetic everywhere money is
+ * touched, because JavaScript REFUSES to mix the two:
+ *
+ *     1n + 1        TypeError: Cannot mix BigInt and other types
+ *
+ * Which is the right behaviour and the reason this is safe to do: there is no
+ * silent coercion to find later in a total that is out by a rounding step.
+ * Every site below was found by that error.
+ * ====================================================================== */
+
+/** A BigInt from whatever the database or a request body supplied. */
+const big = (v) => (typeof v === "bigint" ? v : BigInt(Math.round(Number(v) || 0)));
+
+/**
+ * Tax, in basis points, rounded the way the Number version rounded.
+ *
+ * BigInt division TRUNCATES toward zero; `Math.round` did not. On a 16% line
+ * that is a one-minor-unit difference per line, which is exactly the kind of
+ * discrepancy that makes a customer's books disagree with their invoice by a
+ * few cents and nobody can say why. So the half is added back explicitly,
+ * with the sign handled rather than assumed.
+ */
+function taxOn(net, bps) {
+  const x = net * big(bps);
+  const half = 5000n;
+  return x >= 0n ? (x + half) / 10000n : -((-x + half) / 10000n);
+}
+
+/** Absolute value, for a figure that may legitimately be negative. */
+const abs = (v) => (v < 0n ? -v : v);
+
+/**
+ * Money going into an audit `detail`, which is a Json column.
+ *
+ * Prisma cannot serialise a BigInt into Json, and an audit write is
+ * best-effort — so a BigInt left in here would turn "record what happened"
+ * into a silent catch. Numbers are exact to 9e15 minor units, which every
+ * real figure is far below, and the audit trail is a record rather than a
+ * ledger the books are reconciled from.
+ */
+const auditable = (v) => (typeof v === "bigint" ? Number(v) : v);
+
 /**
  * Sum the lines, sum the payments, work out the status, write all three.
  *
@@ -111,16 +158,16 @@ export async function recomputeInvoice(invoiceId, orgId) {
   });
   if (!invoice) return null;
 
-  let total = 0;
+  let total = 0n;
   for (const l of invoice.lines) {
-    const net = l.unitPrice * l.quantity;
-    total += net + Math.round((net * l.taxBps) / 10000);
+    const net = big(l.unitPrice) * big(l.quantity);
+    total += net + taxOn(net, l.taxBps);
   }
 
   /* A voided payment has not been received. */
   const paid = invoice.payments
     .filter((p) => !p.voided)
-    .reduce((sum, p) => sum + p.amount, 0);
+    .reduce((sum, p) => sum + big(p.amount), 0n);
 
   /*
    * STATUS FOLLOWS THE MONEY, except where a person has decided otherwise.
@@ -130,8 +177,8 @@ export async function recomputeInvoice(invoiceId, orgId) {
    */
   let status = invoice.status;
   if (status !== "DRAFT" && status !== "VOID") {
-    if (paid >= total && total > 0) status = "PAID";
-    else if (paid > 0) status = "PART_PAID";
+    if (paid >= total && total > 0n) status = "PAID";
+    else if (paid > 0n) status = "PART_PAID";
     else if (invoice.dueOn && invoice.dueOn < new Date()) status = "OVERDUE";
     else status = "SENT";
   }
@@ -234,7 +281,7 @@ guarded.post("/payments", async (req, res, next) => {
 
     const updated = invoice ? await recomputeInvoice(invoice.id, req.actor.orgId) : null;
     await audit(req, "payment.receive", "payment", payment.id,
-      { amount: payment.amount, currency: payment.currency, method: payment.method });
+      { amount: auditable(payment.amount), currency: payment.currency, method: payment.method });
 
     res.status(201).json({ payment, invoice: updated });
   } catch (e) { next(e); }
@@ -265,7 +312,8 @@ guarded.post("/payments/:id/void", async (req, res, next) => {
     });
 
     const invoice = payment.invoiceId ? await recomputeInvoice(payment.invoiceId, req.actor.orgId) : null;
-    await audit(req, "payment.void", "payment", payment.id, { reason: why, amount: payment.amount });
+    await audit(req, "payment.void", "payment", payment.id,
+      { reason: why, amount: auditable(payment.amount) });
 
     res.json({ payment: await db.payment.findUnique({ where: { id: payment.id } }), invoice });
   } catch (e) { next(e); }
@@ -298,7 +346,7 @@ guarded.get("/reservations/:id/folio", async (req, res, next) => {
       });
     }
 
-    const balance = folio.lines.reduce((sum, l) => sum + l.amount, 0);
+    const balance = folio.lines.reduce((sum, l) => sum + big(l.amount), 0n);
     res.json({ folio, balance, currency: folio.currency });
   } catch (e) { next(e); }
 });
@@ -346,11 +394,11 @@ guarded.post("/reservations/:id/folio/close", async (req, res, next) => {
     if (!folio) throw hidden();
     if (folio.closed) throw conflict("That folio is already closed.");
 
-    const balance = folio.lines.reduce((sum, l) => sum + l.amount, 0);
-    if (balance !== 0 && !req.body?.force) {
+    const balance = folio.lines.reduce((sum, l) => sum + big(l.amount), 0n);
+    if (balance !== 0n && !req.body?.force) {
       throw conflict(
-        `That bill does not balance — ${balance > 0 ? "outstanding" : "overpaid by"} ` +
-        `${Math.abs(balance)} ${folio.currency} in minor units. Post the payment first, ` +
+        `That bill does not balance — ${balance > 0n ? "outstanding" : "overpaid by"} ` +
+        `${abs(balance)} ${folio.currency} in minor units. Post the payment first, ` +
         `or send force: true to close it anyway and leave the difference on the record.`);
     }
 
@@ -358,7 +406,7 @@ guarded.post("/reservations/:id/folio/close", async (req, res, next) => {
       where: { id: folio.id },
       data: { closed: true, closedAt: new Date() },
     });
-    await audit(req, "folio.close", "folio", folio.id, { balance });
+    await audit(req, "folio.close", "folio", folio.id, { balance: auditable(balance) });
     res.json({ closed: folio.id, balance });
   } catch (e) { next(e); }
 });
@@ -417,6 +465,90 @@ guarded.post("/visits/:id/leave", async (req, res, next) => {
 });
 
 /* ====================================================================== *
+ * 6b. TWO LISTS THE FRAMEWORK CANNOT BUILD.
+ *
+ * Every other list in this file comes from registry.js, which needs a model
+ * with an `orgId` of its own. These two do not have one:
+ *
+ *   Membership  belongs to an organization AND a user, and the generic
+ *               framework would happily let somebody PATCH a role — which is
+ *               how a member promotes themselves. Read-only, here, on purpose.
+ *   FolioLine   belongs to a Folio, which belongs to a Reservation, which
+ *               belongs to an organization. The company is two joins away.
+ *
+ * Both already had a screen waiting for them: the staff directory and the
+ * hotel's charge list were drawing invented rows — a fabricated colleague
+ * with a role, a fabricated charge against a room.
+ * ====================================================================== */
+
+/* The company's own people. Read-only: roles are changed through the
+   membership flow, not by PATCHing a directory. */
+guarded.get("/members", async (req, res, next) => {
+  try {
+    need(req, "people", "list", "people");
+    const rows = await db.membership.findMany({
+      where: { orgId: req.actor.orgId },
+      include: { user: { select: { id: true, name: true, email: true } } },
+      orderBy: { createdAt: "asc" },
+      take: 500,
+    });
+    res.json({
+      members: rows.map((m) => ({
+        id: m.id,
+        userId: m.userId,
+        name: m.user.name || m.user.email,
+        email: m.user.email,
+        role: m.role,
+        /* The remit, as stored. `sites` is a list of ids; the console shows
+           how MANY, because a directory listing every gate each guard covers
+           is a map of the company's weak points. */
+        scope: m.scope && m.scope.all === true ? { all: true }
+             : { sites: Array.isArray(m.scope && m.scope.sites) ? m.scope.sites.length : 0 },
+        since: m.createdAt,
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+/* Every charge and payment posted to a folio, across the property. */
+guarded.get("/folio-lines", async (req, res, next) => {
+  try {
+    need(req, "hotel", "list", "folio lines");
+    if (!req.actor.products.includes("HOTEL_MANAGEMENT")) {
+      throw forbidden("This company has no hotel management, so it has no folios.");
+    }
+    const take = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+    const rows = await db.folioLine.findMany({
+      /* FolioLine carries no orgId. It is scoped through its folio, which
+         does — the same way every event table in this schema is scoped. */
+      where: { folio: { orgId: req.actor.orgId } },
+      include: {
+        folio: {
+          select: {
+            currency: true, closed: true,
+            reservation: { select: { ref: true, roomNumber: true, guestName: true } },
+          },
+        },
+      },
+      orderBy: { at: "desc" },
+      take,
+    });
+    res.json({
+      "folio-lines": rows.map((l) => ({
+        id: l.id, kind: l.kind, detail: l.detail, amount: l.amount, at: l.at,
+        currency: l.folio.currency,
+        closed: l.folio.closed,
+        ref: l.folio.reservation ? l.folio.reservation.ref : "",
+        roomNumber: l.folio.reservation ? l.folio.reservation.roomNumber : "",
+        guestName: l.folio.reservation ? l.folio.reservation.guestName : "",
+        /* postedBy is deliberately absent — see the note in guest.js. Who
+           keyed a charge is staff information, not a line on a report. */
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+/* ====================================================================== *
  * 7. WHAT A CONSOLE OPENS ON.
  *
  * One request rather than nine. A front desk loading nine separate lists to
@@ -434,22 +566,34 @@ guarded.get("/summary", async (req, res, next) => {
      * Every count is scoped, and each is skipped entirely when the role
      * cannot see that area — a guard's summary must not carry the number of
      * unpaid invoices, because that number is itself information.
+     *
+     * AND SCOPED AGAIN BY SITE, where the model carries one.
+     *
+     * Without this a site manager reads "2 sites" on the tile above a list
+     * showing one, and the number they cannot reconcile is the number they
+     * stop trusting. A count is information too: "14 open incidents" across
+     * a company tells somebody restricted to one gate how busy the others
+     * are. `at(model)` returns nothing when the model has no site, which is
+     * the same honest limit the lists have — see src/domain/scope.js.
      */
+    const at = (model) => scopedTo(req.actor, model) || {};
     const may = (area) => allows(req.actor, area, "list");
     const has = (product) => req.actor.products.includes(product);
 
     const jobs = {};
     if (may("property") && has("PROPERTY_MANAGEMENT")) {
-      jobs.units = db.unit.count({ where: { orgId } });
-      jobs.vacantUnits = db.unit.count({ where: { orgId, status: "VACANT" } });
+      jobs.units = db.unit.count({ where: { orgId, ...at("unit") } });
+      jobs.vacantUnits = db.unit.count({ where: { orgId, ...at("unit"), status: "VACANT" } });
       jobs.activeLeases = db.lease.count({ where: { orgId, status: "ACTIVE" } });
     }
     if (may("maintenance")) {
       jobs.openWorkOrders = db.workOrder.count({
-        where: { orgId, status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS", "BLOCKED"] } },
+        where: { orgId, ...at("workOrder"),
+                 status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS", "BLOCKED"] } },
       });
       jobs.urgentWorkOrders = db.workOrder.count({
-        where: { orgId, priority: "URGENT", status: { notIn: ["DONE", "CANCELLED"] } },
+        where: { orgId, ...at("workOrder"),
+                 priority: "URGENT", status: { notIn: ["DONE", "CANCELLED"] } },
       });
     }
     if (may("hotel") && has("HOTEL_MANAGEMENT")) {
@@ -457,17 +601,17 @@ guarded.get("/summary", async (req, res, next) => {
         where: { orgId, arriveOn: { gte: startOfDay }, status: { in: ["CONFIRMED", "PENDING"] } },
       });
       jobs.inHouse = db.reservation.count({ where: { orgId, status: "CHECKED_IN" } });
-      jobs.roomsToClean = db.room.count({ where: { orgId, housekeeping: "DIRTY" } });
+      jobs.roomsToClean = db.room.count({ where: { orgId, ...at("room"), housekeeping: "DIRTY" } });
     }
     if (may("agent") && has("AGENT_HOST")) {
       jobs.liveListings = db.listing.count({ where: { orgId, status: "LIVE" } });
       jobs.openLeads = db.lead.count({ where: { orgId, stage: { notIn: ["CLOSED", "LOST"] } } });
     }
     if (may("security") && has("SECURITY_MANAGEMENT")) {
-      jobs.visitorsWaiting = db.visit.count({ where: { orgId, status: "WAITING" } });
-      jobs.visitorsInside = db.visit.count({ where: { orgId, status: "INSIDE" } });
+      jobs.visitorsWaiting = db.visit.count({ where: { orgId, ...at("visit"), status: "WAITING" } });
+      jobs.visitorsInside = db.visit.count({ where: { orgId, ...at("visit"), status: "INSIDE" } });
       jobs.openIncidents = db.incident.count({
-        where: { orgId, status: { notIn: ["CLOSED", "RESOLVED"] } },
+        where: { orgId, ...at("incident"), status: { notIn: ["CLOSED", "RESOLVED"] } },
       });
     }
     if (may("finance")) {

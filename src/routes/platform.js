@@ -1,0 +1,524 @@
+/* ====================================================================== *
+ * THE PLATFORM CONSOLE — PALTAS's OWN STAFF, READING ACROSS TENANTS.
+ *
+ * ── THIS FILE IS THE ONE EXCEPTION IN THE SERVICE, AND IT IS SEPARATE ──
+ *
+ * Every one of the 185 other authenticated routes is scoped to a single
+ * organization. `http/resource.js` starts every query `{ orgId: actor.orgId }`
+ * and there is no code path in which that is absent — which is the one
+ * guarantee the product actually sells.
+ *
+ * A staff console necessarily breaks it. PALTAS's own people have to see every
+ * customer in order to support them. There were two ways to allow that:
+ *
+ *   A. Make the organization filter conditional — skip it when the caller
+ *      holds PLATFORM.
+ *   B. Put the cross-tenant reads in their own file that never touches the
+ *      resource framework at all.
+ *
+ * This is B, deliberately. Under A, the single most important line in the
+ * system becomes an `if`, and a bug in that condition shows one customer
+ * another customer's business. Under B the filter stays unconditional
+ * forever, and a second, narrower door exists beside it — one that is short
+ * enough to read in full, audits everything, and cannot be reached by
+ * accident.
+ *
+ * ── THE THREE RULES THIS FILE KEEPS ────────────────────────────────────
+ *
+ *   1. READ ONLY. Nothing here writes a customer's business data. Supporting
+ *      a customer means seeing what they see, not changing it behind them.
+ *      The promotion queues are the one place PALTAS staff act, and they have
+ *      their own routes with their own rights table.
+ *
+ *   2. EVERY READ IS AUDITED, naming the staff member. "Who looked at whose
+ *      data" is the question that matters about a console like this, and it
+ *      has to be answerable without anybody's cooperation.
+ *
+ *   3. NO CUSTOMER DETAIL THAT SUPPORT DOES NOT NEED. Staff get names,
+ *      counts, states and dates. They do not get tenants' phone numbers,
+ *      folio lines, or the contents of anybody's documents — those are the
+ *      customer's business and a support console is not a reason to hold
+ *      them.
+ * ====================================================================== */
+
+import { Router } from "express";
+import { db } from "../db.js";
+import { forbidden } from "../http/errors.js";
+import { requireSession } from "../http/session.js";
+import { actorFor } from "../domain/session-view.js";
+
+export const platformRoutes = Router();
+
+/*
+ * WHO PALTAS'S OWN STAFF ARE.
+ *
+ * Two things, and BOTH are required:
+ *
+ *   - the PLATFORM entitlement, which is granted by PALTAS and cannot be
+ *     requested at signup — routes/organizations.js refuses it outright, and
+ *     a test asserts that;
+ *   - a role that is actually staff.
+ *
+ * An OWNER of a hotel group is an owner of THEIR company. Being an owner of
+ * yours grants nothing on ours, and that wall is the thing this console must
+ * not quietly open.
+ */
+const STAFF_ROLES = new Set(["OWNER", "MANAGER", "MARKETING", "COMPLIANCE", "PUBLISHER"]);
+
+function requirePlatform() {
+  return async (req, _res, next) => {
+    try {
+      const actor = await actorFor(req.session);
+      if (!actor) {
+        return next(forbidden("This account does not act for any organization."));
+      }
+      if (!actor.isPlatform) {
+        /*
+         * Deliberately the same sentence whatever the reason.
+         *
+         * A caller probing this console learns only that it is not for them.
+         * "You need the PLATFORM entitlement" tells somebody exactly what to
+         * go looking for.
+         */
+        return next(forbidden("The PALTAS staff console is not available to this account."));
+      }
+      if (!STAFF_ROLES.has(actor.role)) {
+        return next(forbidden("The PALTAS staff console is not available to this account."));
+      }
+      req.actor = actor;
+      next();
+    } catch (e) { next(e); }
+  };
+}
+
+platformRoutes.use("/platform", requireSession(), requirePlatform());
+
+/**
+ * Record that a member of staff looked across the wall.
+ *
+ * Written against PALTAS's OWN organization, not the customer's: it is a fact
+ * about our staff, and a customer's audit trail should not fill up with our
+ * support activity.
+ *
+ * Best-effort, like every other audit write in this service — a logging
+ * failure must not break somebody's support call. The things that must not
+ * happen are prevented above, not detected here.
+ */
+async function auditRead(req, what, detail) {
+  try {
+    await db.auditEvent.create({
+      data: {
+        orgId: req.actor.orgId,
+        actorId: req.session.userId,
+        actorName: req.actor.userName || "",
+        action: "platform.read", entity: what, entityId: "",
+        detail: detail || undefined,
+        ip: req.ip || "",
+      },
+    });
+  } catch (e) { console.error("platform audit write failed", what, e.message); }
+}
+
+/** Page size, capped, for the same reason as everywhere else. */
+function paging(req) {
+  const take = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+  const cursor = req.query.cursor ? String(req.query.cursor) : null;
+  return { take, cursor };
+}
+
+/* ---------------------------------------------------------------- *
+ * GET /platform/organizations — every customer.
+ *
+ * What the console's company screens read: who they are, what they bought,
+ * what state they are in, and how big they are. Not their data.
+ * ---------------------------------------------------------------- */
+platformRoutes.get("/platform/organizations", async (req, res, next) => {
+  try {
+    const { take, cursor } = paging(req);
+    const where = {};
+    if (req.query.product) {
+      where.entitlements = { some: { product: String(req.query.product).toUpperCase(),
+                                     status: "ACTIVE" } };
+    }
+    if (req.query.status) where.status = String(req.query.status).toUpperCase();
+    const q = String(req.query.q || "").trim();
+    if (q) where.name = { contains: q, mode: "insensitive" };
+
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+    const rows = await db.organization.findMany({
+      where,
+      orderBy: [{ name: "asc" }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true, name: true, country: true, city: true, size: true,
+        status: true, createdAt: true,
+        subscription: { select: { status: true, plan: true, planKey: true,
+                                  seats: true, trialEnds: true } },
+        verification: { select: { status: true } },
+        entitlements: { where: { status: "ACTIVE" },
+                        select: { product: true, since: true } },
+        /*
+         * COUNTS, NOT CONTENTS. How many units a customer has is what support
+         * needs to know; what is in them is theirs. `_count` is the whole
+         * difference between a support console and a back door.
+         */
+        _count: { select: { memberships: true, sites: true, units: true,
+                            reservations: true, listings: true, incidents: true,
+                            /* The console's company screens count rooms for a
+                               hotel, deals for an agency and guards for a
+                               security firm. All counts, no contents. */
+                            rooms: true, deals: true, guardShifts: true } },
+      },
+    });
+
+    const more = rows.length > take;
+    const organizations = (more ? rows.slice(0, take) : rows).map((o) => ({
+      id: o.id, name: o.name, country: o.country, city: o.city, size: o.size,
+      status: o.status, since: o.createdAt,
+      subscription: o.subscription || { status: "EXPIRED", plan: "", seats: 0 },
+      verification: o.verification ? o.verification.status : "NOT_STARTED",
+      products: o.entitlements.map((e) => e.product),
+      counts: o._count,
+    }));
+
+    await auditRead(req, "organization", { returned: organizations.length, q: q || undefined });
+    res.json({ organizations, nextCursor: more ? rows[take - 1].id : null });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- *
+ * GET /platform/users — everybody with an account.
+ *
+ * Support's commonest question is "which company is this person in, and what
+ * can they do there". That is memberships, and nothing else about them.
+ * ---------------------------------------------------------------- */
+platformRoutes.get("/platform/users", async (req, res, next) => {
+  try {
+    const { take, cursor } = paging(req);
+    const where = {};
+    const q = String(req.query.q || "").trim();
+    if (q) {
+      where.OR = [{ email: { contains: q, mode: "insensitive" } },
+                  { name: { contains: q, mode: "insensitive" } }];
+    }
+
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+    const rows = await db.user.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true, name: true, email: true, createdAt: true,
+        /*
+         * `phone` and `picture` are NOT here, and neither is googleSub.
+         * Support does not need to ring a customer's staff, and a subject
+         * claim is an identifier for Google's benefit, not a person's.
+         */
+        memberships: { select: { role: true, scope: true,
+                                 org: { select: { id: true, name: true } } } },
+        _count: { select: { sessions: true } },
+      },
+    });
+
+    const more = rows.length > take;
+    const users = (more ? rows.slice(0, take) : rows).map((u) => ({
+      id: u.id, name: u.name, email: u.email, since: u.createdAt,
+      signedInSessions: u._count.sessions,
+      memberships: u.memberships.map((m) => ({
+        organization: m.org.id, organizationName: m.org.name,
+        role: m.role, scope: m.scope,
+      })),
+    }));
+
+    await auditRead(req, "user", { returned: users.length, q: q || undefined });
+    res.json({ users, nextCursor: more ? rows[take - 1].id : null });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- *
+ * GET /platform/entitlements — who holds what.
+ *
+ * The modules screen: one row per company per product, which is what a
+ * commercial conversation is actually about.
+ * ---------------------------------------------------------------- */
+platformRoutes.get("/platform/entitlements", async (req, res, next) => {
+  try {
+    const { take, cursor } = paging(req);
+    const where = {};
+    if (req.query.product) where.product = String(req.query.product).toUpperCase();
+    if (req.query.status) where.status = String(req.query.status).toUpperCase();
+
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+    const rows = await db.entitlement.findMany({
+      where,
+      orderBy: [{ since: "desc" }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true, product: true, status: true, since: true,
+        org: { select: { id: true, name: true, country: true,
+                         subscription: { select: { status: true, plan: true } } } },
+      },
+    });
+
+    const more = rows.length > take;
+    const entitlements = (more ? rows.slice(0, take) : rows).map((e) => ({
+      id: e.id, product: e.product, status: e.status, since: e.since,
+      organization: e.org.id, organizationName: e.org.name, country: e.org.country,
+      subscription: e.org.subscription ? e.org.subscription.status : "EXPIRED",
+      plan: e.org.subscription ? e.org.subscription.plan : "",
+    }));
+
+    await auditRead(req, "entitlement", { returned: entitlements.length });
+    res.json({ entitlements, nextCursor: more ? rows[take - 1].id : null });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- *
+ * GET /platform/audit — what has been happening, across every customer.
+ *
+ * Including what PALTAS staff themselves have read, because a log that
+ * excludes the people who can read it is not a log.
+ * ---------------------------------------------------------------- */
+platformRoutes.get("/platform/audit", async (req, res, next) => {
+  try {
+    const { take, cursor } = paging(req);
+    const where = {};
+    if (req.query.organization) where.orgId = String(req.query.organization);
+    if (req.query.action) where.action = { startsWith: String(req.query.action) };
+
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+    const rows = await db.auditEvent.findMany({
+      where,
+      orderBy: [{ at: "desc" }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true, at: true, action: true, entity: true, entityId: true,
+        actorName: true, ip: true,
+        org: { select: { id: true, name: true } },
+      },
+    });
+
+    const more = rows.length > take;
+    const events = (more ? rows.slice(0, take) : rows).map((a) => ({
+      id: a.id, at: a.at, action: a.action, entity: a.entity, entityId: a.entityId,
+      who: a.actorName, ip: a.ip,
+      organization: a.org ? a.org.id : null,
+      organizationName: a.org ? a.org.name : "",
+      /*
+       * `detail` is NOT returned.
+       *
+       * It is a free-form Json column written by every route in the service,
+       * and some of what lands in it is the customer's — field names, amounts,
+       * references. An audit LIST is for seeing that something happened and
+       * by whom; reading the contents of a customer's records is a different
+       * question with a different answer.
+       */
+    }));
+
+    await auditRead(req, "auditEvent", { returned: events.length });
+    res.json({ events, nextCursor: more ? rows[take - 1].id : null });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- *
+ * GET /platform/moderation — the listings queue.
+ *
+ * READ ONLY, like everything else in this file. The moderation screen offers
+ * no per-row action — its buttons navigate — so a decision endpoint would be
+ * capability nobody asked for, on the one router that crosses tenants.
+ *
+ * When a decision workflow IS wanted it needs deciding first: who may uphold,
+ * whether a company can appeal, what the customer is told. That is a product
+ * question, and guessing at it here would bake an answer into the schema.
+ * ---------------------------------------------------------------- */
+platformRoutes.get("/platform/moderation", async (req, res, next) => {
+  try {
+    const { take, cursor } = paging(req);
+    const where = {};
+    if (req.query.status) where.status = String(req.query.status).toUpperCase();
+    if (req.query.organization) where.orgId = String(req.query.organization);
+
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+    const rows = await db.moderationItem.findMany({
+      where,
+      orderBy: [{ createdAt: "desc" }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true, title: true, reason: true, severity: true, status: true,
+        createdAt: true, decidedAt: true,
+        org: { select: { id: true, name: true } },
+        /* The listing's id, NOT its contents. Knowing WHICH listing is held is
+           the queue's job; reading the customer's copy is not. */
+        listingId: true,
+      },
+    });
+
+    const more = rows.length > take;
+    const items = (more ? rows.slice(0, take) : rows).map((r) => ({
+      id: r.id, title: r.title, reason: r.reason, severity: r.severity,
+      status: r.status, raisedAt: r.createdAt, decidedAt: r.decidedAt,
+      listingId: r.listingId,
+      organization: r.org ? r.org.id : null,
+      organizationName: r.org ? r.org.name : "",
+    }));
+
+    await auditRead(req, "moderationItem", { returned: items.length });
+    res.json({ items, nextCursor: more ? rows[take - 1].id : null });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- *
+ * GET /platform/compliance — statutory cases with a clock on them.
+ * ---------------------------------------------------------------- */
+platformRoutes.get("/platform/compliance", async (req, res, next) => {
+  try {
+    const { take, cursor } = paging(req);
+    const where = {};
+    if (req.query.status) where.status = String(req.query.status).toUpperCase();
+
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+    const rows = await db.complianceCase.findMany({
+      where,
+      orderBy: [{ dueOn: "asc" }, { createdAt: "desc" }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true, ref: true, kind: true, subject: true, detail: true,
+        dueOn: true, status: true, createdAt: true,
+        org: { select: { id: true, name: true } },
+      },
+    });
+
+    const more = rows.length > take;
+    const cases = (more ? rows.slice(0, take) : rows).map((c) => ({
+      id: c.id, ref: c.ref, kind: c.kind,
+      /*
+       * `subject` is a named person — usually the one exercising a data right.
+       * It is returned because a case is unworkable without knowing whose it
+       * is, and this router already requires PALTAS staff and logs every read.
+       */
+      subject: c.subject, detail: c.detail,
+      dueOn: c.dueOn, status: c.status, raisedAt: c.createdAt,
+      organization: c.org ? c.org.id : null,
+      organizationName: c.org ? c.org.name : "",
+    }));
+
+    await auditRead(req, "complianceCase", { returned: cases.length });
+    res.json({ cases, nextCursor: more ? rows[take - 1].id : null });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- *
+ * GET /platform/verifications — companies waiting to be let in.
+ *
+ * No new model: this is the existing Verification, read across tenants. It is
+ * what the console's approvals queue has always been drawing.
+ * ---------------------------------------------------------------- */
+platformRoutes.get("/platform/verifications", async (req, res, next) => {
+  try {
+    const { take, cursor } = paging(req);
+    const where = {};
+    if (req.query.status) where.status = String(req.query.status).toUpperCase();
+
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+    const rows = await db.verification.findMany({
+      where,
+      orderBy: [{ updatedAt: "asc" }],
+      take: take + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true, status: true, documents: true, createdAt: true, updatedAt: true,
+        org: {
+          select: {
+            id: true, name: true, country: true,
+            memberships: {
+              take: 1, orderBy: { createdAt: "asc" },
+              select: { user: { select: { name: true, email: true } } },
+            },
+          },
+        },
+      },
+    });
+
+    const more = rows.length > take;
+    const queue = (more ? rows.slice(0, take) : rows).map((v) => {
+      const docs = Array.isArray(v.documents) ? v.documents : [];
+      const owner = v.org && v.org.memberships[0] && v.org.memberships[0].user;
+      return {
+        id: v.id, status: v.status,
+        organization: v.org ? v.org.id : null,
+        organizationName: v.org ? v.org.name : "",
+        country: v.org ? v.org.country : "",
+        /* Who to ask, and WHAT KINDS of document are on file — never the files
+           themselves. A passport scan is not something a support queue needs
+           to hand out in order to say "identity is still outstanding". */
+        contactName: owner ? (owner.name || owner.email) : "",
+        documentKinds: docs.map((d) => String((d && (d.kind || d.type)) || "document")),
+        documentCount: docs.length,
+        waitingSince: v.updatedAt,
+      };
+    });
+
+    await auditRead(req, "verification", { returned: queue.length });
+    res.json({ queue, nextCursor: more ? rows[take - 1].id : null });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- *
+ * GET /platform/plans — the price list.
+ *
+ * The one endpoint here that crosses no tenant at all, because a Plan has no
+ * organization: it is the same catalogue for everybody.
+ * ---------------------------------------------------------------- */
+platformRoutes.get("/platform/plans", async (req, res, next) => {
+  try {
+    const rows = await db.plan.findMany({
+      where: { active: true },
+      orderBy: [{ seq: "asc" }, { price: "asc" }],
+      take: 100,
+    });
+    await auditRead(req, "plan", { returned: rows.length });
+    res.json({
+      plans: rows.map((p) => ({
+        id: p.id, code: p.code, name: p.name,
+        price: p.price, currency: p.currency,
+        limitText: p.limitText, propertyCap: p.propertyCap,
+        includes: p.includes,
+      })),
+    });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- *
+ * GET /platform/summary — the numbers the console opens on.
+ * ---------------------------------------------------------------- */
+platformRoutes.get("/platform/summary", async (req, res, next) => {
+  try {
+    const [organizations, active, trialing, pastDue, users, byProduct] = await Promise.all([
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+      db.organization.count(),
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+      db.subscription.count({ where: { status: "ACTIVE" } }),
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+      db.subscription.count({ where: { status: "TRIALING" } }),
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+      db.subscription.count({ where: { status: "PAST_DUE" } }),
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+      db.user.count(),
+    /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
+      db.entitlement.groupBy({ by: ["product"], where: { status: "ACTIVE" }, _count: true }),
+    ]);
+
+    await auditRead(req, "summary", null);
+    res.json({
+      counts: { organizations, users,
+                subscriptions: { active, trialing, pastDue } },
+      products: Object.fromEntries(byProduct.map((p) => [p.product, p._count])),
+    });
+  } catch (e) { next(e); }
+});
