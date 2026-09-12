@@ -34,6 +34,22 @@ RUN npm ci --omit=dev
 COPY prisma ./prisma
 RUN npx prisma generate
 
+# ----------------------------------------------------------------------
+# THE ONE CONTRACT FILE THE SERVER READS AT RUNTIME.
+#
+# src/domain/market.js does readFileSync on contract/market-config.js at
+# IMPORT time, so without this line the container does not start at all:
+# importing src/routes/market.js throws ENOENT and the process dies before it
+# ever listens. The deploy then fails and Render keeps the previous build —
+# which looks exactly like "the push did nothing".
+#
+# Copied by name rather than as the whole directory, so the runtime dependency
+# is visible here and the image does not carry backend.md and the other
+# documentation. test/deploy.test.js checks this list against every file the
+# server actually reads.
+# ----------------------------------------------------------------------
+COPY contract/market-config.js ./contract/market-config.js
+
 COPY src ./src
 
 # ======================================================================
