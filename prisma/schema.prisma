@@ -136,6 +136,10 @@ model User {
   /// The company records that are this person — see Party.userId. A guest
   /// staying at two hotels is two parties and one user.
   parties         Party[]
+  /**
+   * An investor register entry this person signs in as. Additive.
+   */
+  investors       Investor[]
   promotions      Promotion[]      @relation("PromotionAuthor")
   events          PromotionEvent[]
   /// What this person did. SetNull on delete: the record outlives the account.
@@ -228,8 +232,18 @@ model Organization {
   investors     Investor[]
   distributions Distribution[]
   capitalCalls  CapitalCall[]
-  workOrders    WorkOrder[]
-  assets        Asset[]
+
+  /**
+   * Tokenised investment. Additive: see the INVESTMENTS block at the end.
+   */
+  issuerProfile    IssuerProfile?
+  offerings        Offering[]
+  investorProfiles InvestorProfile[]
+  investmentOrders InvestmentOrder[]
+  tokenHoldings    TokenHolding[]
+  tokenEvents      TokenEvent[]
+  workOrders       WorkOrder[]
+  assets           Asset[]
 
   /// ---- hotel ----
   rooms         Room[]
@@ -609,6 +623,7 @@ model Site {
   Camera        Camera[]
   GuardTask     GuardTask[]
   EmergencyPlan EmergencyPlan[]
+  offerings     Offering[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -694,6 +709,7 @@ model Unit {
   listings    Listing[]
   OpsTask     OpsTask[]
   PricingRule PricingRule[]
+  offerings   Offering[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -810,8 +826,9 @@ model Document {
   bytes      Int    @default(0)
   mimeType   String @default("")
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt         DateTime           @default(now())
+  updatedAt         DateTime           @updatedAt
+  offeringDocuments OfferingDocument[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -932,6 +949,7 @@ model Project {
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @updatedAt
   CapitalCall CapitalCall[]
+  offerings   Offering[]
 
   @@index([orgId])
   @@index([orgId, stage])
@@ -1704,8 +1722,9 @@ model Invoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lines    InvoiceLine[]
-  payments Payment[]
+  lines            InvoiceLine[]
+  payments         Payment[]
+  investmentOrders InvestmentOrder[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -1889,11 +1908,22 @@ model Investor {
   status    InvestorStatus @default(ACTIVE)
   note      String         @default("")
 
+  /// The PALTAS account this investor signs in with, when they have one. An
+  /// investor may exist on a register before they ever create an account, and
+  /// may never create one — so this is nullable, and it is the ONLY thing that
+  /// lets "My Investments" find a person's own holdings. Never taken from a
+  /// request: the same rule as Party.userId.
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  distributions Distribution[]
-  capitalCalls  CapitalCall[]
+  distributions    Distribution[]
+  capitalCalls     CapitalCall[]
+  investorProfile  InvestorProfile?
+  investmentOrders InvestmentOrder[]
+  tokenHoldings    TokenHolding[]
 
   @@index([orgId])
   @@index([orgId, name])
@@ -1929,8 +1959,16 @@ model Distribution {
   paidOn   DateTime?
   note     String             @default("")
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  /// Which offering this distribution belongs to, when it belongs to one.
+  /// Optional because Distribution predates offerings entirely and is still
+  /// used for plain development distributions.
+  ///
+  /// SetNull, NOT Cascade: money that has been paid is a fact, and deleting
+  /// the offering it related to must not delete the record of paying it.
+  offering   Offering? @relation(fields: [offeringId], references: [id], onDelete: SetNull)
+  offeringId String?
 
   @@index([orgId])
   @@index([orgId, investorId])
@@ -2413,4 +2451,460 @@ model Plan {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+/**
+ * ====================================================================== *
+ * TOKENISED REAL-ESTATE INVESTMENT.
+ * Additive. Nothing above this line changed except three things, each a
+ * nullable column or a back-relation: Investor.userId, User.investors, and
+ * Organization's relations to the models below.
+ * ── WHAT PALTAS IS, AND IS NOT ──────────────────────────────────────────
+ * PALTAS is the technology layer. It is not the property owner, not the
+ * issuer, not the regulated partner and not the custodian. Those are other
+ * legal entities, and the whole point of OfferingParty below is that each one
+ * is named on the record rather than implied by the software holding it.
+ * A token here is a unit of an offering. Whether it represents legal title,
+ * a beneficial interest, a share in an SPV or a contractual right is a matter
+ * for the offering documents and the jurisdiction — so this schema records
+ * the structure and does not assert one.
+ * ── WHAT IS REUSED RATHER THAN REBUILT ──────────────────────────────────
+ * Project       the development an offering is raised against
+ * Investor      the register — name, kind, committed, paid — already existed
+ * Distribution  already existed, and now optionally names an Offering
+ * Document      offering and legal documents, via OfferingDocument
+ * Invoice       an order settles through the money path the platform has
+ * Verification  the ISSUER company's own KYC, org-level, already existed
+ * Nothing here duplicates any of them.
+ * ======================================================================
+ */
+
+/// Whether this company may run offerings at all, and on whose authority.
+///
+/// NOT a subscription product. A company is eligible because a regulator
+/// approved it, and PALTAS records that approval — it does not grant it. So
+/// this carries the regulator's own reference, and `status` is the gate every
+/// write in src/routes/investments.js checks before anything else.
+model IssuerProfile {
+  id    String       @id @default(cuid())
+  orgId String       @unique
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  status        IssuerStatus @default(NOT_APPLIED)
+  /// The regulator, and the licence as the regulator writes it. Free text
+  /// because "CMA", "DFSA" and "SEC" do not share a format and never will.
+  regulator     String       @default("")
+  licenceRef    String       @default("")
+  /// ISO country codes this company is licensed to offer in, comma-separated.
+  /// An offering may not name a jurisdiction absent from this list.
+  jurisdictions String       @default("")
+  legalName     String       @default("")
+  approvedAt    DateTime?
+  /// Who at PALTAS recorded the approval. A name, not a user id: the person
+  /// may leave and the record must still say who decided.
+  approvedBy    String       @default("")
+  note          String       @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+}
+
+enum IssuerStatus {
+  NOT_APPLIED
+  PENDING
+  APPROVED
+  SUSPENDED
+  WITHDRAWN
+}
+
+/// An investment opportunity raised against a property or development.
+model Offering {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// What the money is for. A development, or a site, or a single unit —
+  /// whichever the owner selected when they chose "Enable Investment".
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  siteId    String?
+  site      Site?    @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  unitId    String?
+  unit      Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  ref       String
+  title     String
+  summary   String            @default("")
+  structure OfferingStructure @default(SPV_EQUITY)
+
+  /// Money in minor units, BigInt, like everywhere else in this schema.
+  targetRaise BigInt @default(0)
+  /// What has actually been received. Written only from settled orders —
+  /// never set by hand, because a raise total that can be typed is a raise
+  /// total that can be wrong in public.
+  raised      BigInt @default(0)
+  currency    String @default("KES")
+
+  /// Units offered, and the price of one. `unitPrice * tokenUnits` should
+  /// equal targetRaise; the service checks rather than assumes.
+  tokenUnits Int    @default(0)
+  unitPrice  BigInt @default(0)
+
+  minInvestment BigInt @default(0)
+  minUnits      Int    @default(1)
+
+  eligibility   InvestorEligibility @default(PROFESSIONAL_ONLY)
+  /// ISO country codes, comma-separated, and a subset of the issuer's own.
+  jurisdictions String              @default("")
+
+  /// How income is shared, in the operator's words, plus the one number the
+  /// service can act on. A distribution ENGINE is not in scope; recording the
+  /// rule a human applies is.
+  distributionRule String @default("")
+  targetYieldBps   Int    @default(0)
+
+  status OfferingStatus @default(DRAFT)
+
+  /// SANDBOX SEPARATION.
+  ///
+  /// True means this offering exists for technical testing and must never be
+  /// counted, shown or settled as real. It is a column rather than a separate
+  /// database because one connection string is one fewer thing to get wrong —
+  /// and every read in src/routes/investments.js filters on it, so a sandbox
+  /// row cannot appear in a production list by omission.
+  sandbox Boolean @default(false)
+
+  opensOn      DateTime?
+  closesOn     DateTime?
+  submittedAt  DateTime?
+  reviewedAt   DateTime?
+  approvedAt   DateTime?
+  liveAt       DateTime?
+  closedAt     DateTime?
+  /// Why a reviewer sent it back or refused it. A refusal with no reason is
+  /// not a decision somebody can act on.
+  decisionNote String    @default("")
+  decidedBy    String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  parties       OfferingParty[]
+  documents     OfferingDocument[]
+  orders        InvestmentOrder[]
+  holdings      TokenHolding[]
+  events        TokenEvent[]
+  distributions Distribution[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([status, sandbox])
+}
+
+/// The ten states, in order. An offering cannot be LIVE without APPROVED
+/// behind it — src/domain/investments.js holds the transitions and
+/// test/investments.test.js proves no path skips approval.
+enum OfferingStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  SCHEDULED
+  LIVE
+  FUNDED
+  CLOSED
+  DISTRIBUTING
+  COMPLETED
+  /// Not in the requested list, and necessary: a review that cannot refuse is
+  /// not a review. Reaching it is terminal unless the offering is resubmitted.
+  REJECTED
+  CHANGES_REQUESTED
+}
+
+enum OfferingStructure {
+  SPV_EQUITY
+  DIRECT_CO_OWNERSHIP
+  DEBT_NOTE
+  REIT_UNIT
+  PROFIT_SHARE
+  OTHER
+}
+
+enum InvestorEligibility {
+  PROFESSIONAL_ONLY
+  ACCREDITED_ONLY
+  RETAIL_PERMITTED
+  BY_INVITATION
+}
+
+/// WHO IS WHO. The legal chain, named on the record.
+///
+/// One row per party rather than six columns on Offering, because the set is
+/// jurisdiction-dependent and grows: a Kenyan SPV structure and a DIFC fund
+/// do not have the same actors. A missing party is then a missing ROW that a
+/// compliance check can name, rather than an empty string nobody notices.
+model OfferingParty {
+  id         String   @id @default(cuid())
+  offeringId String
+  offering   Offering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+
+  role         PartyRole
+  legalName    String
+  /// Company number, licence number, LEI — whatever identifies this entity
+  /// where it is registered.
+  registration String    @default("")
+  jurisdiction String    @default("")
+  regulator    String    @default("")
+  contact      String    @default("")
+  note         String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([offeringId, role, legalName])
+  @@index([offeringId])
+}
+
+enum PartyRole {
+  PROPERTY_OWNER
+  LEGAL_OWNER
+  ISSUER
+  SPV
+  REGULATED_PARTNER
+  TOKENISATION_PROVIDER
+  CUSTODIAN
+  ADMINISTRATOR
+  VALUER
+  AUDITOR
+}
+
+/// An offering document, pointing at the existing Document table.
+model OfferingDocument {
+  id         String   @id @default(cuid())
+  offeringId String
+  offering   Offering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  role     OfferingDocRole @default(OTHER)
+  required Boolean         @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([offeringId, documentId])
+  @@index([offeringId])
+}
+
+enum OfferingDocRole {
+  PROSPECTUS
+  OFFERING_MEMORANDUM
+  SUBSCRIPTION_AGREEMENT
+  TITLE_DEED
+  VALUATION
+  TRUST_DEED
+  SPV_CONSTITUTION
+  REGULATORY_APPROVAL
+  AUDITED_ACCOUNTS
+  RISK_DISCLOSURE
+  OTHER
+}
+
+/// Per-investor compliance, separate from the company's own Verification.
+///
+/// `Verification` is org-level and `orgId @unique` — it answers "is this
+/// COMPANY verified", which is a different question from "may this PERSON be
+/// sold this offering in this country". Extending Verification would have
+/// meant making it non-unique and changing what every existing read means.
+model InvestorProfile {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  investorId String   @unique
+  investor   Investor @relation(fields: [investorId], references: [id], onDelete: Cascade)
+
+  kyc         KycStatus @default(NOT_STARTED)
+  aml         AmlStatus @default(NOT_SCREENED)
+  /// The provider that actually performed the check, and its reference. PALTAS
+  /// does not screen anybody; it records that somebody competent did.
+  kycProvider String    @default("")
+  kycRef      String    @default("")
+  amlProvider String    @default("")
+  amlRef      String    @default("")
+  screenedAt  DateTime?
+  expiresAt   DateTime?
+
+  /// Where this investor is resident for eligibility, and what they qualify as.
+  jurisdiction  String              @default("")
+  classifiedAs  InvestorEligibility @default(PROFESSIONAL_ONLY)
+  /// A named reason, when they are barred. Blank means nothing recorded.
+  blockedReason String              @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, kyc])
+}
+
+enum KycStatus {
+  NOT_STARTED
+  PENDING
+  VERIFIED
+  REJECTED
+  EXPIRED
+}
+
+enum AmlStatus {
+  NOT_SCREENED
+  CLEAR
+  REVIEW
+  BLOCKED
+}
+
+/// An investor's subscription to an offering.
+model InvestmentOrder {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  offeringId String
+  offering   Offering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  investorId String
+  investor   Investor @relation(fields: [investorId], references: [id], onDelete: Cascade)
+
+  ref      String
+  units    Int    @default(0)
+  amount   BigInt @default(0)
+  currency String @default("KES")
+
+  status OrderStatus @default(PENDING)
+
+  /// SETTLEMENT GOES THROUGH THE MONEY PATH THAT ALREADY EXISTS.
+  ///
+  /// An order does not hold its own payment state. It points at an Invoice,
+  /// and the Payment rows against that invoice are what make it settled — the
+  /// same as every other sum of money in this platform. No provider is
+  /// integrated, so nothing here may be marked settled without one.
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  /// True only when this order belongs to a sandbox offering. Denormalised so
+  /// a production query cannot include it by forgetting the join.
+  sandbox Boolean @default(false)
+
+  placedAt    DateTime  @default(now())
+  allocatedAt DateTime?
+  settledAt   DateTime?
+  cancelledAt DateTime?
+  refusedWhy  String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  holdings TokenHolding[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([offeringId, status])
+  @@index([investorId])
+}
+
+enum OrderStatus {
+  PENDING
+  COMPLIANCE_HOLD
+  APPROVED
+  AWAITING_PAYMENT
+  SETTLED
+  ALLOCATED
+  CANCELLED
+  REFUSED
+  REFUNDED
+}
+
+/// Units an investor holds, as the tokenisation provider reports them.
+///
+/// NOT A LEDGER PALTAS COMPUTES. `units` is what the provider last told us,
+/// `providerRef` is the provider's own identifier for the position, and
+/// `asAt` is when they said it. If no provider is connected there are no rows
+/// here — an empty holdings screen is the truth, and a number PALTAS arrived
+/// at by adding up orders would be a claim about a blockchain it cannot see.
+model TokenHolding {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  offeringId String
+  offering   Offering         @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+  investorId String
+  investor   Investor         @relation(fields: [investorId], references: [id], onDelete: Cascade)
+  orderId    String?
+  order      InvestmentOrder? @relation(fields: [orderId], references: [id], onDelete: SetNull)
+
+  units Int @default(0)
+
+  /// The authoritative references, from the provider. Never generated here.
+  provider     String @default("")
+  providerRef  String @default("")
+  custodian    String @default("")
+  custodianRef String @default("")
+  /// Chain and contract, when the provider works that way. Recorded as given.
+  chain        String @default("")
+  contractRef  String @default("")
+  walletRef    String @default("")
+
+  asAt    DateTime?
+  sandbox Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([offeringId, investorId, providerRef])
+  @@index([orgId])
+  @@index([investorId])
+}
+
+/// Append-only: what the tokenisation provider told us, when.
+///
+/// No updatedAt, because nothing updates it — the same reason AuditEvent and
+/// FolioLine have none. If the provider later contradicts itself, that is a
+/// NEW row, and the disagreement stays visible instead of being overwritten.
+model TokenEvent {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  offeringId String
+  offering   Offering @relation(fields: [offeringId], references: [id], onDelete: Cascade)
+
+  kind        TokenEventKind
+  units       Int            @default(0)
+  provider    String         @default("")
+  /// The provider's own id for this event. Unique, so the same webhook
+  /// delivered twice records once — an idempotency key, not decoration.
+  externalRef String
+  txRef       String         @default("")
+  detail      Json?
+  at          DateTime       @default(now())
+  sandbox     Boolean        @default(false)
+
+  createdAt DateTime @default(now())
+
+  @@unique([provider, externalRef])
+  @@index([orgId])
+  @@index([offeringId, at])
+}
+
+enum TokenEventKind {
+  MINT
+  TRANSFER
+  BURN
+  LOCK
+  UNLOCK
+  DISTRIBUTION_PAID
+  PROVIDER_MESSAGE
 }

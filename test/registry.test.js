@@ -99,6 +99,64 @@ const NOT_WRITABLE_HERE = {
     detail: "the guest's own words",
     note: "the guest's own words",
   },
+
+  /* ------------------------------------------------ TOKENISED INVESTMENT */
+
+  distributions: {
+    offeringId: "set when a distribution is declared against an offering, at " +
+                "POST /investments/offerings/:id/distributions — moving an " +
+                "existing distribution to a different offering would rewrite " +
+                "who was paid for what",
+  },
+
+  /*
+   * AN ORDER IS A CONSEQUENCE, NOT A FORM.
+   *
+   * Every column here is decided by something other than the person looking at
+   * it: the offering it was placed against, the investor who placed it, what
+   * the compliance check said, and whether a payment actually arrived. A
+   * writable `status` would be a way to record money nobody received, and a
+   * writable `amount` a way to change what somebody committed after the fact.
+   */
+  "investment-orders": {
+    offeringId: "the offering it was placed against, from the URL at POST /investments/offerings/:id/orders",
+    investorId: "who placed it, resolved server-side — never sent",
+    units: "what was asked for when it was placed; changing it later rewrites the commitment",
+    amount: "units x the offering's unit price, computed, never typed",
+    currency: "the offering's currency; an order in a different one is not the same order",
+    status: "the result of a compliance decision and a settled payment. See the " +
+            "actions in src/routes/investments.js — allocate, cancel, refuse",
+    invoiceId: "the invoice raised for it, by the service that raised it",
+    sandbox: "inherited from the offering, so a production query cannot include a test order",
+    placedAt: "when it was placed",
+    allocatedAt: "stamped when units are allocated",
+    settledAt: "stamped when the invoice is paid in full",
+    cancelledAt: "stamped when cancelled",
+  },
+
+  /*
+   * AND A HOLDING IS WHAT A PROVIDER SAID.
+   *
+   * Nothing in this table is PALTAS's opinion. Every column is a value a
+   * tokenisation provider or custodian returned, which is why the resource
+   * declares no writable fields at all.
+   */
+  "token-holdings": {
+    offeringId: "from the provider's report",
+    investorId: "from the provider's report",
+    orderId: "the order the provider was asked to fulfil",
+    units: "WHAT THE PROVIDER REPORTED. A writable units column is how a " +
+           "platform tells an investor they own something that does not exist",
+    provider: "which provider reported it",
+    providerRef: "the provider's own identifier for the position — authoritative",
+    custodian: "from the provider's report",
+    custodianRef: "from the provider's report",
+    chain: "from the provider's report",
+    contractRef: "from the provider's report",
+    walletRef: "from the provider's report",
+    asAt: "when the provider said it, not when we wrote it down",
+    sandbox: "inherited from the offering",
+  },
 };
 
 /* ================================================================ */

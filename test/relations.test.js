@@ -264,6 +264,10 @@ test("every model has an id and timestamps, or says why not", () => {
   const APPEND_ONLY = new Set([
     "PromotionEvent", "WorkOrderEvent", "IncidentEvent", "AuditEvent",
     "FolioLine", "InvoiceLine", "Counter", "Entitlement",
+    /* What a tokenisation provider told us, and when. Nothing updates it: if
+       the provider later contradicts itself that is a NEW row, so the
+       disagreement stays visible instead of being overwritten. */
+    "TokenEvent",
   ]);
   for (const [model, fs] of PARSED) {
     const names = new Set(fs.map((f) => f.name));

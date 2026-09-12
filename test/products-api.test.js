@@ -201,6 +201,7 @@ test("the wall holds for every resource, not only the one somebody tested", { sk
    */
   const referenced = new Map();                 // model → an id of A's own
 
+
   async function idOf(model) {
     if (referenced.has(model)) return referenced.get(model);
     const found = Object.entries(RESOURCES).find(([, d]) => d.model === model);

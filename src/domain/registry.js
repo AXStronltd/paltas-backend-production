@@ -771,6 +771,112 @@ export const RESOURCES = {
     include: { unit: { select: { id: true, ref: true } } },
   },
 
+  /* ================================================================ *
+   * TOKENISED INVESTMENT.
+   *
+   * Area `investments`, which is new and is the ninth — see the note in
+   * access.js. No `product:` value, because eligibility is not a subscription:
+   * it is IssuerProfile.status === "APPROVED", checked by the routes in
+   * src/routes/investments.js. A company that has not been approved as an
+   * issuer can hold every product PALTAS sells and still not raise a penny.
+   *
+   * `offerings` is NOT here. Its lifecycle has twelve states and a review that
+   * belongs to somebody else, so a generic PATCH that could set `status` to
+   * LIVE is exactly the endpoint that must not exist. It lives in
+   * src/routes/investments.js, where every move goes through
+   * OFFERING_TRANSITIONS.
+   * ================================================================ */
+
+  /* `investors`, `distributions` and `capital-calls` are declared further up,
+     under Property Development, and are REUSED here rather than duplicated. */
+
+  "investor-profiles": {
+    model: "investorProfile", area: "investments",
+    label: "investor compliance profiles",
+    fields: {
+      investorId: "id:investor",
+      kyc: "enum:KycStatus", aml: "enum:AmlStatus",
+      kycProvider: "string", kycRef: "string",
+      amlProvider: "string", amlRef: "string",
+      screenedAt: "date", expiresAt: "date",
+      jurisdiction: "string", classifiedAs: "enum:InvestorEligibility",
+      blockedReason: "text",
+    },
+    required: ["investorId"],
+    search: ["jurisdiction", "kycRef", "amlRef"],
+    order: [{ createdAt: "desc" }],
+    include: { investor: { select: { id: true, name: true, kind: true } } },
+  },
+
+  /*
+   * `offering-parties` and `offering-documents` are NOT registry resources.
+   *
+   * Neither carries an orgId: both cascade from Offering, which does. The
+   * framework's first act is `where: { orgId }`, so a model without that column
+   * 500s — and the fix is NOT to denormalise the company onto them. Storing it
+   * twice is how the two copies come to disagree, which is the reason
+   * tenancy.test.js has a whole test allowing parent-scoped models.
+   *
+   * They are served from src/routes/investments.js, scoped through the offering
+   * the caller already had to be allowed to see.
+   */
+  "investment-orders": {
+    model: "investmentOrder", area: "investments",
+    label: "investment orders",
+    /*
+     * `status` is NOT writable here, and neither is `amount` or `units`.
+     *
+     * An order's state is the consequence of a compliance decision and a
+     * settled payment, so a PATCH that could set it to SETTLED would be a way
+     * to record money nobody received. The allocate and cancel actions are in
+     * src/routes/investments.js; this exists for the list and the read.
+     */
+    fields: {
+      refusedWhy: "text",
+    },
+    required: [],
+    search: ["ref"],
+    order: [{ placedAt: "desc" }],
+    include: {
+      offering: { select: { id: true, ref: true, title: true, currency: true } },
+      investor: { select: { id: true, name: true } },
+    },
+    noCreate: "An order is placed against a LIVE offering at " +
+              "POST /investments/offerings/:id/orders, which checks the " +
+              "investor's KYC, screening and jurisdiction first. A generic " +
+              "create would be a way to record a subscription that no " +
+              "compliance check ever saw.",
+    noDelete: "An order is cancelled or refused with a reason, never deleted. " +
+              "Somebody committed money; the record of what happened to it is " +
+              "not ours to remove.",
+  },
+
+  "token-holdings": {
+    model: "tokenHolding", area: "investments",
+    label: "token holdings",
+    /*
+     * NOTHING HERE IS WRITABLE.
+     *
+     * Every field is what a tokenisation provider reported. A writable `units`
+     * column is a way for this platform to tell an investor they own something
+     * the provider has never heard of. Reads only.
+     */
+    fields: {},
+    required: [],
+    search: ["providerRef", "custodianRef", "walletRef"],
+    order: [{ asAt: "desc" }],
+    include: {
+      offering: { select: { id: true, ref: true, title: true } },
+      investor: { select: { id: true, name: true } },
+    },
+    noCreate: "A holding is what a tokenisation provider reported. PALTAS " +
+              "records it; it does not issue it. A create endpoint here would " +
+              "let this platform tell an investor they own units that no " +
+              "provider has ever heard of.",
+    noDelete: "The same reason. A position that has gone is a provider event " +
+              "(BURN or TRANSFER) recorded in TokenEvent, not a row deleted.",
+  },
+
 };
 
 /** `/hotel/rooms` → the declaration, or undefined. */

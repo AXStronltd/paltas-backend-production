@@ -24,6 +24,15 @@ export const unauthorized = (msg) => new ApiError(401, "unauthorized", msg || "S
 export const forbidden = (msg) => new ApiError(403, "forbidden", msg || "This account may not do that.");
 export const notFound = (msg) => new ApiError(404, "not_found", msg || "That does not exist.");
 export const conflict = (msg) => new ApiError(409, "conflict", msg);
+/*
+ * A capability this installation does not have.
+ *
+ * 503 and not 500, because nothing is broken: no tokenisation provider is
+ * connected, and the honest answer to "issue these units" is "there is nothing
+ * here that can". A 500 would say the service failed, and somebody would go
+ * looking for a bug that is not there.
+ */
+export const unavailable = (msg) => new ApiError(503, "unavailable", msg);
 
 /*
  * NOT FOUND RATHER THAN FORBIDDEN, FOR SOMEBODY ELSE'S RECORD.

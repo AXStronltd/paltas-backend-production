@@ -302,9 +302,10 @@ test("role and scope are two walls, and both stand", { skip }, async () => {
 const EXPECTED_UNNARROWABLE = [
   "audit-tasks", "capital-calls", "channels", "conversations", "deals",
   "distributions", "documents", "group-bookings", "guest-requests",
-  "investors", "invoices", "leads", "leases", "listings", "messages",
-  "ops-tasks", "parties", "payments", "payouts", "pricing-rules",
-  "rate-rules", "reservations", "viewings",
+  "investment-orders", "investor-profiles", "investors", "invoices", "leads",
+  "leases", "listings", "messages", "ops-tasks", "parties", "payments",
+  "payouts", "pricing-rules", "rate-rules", "reservations",
+  "token-holdings", "viewings",
 ].sort();
 
 test("the resources with no site are NOT narrowed — by design",

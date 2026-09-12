@@ -39,7 +39,21 @@ export const AREAS = [
   "security",     // zones, visits, passes, vehicles, incidents, shifts, patrols, deliveries
   "people",       // the parties a company deals with
   "documents",    // the document register
-  "finance",      // invoices, payments, expenses, payouts
+  "finance",      // invoices, payments, expenses, payouts,
+  /*
+   * THE NINTH AREA, ADDED FOR TOKENISED INVESTMENT.
+   *
+   * Not a ninth level and not a parallel permission system — the requested
+   * names (investment.view, investment.approve, tokenization.manage) are this
+   * area at read, manage and manage. An area is what this file has always
+   * meant by "a kind of work", and an investor register is plainly a different
+   * kind of work from a rent roll.
+   *
+   * Separate from `property` and `finance` on purpose. A front desk with
+   * property read has no business in a list of who invested how much, and a
+   * finance clerk reconciling rent is not thereby approving an offering.
+   */
+  "investments",
 ];
 
 /**
@@ -72,61 +86,54 @@ export const ROLE_AREAS = {
     ...all("write"),
     hotel: "manage", property: "manage", maintenance: "manage",
     people: "manage", documents: "manage",
-    security: "read", agent: "write", finance: "write",
-  },
+    security: "read", agent: "write", finance: "write", investments: "read" },
 
   OPERATIONS: {
     ...all("read"),
-    property: "write", maintenance: "write", people: "write", documents: "write",
-  },
+    property: "write", maintenance: "write", people: "write", documents: "write", investments: "none" },
 
   /* ---- the specialists ---- */
 
   /** Money in and money out, and read access everywhere so an invoice can be
       raised against the right lease, folio or deal. */
-  FINANCE: { ...all("read"), finance: "manage" },
+  FINANCE: { ...all("read"), finance: "manage", investments: "write" },
 
   LEASING: {
     ...all("none"),
     agent: "manage", property: "write", people: "write",
-    documents: "write", finance: "read",
-  },
+    documents: "write", finance: "read", investments: "none" },
 
   /** A host runs listings and stays. They are often not an employee of the
       company at all, which is why they see no finance and no security. */
   HOST: {
     ...all("none"),
-    agent: "write", hotel: "write", people: "write", property: "read",
-  },
+    agent: "write", hotel: "write", people: "write", property: "read", investments: "none" },
 
   /* ---- the hotel floor ---- */
 
   FRONT_DESK: {
     ...all("none"),
-    hotel: "write", people: "write", security: "read", property: "read",
-  },
+    hotel: "write", people: "write", security: "read", property: "read", investments: "none" },
 
   /** Housekeeping changes the state of rooms and needs to know who is in
       them. It has no business creating a reservation. */
-  HOUSEKEEPING: { ...all("none"), hotel: "write", maintenance: "write" },
+  HOUSEKEEPING: { ...all("none"), hotel: "write", maintenance: "write", investments: "none" },
 
-  ENGINEERING: { ...all("none"), maintenance: "write", property: "read", hotel: "read" },
+  ENGINEERING: { ...all("none"), maintenance: "write", property: "read", hotel: "read", investments: "none" },
 
-  FNB: { ...all("none"), hotel: "write" },
+  FNB: { ...all("none"), hotel: "write", investments: "none" },
 
   /* ---- the front desk of a building, which is not a hotel's ---- */
 
   RECEPTIONIST: {
     ...all("none"),
-    security: "write", people: "write", property: "read", documents: "read",
-  },
+    security: "write", people: "write", property: "read", documents: "read", investments: "none" },
 
   /* ---- security ---- */
 
   SECURITY_MANAGER: {
     ...all("none"),
-    security: "manage", people: "read", property: "read", documents: "read",
-  },
+    security: "manage", people: "read", property: "read", documents: "read", investments: "none" },
 
   /**
    * WRITE, NEVER MANAGE — and this one is not a detail.
@@ -136,7 +143,7 @@ export const ROLE_AREAS = {
    * and the log stops being evidence of anything. Corrections are events on
    * top, which is why the incident history is append-only.
    */
-  GUARD: { ...all("none"), security: "write", people: "read" },
+  GUARD: { ...all("none"), security: "write", people: "read", investments: "none" },
 
   /* ---- the roles that belong to the promotion workflow, not to a product ---- */
 

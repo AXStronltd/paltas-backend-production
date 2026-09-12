@@ -108,4 +108,8 @@ export const SITE_BEARING = new Set([
      plan all belong to a site, so a site-scoped guard must see only their
      own. scope-api.test.js compares this set against the schema. */
   "camera", "guardTask", "emergencyPlan",
+  /* An offering may be raised against a single site, so a site-scoped person
+     must see only their own. scope-api.test.js compares this against the
+     schema, which is how `offering` came to be here. */
+  "offering",
 ]);

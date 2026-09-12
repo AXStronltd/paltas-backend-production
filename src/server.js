@@ -22,6 +22,7 @@ import { productRoutes } from "./routes/products.js";
 import { marketRoutes } from "./routes/market.js";
 import { guestRoutes } from "./routes/guest.js";
 import { platformRoutes } from "./routes/platform.js";
+import { investmentRoutes } from "./routes/investments.js";
 
 const log = {
   info: (...a) => console.log(new Date().toISOString(), ...a),
@@ -135,6 +136,15 @@ export function createApp() {
    * member of staff. See the long note in routes/platform.js.
    * ------------------------------------------------------------------ */
   app.use(platformRoutes);
+
+  /*
+   * TOKENISED INVESTMENT — before productRoutes, like every other router here.
+   *
+   * productRoutes mounts at "/" behind requireSession(), so anything registered
+   * after it gets a 401 instead of reaching its handler. That is the same
+   * ordering the market, guest and platform routers depend on.
+   */
+  app.use(investmentRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

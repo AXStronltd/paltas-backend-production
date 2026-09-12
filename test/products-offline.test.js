@@ -178,6 +178,7 @@ test(`the wall holds for every one of the ${Object.keys(RESOURCES).length} resou
   const b = await company({ products: EVERYTHING, role: "OWNER" });
 
   const created = {};
+
   for (const [slug, r] of Object.entries(RESOURCES)) {
     /* Nothing creates these through the staff API — see `noCreate`. Their wall
        is covered by the guest portal's own tests, where the caller is a guest. */
