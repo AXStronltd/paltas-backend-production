@@ -352,3 +352,68 @@ test("the public marketplace is not capped at the dashboard's 1280px", { skip },
       `the ${ch} prose limit is gone — expanding a container must not widen running text`);
   }
 });
+
+test("every live market has the data that makes it live", { skip }, () => {
+  /*
+   * A country in LIVE gets its own screens, its own currency and its own
+   * document list. A country absent from LIVE is billed on the nearest rail and
+   * TOLD so on the form — which is honest, and was what a United Kingdom
+   * company saw while PALTAS was registered in the United Kingdom.
+   *
+   * So this is the general form of that bug: declaring a market live without
+   * the four things that make it live would produce a market with no currency,
+   * no rails or no documents — worse than the honest notice it replaced.
+   */
+  const mk = readFileSync(join(FE, "assets", "market.js"), "utf8");
+
+  const live = (mk.match(/const LIVE = \[([^\]]+)\]/) || [])[1];
+  assert.ok(live, "LIVE is gone from market.js");
+  const codes = [...live.matchAll(/"([A-Z]{2})"/g)].map((m) => m[1]);
+  assert.ok(codes.length >= 3, "LIVE has shrunk to " + codes.join(", "));
+
+  const rails = (mk.match(/const BILLING_RAIL = \{([\s\S]*?)\n *\}/) || [])[1] || "";
+  const markets = (mk.match(/const MARKETS = \{([\s\S]*?)\n\}/) || [])[1]
+               || (mk.match(/MARKETS = \{([\s\S]*?)\n *\}/) || [])[1] || "";
+  const docs = (mk.match(/BIZ_DOCS = \{([\s\S]*?)\n *\};/) || [])[1] || "";
+  const places = (mk.match(/const PLACES = \{([\s\S]*?)\n *\};/) || [])[1] || "";
+  assert.ok(rails && markets && docs && places,
+    "one of BILLING_RAIL, MARKETS, BIZ_DOCS or PLACES could not be read — this " +
+    "test is no longer checking anything");
+
+  const missing = [];
+  for (const c of codes) {
+    /* A rail of its own, not the "us" fallback. */
+    const rail = (rails.match(new RegExp(c + ':\\s*"([a-z]{2})"')) || [])[1];
+    if (!rail) missing.push(`${c}: no BILLING_RAIL entry, so it bills on the US rail`);
+    else if (!new RegExp("\\b" + rail + ": \\{[^}]*cur:").test(markets)) {
+      missing.push(`${c}: rail "${rail}" has no MARKETS entry, so it has no currency`);
+    }
+    /* Its own documents, not the xx fallback. */
+    if (!new RegExp("\\n\\s*" + c + ": \\[\\[").test(docs)) {
+      missing.push(`${c}: no BIZ_DOCS entry, so verification asks the generic questions`);
+    }
+    /* And a list of places, so the location field is a menu not a text box. */
+    if (!new RegExp("\\n\\s*" + c + ": \\[").test(places)) {
+      missing.push(`${c}: no PLACES list, so the location field has nothing to offer`);
+    }
+  }
+  assert.deepEqual(missing, [],
+    "these markets are declared live without the data that makes them live:\n  " +
+    missing.join("\n  ") +
+    "\nEither add what is missing, or take the country out of LIVE — the " +
+    '"billed on the nearest rail" notice is honest and a half-live market is not.');
+});
+
+test("the United Kingdom is live, in sterling", { skip }, () => {
+  /* Named explicitly because the company is registered there, and because a
+     London letting agent being told their own country is "not a live market
+     yet" is the specific thing this fixed. */
+  const mk = readFileSync(join(FE, "assets", "market.js"), "utf8");
+  assert.match(mk, /const LIVE = \[[^\]]*"GB"/, "GB is not a live market");
+  assert.match(mk, /GB:\s*"gb"/, "GB does not bill on its own rail");
+  assert.match(mk, /gb: \{[^}]*cur: "GBP"/, "the GB rail is not in sterling");
+  assert.match(mk, /\n\s*GB: \[\["/, "there are no United Kingdom documents");
+  /* And PALTAS must not claim to check a register it does not check. */
+  assert.doesNotMatch(mk, /we (now )?check (the )?Companies House/i,
+    "do not claim to query Companies House — the documents are read, not looked up");
+});
