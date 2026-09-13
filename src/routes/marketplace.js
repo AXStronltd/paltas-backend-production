@@ -42,12 +42,39 @@
  * them, and the cards that read it show none. A star rating invented here
  * would be the most quietly corrosive thing on the page: every visitor would
  * believe it came from a guest.
+ *
+ * ── TWO KINDS OF INVENTORY, IN TWO ARRAYS ───────────────────────────────
+ *
+ * This endpoint can return somebody else's hotel rooms as well as PALTAS's own
+ * listings — from a licensed wholesaler behind `src/domain/supply.js`. They do
+ * NOT share an array:
+ *
+ *   listings   properties published by a PALTAS company. An identified agent,
+ *              host or hotel with an account here, who chose to publish. This
+ *              is the array that existed before any supplier did, and it is
+ *              computed by code no supplier can reach — nothing can add to it,
+ *              reorder it, displace a row from it, or spend its page size.
+ *
+ *   supply     a licensed supplier's rooms, each carrying the supplier's name,
+ *              whether it is a sandbox, and a price whose basis is stated
+ *              because a wholesaler quotes a STAY TOTAL where a PALTAS
+ *              short-let quotes a NIGHT.
+ *
+ *   suppliers  whether one is connected, and when `supply` is empty, WHICH of
+ *              the three reasons it is: none connected, connected with nothing
+ *              to offer, or connected and failed. A client that renders "no
+ *              hotels available" for the third would be lying for the supplier.
+ *
+ * Keeping them apart is not tidiness. A merged list would make PALTAS look
+ * larger than it is, and every assurance it gives about who you are dealing
+ * with would be false for most of the page.
  * ====================================================================== */
 
 import { Router } from "express";
 import { db } from "../db.js";
 import { badRequest } from "../http/errors.js";
 import { rateLimit } from "../http/rate-limit.js";
+import { searchSupply, status as supplyStatus } from "../domain/supply.js";
 
 export const marketplaceRoutes = Router();
 
@@ -100,6 +127,19 @@ const wire = (l) => {
      */
     transferFree: l.__transfer ? l.__transferFree : null,
     hotel: Boolean(l.__hotel),
+
+    /*
+     * PROVENANCE, stated on the row itself.
+     *
+     * Since a licensed wholesaler's inventory can also appear on this page, a
+     * client must never have to infer which it is holding from which array it
+     * came out of. This listing belongs to a PALTAS company: an identified
+     * agent, host or hotel with an account here, who published it themselves.
+     * That is the thing PALTAS can actually vouch for, and it is the only kind
+     * of row that says so.
+     */
+    source: "paltas",
+    paltasOwned: true,
   };
 };
 
@@ -222,7 +262,72 @@ marketplaceRoutes.get("/marketplace/listings",
        * to absorb a homepage's nine requests and short enough that a new
        * listing appears while the agent is still looking at the page.
        */
-      res.set("Cache-Control", "public, max-age=60, stale-while-revalidate=300");
+      /* ------------------------------------------------------------------ *
+       * SUPPLIER INVENTORY.
+       *
+       * A licensed wholesaler's rooms, in their OWN array.
+       *
+       * This is the whole design, and it is deliberate: `listings` above means
+       * exactly what it meant before a supplier existed — properties published
+       * by PALTAS companies — and it is computed by code no supplier can reach.
+       * Nothing below can add to it, reorder it, displace a row from it, or
+       * consume its page size. A supplier appearing or disappearing changes
+       * `supply`, and only `supply`.
+       *
+       * `searchSupply` never throws. A wholesaler that is down, slow, or
+       * talking nonsense yields an empty list and a reason, because the
+       * visitor came for the marketplace and PALTAS's own listings are
+       * unaffected by somebody else's outage.
+       * ------------------------------------------------------------------ */
+      /*
+       * WHERE THE SUPPLIER SHOULD LOOK — and why it is not `city`/`country`.
+       *
+       * `city` and `country` above NARROW PALTAS'S OWN LISTINGS. A wholesaler,
+       * though, has to be told a place before it can quote anything at all: its
+       * availability endpoint takes a region, not a planet.
+       *
+       * Reusing the same two parameters for both would mean that telling the
+       * supplier where the visitor is ALSO hid every PALTAS listing outside
+       * that country — so somebody browsing from Sweden would stop seeing the
+       * Kenyan listings they could see a moment earlier. That is precisely the
+       * entanglement the two separate arrays exist to prevent, arriving through
+       * the query string instead.
+       *
+       * So the supplier gets its own pair. They fall back to `city`/`country`
+       * when those were given, because an explicit search for Mombasa should
+       * narrow both halves of the page.
+       */
+      const stayCity = String(req.query.stayCity || "").trim() || city;
+      const stayCountry = String(req.query.stayCountry || "").trim().toUpperCase() || country;
+
+      const supply = await searchSupply({
+        city: stayCity, country: stayCountry,
+        checkIn: String(req.query.checkIn || req.query.checkin || ""),
+        checkOut: String(req.query.checkOut || req.query.checkout || ""),
+        guests: Number(req.query.guests) || 2,
+        limit: take,
+        currency: String(req.query.currency || "").toUpperCase() || "USD",
+        /*
+         * The END TRAVELLER's IP, which both major suppliers require on a
+         * search and neither will accept this server's for. Read from the
+         * request, passed through for that one call, stored nowhere.
+         */
+        travellerIp: req.ip || "",
+      });
+
+      /*
+       * Caching.
+       *
+       * PALTAS's own listings are happily cacheable for a minute. A
+       * wholesaler's quote is not: it is priced against live allocation and
+       * both suppliers' terms restrict storing it. So the moment there is
+       * supplier content in the body, the whole body stops being cacheable —
+       * a shared cache cannot serve half of it.
+       */
+      res.set("Cache-Control", supply.offers.length
+        ? "no-store"
+        : "public, max-age=60, stale-while-revalidate=300");
+
       res.json({
         listings,
         count: listings.length,
@@ -231,6 +336,43 @@ marketplaceRoutes.get("/marketplace/listings",
          * nothing is being withheld, there is simply nothing published yet.
          */
         source: "live-listings",
+
+        /* Somebody else's inventory, named as such. */
+        supply: supply.offers,
+        supplyCount: supply.offers.length,
+        /*
+         * Why `supply` is empty, which has three very different answers: no
+         * supplier is connected, one is connected and had nothing, or one is
+         * connected and failed. A client showing "no hotels available" for the
+         * third case would be lying on the supplier's behalf.
+         */
+        suppliers: {
+          ...supply.supplier,
+          failed: supply.failed,
+          /* Already the right one of the three — see searchSupply. */
+          why: supply.why,
+          dropped: supply.dropped || 0,
+        },
       });
     } catch (e) { next(e); }
+  });
+
+/*
+ * IS A SUPPLIER CONNECTED, AND WHICH.
+ *
+ * Public, because it says nothing a visitor should not know: the supplier's
+ * name, whether it is a sandbox, and what it can do. There is no credential in
+ * the shape `status()` returns, so there is no path through this route that
+ * could leak one.
+ *
+ * It exists so a client can label supplier inventory correctly — both major
+ * suppliers' terms require their content to be attributed — and so an operator
+ * can tell "no supplier configured" from "supplier configured and failing"
+ * without reading the logs.
+ */
+marketplaceRoutes.get("/marketplace/suppliers",
+  rateLimit({ windowMs: 60_000, max: 120 }),
+  (_req, res) => {
+    res.set("Cache-Control", "public, max-age=300");
+    res.json({ suppliers: [supplyStatus()] });
   });

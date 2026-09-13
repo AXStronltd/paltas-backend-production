@@ -28,13 +28,14 @@ process.env.APP_URL ||= "http://127.0.0.1:8899";
 process.env.INSECURE_COOKIES = "1";
 
 let skip = DB ? false : "no TEST_DATABASE_URL — skipping marketplace tests";
-let createApp, db, pg;
+let createApp, db, pg, supply;
 
 if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
     ({ db } = await import("../src/db.js"));
     ({ createApp } = await import("../src/server.js"));
+    supply = await import("../src/domain/supply.js");
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
     const m = String(e && e.message);
@@ -285,4 +286,295 @@ test("direction is not answered, because nothing records it", { skip }, async ()
       ". Nothing in the schema records it, so the value can only be a default " +
       "dressed up as a fact.");
   }
+});
+
+
+/* ====================================================================== *
+ * A LICENSED SUPPLIER ALONGSIDE PALTAS'S OWN LISTINGS.
+ *
+ * The marketplace can also show a wholesaler's rooms. The requirement was to
+ * add that WITHOUT altering how PALTAS's own listings work, and "without
+ * altering" is not a thing to assert by reading the diff — so these tests pin
+ * it against a live endpoint and a real database.
+ *
+ * Nothing here needs credentials. A stub supplier stands in for Expedia Rapid,
+ * which is the point: the seam must behave identically whatever is behind it.
+ * ====================================================================== */
+
+/** A supplier that answers, so the two-array split can be observed. */
+function stubSupplier({ name = "expedia-rapid", sandbox = false, offers = null, throws = null } = {}) {
+  return {
+    name, sandbox,
+    describe() { return { name, connected: true, sandbox, capabilities: ["search"], why: "" }; },
+    async search() {
+      if (throws) throw new Error(throws);
+      return { offers: offers || [{
+        supplierRef: "111", title: "Nyali Beach Hotel", city: "Mombasa", country: "KE",
+        place: "Mombasa Road", price: 70000, currency: "USD", nights: 7,
+        refundable: true, rating: 8.6, ratingCount: 1423,
+        image: "https://images.example/111.jpg",
+      }] };
+    },
+  };
+}
+
+test("PALTAS's own listings are identical whether or not a supplier is connected",
+  { skip }, async () => {
+    /*
+     * THE REGRESSION TEST FOR THE WHOLE FEATURE.
+     *
+     * `listings` is what PALTAS itself published. Adding a wholesaler must not
+     * change one byte of it — not the rows, not the order, not the count, not a
+     * single field on a single row. If a supplier can influence this array then
+     * PALTAS's inventory and somebody else's have become entangled, and every
+     * assurance the platform gives about who you are dealing with is weaker
+     * than it looks.
+     */
+    supply.clear();
+    const before = await get("/marketplace/listings?limit=48");
+
+    supply.register(stubSupplier());
+    const after = await get("/marketplace/listings?limit=48");
+
+    try {
+      assert.deepEqual(after.json.listings, before.json.listings,
+        "connecting a supplier changed PALTAS's own listings");
+      assert.equal(after.json.count, before.json.count);
+      /* And the supplier's rooms did arrive — otherwise this passes vacuously
+         by the supplier simply not working. */
+      assert.ok(after.json.supply.length > 0,
+        "the supplier returned nothing, so this test proved nothing");
+    } finally {
+      supply.clear();
+    }
+  });
+
+test("supplier rooms never enter the listings array", { skip }, async () => {
+  supply.register(stubSupplier());
+  try {
+    const r = await get("/marketplace/listings");
+    for (const l of r.json.listings) {
+      assert.equal(l.source, "paltas",
+        `a row in "listings" is not PALTAS's: ${l.title} (${l.source})`);
+      assert.equal(l.paltasOwned, true);
+    }
+    for (const o of r.json.supply) {
+      assert.equal(o.paltasOwned, false);
+      assert.equal(o.source, "expedia-rapid");
+      assert.ok(o.supplier && o.supplier.name === "expedia-rapid",
+        "every supplier row must name its supplier, because both suppliers' " +
+        "terms require their content to be attributed");
+    }
+    /* No id can be ambiguous between the two. */
+    const ids = new Set(r.json.listings.map((l) => l.id));
+    for (const o of r.json.supply) {
+      assert.ok(!ids.has(o.id), "a supplier id collides with a PALTAS listing id");
+    }
+  } finally { supply.clear(); }
+});
+
+test("a supplier outage leaves the marketplace working", { skip }, async () => {
+  /*
+   * The failure mode that matters most in production. A wholesaler being down
+   * must not take the homepage with it — PALTAS's listings are what the visitor
+   * came for, and they do not depend on Expedia being awake.
+   */
+  supply.clear();
+  const healthy = await get("/marketplace/listings");
+
+  supply.register(stubSupplier({ throws: "connect ETIMEDOUT 23.45.67.89:443" }));
+  try {
+    const r = await get("/marketplace/listings");
+    assert.equal(r.status, 200, "a supplier outage must not become an error page");
+    assert.deepEqual(r.json.listings, healthy.json.listings,
+      "PALTAS's listings changed because a third party was unreachable");
+    assert.deepEqual(r.json.supply, [], "a failed supplier must produce no rooms");
+    assert.equal(r.json.suppliers.failed, true);
+    assert.match(r.json.suppliers.why, /ETIMEDOUT/,
+      "an empty shelf with no reason is indistinguishable from a full outage");
+  } finally { supply.clear(); }
+});
+
+test("an empty supply array always says which of the three reasons it is", { skip }, async () => {
+  /* 1. nothing connected */
+  supply.clear();
+  let r = await get("/marketplace/listings");
+  assert.deepEqual(r.json.supply, []);
+  assert.equal(r.json.suppliers.connected, false);
+  assert.match(r.json.suppliers.why, /No accommodation supplier is connected/);
+
+  /* 2. connected, nothing to offer */
+  supply.register(stubSupplier({ offers: [] }));
+  r = await get("/marketplace/listings");
+  assert.equal(r.json.suppliers.connected, true);
+  assert.equal(r.json.suppliers.failed, false);
+
+  /* 3. connected and broken — covered above, checked here for the contrast */
+  supply.register(stubSupplier({ throws: "boom" }));
+  r = await get("/marketplace/listings");
+  assert.equal(r.json.suppliers.connected, true);
+  assert.equal(r.json.suppliers.failed, true);
+  supply.clear();
+});
+
+test("a supplier's stay total is never served as a nightly rate", { skip }, async () => {
+  supply.register(stubSupplier());
+  try {
+    const r = await get("/marketplace/listings");
+    const o = r.json.supply[0];
+    assert.equal(o.price, 70000);
+    assert.equal(o.nights, 7);
+    assert.equal(o.priceBasis, "stay",
+      "a wholesaler quotes the whole stay and a PALTAS short-let quotes a " +
+      "night; printed under one label the supplier looks seven times cheaper");
+    assert.equal(o.perNight, 10000);
+  } finally { supply.clear(); }
+});
+
+test("supplier content is never cached, and PALTAS's own still is", { skip }, async () => {
+  /*
+   * Both suppliers' terms restrict storing their rates, and a wholesale quote
+   * is priced against live allocation anyway. A shared cache cannot hold half a
+   * response, so the presence of supplier content makes the whole body
+   * uncacheable.
+   */
+  supply.clear();
+  const own = await get("/marketplace/listings");
+  assert.match(own.cache, /max-age=60/, "PALTAS's own listings should still cache");
+
+  supply.register(stubSupplier());
+  try {
+    const mixed = await get("/marketplace/listings");
+    assert.ok(mixed.json.supply.length > 0);
+    assert.match(mixed.cache, /no-store/,
+      "a wholesaler's quote was served with a cache header");
+  } finally { supply.clear(); }
+});
+
+test("a sandbox supplier is marked on every room it returns", { skip }, async () => {
+  supply.register(stubSupplier({ sandbox: true }));
+  try {
+    const r = await get("/marketplace/listings");
+    assert.equal(r.json.suppliers.sandbox, true);
+    for (const o of r.json.supply) {
+      assert.equal(o.supplier.sandbox, true,
+        "a test rate presented as bookable is the worst failure available here");
+    }
+  } finally { supply.clear(); }
+});
+
+test("no supplier credential can reach a browser", { skip }, async () => {
+  /* The status route and the marketplace envelope both describe the supplier.
+     Neither may carry the key, and there is no field in the shape that could. */
+  const { expediaRapid } = await import("../src/suppliers/expedia-rapid.js");
+  supply.register(expediaRapid({
+    apiKey: "LIVEKEY-should-never-appear", sharedSecret: "LIVESECRET-should-never-appear",
+  }));
+  try {
+    for (const path of ["/marketplace/listings", "/marketplace/suppliers"]) {
+      const r = await get(path);
+      assert.ok(!r.text.includes("LIVEKEY-should-never-appear"),
+        `the API key appears in the response from ${path}`);
+      assert.ok(!r.text.includes("LIVESECRET-should-never-appear"),
+        `the shared secret appears in the response from ${path}`);
+    }
+  } finally { supply.clear(); }
+});
+
+test("the supplier status route says whether one is connected", { skip }, async () => {
+  supply.clear();
+  let r = await get("/marketplace/suppliers");
+  assert.equal(r.status, 200);
+  assert.equal(r.json.suppliers[0].connected, false);
+
+  supply.register(stubSupplier({ name: "expedia-rapid" }));
+  r = await get("/marketplace/suppliers");
+  assert.equal(r.json.suppliers[0].connected, true);
+  assert.equal(r.json.suppliers[0].name, "expedia-rapid");
+  supply.clear();
+});
+
+test("nothing a supplier returns is written to the database", { skip }, async () => {
+  /*
+   * There is no model for supplier inventory and there must not be one. Both
+   * suppliers restrict storing their content, and a saved wholesale rate is a
+   * price a guest cannot book by the time it is shown.
+   *
+   * Checked by counting listings across a supplier-backed request: if supplier
+   * rooms were being persisted as listings, this grows.
+   */
+  supply.clear();
+  const before = await db.listing.count();
+
+  supply.register(stubSupplier());
+  try {
+    const r = await get("/marketplace/listings");
+    assert.ok(r.json.supply.length > 0, "the supplier returned nothing to persist");
+    assert.equal(await db.listing.count(), before,
+      "a supplier's room was written into the Listing table");
+  } finally { supply.clear(); }
+});
+
+test("telling the supplier where to look does not hide PALTAS's listings", { skip }, async () => {
+  /*
+   * A bug this caught rather than a feature it documents.
+   *
+   * A wholesaler must be told a place before it can quote anything. The obvious
+   * way to pass that — reuse `country` — also narrows PALTAS's own listings, so
+   * a visitor browsing from Sweden would stop seeing the Kenyan listings they
+   * could see a moment earlier. The supplier hint gets its own parameter for
+   * exactly this reason.
+   */
+  supply.clear();
+  const all = await get("/marketplace/listings?limit=48");
+  assert.ok(all.json.listings.length > 0, "nothing is seeded, so this proves nothing");
+
+  /* A supplier hint for somewhere with no PALTAS inventory at all. */
+  const hinted = await get("/marketplace/listings?limit=48&stayCountry=SE&stayCity=Stockholm");
+  assert.deepEqual(hinted.json.listings, all.json.listings,
+    "a supplier hint narrowed PALTAS's own listings");
+
+  /* Whereas `country` is a real filter on PALTAS listings and must stay one. */
+  const filtered = await get("/marketplace/listings?limit=48&country=SE");
+  assert.equal(filtered.json.listings.length, 0,
+    "`country` must still filter PALTAS listings — nothing is seeded in Sweden");
+});
+
+test("an explicit city search narrows both halves of the page", { skip }, async () => {
+  /* The fallback: when somebody actually searches for a place, the supplier
+     should look there too rather than needing the hint spelled out twice. */
+  supply.clear();
+  let seen = null;
+  supply.register({
+    name: "expedia-rapid",
+    describe() { return { name: "expedia-rapid", connected: true, sandbox: false, capabilities: [], why: "" }; },
+    async search(q) { seen = q; return { offers: [] }; },
+  });
+  try {
+    await get("/marketplace/listings?city=Nairobi&country=KE");
+    assert.equal(seen.city, "Nairobi", "the supplier was not told the searched city");
+    assert.equal(seen.country, "KE");
+  } finally { supply.clear(); }
+});
+
+test("the traveller's IP reaches the supplier and is not invented", { skip }, async () => {
+  /*
+   * Both major suppliers require the END TRAVELLER's IP on a search — it is how
+   * they apply the right market and meet their own compliance duties — and
+   * neither accepts the calling server's.
+   */
+  supply.clear();
+  let seen = null;
+  supply.register({
+    name: "expedia-rapid",
+    describe() { return { name: "expedia-rapid", connected: true, sandbox: false, capabilities: [], why: "" }; },
+    async search(q) { seen = q; return { offers: [] }; },
+  });
+  try {
+    await get("/marketplace/listings");
+    assert.ok(seen, "the supplier was never asked");
+    assert.equal(typeof seen.travellerIp, "string");
+    assert.ok(seen.travellerIp.length > 0,
+      "no traveller IP was passed through, and both suppliers refuse a search without one");
+  } finally { supply.clear(); }
 });

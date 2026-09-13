@@ -871,3 +871,191 @@ test("only one airport-transfer filter bar is built on the homepage", { skip }, 
     "bar() no longer stands down for the real marketplace, so the homepage builds " +
     "two airport-transfer filter bars and only one of them narrows anything.");
 });
+
+/* ====================================================================== *
+ * A LICENSED WHOLESALER ON THE PUBLIC PAGE.
+ *
+ * The marketplace can show somebody else's hotel rooms next to PALTAS's own
+ * listings. Every test here is a version of one question: can a visitor tell
+ * which is which?
+ *
+ * It matters more than it sounds. A PALTAS listing carries an assurance — an
+ * identified company with an account here published it and you deal with them.
+ * That assurance is false for a wholesaler's room, so a page that blurs the two
+ * extends a guarantee PALTAS cannot honour across inventory it does not hold.
+ * ====================================================================== */
+
+const SUPPLY = [
+  { id: "expedia-rapid:111", supplierRef: "111", title: "Nyali Beach Hotel",
+    city: "Mombasa", country: "KE", place: "Mombasa Road, Mombasa",
+    price: 70000, currency: "USD", nights: 7, priceBasis: "stay", perNight: 10000,
+    refundable: true, rating: 8.6, ratingCount: 1423,
+    image: "https://images.example/111.jpg", deepLink: null,
+    source: "expedia-rapid", supplier: { name: "expedia-rapid", sandbox: false },
+    paltasOwned: false },
+];
+
+/** The homepage, answered with PALTAS listings and a wholesaler's rooms. */
+function marketplaceWithSupply(listings, supply, suppliers) {
+  const w = openPage("index.html", { inlineToo: true });
+  w.win.fetch = (u) => {
+    if (!/marketplace\/listings/.test(String(u))) return Promise.reject(new Error("unrelated"));
+    const body = {
+      listings, count: listings.length, source: "live-listings",
+      supply, supplyCount: supply.length,
+      suppliers: suppliers || {
+        connected: supply.length > 0, name: "expedia-rapid", sandbox: false,
+        failed: false, why: "", capabilities: ["search"],
+      },
+    };
+    return Promise.resolve({
+      ok: true, status: 200, headers: { get: () => "application/json" },
+      json: () => Promise.resolve(body), text: () => Promise.resolve(JSON.stringify(body)),
+    });
+  };
+  w.win.PALTAS.Marketplace.load();
+  return w;
+}
+
+test("a wholesaler's room is never drawn as a PALTAS listing", { skip }, async () => {
+  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
+
+  /* Its own class, so it cannot inherit a PALTAS card's styling by accident. */
+  assert.ok(/class="mk-card mk-supply"/.test(html),
+    "the supplier's room is not drawn as supplier inventory");
+
+  /* The attribution both suppliers' licences require, and the sentence that
+     tells a visitor what they are looking at. */
+  assert.ok(/Supplied by expedia-rapid/.test(html),
+    "a supplier's room carries no attribution, which breaches the supplier's " +
+    "terms and misleads the visitor at the same time");
+  assert.ok(/These are not PALTAS listings/.test(html),
+    "no shelf mixing the two says which is which");
+
+  /* And no PALTAS card may have picked any of it up. */
+  const paltasCards = html.replace(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/g, "");
+  assert.ok(!/Supplied by/.test(paltasCards),
+    "a PALTAS listing is labelled as supplied by a wholesaler");
+  assert.ok(!/mk-rating/.test(paltasCards),
+    "a PALTAS listing is showing a rating. Nothing in the schema holds one, so " +
+    "it can only have come from the supplier's data or from nowhere.");
+});
+
+test("a stay total is never labelled per night on the page", { skip }, async () => {
+  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
+  const card = (html.match(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/) || [])[0] || "";
+  assert.ok(card, "no supplier card was drawn");
+
+  /*
+   * The factor-of-seven error. A wholesaler quotes the whole stay; the PALTAS
+   * short-let beside it quotes one night. Under one label the hotel looks like
+   * the bargain of the year.
+   */
+  assert.ok(/7 nights total/.test(card),
+    "the supplier's price does not say what period it covers: " + card.slice(0, 400));
+  assert.ok(!/per night<\/span>/.test(card),
+    "a supplier's stay total is labelled 'per night'");
+  assert.ok(/worked out from the total/.test(card),
+    "the per-night figure is shown without saying it was derived");
+});
+
+test("a sandbox rate is marked unbookable on every card", { skip }, async () => {
+  const sandboxed = SUPPLY.map((o) => ({ ...o, supplier: { name: "expedia-rapid", sandbox: true } }));
+  const html = await rendered(marketplaceWithSupply(SAMPLE, sandboxed, {
+    connected: true, name: "expedia-rapid", sandbox: true, failed: false, why: "",
+    capabilities: ["search"],
+  }));
+
+  const cards = html.match(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/g) || [];
+  assert.ok(cards.length, "no supplier card was drawn");
+  for (const c of cards) {
+    assert.ok(/not bookable/.test(c),
+      "a SANDBOX test rate is presented as if it could be booked, which is the " +
+      "worst failure this integration can have");
+  }
+  assert.ok(/SANDBOX test rates that cannot be booked/.test(html),
+    "the shelf does not warn that its rates are test data");
+});
+
+test("supplier rooms never push a PALTAS listing off a shelf", { skip }, async () => {
+  /*
+   * Ordering is the visible form of the same rule the two arrays encode: PALTAS
+   * renders its own inventory first and the supplier fills what is left. A
+   * wholesaler cannot displace a listing an agent here published.
+   */
+  const many = Array.from({ length: 6 }, (_, i) => ({
+    ...SUPPLY[0], id: "expedia-rapid:" + i, supplierRef: String(i),
+    title: "Supplier hotel " + i,
+  }));
+  const html = await rendered(marketplaceWithSupply(SAMPLE, many));
+
+  for (const m of html.matchAll(/id="mk-([a-z-]+)"([\s\S]*?)(?=<section class="mk-sec"|$)/g)) {
+    const body = m[2];
+    if (!/mk-supply/.test(body)) continue;
+    assert.ok(!/class="mk-card mk-supply"[\s\S]*?class="mk-card"[^ ]/.test(body),
+      `in section "${m[1]}" a supplier room is rendered before a PALTAS listing`);
+  }
+});
+
+test("sections where a hotel room is not the answer show none", { skip }, async () => {
+  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
+  const section = (id) =>
+    (html.match(new RegExp('id="mk-' + id + '"([\\s\\S]*?)(?=<section class="mk-sec"|$)')) || [])[1] || "";
+
+  /* Buying a building through an accommodation wholesaler is not a thing. */
+  assert.ok(!/mk-supply/.test(section("buy-sell")),
+    "a hotel room appears under Buy, sell and discover property");
+  assert.ok(!/mk-supply/.test(section("developments")),
+    "a hotel room appears under New developments");
+  /*
+   * And airport transfer is a fact about a PALTAS company's own HotelService.
+   * A wholesaler's room says nothing about whether anybody will collect you, so
+   * putting one here would make the section's own claim false.
+   */
+  assert.ok(!/mk-supply/.test(section("with-transfer")),
+    "a wholesaler's room appears under Arrive with ease, which claims an " +
+    "airport transfer service that nothing in the supplier's data reports");
+});
+
+test("with no supplier connected the page is exactly what it was", { skip }, async () => {
+  /*
+   * The preservation test, on the rendering side. This is production today.
+   */
+  const html = await rendered(marketplaceWithSupply(SAMPLE, [], {
+    connected: false, name: "", sandbox: false, failed: false,
+    why: "No accommodation supplier is connected to this installation.",
+    capabilities: [],
+  }));
+  for (const trace of ["mk-supply", "Supplied by", "mk-attrib", "mk-rating", "Hotel rates"]) {
+    assert.ok(!html.includes(trace),
+      `the page shows supplier furniture ("${trace}") with no supplier connected`);
+  }
+  /* And PALTAS's own listings are all still there. */
+  for (const l of SAMPLE) {
+    assert.ok(html.includes(l.title), `PALTAS listing "${l.title}" vanished`);
+  }
+});
+
+test("a supplier image is lazy and never re-hosted", { skip }, async () => {
+  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
+  const img = (html.match(/<img[^>]*images\.example[^>]*>/) || [])[0] || "";
+  assert.ok(img, "the supplier's image was not rendered");
+  assert.ok(/loading="lazy"/.test(img), "a supplier image loads eagerly");
+  assert.ok(/src="https:\/\/images\.example/.test(img),
+    "the image is not served from the supplier's own host — their terms do not " +
+    "permit re-hosting it");
+});
+
+test("the homepage asks for supplier availability only when it has dates", { skip }, () => {
+  /*
+   * A wholesaler prices a STAY against live allocation. With no dates there is
+   * nothing it can honestly quote, so none are invented to get an answer — the
+   * request goes without them and only PALTAS's own listings come back.
+   */
+  const js = readFileSync(join(FE, "assets", "paltas-market.js"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(/STATE\.checkIn\s*&&\s*STATE\.checkOut/.test(js),
+    "the marketplace sends check-in and check-out unconditionally, which means " +
+    "it is either inventing dates or asking a wholesaler an unanswerable question");
+  assert.ok(/setStay/.test(js), "there is no way for chosen dates to reach the request");
+});

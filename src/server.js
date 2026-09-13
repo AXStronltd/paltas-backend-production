@@ -24,6 +24,8 @@ import { marketplaceRoutes } from "./routes/marketplace.js";
 import { guestRoutes } from "./routes/guest.js";
 import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
+import { register as registerSupplier, status as supplierStatus } from "./domain/supply.js";
+import { fromEnv as expediaRapidFromEnv } from "./suppliers/expedia-rapid.js";
 
 const log = {
   info: (...a) => console.log(new Date().toISOString(), ...a),
@@ -184,7 +186,42 @@ export function createApp() {
    not bind a port. */
 const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop());
 
+/**
+ * Attach an accommodation supplier, if this installation has credentials for one.
+ *
+ * Called from the boot path below and NOT from createApp(), deliberately. A
+ * test builds the app dozens of times and must decide for itself whether a
+ * supplier exists — registering inside createApp() would let a real wholesaler
+ * be reached from a test run that never asked for one.
+ *
+ * Absent credentials are the NORMAL state and not an error: nothing is
+ * registered, the marketplace serves PALTAS's own listings exactly as before,
+ * and the log says which it is so an operator is never left guessing.
+ */
+export function connectSuppliers(env = process.env) {
+  try {
+    const rapid = expediaRapidFromEnv(env);
+    if (!rapid) {
+      log.info("accommodation supplier: none configured — PALTAS listings only");
+      return null;
+    }
+    registerSupplier(rapid);
+    const s = supplierStatus();
+    /* The name and the mode. Never the key, and there is no code path here
+       that could print one. */
+    log.info(`accommodation supplier: ${s.name}${s.sandbox ? " (SANDBOX/TEST)" : ""}`);
+    return s;
+  } catch (e) {
+    /* A misconfigured supplier must not stop the API from booting. The
+       marketplace degrades to PALTAS's own listings, which is the behaviour it
+       had before any supplier existed. */
+    log.error("accommodation supplier failed to connect:", e && e.message);
+    return null;
+  }
+}
+
 if (isMain) {
+  connectSuppliers();
   const app = createApp();
   const server = app.listen(config.port, () => {
     log.info(`paltas-api listening on :${config.port} (${config.env})`);
