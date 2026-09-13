@@ -22,7 +22,21 @@ services:
     region: frankfurt          # same region as the database, or every query pays a round trip
     plan: starter
     healthCheckPath: /health
-    autoDeploy: false          # deploys are a decision, not a side effect of a push
+    # AUTO-DEPLOY, BECAUSE A MANUAL STEP IS ITS OWN FAILURE MODE.
+    #
+    # This was false, with the reasoning that a deploy should be a decision. It
+    # cost a whole evening: three pushes sat on main looking deployed while the
+    # service ran older code, and the first Manual Deploy then failed on a
+    # Dockerfile problem nobody had seen because nothing had ever built it.
+    #
+    # main is protected by the suite that runs before a push, and a failed build
+    # leaves the previous instance serving — so the risk of deploying
+    # automatically is smaller than the risk of not knowing what is deployed.
+    #
+    # NOTE: the live service is named paltas-backend-production while this
+    # blueprint declares paltas-api, so this file may not govern it. The
+    # dashboard toggle is authoritative — check Settings -> Build & Deploy.
+    autoDeploy: true
 
     envVars:
       - key: NODE_ENV

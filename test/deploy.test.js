@@ -177,7 +177,7 @@ test("the start command migrates before it serves", () => {
     "production start command.");
 });
 
-test("the blueprint does not deploy on a push, and says so", () => {
+test("the blueprint deploys on a push, and declares a health check", () => {
   /*
    * autoDeploy: false is deliberate, and it is also the thing that makes a
    * push look like nothing happened. Asserting it here means the next person
@@ -185,10 +185,20 @@ test("the blueprint does not deploy on a push, and says so", () => {
    */
   if (!existsSync("render.yaml")) return;
   const yaml = readFileSync("render.yaml", "utf8");
-  assert.match(yaml, /autoDeploy:\s*false/,
-    "render.yaml no longer sets autoDeploy: false. If that is intended, this test " +
-    "should change with it — but a push that deploys itself is a decision, not a " +
-    "default.");
+  /*
+   * autoDeploy is now TRUE, and this test changed with it rather than being
+   * deleted. The requirement is that main deploys itself: three commits once sat
+   * on main looking deployed while the service ran older code, and the first
+   * manual deploy then failed on a Dockerfile fault nothing had ever exercised.
+   *
+   * A failed build leaves the previous instance serving, so the risk of
+   * deploying automatically is smaller than the risk of not knowing what is
+   * deployed.
+   */
+  assert.match(yaml, /autoDeploy:\s*true/,
+    "render.yaml no longer auto-deploys. A push that does not deploy is a push " +
+    "whose result nobody has seen — which is how an undeployed commit spends a " +
+    "day looking live.");
   assert.match(yaml, /healthCheckPath:\s*\/health/,
     "the service must declare a health check, or Render will route traffic to a " +
     "container that has not finished starting");
