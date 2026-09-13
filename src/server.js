@@ -20,6 +20,7 @@ import { organizationRoutes } from "./routes/organizations.js";
 import { promotionRoutes } from "./routes/promotions.js";
 import { productRoutes } from "./routes/products.js";
 import { marketRoutes } from "./routes/market.js";
+import { marketplaceRoutes } from "./routes/marketplace.js";
 import { guestRoutes } from "./routes/guest.js";
 import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
@@ -137,6 +138,7 @@ export function createApp() {
     next();
   });
 
+  app.use(marketplaceRoutes);
   app.use(marketRoutes);
 
   /* ------------------------------------------------------------------ *

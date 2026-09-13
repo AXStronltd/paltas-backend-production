@@ -133,10 +133,24 @@ test("every page's scripts load without throwing", { skip }, () => {
   }
 });
 
+/*
+ * Two calls are allowed at load, and only two.
+ *
+ *   /health                 the market service's one silent reachability probe
+ *   /marketplace/listings   the public marketplace read
+ *
+ * The second one is new, and it is the exception that proves the rule. The
+ * homepage's nine discovery sections ARE the screen — a visitor arriving at
+ * paltas.io has already asked for them by arriving — so deferring that request
+ * would mean an empty page until something was clicked. Everything else still
+ * has to wait until a screen needs it.
+ */
+const ALLOWED_AT_LOAD = /\/health$|\/marketplace\/listings(\?|$)/;
+
 test("no page reaches the network at load beyond the health probe", { skip }, () => {
   for (const page of PAGES) {
     const w = openPage(page);
-    const unexpected = w.calls.fetch.filter((u) => !/\/health$/.test(u));
+    const unexpected = w.calls.fetch.filter((u) => !ALLOWED_AT_LOAD.test(u));
     assert.deepEqual(unexpected, [],
       `${page} called out at load time: ${unexpected.join(", ")}. A page should ` +
       `ask for data when a screen needs it, not while it is still parsing.`);
@@ -320,9 +334,20 @@ test("the homepage's own inline scripts run without throwing", { skip }, () => {
     "stops everything after the throw — the carousels, the search and the card " +
     "renderers all live in those blocks.");
 
-  const unexpected = w.calls.fetch.filter((u) => !/\/health$/.test(u));
+  const unexpected = w.calls.fetch.filter((u) => !ALLOWED_AT_LOAD.test(u));
   assert.deepEqual(unexpected, [],
     "the homepage called out at load beyond the health probe: " + unexpected.join(", "));
+
+  /*
+   * And it MUST make that one call. If the marketplace read is missing, the
+   * nine sections are empty for a reason that has nothing to do with whether
+   * anything is published — which is the failure this whole design exists to
+   * avoid, and it would look identical to the honest empty state.
+   */
+  assert.ok(w.calls.fetch.some((u) => /\/marketplace\/listings/.test(u)),
+    "the homepage did not ask for /marketplace/listings at load, so its nine " +
+    "sections cannot fill even when listings exist. Fetched: " +
+    (w.calls.fetch.join(", ") || "nothing"));
 
   assert.ok(w.win.document.getElementById("heroWhere"),
     "the search field is gone from the homepage");
@@ -595,4 +620,254 @@ test("onboarding creates the company through the real endpoint", { skip }, () =>
   const authCode = auth.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
   assert.doesNotMatch(authCode, /TRIALING|entitlement/i,
     "the frontend is deciding subscription or entitlement state, which is the server's job");
+});
+
+/* ====================================================================== *
+ * THE PUBLIC MARKETPLACE ON THE HOMEPAGE
+ *
+ * The nine discovery sections are the homepage now, and the one property that
+ * matters about them cannot be checked by reading the source: that they show
+ * what the API returned and NOTHING ELSE. So these open the real page, answer
+ * its one request with a known set of listings, and read the rendered DOM back.
+ *
+ * The homepage used to build its rows from a country's indicative price level —
+ * "Homes for sale in Mombasa" at a figure derived from `base`. It looked like
+ * inventory and was not, and that is exactly what a stranger cannot tell by
+ * looking. These tests are the reason it cannot come back.
+ * ====================================================================== */
+
+/** The shape the public endpoint actually returns. Nothing here is invented:
+    every field is one `GET /marketplace/listings` selects. */
+const SAMPLE = [
+  { id: "l1", title: "Two-bedroom apartment, Nyali", kind: "SHORT_STAY", price: 850000,
+    currency: "KES", city: "Mombasa", country: "Kenya", place: "Nyali Court",
+    unitKind: "TWO_BED", sqm: 96, offeredBy: "Coast Lettings Ltd", transfer: true,
+    transferFree: false, hotel: false },
+  { id: "l2", title: "Studio off Ngong Road", kind: "LONG_LET", price: 4500000,
+    currency: "KES", city: "Nairobi", country: "Kenya", place: "Jacaranda Place",
+    unitKind: "STUDIO", sqm: 38, offeredBy: "Ngong Road Properties", transfer: false,
+    transferFree: null, hotel: false },
+  { id: "l3", title: "Deluxe room, ocean wing", kind: "SHORT_STAY", price: 1800000,
+    currency: "KES", city: "Diani", country: "Kenya", place: "Ocean Wing",
+    unitKind: "ONE_BED", sqm: 44, offeredBy: "Diani Hotels Group", transfer: true,
+    transferFree: true, hotel: true },
+  { id: "l4", title: "Four-bedroom house, Karen", kind: "FOR_SALE", price: 48000000,
+    currency: "KES", city: "Nairobi", country: "Kenya", place: "Karen Ridge",
+    unitKind: "FOUR_BED", sqm: 310, offeredBy: "Karen Ridge Agents", transfer: false,
+    transferFree: null, hotel: false },
+];
+
+/**
+ * Open the homepage and answer its marketplace request with `listings`.
+ *
+ * The shim rejects every fetch by design, so the module's failure path is what
+ * runs on a plain openPage(). Replacing fetch and calling load() again is how a
+ * test sees the path a visitor sees.
+ */
+function marketplaceHome(listings) {
+  const w = openPage("index.html", { inlineToo: true });
+  w.win.fetch = (u) => {
+    if (!/marketplace\/listings/.test(String(u))) return Promise.reject(new Error("unrelated"));
+    return Promise.resolve({
+      ok: true, status: 200, headers: { get: () => "application/json" },
+      json: () => Promise.resolve({ listings, count: listings.length, source: "live-listings" }),
+      text: () => Promise.resolve(JSON.stringify({ listings })),
+    });
+  };
+  w.win.PALTAS.Marketplace.load();
+  return w;
+}
+
+/** The rendered marketplace, after the promise chain has settled. */
+async function rendered(w) {
+  await new Promise((r) => setTimeout(r, 40));
+  const host = w.win.document.getElementById("paltas-marketplace");
+  assert.ok(host, "#paltas-marketplace is gone from the homepage");
+  return host.innerHTML;
+}
+
+test("the homepage draws nine marketplace sections, by their own names", { skip }, async () => {
+  const html = await rendered(marketplaceHome(SAMPLE));
+
+  /* The titles are the product's, not this test's — they are what a visitor
+     reads, and renaming one silently is a content change nobody reviewed. */
+  const TITLES = [
+    "Available today", "Popular near you", "Arrive with ease", "Trending stays",
+    "Hotels worth checking in to", "Homes for a few nights",
+    "Buy, sell and discover property", "New developments",
+    "One platform. Every property journey.",
+  ];
+  const missing = TITLES.filter((t) => !html.includes(t));
+  assert.deepEqual(missing, [], "these marketplace sections are not on the homepage: " +
+    missing.join(" | "));
+
+  assert.equal((html.match(/class="mk-sec"/g) || []).length, 9,
+    "the homepage should draw exactly nine marketplace sections");
+});
+
+test("every card on the homepage comes from the API and nothing else", { skip }, async () => {
+  const html = await rendered(marketplaceHome(SAMPLE));
+
+  /* Every title rendered must be one the endpoint returned. A card with any
+     other title was built by the page, which is the whole failure mode. */
+  const titles = out((html.match(/class="mk-title">([^<]*)</g) || [])).map(
+    (m) => m.replace(/class="mk-title">/, "").replace(/<$/, ""));
+  const known = new Set(SAMPLE.map((l) => l.title)
+    /* the closing section's four cards name PALTAS products, not properties */
+    .concat(["Property Management", "Hotel Management", "Agent &amp; Host", "Security Management"]));
+  const invented = titles.filter((t) => !known.has(t));
+  assert.deepEqual(invented, [],
+    "the homepage rendered a card the API never sent: " + invented.join(" | "));
+});
+
+test("the homepage invents no rating, no photograph and no review", { skip }, async () => {
+  const html = await rendered(marketplaceHome(SAMPLE));
+
+  /*
+   * A Listing has no rating, no image and no review anywhere in the schema —
+   * confirmed against prisma/schema.prisma, where `image` belongs to Promotion.
+   * So any of the three appearing on a card was made up, and a visitor would
+   * read it as something a previous guest left.
+   */
+  const fabrications = [];
+  if (/class="mk-card"[\s\S]{0,600}?(★|&#9733;|\bstars?\b|\brating\b)/i.test(html))
+    fabrications.push("a star or a rating appears on a card");
+  if (/class="mk-card"[\s\S]{0,600}?<img/i.test(html))
+    fabrications.push("a card carries an <img>, and listings have no photograph");
+  if (/\d+\s*reviews?\b/i.test(html))
+    fabrications.push("a review count appears");
+  if (/\bsuperhost\b|\bguest favourite\b|\bbestseller\b/i.test(html))
+    fabrications.push("an earned badge appears, and none is computed anywhere");
+  assert.deepEqual(fabrications, [], fabrications.join("; "));
+});
+
+test("with nothing published, every section says why rather than shrugging", { skip }, async () => {
+  const html = await rendered(marketplaceHome([]));
+
+  const empties = (html.match(/class="mk-empty"/g) || []).length;
+  assert.equal(empties, 8,
+    "eight of the nine sections show listings, so with none published all eight " +
+    "should show an empty state — found " + empties);
+
+  assert.ok(!/class="mk-card"/.test(html.replace(/class="mk-card mk-prod"/g, "")),
+    "a property card was drawn while the API returned no listings at all");
+
+  /*
+   * And each reason must be its own. Eight copies of one sentence tells a
+   * visitor nothing about which part of PALTAS is empty and which is broken.
+   */
+  const reasons = out(html.match(/class="mk-empty"[\s\S]*?<p>([\s\S]*?)<\/p>/g) || [])
+    .map((b) => (b.match(/<p>([\s\S]*?)<\/p>/) || [])[1]);
+  assert.equal(new Set(reasons).size, reasons.length,
+    "two sections give the same empty-state reason:\n  " + reasons.join("\n  "));
+});
+
+test("a failed request empties the page instead of filling it", { skip }, async () => {
+  /* openPage's fetch rejects, which IS the unreachable-backend case. */
+  const w = openPage("index.html", { inlineToo: true });
+  const html = await rendered(w);
+
+  assert.ok(/class="mk-notice"/.test(html),
+    "the marketplace did not say the listings failed to load, so an empty page " +
+    "is indistinguishable from nothing being published");
+  assert.ok(!/class="mk-card"(?! mk-prod)/.test(html),
+    "a property card was drawn after the request failed — a fallback to examples " +
+    "is the one thing this must never do");
+  assert.equal((html.match(/class="mk-notice"/g) || []).length, 1,
+    "the failure is reported more than once; eight copies of it reads as eight faults");
+});
+
+test("the homepage's generated inventory is gone for good", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  /*
+   * renderRows() built nine rows of stays out of a country's `base` price and
+   * wrote them into #homeRows. The arrays and gen() are still there as a record
+   * of what a row looked like, but they must never be rendered again.
+   */
+  assert.ok(!/wrap\.innerHTML\s*=\s*rows\.map/.test(html),
+    "the homepage is writing generated rows into #homeRows again. Those are not " +
+    "listings — they are titles and prices computed from a country's indicative " +
+    "price level, and a visitor cannot tell them from real inventory.");
+
+  assert.ok(/id="paltas-marketplace"/.test(html),
+    "the marketplace container is gone, so the real listings have nowhere to go");
+});
+
+test("no development-only wording is shown to the public", { skip }, () => {
+  for (const page of ["index.html", "partner.html", "owners.html"]) {
+    const html = readFileSync(join(FE, page), "utf8")
+      /* comments explain the code to us, not the product to a visitor */
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const found = ["PALTAS · dev", "for this preview", "lorem ipsum", "TODO:", "FIXME",
+                   "coming soon to this demo", "demo only"]
+      .filter((s) => html.toLowerCase().includes(s.toLowerCase()));
+    assert.deepEqual(found, [],
+      `${page} shows development-only wording to the public: ${found.join(", ")}`);
+  }
+});
+
+test("the filter bar keeps every airport-transfer chip the page had", { skip }, async () => {
+  const html = await rendered(marketplaceHome(SAMPLE));
+
+  /*
+   * The five transfer chips existed before this redesign and must survive it.
+   * What changed is honesty, not the set: three read the API, and the two that
+   * ask about DIRECTION are disabled, because HotelService records a name, a
+   * kind and a chargeable flag and nothing that says which way a car goes.
+   *
+   * They used to filter on a hard-coded table of three property names with a
+   * direction typed beside each, which is why this test checks they are OFF
+   * rather than just present.
+   */
+  for (const label of ["All", "Hotels", "Short stays", "Long stays", "Buy / Sell",
+                       "Developments", "Airport transfer", "Pickup available",
+                       "Drop-off available", "Free transfer", "Paid transfer"]) {
+    assert.ok(html.includes(label), `the "${label}" filter chip is gone from the marketplace`);
+  }
+
+  for (const gone of ["Pickup available", "Drop-off available"]) {
+    const chip = (html.match(new RegExp('<button[^>]*>' + gone + '</button>')) || [])[0] || "";
+    assert.ok(/disabled/.test(chip) && /aria-disabled="true"/.test(chip),
+      `"${gone}" is an active filter again, but nothing in the schema records ` +
+      `transfer direction — so it can only be filtering on something invented. ` +
+      `Chip: ${chip || "not found as a button"}`);
+  }
+
+  assert.ok(/mk-filter-note/.test(html),
+    "the two disabled chips give no reason, so they read as a bug rather than a gap");
+
+  /* And the three that DO work must actually narrow. */
+  const w = marketplaceHome(SAMPLE);
+  await rendered(w);
+  w.win.PALTAS.Marketplace.setFilter("transfer-free");
+  const free = w.win.document.getElementById("paltas-marketplace").innerHTML;
+  assert.ok(free.includes("Deluxe room, ocean wing"),
+    "Free transfer dropped the one listing whose transfer service is not chargeable");
+  assert.ok(!free.includes("Two-bedroom apartment, Nyali"),
+    "Free transfer kept a listing whose transfer service charges");
+});
+
+test("only one airport-transfer filter bar is built on the homepage", { skip }, () => {
+  /*
+   * Checked in the source, not the DOM, and deliberately.
+   *
+   * dom-shim's getElementById never returns null — it auto-creates a node for any
+   * id asked for, so that `getElementById(x).addEventListener(...)` does not
+   * crash a page that works. That makes "is #atxFilter absent?" unanswerable
+   * here: the answer is always "no", whatever the page does. An earlier version
+   * of this test asserted it anyway and was measuring the harness.
+   *
+   * What IS checkable is that bar() still stands down when the real marketplace
+   * is present. The old bar narrowed `#homeRows article`, which the marketplace
+   * no longer fills, so without this guard the homepage grows a second filter bar
+   * that changes nothing.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const fn = (html.match(/function bar\(\)\s*\{[\s\S]*?\n  \}/) || [])[0];
+  assert.ok(fn, "the #atxFilter bar() function is gone — this test is stale, not the page");
+  assert.ok(/getElementById\("paltas-marketplace"\)\)\s*return/.test(fn),
+    "bar() no longer stands down for the real marketplace, so the homepage builds " +
+    "two airport-transfer filter bars and only one of them narrows anything.");
 });
