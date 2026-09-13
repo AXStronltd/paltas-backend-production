@@ -115,6 +115,28 @@ export function createApp() {
    * an authentication problem rather than a routing one.
    * test/market-api.test.js asserts this order.
    * ------------------------------------------------------------------ */
+  /*
+   * API RESPONSES ARE NOT CACHEABLE BY DEFAULT.
+   *
+   * This service is proxied through paltas.io, so its responses travel through
+   * a shared CDN. One customer's invoice list sitting in that cache and being
+   * served to another is exactly the wall this platform sells — and a missing
+   * Cache-Control header leaves the decision to whatever heuristics the cache
+   * happens to use.
+   *
+   * Set BEFORE the routers, so the handful of genuinely public, genuinely
+   * static endpoints (market config, payment methods, localization) can and do
+   * override it with their own `public, max-age=600`. Everything else — every
+   * authenticated read of a customer's own data — stays no-store.
+   *
+   * Netlify cannot do this: [[headers]] do not apply to proxied responses, so a
+   * rule there looked right and did nothing at all.
+   */
+  app.use((_req, res, next) => {
+    res.set("Cache-Control", "no-store");
+    next();
+  });
+
   app.use(marketRoutes);
 
   /* ------------------------------------------------------------------ *

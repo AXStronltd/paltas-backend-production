@@ -21,7 +21,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 const DOCKERFILE = readFileSync("Dockerfile", "utf8");
 const DOCKERIGNORE = existsSync(".dockerignore")
@@ -277,4 +277,52 @@ test(".dockerignore still keeps out the things that must never ship", () => {
   assert.ok(!dockerIgnored("contract/market-config.js"),
     "the file the server reads at runtime is excluded again");
   assert.ok(!dockerIgnored("src/server.js"), "src/ is excluded, which cannot be right");
+});
+
+test("API responses are not cacheable unless they are genuinely public", () => {
+  /*
+   * This service is proxied through paltas.io, so its responses pass through a
+   * shared CDN. One customer's list sitting in that cache and being served to
+   * another is exactly the wall this platform sells, and a MISSING
+   * Cache-Control header leaves that to a heuristic.
+   *
+   * The default is set in server.js before the routers, so the handful of
+   * genuinely public catalogue endpoints can override it — and only those.
+   *
+   * It cannot live in netlify.toml: headers there do not apply to proxied
+   * responses, so the rule looked right and did nothing. That is why this test
+   * reads server.js rather than the toml.
+   */
+  const server = readFileSync("src/server.js", "utf8");
+  const idx = server.indexOf('res.set("Cache-Control", "no-store")');
+  assert.notEqual(idx, -1,
+    "server.js no longer sets a no-store default, so an authenticated response " +
+    "can be cached by whatever the CDN decides");
+
+  /* It has to come BEFORE the routers, or the public routes cannot override. */
+  const firstRouter = Math.min(
+    ...["marketRoutes", "guestRoutes", "platformRoutes", "productRoutes"]
+      .map((r) => server.indexOf("app.use(" + r))
+      .filter((i) => i > -1));
+  assert.ok(idx < firstRouter,
+    "the no-store default is registered after the routers, so the public " +
+    "catalogue endpoints can no longer override it");
+
+  /*
+   * And the toml must not pretend to do it.
+   *
+   * FE is resolved here rather than borrowed: it is defined in
+   * frontend-contract.test.js, and referencing it from this file threw
+   * "FE is not defined" — a test that fails for its own reasons rather than the
+   * code's.
+   */
+  const FRONTEND = process.env.PALTAS_FRONTEND
+    || resolve(process.cwd(), "..", "paltas-frontend 2");
+  if (existsSync(join(FRONTEND, "netlify.toml"))) {
+    const toml = readFileSync(join(FRONTEND, "netlify.toml"), "utf8");
+    const apiHeaderBlock = /\[\[headers\]\][\s\S]{0,200}for = "\/api\/\*"/.test(toml);
+    assert.ok(!apiHeaderBlock,
+      "netlify.toml has a [[headers]] block for /api/* — those do not apply to " +
+      "proxied responses, so it does nothing while looking like protection");
+  }
 });
