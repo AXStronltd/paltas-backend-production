@@ -191,12 +191,31 @@ test("a model with no organization of its own inherits one from its parent", () 
       .filter(([, , args]) => /onDelete:\s*Cascade/.test(args))
       .map(([, type]) => type);
 
-    const rooted = parents.some((p) => owned.has(p));
-    assert.ok(rooted,
-      `${name} has no orgId and cascades from no organization-owned model ` +
-      `(parents: ${parents.join(", ") || "none"}). It therefore belongs to nobody: ` +
-      `deleting a company would leave its rows behind, and no query against it ` +
-      `is scoped by anything. Give it an orgId, or a cascading parent that has one.`);
+    /*
+     * A row may be rooted in a COMPANY or in a PERSON, and both are real.
+     *
+     * Everything in this schema used to belong to an Organization, because
+     * everything was something a company operated. SupplierBooking is the first
+     * thing that is not: a hotel booking a visitor made through a wholesaler
+     * belongs to the visitor. There is no company in it — the hotel is not a
+     * PALTAS org, and filing it under one would put a guest's private booking
+     * inside some operator's tenancy.
+     *
+     * The narrowness is what keeps this from being a loophole. Cascading from
+     * User means "this is one person's own data", and the same guarantee still
+     * holds: the row has exactly one owner, every query is scoped by that owner,
+     * and deleting them takes it with them. Anything a COMPANY operates still
+     * needs an orgId, and nothing here relaxes that.
+     */
+    const rootedInOrg = parents.some((p) => owned.has(p));
+    const rootedInPerson = parents.includes("User");
+    assert.ok(rootedInOrg || rootedInPerson,
+      `${name} has no orgId and cascades from neither an organization-owned ` +
+      `model nor a User (parents: ${parents.join(", ") || "none"}). It therefore ` +
+      `belongs to nobody: deleting a company or a person would leave its rows ` +
+      `behind, and no query against it is scoped by anything. Give it an orgId, ` +
+      `a cascading parent that has one, or — only if it is genuinely one ` +
+      `person's own data — a cascading User.`);
   }
 });
 

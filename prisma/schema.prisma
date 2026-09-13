@@ -140,7 +140,10 @@ model User {
    * An investor register entry this person signs in as. Additive.
    */
   investors       Investor[]
-  promotions      Promotion[]      @relation("PromotionAuthor")
+  /// Hotel bookings this person made through a licensed supplier. Theirs, not
+  /// an operator's — see SupplierBooking.
+  stayBookings    SupplierBooking[]
+  promotions      Promotion[]       @relation("PromotionAuthor")
   events          PromotionEvent[]
   /// What this person did. SetNull on delete: the record outlives the account.
   auditEvents     AuditEvent[]
@@ -1231,6 +1234,82 @@ model HotelService {
   updatedAt DateTime @updatedAt
 
   @@index([orgId])
+}
+
+/// A hotel booking a PALTAS user made through a licensed accommodation
+/// supplier — LiteAPI today.
+///
+/// WHY THIS EXISTS WHEN SUPPLIER CONTENT IS NEVER STORED
+///
+/// It is not supplier content. A hotel's name, rates and photographs belong to
+/// the wholesaler and are never persisted — see src/domain/supply.js. THIS is
+/// PALTAS's own commercial record of a transaction one of its users made: who
+/// booked, what they paid, and the references they need to arrive. A platform
+/// that cannot tell a guest what they booked is not a platform they can use.
+///
+/// WHAT IT IS FOR, CONCRETELY
+///
+/// Ownership. Without a row saying whose a booking is, `GET /stays/:id` and the
+/// cancel route can only ask "are you signed in?" — so anybody holding an id
+/// could read a stranger's booking or cancel their holiday. That is why those
+/// routes were sandbox-only until this table existed.
+///
+/// It is a SNAPSHOT, not a cache. Nothing re-reads it to decide what a room
+/// costs; the supplier is always asked. If the two disagree the supplier is
+/// right and the disagreement is the finding.
+model SupplierBooking {
+  id     String @id @default(cuid())
+  /// Whose booking it is. The entire point of the table.
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  /// Which supplier, and their identifiers for it.
+  supplier              String
+  /// The supplier's booking id — what a guest quotes.
+  bookingId             String
+  /// Ours, generated per attempt. LiteAPI refuses a repeat, which is what stops
+  /// a retried request becoming two bookings.
+  clientReference       String @default("")
+  supplierBookingId     String @default("")
+  /// What the hotel's own desk recognises.
+  hotelConfirmationCode String @default("")
+
+  /// Enough of the stay to show it back without asking the supplier again.
+  hotelId   String    @default("")
+  hotelName String    @default("")
+  city      String    @default("")
+  country   String    @default("")
+  checkIn   DateTime?
+  checkOut  DateTime?
+  nights    Int       @default(1)
+
+  /// Minor units, like every other amount in this service.
+  price    BigInt @default(0)
+  currency String @default("USD")
+
+  /// CONFIRMED, CANCELLED, CANCELLED_WITH_CHARGES.
+  status          String    @default("CONFIRMED")
+  refundable      Boolean?
+  cancelledAt     DateTime?
+  /// What the cancellation actually cost, once it has happened. Nullable
+  /// because "not cancelled" and "cancelled for nothing" are different.
+  cancellationFee BigInt?
+  refund          BigInt?
+
+  /// A sandbox booking is not a booking — nobody is arriving. Stored so it can
+  /// never be shown as confirmed travel.
+  sandbox Boolean @default(false)
+
+  /// Who is staying, as given to the hotel.
+  holderName  String @default("")
+  holderEmail String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// One row per supplier booking, so a retry cannot record it twice.
+  @@unique([supplier, bookingId])
+  @@index([userId, createdAt])
 }
 
 // ================================================== AGENT & HOST

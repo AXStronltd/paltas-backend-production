@@ -578,3 +578,182 @@ test("the traveller's IP reaches the supplier and is not invented", { skip }, as
       "no traveller IP was passed through, and both suppliers refuse a search without one");
   } finally { supply.clear(); }
 });
+
+/* ====================================================================== *
+ * WHOSE BOOKING IS IT.
+ *
+ * These routes can read and cancel a hotel reservation by id. Before
+ * SupplierBooking existed they could only ask "are you signed in?", which is not
+ * ownership — anybody holding an id could open a stranger's booking or cancel
+ * their holiday. That is the hole this table closes, and these are the tests
+ * that keep it closed.
+ * ====================================================================== */
+
+/** A signed-in person with their own cookie. */
+async function person(tag) {
+  const { createSession } = await import("../src/auth/sessions.js");
+  const u = await db.user.create({
+    data: { email: `${tag}-${Date.now()}-${Math.round(Math.random() * 1e6)}@paltas.io`, name: tag },
+  });
+  const s = await createSession(u.id);
+  return { user: u, cookie: `paltas_session=${s.token}` };
+}
+
+async function withCookie(method, path, body, cookie) {
+  const res = await fetch(base + path, {
+    method,
+    headers: { ...(body ? { "Content-Type": "application/json" } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const text = await res.text();
+  let json = null; try { json = JSON.parse(text); } catch {}
+  return { status: res.status, json, text };
+}
+
+/** A supplier whose bookings are deterministic, so ownership is the only variable. */
+function bookingSupplier() {
+  const made = new Map();
+  /*
+   * Unique per instance, because SupplierBooking is @@unique([supplier,
+   * bookingId]) and it means it. A fixture that restarted at "BK1" for every
+   * test had its second booking correctly refused by the constraint — the
+   * database was right and the fixture was wrong.
+   */
+  const run = Date.now().toString(36) + Math.round(Math.random() * 1e6).toString(36);
+  return {
+    name: "expedia-rapid", sandbox: true,
+    describe() { return { name: "expedia-rapid", label: "Expedia", connected: true, sandbox: true, capabilities: [], why: "" }; },
+    async search() { return { offers: [] }; },
+    async prebook() { return { prebookId: "PB", price: 10000, currency: "USD", priceDifferencePercent: 0, sandbox: true }; },
+    async book({ holder }) {
+      const id = "BK" + run + "-" + (made.size + 1);
+      const b = { bookingId: id, status: "CONFIRMED", hotelName: "Test Hotel", hotelId: "h1",
+        checkIn: "2027-01-15", checkOut: "2027-01-17", price: 10000, currency: "USD",
+        refundable: true, cancellation: [], source: "expedia-rapid", sandbox: true,
+        clientReference: "ref-" + id, hotelConfirmationCode: "HC" + id,
+        supplierBookingId: "", createdAt: new Date().toISOString(), holder };
+      made.set(id, b);
+      return b;
+    },
+    async booking({ bookingId }) {
+      const b = made.get(bookingId);
+      if (!b) throw new Error("404 not found");
+      return b;
+    },
+    async cancel({ bookingId }) {
+      const b = made.get(bookingId);
+      if (b) b.status = "CANCELLED";
+      return { bookingId, status: "CANCELLED", charged: false, cancellationFee: 0, refund: 10000, currency: "USD", sandbox: true };
+    },
+  };
+}
+
+test("a booking is recorded against the person who made it", { skip }, async () => {
+  supply.register(bookingSupplier());
+  try {
+    const alice = await person("alice");
+    const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false });
+    const made = await withCookie("POST", "/marketplace/stays/book", {
+      prebookId: hold.json.hold.prebookId,
+      holder: { firstName: "Alice", lastName: "Traveller", email: "alice@paltas.io" },
+    }, alice.cookie);
+
+    assert.equal(made.status, 201, made.text.slice(0, 200));
+    assert.equal(made.json.recorded, true,
+      "the booking was not recorded, so PALTAS cannot show it to the guest later");
+
+    const row = await db.supplierBooking.findFirst({
+      where: { bookingId: made.json.booking.bookingId },
+    });
+    assert.ok(row, "no SupplierBooking row was written");
+    assert.equal(row.userId, alice.user.id, "the row is not owned by the person who booked");
+    /* A sandbox booking is not travel, and the record has to know. */
+    assert.equal(row.sandbox, true);
+    assert.equal(row.hotelConfirmationCode, "HC" + made.json.booking.bookingId,
+      "the code a guest shows at the desk was not stored");
+  } finally { supply.clear(); }
+});
+
+test("one person cannot read or cancel another's booking", { skip }, async () => {
+  /*
+   * The reason this table exists. Cancelling a stranger's holiday is the worst
+   * thing these routes could permit, so it is checked before anything at all is
+   * sent to the supplier.
+   */
+  supply.register(bookingSupplier());
+  try {
+    const alice = await person("alice");
+    const mallory = await person("mallory");
+
+    const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false });
+    const made = await withCookie("POST", "/marketplace/stays/book", {
+      prebookId: hold.json.hold.prebookId,
+      holder: { firstName: "Alice", lastName: "T", email: "alice@paltas.io" },
+    }, alice.cookie);
+    const id = made.json.booking.bookingId;
+
+    const read = await withCookie("GET", `/marketplace/stays/${id}`, null, mallory.cookie);
+    assert.equal(read.status, 404, "a signed-in stranger read somebody else's booking");
+    /* 404 and not 403: "that exists but is not yours" confirms the id is real,
+       which is a small oracle worth not handing out. */
+    assert.match(read.text, /not_found/);
+
+    const kill = await withCookie("DELETE", `/marketplace/stays/${id}`, null, mallory.cookie);
+    assert.equal(kill.status, 404, "a signed-in stranger cancelled somebody else's holiday");
+
+    /* And it really is untouched — not merely reported as refused. */
+    const after = await withCookie("GET", `/marketplace/stays/${id}`, null, alice.cookie);
+    assert.equal(after.status, 200);
+    assert.equal(after.json.booking.status, "CONFIRMED");
+
+    const list = await withCookie("GET", "/marketplace/stays", null, mallory.cookie);
+    assert.equal(list.json.count, 0, "a stranger's booking appeared in Mallory's list");
+  } finally { supply.clear(); }
+});
+
+test("a cancellation writes back what it actually cost", { skip }, async () => {
+  supply.register(bookingSupplier());
+  try {
+    const alice = await person("alice");
+    const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false });
+    const made = await withCookie("POST", "/marketplace/stays/book", {
+      prebookId: hold.json.hold.prebookId,
+      holder: { firstName: "Alice", lastName: "T", email: "alice@paltas.io" },
+    }, alice.cookie);
+    const id = made.json.booking.bookingId;
+
+    await withCookie("DELETE", `/marketplace/stays/${id}`, null, alice.cookie);
+    const row = await db.supplierBooking.findFirst({ where: { bookingId: id } });
+    assert.equal(row.status, "CANCELLED");
+    assert.ok(row.cancelledAt, "no cancellation time recorded");
+    /*
+     * The fee and the refund, not just the status. A non-refundable
+     * cancellation charges anyway, and a record saying only "cancelled" would
+     * tell somebody they had their money back when they did not.
+     */
+    assert.equal(row.refund, 10000n);
+    assert.equal(row.cancellationFee, 0n);
+  } finally { supply.clear(); }
+});
+
+test("the bookings list needs no supplier at all", { skip }, async () => {
+  /*
+   * A guest checking where they are staying tomorrow should not depend on a
+   * wholesaler being awake — and the supplier could not answer it anyway: it
+   * knows PALTAS's bookings, not this person's.
+   */
+  supply.register(bookingSupplier());
+  const alice = await person("alice");
+  const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false });
+  await withCookie("POST", "/marketplace/stays/book", {
+    prebookId: hold.json.hold.prebookId,
+    holder: { firstName: "Alice", lastName: "T", email: "alice@paltas.io" },
+  }, alice.cookie);
+
+  /* Supplier gone entirely. */
+  supply.clear();
+  const list = await withCookie("GET", "/marketplace/stays", null, alice.cookie);
+  assert.equal(list.status, 200, "the list broke when the supplier went away");
+  assert.equal(list.json.count, 1);
+  assert.equal(list.json.stays[0].hotelName, "Test Hotel");
+});

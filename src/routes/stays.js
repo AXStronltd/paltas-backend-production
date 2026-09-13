@@ -15,23 +15,22 @@
  * invented orgId and would drop bookings at other people's hotels into a
  * PALTAS hotelier's own arrivals list.
  *
- * ── WHAT IS NOT BUILT, AND WHY IT GATES PRODUCTION ──────────────────────
+ * ── OWNERSHIP ───────────────────────────────────────────────────────────
  *
- * A supplier booking is NOT PERSISTED. There is no model for one, and adding it
- * is a schema migration nobody has authorised.
+ * Every booking made here is recorded as a `SupplierBooking` against the person
+ * who made it, and reading or cancelling one is checked against that row rather
+ * than against "is anybody signed in".
  *
- * That absence has a direct security consequence, and it is the reason the
- * booking routes below are sandbox-only:
+ * That distinction is the reason the table exists. A session proves somebody is
+ * a PALTAS user; it says nothing about whether THIS booking is theirs. Without
+ * the row, an id was enough to open a stranger's booking or cancel their
+ * holiday — so these routes were sandbox-only until it existed.
  *
- *   With no stored booking there is no record of WHOSE it is. So a `GET` or a
- *   cancel by booking id cannot be checked against an owner — anybody holding
- *   an id could read a stranger's booking or cancel their holiday.
- *
- * A session is required, which narrows it to signed-in people, but a session is
- * not ownership. The honest fix is a Booking row with a userId, checked on every
- * read and every cancel. Until that exists these routes refuse whenever the
- * supplier is not a sandbox — see `sandboxOnly` below. The adapter refuses a
- * live booking too, so the restriction is enforced twice, deliberately.
+ * The record is PALTAS's own: who booked, what they paid, and the references
+ * they need to arrive. It is NOT a cache of supplier content — hotel names,
+ * rates and photographs stay unstored, and nothing here is ever read to decide
+ * what a room costs. The supplier is always asked, and if the two disagree the
+ * supplier is right.
  *
  * ── MONEY ───────────────────────────────────────────────────────────────
  *
@@ -41,6 +40,7 @@
  * ====================================================================== */
 
 import { Router } from "express";
+import { db } from "../db.js";
 import { badRequest, unavailable, notFound } from "../http/errors.js";
 import { rateLimit } from "../http/rate-limit.js";
 import { requireSession } from "../http/session.js";
@@ -69,11 +69,25 @@ function live() {
 function sandboxOnly(s) {
   if (!s.sandbox) {
     throw unavailable(
-      "Booking management is available only while the supplier is in sandbox. " +
-      "A live booking has to be recorded against the person who made it before " +
-      "it can be read or cancelled by id, and PALTAS does not store supplier " +
-      "bookings yet.");
+      "This booking cannot be completed against a live supplier without payment. " +
+      "Hold the rate for payment first, let the guest pay, and pass the " +
+      "transaction back.");
   }
+}
+
+/**
+ * The caller's own booking, or 404.
+ *
+ * Deliberately NOT 403. Telling somebody "that exists but is not yours" confirms
+ * a booking id is real, which is a small oracle worth not handing out. To
+ * anybody who is not the owner, it simply does not exist.
+ */
+async function ownedBy(session, bookingId) {
+  const row = await db.supplierBooking.findFirst({
+    where: { bookingId: String(bookingId), userId: session.userId },
+  });
+  if (!row) throw notFound("No such booking.");
+  return row;
 }
 
 /** Dates, or a 400 that names what is wrong rather than just refusing. */
@@ -216,9 +230,52 @@ stayRoutes.post("/marketplace/stays/book",
         clientReference: b.clientReference ? String(b.clientReference) : "",
       });
 
+      /*
+       * RECORDED BEFORE IT IS RETURNED.
+       *
+       * The guest has paid by this point, so a row that fails to write is a
+       * booking PALTAS cannot show them later — but it is NOT a reason to hide
+       * the booking or imply it failed. So the write is attempted, a failure is
+       * logged and swallowed, and the guest still gets their reference. A
+       * missing row is recoverable from the supplier; a guest who was told
+       * their paid booking failed is not.
+       */
+      let recorded = true;
+      try {
+        await db.supplierBooking.create({
+          data: {
+            userId: req.session.userId,
+            supplier: booking.source || supplyStatus().name || "",
+            bookingId: booking.bookingId,
+            clientReference: booking.clientReference || "",
+            supplierBookingId: booking.supplierBookingId || "",
+            hotelConfirmationCode: booking.hotelConfirmationCode || "",
+            hotelId: booking.hotelId || "",
+            hotelName: booking.hotelName || "",
+            checkIn: booking.checkIn ? new Date(booking.checkIn) : null,
+            checkOut: booking.checkOut ? new Date(booking.checkOut) : null,
+            price: BigInt(booking.price == null ? 0 : booking.price),
+            currency: booking.currency || "USD",
+            status: booking.status || "CONFIRMED",
+            refundable: booking.refundable,
+            sandbox: Boolean(booking.sandbox),
+            holderName: [holder.firstName, holder.lastName].filter(Boolean).join(" "),
+            holderEmail: String(holder.email || ""),
+          },
+        });
+      } catch (e) {
+        recorded = false;
+        req.log && req.log.error
+          ? req.log.error("supplier booking not recorded", e && e.message)
+          : console.error("supplier booking not recorded:", e && e.message);
+      }
+
       res.set("Cache-Control", "no-store");
       res.status(201).json({
         booking,
+        /* Said out loud: if this is false the guest's own list will not show it
+           and the reference is the only way back to it. */
+        recorded,
         /*
          * Said on the response, not only in a log. A sandbox booking is not a
          * booking — nobody is arriving — and a client that renders one as
@@ -251,17 +308,13 @@ stayRoutes.get("/marketplace/stays/:bookingId",
   async (req, res, next) => {
     try {
       const s = live();
-      /*
-       * Still sandbox-only, and this is the honest reason: with no stored
-       * booking there is no owner to check a reader against, so a live booking
-       * id would be readable by anybody holding it. A session narrows that to
-       * signed-in people and is not ownership. The fix is a Booking row with a
-       * userId, not a looser guard here.
-       */
-      sandboxOnly(s);
       if (typeof s.booking !== "function") {
         throw unavailable(`${supplyStatus().label} cannot retrieve a booking.`);
       }
+      /* Theirs, or it does not exist. Checked BEFORE the supplier is asked, so a
+         stranger's id cannot even be used to probe whether it is real. */
+      const own = await ownedBy(req.session, req.params.bookingId);
+
       let booking;
       try {
         booking = await s.booking({ bookingId: String(req.params.bookingId) });
@@ -272,7 +325,10 @@ stayRoutes.get("/marketplace/stays/:bookingId",
         throw e;
       }
       res.set("Cache-Control", "no-store");
-      res.json({ booking, sandbox: true, supplier: supplyStatus() });
+      /* The supplier is authoritative on status and money; PALTAS's row is
+         authoritative on whose it is and what was shown at the time. */
+      res.json({ booking, sandbox: own.sandbox, bookedAt: own.createdAt,
+                 supplier: supplyStatus() });
     } catch (e) { next(e); }
   });
 
@@ -289,18 +345,97 @@ stayRoutes.delete("/marketplace/stays/:bookingId",
   async (req, res, next) => {
     try {
       const s = live();
-      sandboxOnly(s);
       if (typeof s.cancel !== "function") {
         throw unavailable(`${supplyStatus().label} cannot cancel a booking.`);
       }
+      /* Cancelling somebody else's holiday is the worst thing these routes could
+         allow, so ownership is established before anything is sent. */
+      await ownedBy(req.session, req.params.bookingId);
+
       const result = await s.cancel({ bookingId: String(req.params.bookingId) });
+
+      /*
+       * Written back, including what it cost. A non-refundable cancellation
+       * charges anyway, and a record that said only "cancelled" would tell
+       * somebody they had their money back when they did not.
+       */
+      try {
+        await db.supplierBooking.updateMany({
+          where: { bookingId: String(req.params.bookingId), userId: req.session.userId },
+          data: {
+            status: result.status || "CANCELLED",
+            cancelledAt: new Date(),
+            cancellationFee: result.cancellationFee == null ? null : BigInt(result.cancellationFee),
+            refund: result.refund == null ? null : BigInt(result.refund),
+          },
+        });
+      } catch (e) {
+        /* The cancellation already happened at the supplier. A stale row is a
+           reporting problem; refusing here would imply it had not been cancelled. */
+        console.error("cancellation not recorded:", e && e.message);
+      }
+
       res.set("Cache-Control", "no-store");
       res.json({
         cancellation: result,
         /* The distinction, named. */
         charged: result.charged,
-        sandbox: true,
+        sandbox: result.sandbox,
         supplier: supplyStatus(),
+      });
+    } catch (e) { next(e); }
+  });
+
+/* ---------------------------------------------------------------- 6
+ * THE PERSON'S OWN BOOKINGS.
+ *
+ * Answered entirely from PALTAS's own record — no supplier call at all. Three
+ * reasons, and any one of them would be enough:
+ *
+ *   It works when the supplier is down. A guest wanting to check where they are
+ *   staying tomorrow should not depend on a wholesaler being awake.
+ *   It is one query rather than N.
+ *   And it is the only list that can exist: the supplier knows PALTAS's
+ *   bookings, not this user's.
+ *
+ * Status and money here are as they were when last seen. The supplier remains
+ * authoritative — open one and it is re-read.
+ * ---------------------------------------------------------------- */
+stayRoutes.get("/marketplace/stays",
+  rateLimit({ windowMs: 60_000, max: 60 }),
+  requireSession(),
+  async (req, res, next) => {
+    try {
+      const rows = await db.supplierBooking.findMany({
+        where: { userId: req.session.userId },
+        orderBy: [{ createdAt: "desc" }],
+        take: 50,
+      });
+
+      res.set("Cache-Control", "no-store");
+      res.json({
+        stays: rows.map((r) => ({
+          bookingId: r.bookingId,
+          supplier: r.supplier,
+          hotelName: r.hotelName,
+          hotelConfirmationCode: r.hotelConfirmationCode,
+          checkIn: r.checkIn,
+          checkOut: r.checkOut,
+          nights: r.nights,
+          /* Minor units, as everywhere. The JSON replacer in server.js turns
+             BigInt into a number. */
+          price: r.price,
+          currency: r.currency,
+          status: r.status,
+          refundable: r.refundable,
+          cancelledAt: r.cancelledAt,
+          cancellationFee: r.cancellationFee,
+          refund: r.refund,
+          /* So a client can never render a sandbox booking as real travel. */
+          sandbox: r.sandbox,
+          bookedAt: r.createdAt,
+        })),
+        count: rows.length,
       });
     } catch (e) { next(e); }
   });
