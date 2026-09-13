@@ -771,3 +771,60 @@ test("a real supplier always outranks the sample catalogue", async () => {
   clear();
   assert.equal(connectSuppliers({}), null, "nothing configured means nothing connected");
 });
+
+test("a sand_ token forces sandbox mode even when the flag is off", async () => {
+  /*
+   * Booking issues test credentials prefixed `sand_`. Configured without
+   * BOOKING_DEMAND_TEST=1, every rate would render as ordinary bookable
+   * inventory — real-looking hotels at real-looking prices that nobody can
+   * actually book. It is the worst failure available to this integration and it
+   * happens by OMISSION: somebody pastes the token and forgets the flag.
+   *
+   * So the token decides, and an operator cannot override it. There is no
+   * legitimate reason to present test inventory as live.
+   */
+  const s = bookingDemand({
+    token: "sand_39ae6723-474f-401c-af75-0c5e0f4bbfdc",
+    affiliateId: "1",
+    /* explicitly NOT in test mode */
+    test: false,
+  });
+  assert.equal(s.sandbox, true,
+    "a sandbox token was accepted as a production credential");
+  assert.equal(s.describe().sandbox, true);
+  assert.match(s.describe().why, /forced, because the configured token is a sandbox token/);
+  assert.match(s.describe().disclosure, /cannot be booked/);
+
+  /* And it reaches every offer, which is what the page actually reads. */
+  const stub = stubBooking({ search: B_SEARCH, details: B_DETAILS });
+  register(bookingDemand({
+    token: "sand_abc", affiliateId: "1", test: false, fetchImpl: stub.fetchImpl,
+    cities: { "mombasa,ke": "-1" },
+  }));
+  const r = await searchSupply({
+    city: "Mombasa", country: "KE", checkIn: "2026-10-01", checkOut: "2026-10-08",
+  });
+  assert.ok(r.offers.length > 0, "the stub returned nothing, so this proves nothing");
+  for (const o of r.offers) {
+    assert.equal(o.supplier.sandbox, true, "a sandbox offer is not marked");
+    assert.match(o.supplier.disclosure, /TEST environment/);
+  }
+});
+
+test("a production token is left alone", () => {
+  /* The detection must not catch a real credential and quietly mark live
+     inventory unbookable, which would be the mirror-image failure. */
+  const s = bookingDemand({ token: "abc123-not-a-sandbox", affiliateId: "1" });
+  assert.equal(s.sandbox, false);
+  assert.equal(s.describe().disclosure, "");
+  assert.match(s.describe().why, /^Booking\.com Demand is connected\.$/);
+});
+
+test("fromEnv carries the forced sandbox through", () => {
+  const s = bookingFromEnv({
+    BOOKING_DEMAND_TOKEN: "sand_39ae6723-474f-401c-af75-0c5e0f4bbfdc",
+    BOOKING_DEMAND_AFFILIATE: "12345",
+  });
+  assert.equal(s.sandbox, true,
+    "the sandbox token survived the environment without being marked");
+});

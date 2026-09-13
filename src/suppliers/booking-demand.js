@@ -109,6 +109,23 @@ export function bookingDemand({
       "BOOKING_DEMAND_AFFILIATE. Nothing is connected, and PALTAS will show " +
       "only its own listings.");
   }
+
+  /*
+   * A SANDBOX TOKEN FORCES SANDBOX MODE, WHATEVER THE FLAG SAYS.
+   *
+   * Booking.com issues test credentials prefixed `sand_`. If one of those is
+   * configured without BOOKING_DEMAND_TEST=1, every rate it returns renders as
+   * ordinary bookable inventory — real-looking hotels at real-looking prices
+   * that cannot actually be booked by anybody.
+   *
+   * That is the single worst failure available to this integration, and it
+   * happens through an omission rather than a mistake: somebody pastes the
+   * token and forgets the flag. So the token itself decides. An operator cannot
+   * turn this off, because there is no legitimate reason to present test
+   * inventory as live.
+   */
+  const looksSandbox = /^sand[_-]/i.test(String(token).trim());
+  const sandbox = Boolean(test) || looksSandbox;
   const http = fetchImpl || globalThis.fetch;
   if (typeof http !== "function") {
     throw new SupplyUnavailable("No fetch implementation is available for Booking.com Demand.");
@@ -158,19 +175,30 @@ export function bookingDemand({
     name: "booking-demand",
     /* The brand a visitor is told, which is what the licence attributes. */
     label: "Booking.com",
-    sandbox: Boolean(test),
+    sandbox,
 
     describe() {
       return {
         name: "booking-demand",
         label: "Booking.com",
         connected: true,
-        sandbox: Boolean(test),
+        sandbox,
         capabilities: ["search", "details"],
-        why: test
-          ? "Booking.com Demand is connected in TEST mode. Every offer it returns " +
-            "is marked as a sandbox rate and must not be presented as bookable."
+        why: sandbox
+          ? "Booking.com Demand is connected in TEST mode" +
+            (looksSandbox && !test
+              ? " \u2014 forced, because the configured token is a sandbox token " +
+                "(it begins \"sand_\"). Set BOOKING_DEMAND_TEST=1 to make this " +
+                "explicit, or use a production token."
+              : "") +
+            ". Every offer it returns is marked as a sandbox rate and must not " +
+            "be presented as bookable."
           : "Booking.com Demand is connected.",
+        /* Said out loud so an operator can see which rates these are. */
+        disclosure: sandbox
+          ? "These rates come from Booking.com's TEST environment. They are not " +
+            "real availability and cannot be booked."
+          : "",
         citiesKnown: index.size,
       };
     },

@@ -117,7 +117,20 @@ Expedia wins if both are configured.
 
 Same city-id caveat as Rapid, for the same reason: search takes a numeric city
 id, never a name, and a wrong one returns real hotels somewhere else at real
-prices.
+prices. **Without `BOOKING_DEMAND_CITIES` every city returns nothing** — the
+adapter will not guess an id.
+
+**Sandbox tokens are detected and cannot be overridden.** Booking issues test
+credentials prefixed `sand_`. If one is configured, the adapter forces sandbox
+mode whatever `BOOKING_DEMAND_TEST` says, and every rate is marked unbookable on
+the page. This is deliberate: a test token without the flag would render
+real-looking hotels at real-looking prices that nobody can book, and it happens
+by omission rather than by mistake. There is no legitimate reason to present
+test inventory as live, so there is no way to switch it off.
+
+> A supplier token belongs in Render's environment only — never in either
+> repository, never in frontend code, and never in a commit message. Nothing in
+> `GET /marketplace/suppliers` can carry one: `status()` has no field for it.
 
 ### Before either exists: the sample catalogue
 
