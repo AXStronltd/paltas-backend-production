@@ -103,6 +103,61 @@ curl https://paltas.io/api/marketplace/suppliers
 #   "capabilities":[],"why":"No accommodation supplier is connected..."}]}
 ```
 
+### Or: Booking.com Demand
+
+The same seam takes Booking.com instead. One supplier is active at a time, and
+Expedia wins if both are configured.
+
+| | |
+|---|---|
+| `BOOKING_DEMAND_TOKEN` | the affiliate bearer token |
+| `BOOKING_DEMAND_AFFILIATE` | the `X-Affiliate-Id` value |
+| `BOOKING_DEMAND_TEST` | `1` to mark every rate SANDBOX and unbookable |
+| `BOOKING_DEMAND_CITIES` | `{"mombasa,ke":"-1234567"}` — Booking city ids |
+
+Same city-id caveat as Rapid, for the same reason: search takes a numeric city
+id, never a name, and a wrong one returns real hotels somewhere else at real
+prices.
+
+### Before either exists: the sample catalogue
+
+`PALTAS_SAMPLE_SUPPLY=1` puts **demonstration properties** on the marketplace so
+it can be shown and reviewed populated. **None of it is real and none of it can
+be booked.**
+
+| | |
+|---|---|
+| `PALTAS_SAMPLE_SUPPLY` | `1`, and only `1`, switches it on. Off by default. |
+| `PALTAS_SAMPLE_COUNT` | how many per section, 1–8. Default 6. |
+| `PALTAS_SAMPLE_CITIES` | optional allow-list, e.g. `Mombasa,Nairobi`. Empty = every city. |
+
+Six things constrain it, and they are why it is safe enough to run on a public
+site:
+
+1. **Off by default**, and `connectSuppliers()` will not reach for it while
+   Expedia or Booking.com has credentials — a real supplier always wins.
+2. **It is a supplier, not a listing.** It can only ever reach the `supply`
+   array, so `listings` stays honestly empty and the "nothing published yet"
+   empty states remain true.
+3. **`sandbox: true`**, so every card inherits the tested SANDBOX marking.
+4. **"(sample)" is in every title** — a badge can be cropped out of a
+   screenshot, a title cannot.
+5. **A disclosure rides on every row**, not only in the envelope.
+6. **No real business is named and no image is hotlinked.**
+
+The boot log says so loudly on every start, because this is exactly the thing
+that gets switched on for a demo and forgotten:
+
+```
+accommodation supplier: paltas-sample (SANDBOX/TEST)
+  *** SAMPLE CATALOGUE IS LIVE. The properties on the marketplace are
+  demonstration content: not real, not bookable, marked on every card. ***
+```
+
+Unlike a real supplier, the sample **does** answer without dates — it quotes one
+night — because the whole point is a populated page the moment a visitor
+arrives. A real wholesaler cannot, since its price is a live quote.
+
 Two things that are true by design and worth knowing before anybody debugs them:
 
 - **No dates, no supplier rooms.** A wholesaler prices a stay against live

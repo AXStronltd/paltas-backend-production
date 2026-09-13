@@ -26,6 +26,8 @@ import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
 import { register as registerSupplier, status as supplierStatus } from "./domain/supply.js";
 import { fromEnv as expediaRapidFromEnv } from "./suppliers/expedia-rapid.js";
+import { fromEnv as bookingDemandFromEnv } from "./suppliers/booking-demand.js";
+import { fromEnv as sampleCatalogueFromEnv } from "./suppliers/sample-catalogue.js";
 
 const log = {
   info: (...a) => console.log(new Date().toISOString(), ...a),
@@ -200,16 +202,40 @@ const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split
  */
 export function connectSuppliers(env = process.env) {
   try {
-    const rapid = expediaRapidFromEnv(env);
-    if (!rapid) {
+    /*
+     * PRECEDENCE, and it is deliberate.
+     *
+     * A licensed supplier always wins. The sample catalogue is reached for only
+     * when neither Expedia nor Booking.com has credentials AND somebody has
+     * explicitly set PALTAS_SAMPLE_SUPPLY=1 — so demonstration content can
+     * never quietly outrank real inventory, and can never appear because a
+     * variable was left at its default.
+     */
+    const real = expediaRapidFromEnv(env) || bookingDemandFromEnv(env);
+    const chosen = real || sampleCatalogueFromEnv(env);
+
+    if (!chosen) {
       log.info("accommodation supplier: none configured — PALTAS listings only");
       return null;
     }
-    registerSupplier(rapid);
+
+    registerSupplier(chosen);
     const s = supplierStatus();
-    /* The name and the mode. Never the key, and there is no code path here
-       that could print one. */
+    /* The name and the mode. Never a credential — status() has no field that
+       could carry one. */
     log.info(`accommodation supplier: ${s.name}${s.sandbox ? " (SANDBOX/TEST)" : ""}`);
+
+    if (!real) {
+      /*
+       * Loud, and on every boot. Sample inventory on a public marketplace is
+       * the kind of thing that gets switched on for a demo and forgotten, and
+       * the log is the only place an operator will ever notice.
+       */
+      log.error(
+        "  *** SAMPLE CATALOGUE IS LIVE. The properties on the marketplace are " +
+        "demonstration content: not real, not bookable, marked on every card. " +
+        "Unset PALTAS_SAMPLE_SUPPLY to turn it off. ***");
+    }
     return s;
   } catch (e) {
     /* A misconfigured supplier must not stop the API from booting. The

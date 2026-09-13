@@ -68,9 +68,14 @@ export class SupplyUnavailable extends Error {
  * else's protocol wrapped thinly, and a base class it must extend is a
  * constraint with no benefit.
  *
- *   name        string, e.g. "expedia-rapid". Appears on every offer it
- *               returns, in the response envelope, and in the attribution a
- *               visitor reads. Never a display name pretending to be PALTAS.
+ *   name        string, e.g. "expedia-rapid". The machine identifier: it keys
+ *               every offer and appears in the envelope. Never a display name
+ *               pretending to be PALTAS.
+ *   label       what a VISITOR reads in the attribution line, e.g.
+ *               "Expedia". Optional; falls back to `name`. It exists because
+ *               "Supplied by expedia-rapid" is an internal string leaking onto
+ *               a public page, and because a supplier's licence usually
+ *               specifies the brand name to attribute.
  *   sandbox     boolean. True for a test environment, and then every offer it
  *               returns must be marked so a person cannot mistake one.
  *   describe()  -> { name, connected, sandbox, capabilities[], why }
@@ -120,6 +125,7 @@ export const notConnected = {
   describe() {
     return {
       name: "",
+      label: "",
       connected: false,
       sandbox: false,
       capabilities: [],
@@ -190,16 +196,25 @@ export function clear() {
 export function status() {
   try {
     const d = current.describe ? current.describe() : {};
+    const name = d.name || current.name || "";
     return {
       connected: isConnected(),
-      name: d.name || current.name || "",
+      name,
+      /* What the page prints. Falls back to the machine name rather than being
+         blank, because an attribution line with nothing in it is worse than an
+         ugly one. */
+      label: d.label || current.label || name,
       sandbox: Boolean(d.sandbox ?? current.sandbox),
       capabilities: d.capabilities || [],
       why: d.why || "",
+      /* A supplier may say, in its own words, what a visitor must be told about
+         its inventory. A sample catalogue uses this to say it is not real. */
+      disclosure: d.disclosure || "",
     };
   } catch (e) {
     return {
-      connected: false, name: "", sandbox: false, capabilities: [],
+      connected: false, name: "", label: "", sandbox: false, capabilities: [],
+      disclosure: "",
       why: "The configured accommodation supplier could not describe itself: " +
            String(e && e.message).slice(0, 160),
     };
@@ -234,7 +249,7 @@ export function toMinor(amount) {
  * the offer — so an adapter cannot return `source: "paltas"` by accident or
  * otherwise, and supplier inventory cannot end up wearing PALTAS's name.
  */
-export function normaliseOffer(offer, { name, sandbox }) {
+export function normaliseOffer(offer, { name, sandbox, label, disclosure }) {
   const nights = Number.isInteger(offer.nights) && offer.nights > 0 ? offer.nights : null;
   const price = Number.isInteger(offer.price) ? offer.price : toMinor(offer.price);
 
@@ -270,7 +285,20 @@ export function normaliseOffer(offer, { name, sandbox }) {
 
     /* Provenance, written here and not by the adapter. */
     source: name,
-    supplier: { name, sandbox: Boolean(sandbox) },
+    supplier: {
+      name,
+      label: label || name,
+      sandbox: Boolean(sandbox),
+      /*
+       * Carried on EVERY offer, not just in the envelope.
+       *
+       * A card can be screenshotted, shared, or rendered by a client that never
+       * looked at the envelope. If a supplier's inventory must be described as
+       * not real, that sentence has to travel with the row rather than sit
+       * somewhere a client may not read.
+       */
+      disclosure: disclosure || "",
+    },
     /* Never a PALTAS listing. Said in the row itself so a client cannot get it
        wrong by looking at the wrong field. */
     paltasOwned: false,
@@ -294,6 +322,9 @@ export async function searchSupply(query = {}) {
   const s = current;
   const name = s.name || "";
   const sandbox = Boolean(s.sandbox);
+  const st0 = status();
+  const label = st0.label || name;
+  const disclosure = st0.disclosure || "";
 
   if (!isConnected()) {
     const st = status();
@@ -308,7 +339,7 @@ export async function searchSupply(query = {}) {
       /* An offer with no id or no price cannot be shown or booked. Dropped
          rather than rendered with a blank where the price goes. */
       .filter((o) => o && o.supplierRef)
-      .map((o) => normaliseOffer(o, { name, sandbox }))
+      .map((o) => normaliseOffer(o, { name, sandbox, label, disclosure }))
       .filter((o) => o.price !== null && o.currency);
 
     return {

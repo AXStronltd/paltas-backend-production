@@ -932,8 +932,17 @@ test("a wholesaler's room is never drawn as a PALTAS listing", { skip }, async (
   assert.ok(/These are not PALTAS listings/.test(html),
     "no shelf mixing the two says which is which");
 
-  /* And no PALTAS card may have picked any of it up. */
-  const paltasCards = html.replace(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/g, "");
+  /*
+   * And no PALTAS card may have picked any of it up.
+   *
+   * Both the supplier cards AND the shelf's attribution paragraph are removed
+   * first — the attribution legitimately says "Supplied by", and leaving it in
+   * made this assertion fire on the licence line rather than on a mislabelled
+   * PALTAS card, which is the thing it is actually for.
+   */
+  const paltasCards = html
+    .replace(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/g, "")
+    .replace(/<p class="mk-attrib[^"]*">[\s\S]*?<\/p>/g, "");
   assert.ok(!/Supplied by/.test(paltasCards),
     "a PALTAS listing is labelled as supplied by a wholesaler");
   assert.ok(!/mk-rating/.test(paltasCards),
@@ -969,12 +978,21 @@ test("a sandbox rate is marked unbookable on every card", { skip }, async () => 
   const cards = html.match(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/g) || [];
   assert.ok(cards.length, "no supplier card was drawn");
   for (const c of cards) {
-    assert.ok(/not bookable/.test(c),
+    /* Case-insensitive: the badge is set in capitals, and this test is about
+       whether the warning is present, not how it is typeset. */
+    assert.ok(/not bookable/i.test(c),
       "a SANDBOX test rate is presented as if it could be booked, which is the " +
       "worst failure this integration can have");
   }
-  assert.ok(/SANDBOX test rates that cannot be booked/.test(html),
-    "the shelf does not warn that its rates are test data");
+  /*
+   * The guarantee, not the wording: the shelf says the rooms cannot be booked,
+   * and it says it with the weight of a warning rather than as small print.
+   * Asserting the old sentence verbatim made this fail when the copy improved.
+   */
+  assert.ok(/cannot be booked/.test(html),
+    "the shelf does not warn that its rates cannot be booked");
+  assert.ok(/mk-attrib-warn/.test(html),
+    "the shelf's warning is styled as an ordinary footnote");
 });
 
 test("supplier rooms never push a PALTAS listing off a shelf", { skip }, async () => {
@@ -1058,4 +1076,77 @@ test("the homepage asks for supplier availability only when it has dates", { ski
     "the marketplace sends check-in and check-out unconditionally, which means " +
     "it is either inventing dates or asking a wholesaler an unanswerable question");
   assert.ok(/setStay/.test(js), "there is no way for chosen dates to reach the request");
+});
+
+test("sample inventory is unmistakable on the page", { skip }, async () => {
+  /*
+   * The sample catalogue exists so the marketplace can be shown populated before
+   * real inventory arrives. That is a genuinely dangerous thing to put on a
+   * public site, and its only defence is that a visitor cannot mistake it for
+   * something bookable. This test is that defence.
+   */
+  const samples = [{
+    id: "paltas-sample:sample-1", supplierRef: "sample-1",
+    title: "Beachfront apartment, Mombasa (sample)",
+    city: "Mombasa", country: "KE", place: "Sample location",
+    price: 18000, currency: "USD", nights: 1, priceBasis: "stay", perNight: 18000,
+    refundable: null, rating: 8.6, ratingCount: 214, image: null, deepLink: null,
+    source: "paltas-sample",
+    supplier: {
+      name: "paltas-sample",
+      label: "PALTAS sample catalogue (not real inventory)",
+      sandbox: true,
+      disclosure: "This is sample content used to demonstrate the PALTAS marketplace. " +
+        "It is not a real property, the price is not a real rate, and it cannot be booked.",
+    },
+    paltasOwned: false,
+  }];
+
+  const html = await rendered(marketplaceWithSupply([], samples, {
+    connected: true, name: "paltas-sample",
+    label: "PALTAS sample catalogue (not real inventory)",
+    sandbox: true, failed: false, why: "", capabilities: ["search"],
+  }));
+
+  const cards = html.match(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/g) || [];
+  assert.ok(cards.length, "no sample card was drawn");
+
+  for (const c of cards) {
+    /* In the title, so it survives a screenshot that crops every badge off. */
+    assert.ok(/\(sample\)/.test(c), "a sample card's title does not say it is a sample");
+    assert.ok(/NOT BOOKABLE/.test(c), "a sample card does not say it cannot be booked");
+    assert.ok(/not a real property/.test(c),
+      "the disclosure is not on the card, so a client that ignored the envelope " +
+      "would render sample inventory with nothing to say it is not real");
+    assert.ok(/mk-kind-sample/.test(c), "the sample badge is styled as ordinary supplier stock");
+  }
+
+  /* The shelf warning is a warning, not small print. */
+  assert.ok(/mk-attrib-warn/.test(html),
+    "a shelf of unbookable inventory carries only a normal-weight footnote");
+  assert.ok(/cannot be booked/.test(html));
+
+  /*
+   * And PALTAS's own array must still be honestly empty. The sample is a
+   * SUPPLIER: it can only ever reach `supply`, so an empty marketplace still
+   * reports as empty rather than being quietly padded out.
+   */
+  assert.ok(!/class="mk-card"(?! mk-supply)/.test(html),
+    "a sample was drawn as one of PALTAS's own listings");
+});
+
+test("the supplier attribution reads as a brand, not an adapter name", { skip }, async () => {
+  /* "Supplied by booking-demand" is an internal identifier leaking onto a public
+     page, and both suppliers' licences name the brand to attribute. */
+  const booking = [{
+    ...SUPPLY[0], id: "booking-demand:111", source: "booking-demand",
+    supplier: { name: "booking-demand", label: "Booking.com", sandbox: false, disclosure: "" },
+  }];
+  const html = await rendered(marketplaceWithSupply(SAMPLE, booking, {
+    connected: true, name: "booking-demand", label: "Booking.com",
+    sandbox: false, failed: false, why: "", capabilities: ["search"],
+  }));
+  assert.ok(/Supplied by Booking\.com/.test(html), "the brand name is not attributed");
+  assert.ok(!/Supplied by booking-demand/.test(html),
+    "the internal adapter name is printed on the public page");
 });

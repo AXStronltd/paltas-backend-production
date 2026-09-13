@@ -20,6 +20,19 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 
+/*
+ * The precedence test imports src/server.js, which validates its configuration
+ * at import time and refuses to load without these. Nothing here talks to a
+ * database or binds a port — createApp() is never called — so they only need to
+ * be present and well-formed, not real.
+ */
+process.env.SESSION_SECRET ||= "test-secret-that-is-long-enough-to-pass-validation";
+process.env.GOOGLE_CLIENT_ID ||= "test-client.apps.googleusercontent.com";
+process.env.GOOGLE_CLIENT_SECRET ||= "test-client-secret";
+process.env.DATABASE_URL ||= "postgresql://unused@127.0.0.1:1/none";
+process.env.PUBLIC_URL ||= "http://127.0.0.1:8080";
+process.env.APP_URL ||= "http://127.0.0.1:8899";
+
 import {
   SupplyUnavailable, notConnected, register, clear, isConnected, status,
   searchSupply, normaliseOffer, toMinor,
@@ -471,4 +484,290 @@ test("notConnected is the default and cannot be searched into existence", async 
   const r = await notConnected.search();
   assert.deepEqual(r.offers, []);
   assert.equal(notConnected.describe().connected, false);
+});
+
+/* ================================================================ 7
+ * BOOKING.COM DEMAND
+ *
+ * Less is verifiable here than for Rapid, and that asymmetry is the reason
+ * Rapid went first. Rapid's auth is a pure function and fully tested. Booking
+ * uses a bearer token, which cannot be derived — so the request bodies, the
+ * two-call join, the mapping and the redaction are covered, and the auth itself
+ * cannot be until somebody holds a token.
+ * ================================================================ */
+
+const { bookingDemand, priceOf, fromEnv: bookingFromEnv, redact: bookingRedact } =
+  await import("../src/suppliers/booking-demand.js");
+
+const B_SEARCH = { data: [
+  { id: 111, price: { gross_amount: { value: "700.00", currency: "USD" },
+                      total: { value: "580.00", currency: "USD" } } },
+  { id: 222, price: { gross_amount: { value: "420.00", currency: "USD" } } },
+  { id: 333 },                                   /* unpriced */
+] };
+const B_DETAILS = { data: [
+  { id: 111, name: "Harbour Lodge", url: "https://www.booking.com/hotel/x.html",
+    location: { city: "Mombasa", country: "ke" },
+    address: { address: "12 Harbour Road" },
+    reviews: { score: "8.4", count: "905" },
+    photos: [{ url: "https://cf.bstatic.com/111.jpg" }] },
+  /* 222 priced but has no detail record, so it cannot be drawn. */
+] };
+
+function stubBooking({ search, details, fail }) {
+  const calls = [];
+  return {
+    calls,
+    fetchImpl: async (url, opts) => {
+      calls.push({ url, headers: opts.headers, body: JSON.parse(opts.body) });
+      if (fail) return { ok: false, status: fail,
+        text: async () => JSON.stringify({ message: "bad token", echo: opts.headers }) };
+      const body = url.includes("/accommodations/search") ? search : details;
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    },
+  };
+}
+
+test("Booking.com takes the GROSS price, because net is not what anybody pays", () => {
+  /* Both are returned. `total` here omits taxes and fees and is lower, so
+     showing it would undercut every PALTAS listing with a number the guest will
+     not be charged. */
+  assert.deepEqual(priceOf(B_SEARCH.data[0]), { price: 70000, currency: "USD" });
+  assert.equal(priceOf({ id: 1 }), null);
+  assert.equal(priceOf({ id: 1, price: {} }), null);
+  /* No currency is not a price. */
+  assert.equal(priceOf({ price: { gross_amount: { value: "10.00" } } }), null);
+});
+
+test("a Booking search joins two POSTs and drops what it cannot draw", async () => {
+  const stub = stubBooking({ search: B_SEARCH, details: B_DETAILS });
+  register(bookingDemand({
+    token: "tok", affiliateId: "12345", fetchImpl: stub.fetchImpl,
+    cities: { "mombasa,ke": "-1234567" },
+  }));
+  const r = await searchSupply({
+    city: "Mombasa", country: "KE", checkIn: "2026-10-01", checkOut: "2026-10-08",
+    travellerIp: "41.90.1.1",
+  });
+
+  assert.equal(r.failed, false, r.why);
+  assert.equal(r.offers.length, 1, "222 has no detail record and 333 no price");
+  const o = r.offers[0];
+  assert.equal(o.title, "Harbour Lodge");
+  assert.equal(o.city, "Mombasa");
+  assert.equal(o.price, 70000);
+  assert.equal(o.nights, 7);
+  assert.equal(o.perNight, 10000);
+  assert.equal(o.rating, 8.4);
+  assert.equal(o.ratingCount, 905);
+  assert.equal(o.source, "booking-demand");
+  assert.equal(o.supplier.label, "Booking.com",
+    "the attribution must read as the brand, not the internal adapter name");
+  assert.equal(o.id, "booking-demand:111");
+  /*
+   * Booking reports cancellation per product and this adapter does not request
+   * products deeply enough to be certain, so it says nothing rather than
+   * claiming non-refundable on the supplier's behalf.
+   */
+  assert.equal(o.refundable, null);
+});
+
+test("the Booking request carries the token, affiliate and a real body", async () => {
+  const stub = stubBooking({ search: B_SEARCH, details: B_DETAILS });
+  register(bookingDemand({
+    token: "tok-abc", affiliateId: "98765", fetchImpl: stub.fetchImpl,
+    cities: { "mombasa,ke": "-1234567" },
+  }));
+  await searchSupply({
+    city: "Mombasa", country: "KE", checkIn: "2026-10-01", checkOut: "2026-10-08",
+    guests: 3, travellerIp: "41.90.1.1",
+  });
+
+  const first = stub.calls[0];
+  assert.equal(first.headers.Authorization, "Bearer tok-abc");
+  assert.equal(first.headers["X-Affiliate-Id"], "98765");
+  assert.equal(first.body.checkin, "2026-10-01");
+  assert.equal(first.body.checkout, "2026-10-08");
+  assert.equal(first.body.city, -1234567, "the city id must be a number, not a string");
+  assert.equal(first.body.guests.number_of_adults, 3);
+  /* Booking decides which rates and which legal terms apply from the booker's
+     market, so it is not optional. */
+  assert.equal(first.body.booker.country, "ke");
+
+  const second = stub.calls[1];
+  assert.ok(second.url.includes("/accommodations/details"));
+  assert.deepEqual(second.body.accommodations, [111, 222]);
+});
+
+test("an unmapped city returns nothing and says so, and makes no request", async () => {
+  const stub = stubBooking({ search: B_SEARCH, details: B_DETAILS });
+  register(bookingDemand({
+    token: "t", affiliateId: "1", fetchImpl: stub.fetchImpl,
+    cities: { "mombasa,ke": "-1234567" },
+  }));
+  const r = await searchSupply({
+    city: "Kisumu", country: "KE", checkIn: "2026-10-01", checkOut: "2026-10-08",
+  });
+  assert.deepEqual(r.offers, []);
+  assert.equal(stub.calls.length, 0);
+  assert.match(r.why, /no city id mapped/i);
+});
+
+test("a Booking error never carries the bearer token", async () => {
+  const stub = stubBooking({ fail: 401 });
+  register(bookingDemand({
+    token: "SUPERSECRETTOKEN", affiliateId: "1", fetchImpl: stub.fetchImpl,
+    cities: { "mombasa,ke": "-1" },
+  }));
+  const r = await searchSupply({
+    city: "Mombasa", country: "KE", checkIn: "2026-10-01", checkOut: "2026-10-08",
+  });
+  assert.equal(r.failed, true);
+  assert.deepEqual(r.offers, []);
+  assert.ok(!r.why.includes("SUPERSECRETTOKEN"),
+    "the bearer token is in the error message: " + r.why);
+  assert.match(r.why, /401/);
+});
+
+test("Booking redaction covers the shapes a token arrives in", () => {
+  assert.equal(bookingRedact("Authorization: Bearer abc.def-ghi"),
+    "Authorization: Bearer [redacted]");
+  assert.match(bookingRedact('{"token":"abc"}'), /\[redacted\]/);
+  assert.match(bookingRedact("X-Affiliate-Id: 12345"), /\[redacted\]/);
+  assert.equal(bookingRedact("Booking returned 503"), "Booking returned 503");
+});
+
+test("Booking needs both a token and an affiliate id, or it refuses", () => {
+  assert.equal(bookingFromEnv({}), null);
+  assert.equal(bookingFromEnv({ BOOKING_DEMAND_TOKEN: "t" }), null);
+  assert.equal(bookingFromEnv({ BOOKING_DEMAND_AFFILIATE: "1" }), null);
+  assert.throws(() => bookingDemand({ token: "t" }), /BOOKING_DEMAND_AFFILIATE/);
+});
+
+/* ================================================================ 8
+ * THE SAMPLE CATALOGUE
+ *
+ * Demonstration inventory on a public marketplace. Every test here is a version
+ * of one question: can a visitor mistake this for something they could book?
+ * ================================================================ */
+
+const { sampleCatalogue, fromEnv: sampleFromEnv, DISCLOSURE } =
+  await import("../src/suppliers/sample-catalogue.js");
+
+test("the sample catalogue is off unless somebody switches it on", () => {
+  /*
+   * The single most important test in this file. Demonstration content that can
+   * appear because a variable was left at its default is how fake inventory
+   * ends up on a live marketplace with nobody having decided it should.
+   */
+  assert.equal(sampleFromEnv({}), null);
+  assert.equal(sampleFromEnv({ PALTAS_SAMPLE_SUPPLY: "0" }), null);
+  assert.equal(sampleFromEnv({ PALTAS_SAMPLE_SUPPLY: "true" }), null,
+    "only the exact string \"1\" may enable it");
+  assert.ok(sampleFromEnv({ PALTAS_SAMPLE_SUPPLY: "1" }));
+});
+
+test("every sample property is marked unbookable three separate ways", async () => {
+  register(sampleCatalogue({ count: 4 }));
+  const r = await searchSupply({ city: "Mombasa", country: "KE" });
+  assert.ok(r.offers.length > 0);
+
+  for (const o of r.offers) {
+    /* 1. the sandbox flag the frontend reads to stamp the card */
+    assert.equal(o.supplier.sandbox, true, "a sample offer is not flagged sandbox");
+    /* 2. in the TITLE, so it survives a screenshot that crops the badge */
+    assert.match(o.title, /\(sample\)$/,
+      `"${o.title}" does not say it is a sample in its own title`);
+    /* 3. a disclosure on the row, because a card may be rendered by a client
+          that never read the envelope */
+    assert.equal(o.supplier.disclosure, DISCLOSURE);
+    assert.match(o.supplier.disclosure, /not a real property|cannot be booked/);
+    /* and it is never PALTAS's own */
+    assert.equal(o.paltasOwned, false);
+    assert.equal(o.source, "paltas-sample");
+  }
+  assert.match(status().label, /not real inventory/i,
+    "the attribution a visitor reads must say what this is");
+});
+
+test("the sample names no real business", async () => {
+  /*
+   * Putting a real hotel's name on invented inventory at an invented price
+   * misrepresents that company — which is a worse wrong than the fake listing
+   * itself. The titles are generic property descriptions for that reason.
+   */
+  register(sampleCatalogue({ count: 8 }));
+  const r = await searchSupply({ city: "Mombasa", country: "KE" });
+  for (const o of r.offers) {
+    assert.ok(!/\b(Hilton|Marriott|Serena|Radisson|Sarova|Swahili Beach|Voyager)\b/i.test(o.title),
+      `"${o.title}" names what looks like a real business`);
+  }
+});
+
+test("the sample hotlinks nobody's photograph", async () => {
+  register(sampleCatalogue({ count: 8 }));
+  const r = await searchSupply({ city: "Mombasa", country: "KE" });
+  for (const o of r.offers) {
+    assert.equal(o.image, null,
+      "a sample is not a licence to serve somebody else's image");
+  }
+});
+
+test("the sample shows properties on a plain load, and prices a night", async () => {
+  /*
+   * The one place it diverges from a real wholesaler, on purpose. Expedia and
+   * Booking refuse without dates because their price is a live quote. A sample
+   * price is not a quote, and the point of the catalogue is a populated page the
+   * moment somebody arrives.
+   */
+  register(sampleCatalogue({ count: 3 }));
+  const plain = await searchSupply({ city: "Mombasa", country: "KE" });
+  assert.equal(plain.offers.length, 3, "a plain load must still show properties");
+  assert.equal(plain.offers[0].nights, 1, "with no dates the figure is one night");
+
+  const dated = await searchSupply({
+    city: "Mombasa", country: "KE", checkIn: "2026-10-01", checkOut: "2026-10-08",
+  });
+  assert.equal(dated.offers[0].nights, 7);
+  assert.equal(dated.offers[0].price, plain.offers[0].price * 7,
+    "seven nights should cost seven times one night");
+});
+
+test("the sample is deterministic, so two screenshots differ only by the page", async () => {
+  register(sampleCatalogue({ count: 5 }));
+  const a = await searchSupply({ city: "Mombasa", country: "KE" });
+  const b = await searchSupply({ city: "Mombasa", country: "KE" });
+  assert.deepEqual(a.offers, b.offers);
+});
+
+test("a real supplier always outranks the sample catalogue", async () => {
+  /*
+   * Checked against the actual boot function rather than by reading it, because
+   * "the real one wins" is exactly the kind of precedence that looks right in
+   * source and is wrong in practice.
+   */
+  const { connectSuppliers } = await import("../src/server.js");
+
+  clear();
+  let s = connectSuppliers({ PALTAS_SAMPLE_SUPPLY: "1" });
+  assert.equal(s.name, "paltas-sample", "with no credentials the sample should be used");
+
+  clear();
+  s = connectSuppliers({
+    PALTAS_SAMPLE_SUPPLY: "1",
+    EXPEDIA_RAPID_API_KEY: "k", EXPEDIA_RAPID_SECRET: "s",
+  });
+  assert.equal(s.name, "expedia-rapid",
+    "the sample catalogue outranked a licensed supplier");
+
+  clear();
+  s = connectSuppliers({
+    PALTAS_SAMPLE_SUPPLY: "1",
+    BOOKING_DEMAND_TOKEN: "t", BOOKING_DEMAND_AFFILIATE: "1",
+  });
+  assert.equal(s.name, "booking-demand",
+    "the sample catalogue outranked a licensed supplier");
+
+  clear();
+  assert.equal(connectSuppliers({}), null, "nothing configured means nothing connected");
 });
