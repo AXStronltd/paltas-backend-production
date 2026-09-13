@@ -110,6 +110,17 @@ function routeFiles() {
  */
 const EXEMPT = [
   {
+    file: "stripe-webhook.js",
+    match: /STRIPE TELLS US THE ACCOUNT, NOT THE COMPANY/,
+    why: "A Stripe webhook has no actor and no session — it is Stripe saying " +
+         "something about an account it identifies by `acct_...`, which is " +
+         "globally unique and is the ONLY thing the request carries. There is no " +
+         "orgId to scope by until this very lookup resolves one. Its safety comes " +
+         "from the signature: nothing in this file runs until the payload is " +
+         "verified against STRIPE_WEBHOOK_SECRET, so the account id is Stripe's " +
+         "word and not a caller's.",
+  },
+  {
     file: "promotions.js",
     match: /publicWhere\(today\)/,
     why: "GET /promotions/public is the public feed. It is unscoped BY DESIGN — " +
@@ -177,11 +188,17 @@ test("a model with no organization of its own inherits one from its parent", () 
    *
    * A User spans companies, an Organization IS the company, a Counter is
    * per-company by its `name` rather than a column — and a Plan is PALTAS's
-   * price list, the same for every customer, like a country code. Giving Plan
+   * price list, the same for every customer, like a country code.
+   *
+   * StripeEvent is PALTAS's own log of what Stripe delivered to it. It is not a
+   * company's data and not a person's: it exists so a redelivered event is not
+   * processed twice, and giving it an orgId would mean discarding the row when
+   * a company leaves — losing exactly the idempotency record that stops their
+   * final payment being counted again. Giving Plan
    * an orgId would invite exactly the bug it would then hide: a company
    * quietly editing the price it is charged.
    */
-  const ROOTS = new Set(["User", "Organization", "Counter", "Plan"]);
+  const ROOTS = new Set(["User", "Organization", "Counter", "Plan", "StripeEvent"]);
 
   for (const [name, body] of models()) {
     if (owned.has(name) || orgReferencing().has(name) || ROOTS.has(name)) continue;

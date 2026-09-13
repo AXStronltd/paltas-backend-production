@@ -75,6 +75,10 @@ const NEVER_WRITABLE = {
   createdAt: "set once, by the database",
   updatedAt: "set by Prisma on every write",
   closedAt: "set by the status change that closes it, not sent alongside it",
+  providerRef: "the processor's own id for the money — written ONLY by the " +
+               "verified Stripe webhook. A caller who could send it could file a " +
+               "payment that never happened as one Stripe had confirmed, which is " +
+               "the difference between a claim and a receipt",
   voided: "a payment is voided through its own endpoint, with a reason",
   voidReason: "written by the void endpoint",
   voidedAt: "written by the void endpoint",

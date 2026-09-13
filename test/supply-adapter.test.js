@@ -1402,13 +1402,24 @@ test("PALTAS creates no Stripe object of its own, anywhere", () => {
    * hand over a client secret, but it must not depend on the Stripe SDK, create a
    * PaymentIntent, or hold a secret key of its own.
    */
-  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
-  assert.ok(!deps.stripe && !deps["@stripe/stripe-js"],
-    "a Stripe SDK was added as a dependency — this flow needs none, because the " +
-    "PaymentIntent is created on LiteAPI's platform");
-
+  /*
+   * This originally asserted the REPO had no Stripe dependency. That was true
+   * when the only payment path was LiteAPI's, and it became wrong the moment
+   * PALTAS added Stripe Connect so member companies could collect from their own
+   * customers — a different rail into a different account, legitimately needing
+   * the SDK.
+   *
+   * The claim that actually matters was never "PALTAS has no Stripe". It is
+   * "the LITEAPI flow creates no Stripe object of its own", because the
+   * PaymentIntent for a hotel room is created on LiteAPI's platform and a second
+   * one would charge the guest twice. So the assertion is scoped to the file it
+   * is about.
+   */
   const src = readFileSync(new URL("../src/suppliers/liteapi.js", import.meta.url), "utf8");
+  assert.ok(!/from ["']stripe["']|require\(["']stripe["']\)/.test(src),
+    "the LiteAPI adapter imports the Stripe SDK — it must not: the PaymentIntent " +
+    "is created on LiteAPI's platform, and anything created here would be a " +
+    "second charge");
   assert.ok(!/new Stripe\(|require\(["']stripe|from ["']stripe/.test(src),
     "the adapter instantiates Stripe server-side");
   /* And it must never hold a Stripe SECRET key — only the client secret, which

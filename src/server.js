@@ -22,6 +22,9 @@ import { productRoutes } from "./routes/products.js";
 import { marketRoutes } from "./routes/market.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
+import { paymentRoutes } from "./routes/payments.js";
+import { stripeWebhookRoutes } from "./routes/stripe-webhook.js";
+import { register as registerProcessor, fromEnv as stripeFromEnv, status as payStatus } from "./payments/stripe.js";
 import { guestRoutes } from "./routes/guest.js";
 import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
@@ -81,6 +84,16 @@ export function createApp() {
 
   app.use(securityHeaders());
   app.use(cors());
+  /*
+   * THE STRIPE WEBHOOK GOES FIRST, and the order is not cosmetic.
+   *
+   * Its signature is computed over the exact bytes Stripe sent. express.json()
+   * parses and discards them, and a re-serialised object does not verify — so
+   * mounted after this line, every webhook would fail with a signature error
+   * that looks exactly like a wrong secret. It carries its own express.raw().
+   */
+  app.use(stripeWebhookRoutes);
+
   app.use(express.json({ limit: "256kb" }));
   app.use(cookieParser());
   app.use(rateLimit({ windowMs: 60_000, max: 600 }));
@@ -146,6 +159,7 @@ export function createApp() {
 
   app.use(marketplaceRoutes);
   app.use(stayRoutes);
+  app.use(paymentRoutes);
   app.use(marketRoutes);
 
   /* ------------------------------------------------------------------ *
@@ -203,6 +217,39 @@ const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split
  * registered, the marketplace serves PALTAS's own listings exactly as before,
  * and the log says which it is so an operator is never left guessing.
  */
+/**
+ * Attach a payment processor, if this installation has a key.
+ *
+ * Out of createApp() for the same reason as connectSuppliers: a test builds the
+ * app many times and must decide for itself whether Stripe exists. Registering
+ * inside createApp() would let a LIVE key be reached from a test run that never
+ * asked for one, which on this seam means real money.
+ */
+export function connectPayments(env = process.env) {
+  try {
+    const stripe = stripeFromEnv(env);
+    if (!stripe) {
+      log.info("payment processor: none configured — companies cannot collect card payments");
+      return null;
+    }
+    registerProcessor(stripe);
+    const s = payStatus();
+    log.info(`payment processor: ${s.name}${s.livemode ? " (LIVE — real cards)" : " (test mode)"}`);
+    if (s.livemode && !env.STRIPE_WEBHOOK_SECRET) {
+      /* Live, and unable to verify a webhook. Payments would be taken and never
+         recorded, because the only place a Payment row is written is the
+         verified webhook. */
+      log.error(
+        "  *** STRIPE IS LIVE BUT STRIPE_WEBHOOK_SECRET IS NOT SET. " +
+        "No webhook can be verified, so no payment will be recorded. ***");
+    }
+    return s;
+  } catch (e) {
+    log.error("payment processor failed to connect:", e && e.message);
+    return null;
+  }
+}
+
 export function connectSuppliers(env = process.env) {
   try {
     /*
@@ -259,6 +306,7 @@ export function connectSuppliers(env = process.env) {
 
 if (isMain) {
   connectSuppliers();
+  connectPayments();
   const app = createApp();
   const server = app.listen(config.port, () => {
     log.info(`paltas-api listening on :${config.port} (${config.env})`);

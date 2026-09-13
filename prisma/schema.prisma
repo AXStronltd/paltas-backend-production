@@ -212,6 +212,8 @@ model Organization {
   updatedAt DateTime  @updatedAt
 
   subscription Subscription?
+  /// The Stripe Connect account this company collects through, if it has one.
+  connected    ConnectedAccount?
   verification Verification?
   workspace    Workspace?
   entitlements Entitlement[]
@@ -1852,14 +1854,21 @@ model Payment {
   invoice   Invoice?     @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
 
   /// Minor units. Positive for a receipt, negative for a refund.
-  amount     BigInt
-  currency   String        @default("KES")
-  method     PaymentMethod @default(CASH)
+  amount      BigInt
+  currency    String        @default("KES")
+  method      PaymentMethod @default(CASH)
   /// The provider's own identifier — an M-Pesa code, a card charge id. The
   /// only thing that makes this row checkable against anybody else's ledger.
-  reference  String        @default("")
-  receivedAt DateTime      @default(now())
-  receivedBy String        @default("")
+  reference   String        @default("")
+  /// The payment processor's own id for this money — a Stripe PaymentIntent,
+  /// `pi_...`. Empty for cash, a bank transfer or anything typed in by hand.
+  ///
+  /// Separate from `reference`, which is whatever a human wrote on the receipt.
+  /// Overloading a free-text field with a machine identifier is how a
+  /// reconciliation job starts matching on the wrong thing.
+  providerRef String        @default("")
+  receivedAt  DateTime      @default(now())
+  receivedBy  String        @default("")
 
   /// A mistake is voided, never deleted. `voidReason` is required in the
   /// route, not here, so that the history explains itself.
@@ -1873,6 +1882,104 @@ model Payment {
   @@unique([orgId, method, reference])
   @@index([orgId, receivedAt])
   @@index([orgId, invoiceId])
+}
+
+/// A member company's own Stripe account, so it can charge its own customers.
+///
+/// WHOSE MONEY, AND WHY THAT DECIDES EVERYTHING ELSE
+///
+/// When a hotel on PALTAS charges a guest's folio, that money is the HOTEL'S.
+/// PALTAS sells software; the hotel runs its own business, owns its own guests
+/// and is the merchant of record. Stripe calls that the SaaS pattern, and it
+/// settles the whole configuration:
+///
+///   dashboard        "full"    — these are independent businesses, not sellers
+///                                inside a PALTAS storefront
+///   fees_collector   "stripe"  — the company pays Stripe's fees directly
+///   losses_collector "stripe"  — Stripe owns negative-balance liability
+///   charges          DIRECT, with application_fee_amount for PALTAS's cut
+///
+/// The alternative — destination charges — would make PALTAS merchant of record
+/// for every room, tenancy and invoice on the platform, and liable for every
+/// chargeback on all of it. A guest disputing a room they did not like would be
+/// arguing with PALTAS instead of the hotel that served them.
+///
+/// ACCOUNTS V2, AND WHY THERE IS NO `chargesEnabled` HERE
+///
+/// `charges_enabled` and `payouts_enabled` are deprecated v1 fields. Readiness
+/// now lives at
+///
+///   configuration.merchant.capabilities.card_payments.status === "active"
+///
+/// so that is what is stored, verbatim, as Stripe last reported it. PALTAS
+/// never infers it from "the onboarding form looked finished": Stripe decides
+/// when a company has satisfied its verification, and a platform that guesses
+/// will take money the company cannot be paid.
+model ConnectedAccount {
+  id    String       @id @default(cuid())
+  orgId String       @unique
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Which processor. One today; named so a second is a row, not a migration.
+  provider  String @default("stripe")
+  /// Stripe's `acct_...`. The only identifier that can charge anything.
+  accountId String @unique
+
+  /// The v2 capability status, verbatim: "active", "pending", "restricted",
+  /// "inactive" or whatever Stripe adds next. Deliberately a string and not a
+  /// boolean — "pending" and "restricted" are different situations for the
+  /// company, and flattening them to false tells them nothing they can act on.
+  cardPaymentsStatus String @default("inactive")
+  /// Which Stripe dashboard the company gets. "full" for this platform.
+  dashboard          String @default("full")
+
+  /// What Stripe is still waiting for, comma separated, verbatim from the
+  /// account's requirements. Shown to the company so "pending" is never a dead
+  /// end they cannot do anything about.
+  requirementsDue String @default("")
+  /// Why Stripe restricted it, if it did. Their words, not a paraphrase.
+  disabledReason  String @default("")
+
+  country         String  @default("")
+  defaultCurrency String  @default("")
+  /// False for a test-mode account. A test account must never be shown as able
+  /// to take real money.
+  livemode        Boolean @default(false)
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  /// When the status above was last confirmed against Stripe.
+  lastSyncedAt DateTime?
+
+  @@index([provider, accountId])
+}
+
+/// Every Stripe webhook this service has already processed.
+///
+/// Stripe delivers at least once, not exactly once — a retry after a timeout is
+/// normal and expected. Without this table a redelivered
+/// `payment_intent.succeeded` records the same money twice, and the company's
+/// books say they were paid double.
+///
+/// The id IS Stripe's event id, so the uniqueness is the database's problem
+/// rather than a race between two handlers.
+model StripeEvent {
+  /// Stripe's `evt_...`.
+  id         String    @id
+  type       String
+  accountId  String    @default("")
+  receivedAt DateTime  @default(now())
+  /// Set once the handler finished. A row that exists but is unhandled means a
+  /// delivery was received and something went wrong after — which is worth
+  /// being able to find.
+  handled    Boolean   @default(false)
+  handledAt  DateTime?
+  error      String    @default("")
+  /// The row is written once on delivery and updated once when handling
+  /// finishes, so it is not append-only.
+  updatedAt  DateTime  @updatedAt
+
+  @@index([type, receivedAt])
 }
 
 enum PaymentMethod {

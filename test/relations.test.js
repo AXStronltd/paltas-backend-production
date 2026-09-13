@@ -273,7 +273,14 @@ test("every model has an id and timestamps, or says why not", () => {
     const names = new Set(fs.map((f) => f.name));
     assert.ok(names.has("id") || model === "Counter", `${model} has no id`);
     if (APPEND_ONLY.has(model)) continue;
-    assert.ok(names.has("createdAt"), `${model} has no createdAt`);
+    /*
+     * StripeEvent's clock is `receivedAt`, and the distinction is the point:
+     * the row records when STRIPE DELIVERED an event, not when PALTAS made a
+     * record. Calling it createdAt would invite somebody to read it as the
+     * latter and reconcile against the wrong instant.
+     */
+    assert.ok(names.has("createdAt") || (model === "StripeEvent" && names.has("receivedAt")),
+      `${model} has no createdAt`);
     assert.ok(names.has("updatedAt"),
       `${model} has no updatedAt. If that is deliberate because nothing ever ` +
       `updates it, add it to APPEND_ONLY in this test with that reason.`);
