@@ -39,13 +39,31 @@ const skip = existsSync(join(FE, "assets", "console.js"))
   ? false
   : `no frontend at ${FE} — set PALTAS_FRONTEND to run these`;
 
-/** The scripts a page loads, in the order it loads them. */
+/**
+ * Every script a page runs, IN DOCUMENT ORDER, inline and external together.
+ *
+ * This used to return only `src=` files, and openPage() ran them all before any
+ * inline block. A browser does not: it runs them in the order they appear. The
+ * difference is not academic — auth/login.html sets window.PALTAS_PAGE in an
+ * inline script ABOVE market.js, so loading market.js first made it render the
+ * home page and the test concluded the sign-in page had no Google button on it.
+ * The page was correct and the harness was wrong.
+ */
 function scriptsOf(page) {
   const html = readFileSync(join(FE, page), "utf8");
-  return [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)]
-    .map((m) => m[1])
-    .filter((s) => !/^https?:|^\/\//.test(s))          /* local files only */
-    .map((s) => s.replace(/^(\.\.\/|\.\/)+/, ""));
+  const out = [];
+  const rx = /<script([^>]*)>([\s\S]*?)<\/script>/g;
+  let m;
+  while ((m = rx.exec(html)) !== null) {
+    const src = (m[1].match(/\ssrc="([^"]+)"/) || [])[1];
+    if (src) {
+      if (/^https?:|^\/\//.test(src)) continue;            /* local files only */
+      out.push({ src: src.replace(/^(\.\.\/|\.\/)+/, "") });
+    } else if (m[2].trim()) {
+      out.push({ code: m[2], label: page + "#inline" });
+    }
+  }
+  return out;
 }
 
 const PAGES = [
@@ -69,11 +87,19 @@ const PAGES = [
  */
 const out = (a) => Array.from(a || []);
 
-function openPage(page, { probe = false, inlineToo = false } = {}) {
+function openPage(page, { probe = false, inlineToo = true } = {}) {
   const w = makeWindow({ href: "https://paltas.io/" + page });
-  for (const src of scriptsOf(page)) {
-    let code = readFileSync(join(FE, src), "utf8");
-    if (probe && src.endsWith("console.js")) {
+
+  for (const step of scriptsOf(page)) {
+    if (step.code) {
+      /* Inline blocks are what `inlineToo` used to gate. They are on by default
+         now, because a page whose own code has never run is a page no test has
+         actually opened. */
+      if (inlineToo) w.loadCode(step.code, step.label);
+      continue;
+    }
+    let code = readFileSync(join(FE, step.src), "utf8");
+    if (probe && step.src.endsWith("console.js")) {
       let n = 0;
       code = code.replace(
         /if \(typeof SCREENS\[key\] !== "function"\) \{ MISNAMED\.push\(key\); return; \}/g,
@@ -87,26 +113,7 @@ function openPage(page, { probe = false, inlineToo = false } = {}) {
         "console.js no longer has the two screen-wrapping sites this test " +
         "instruments — it found " + n + ". The probe is stale, not the code.");
     }
-      w.loadCode(code, src);
-    }
-
-  /*
-   * AND THE PAGE'S OWN INLINE SCRIPTS.
-   *
-   * This only ever loaded `src=` files, so index.html's four inline blocks —
-   * where the hero, the search box, the carousels and the card renderers
-   * actually live — were never executed by any test. The page could have
-   * thrown on its first line and every check here would still have passed.
-   *
-   * Running them found three holes in dom-shim.js rather than in the page
-   * (no Image, no element scrollTo, and an element querySelector that returned
-   * null while the document's returned a node) — which is the point: a harness
-   * that has never run the code cannot be trusted about it.
-   */
-  if (inlineToo) {
-    const html = readFileSync(join(FE, page), "utf8");
-    const blocks = [...html.matchAll(/<script(?![^>]*\ssrc=)[^>]*>([\s\S]*?)<\/script>/g)];
-    blocks.forEach((m, i) => w.loadCode(m[1], `${page}#inline${i}`));
+    w.loadCode(code, step.src);
   }
 
   return w;
@@ -416,4 +423,176 @@ test("the United Kingdom is live, in sterling", { skip }, () => {
   /* And PALTAS must not claim to check a register it does not check. */
   assert.doesNotMatch(mk, /we (now )?check (the )?Companies House/i,
     "do not claim to query Companies House — the documents are read, not looked up");
+});
+
+/* ====================================================================== *
+ * PUBLIC AUTHENTICATION.
+ *
+ * The public site had no working way in. login.html, work.html and
+ * business.html were linked from twenty places and all three returned 404, so
+ * "Sign in" and "Get started" were dead. The only signup that existed ran in
+ * the browser: it wrote to sessionStorage, accepted ANY six digits as an email
+ * code, and its sign-in looked an email up in a list and never read the
+ * password field at all.
+ * ====================================================================== */
+
+/*
+ * The sign-in and onboarding pages live in auth/, not at the root.
+ *
+ * I got this wrong first time: I tested https://paltas.io/login.html, got a 404
+ * and concluded the site had no way to sign in. It has — at /auth/login.html,
+ * which is what the ${A} prefix in market.js resolves to and what was live all
+ * along. The demo sign-in was therefore REACHABLE in production, which is worse
+ * than missing, and these paths are the ones that matter.
+ */
+const PUBLIC_PAGES = ["index.html", "partner.html", "owners.html",
+                      "auth/login.html", "auth/work.html", "auth/business.html",
+                      "auth/start.html", "auth/index.html"];
+
+test("every page the public site links to exists", { skip }, () => {
+  /*
+   * The failure this catches is a dead "Sign in" button, which is invisible to
+   * every other test here: the page that links to it loads perfectly.
+   */
+  const missing = [];
+  for (const page of PUBLIC_PAGES) {
+    if (!existsSync(join(FE, page))) missing.push(page + " (linked, absent)");
+  }
+  /*
+   * And whatever market.js links to. ${A} is "auth/" from a root page and ""
+   * from inside auth/, so a bare name resolves in BOTH places — a link is only
+   * broken when neither exists.
+   */
+  const mk = readFileSync(join(FE, "assets", "market.js"), "utf8");
+  for (const m of mk.matchAll(/href="\$\{([AB])\}([a-z0-9_-]+\.html)/g)) {
+    const target = m[2];
+    const atRoot = existsSync(join(FE, target));
+    const inAuth = existsSync(join(FE, "auth", target));
+    if (!atRoot && !inAuth) missing.push(target + " (linked from market.js, absent)");
+  }
+  assert.deepEqual([...new Set(missing)], [],
+    "these are linked from the public site and do not exist, so the link is a 404:\n  " +
+    [...new Set(missing)].join("\n  "));
+});
+
+test("the public site offers a real Continue with Google", { skip }, () => {
+  /* The button is rendered by market.js, so the test RENDERS it rather than
+     grepping a page — that is the only way to know a visitor sees it. */
+  for (const page of ["auth/login.html", "auth/work.html"]) {
+    const html = readFileSync(join(FE, page), "utf8");
+    assert.match(html, /paltas-auth\.js/, `${page} does not load the auth module`);
+    assert.match(html, /paltas-data\.js/,
+      `${page} does not load the API client, so signInUrl cannot be built`);
+
+    const w = openPage(page);
+    w.loadCode("globalThis.__render = (typeof render === 'function') && (render(), true);", "re");
+    const body = w.win.document.body.innerHTML || "";
+    assert.ok(body.includes("Continue with Google"),
+      `${page} renders no Continue with Google button — a visitor cannot sign in`);
+    const href = (body.match(/class="g-btn" href="([^"]+)"/) || [])[1];
+    assert.ok(href, `${page} renders the button with no href`);
+    assert.match(href, /\/auth\/google/,
+      `the button points at ${href} instead of the backend's /auth/google`);
+    assert.doesNotMatch(body, /accounts\.google\.com\/o\/oauth2/,
+      `${page} sends the browser straight to Google instead of through the backend`);
+    assert.doesNotMatch(body, /client_id=/,
+      `${page} puts a client_id in the page — the browser never needs one`);
+  }
+
+  const auth = readFileSync(join(FE, "assets", "paltas-auth.js"), "utf8");
+  assert.match(auth, /Session\.signInUrl\(\)/,
+    "the auth module builds its own URL instead of asking the API client");
+  assert.doesNotMatch(auth, /GOOGLE_CLIENT_SECRET|SESSION_SECRET|client_secret/,
+    "a secret is named in frontend code");
+});
+
+test("no production path can authenticate through a bypass", { skip }, () => {
+  const mk = readFileSync(join(FE, "assets", "market.js"), "utf8");
+
+  /* The six-digit bypass, gone entirely. */
+  assert.doesNotMatch(mk, /any six digits are accepted/,
+    "the 'any six digits are accepted' field is still rendered");
+
+  /* DEMO_DOORS may only ever be true on a development machine. A query
+     parameter or a global would let the public switch it on. */
+  /*
+   * COMMENTS STRIPPED FIRST.
+   *
+   * The first version of this assertion failed on the comment that explains why
+   * window.PALTAS_DEMO was removed — the words were in the file, so the test
+   * said the bypass was still there. A test that cannot tell an explanation
+   * from the thing it explains will be switched off by whoever hits it.
+   */
+  const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const doors = (code(mk).match(/const DEMO_DOORS = \(\(\) => \{[\s\S]*?\}\)\(\);/) || [])[0] || "";
+  assert.ok(doors, "DEMO_DOORS is gone from market.js — if that is deliberate, update this test");
+  assert.doesNotMatch(doors, /params\.get\("demo"\)/,
+    "?demo=1 still switches the demo doors on, which the public can do on paltas.io");
+  assert.doesNotMatch(doors, /window\.PALTAS_DEMO/,
+    "window.PALTAS_DEMO still switches the demo doors on, which a console can do");
+  assert.match(doors, /localhost/,
+    "DEMO_DOORS no longer restricts itself to a development machine");
+
+  /* The password-free sign-in must route to the real door. */
+  const signin = (mk.match(/if \(a === "signin"\) \{[\s\S]*?\n  \}/) || [])[0] || "";
+  assert.ok(signin, "the signin handler could not be read");
+  assert.match(signin, /login\.html/,
+    "the signin handler does not send people to the real sign-in page");
+
+  /* And no user-visible copy may still promise a demo. */
+  const noComments = mk.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  for (const phrase of ["any password works", "Demo build", "no real money"]) {
+    assert.ok(!noComments.includes(phrase),
+      `"${phrase}" is still in code a visitor can reach`);
+  }
+});
+
+test("signed-in state comes from the server, never from storage", { skip }, () => {
+  const auth = readFileSync(join(FE, "assets", "paltas-auth.js"), "utf8");
+  /* status() must ask the session endpoint and nothing else. */
+  assert.match(auth, /request\("\/auth\/session"\)/,
+    "status() does not ask the backend who the caller is");
+  assert.doesNotMatch(auth, /(localStorage|sessionStorage)\.(get|set)Item\(\s*["'][^"']*(signed|auth|session|user)/i,
+    "authentication state is being read from or written to browser storage");
+  /* Sign-out must destroy the row, not a flag. */
+  assert.match(auth, /Session\.signOut\(\)/,
+    "signOut() does not call the endpoint that deletes the session row");
+});
+
+test("the sign-in page reads the failure parameter the backend actually sends",
+  { skip }, () => {
+  /*
+   * The backend redirects a cancelled or failed sign-in to
+   * /login.html?signin=cancelled|failed. The first version of the auth module
+   * read ?error= — Google's parameter, not ours — so a cancelled sign-in would
+   * have shown no message whatsoever.
+   */
+  const auth = readFileSync(join(FE, "assets", "paltas-auth.js"), "utf8");
+  assert.match(auth, /q\.get\("signin"\)/,
+    "the page does not read ?signin=, which is what the backend sends");
+  for (const v of ["cancelled", "failed"]) {
+    assert.ok(new RegExp(v + ":").test(auth), `no message for signin=${v}`);
+  }
+
+  const routes = readFileSync("src/routes/auth.js", "utf8");
+  const targets = [...routes.matchAll(/appUrl\}(\/[a-z0-9_\-./]*\.html)/g)].map((m) => m[1]);
+  assert.ok(targets.length >= 1, "the callback no longer redirects failures to a page");
+  for (const t of targets) {
+    assert.ok(existsSync(join(FE, t.replace(/^\//, ""))),
+      `the backend sends failed sign-ins to ${t} and no such page exists`);
+  }
+});
+
+test("onboarding creates the company through the real endpoint", { skip }, () => {
+  const biz = readFileSync(join(FE, "auth", "business.html"), "utf8");
+  assert.match(biz, /createOrganization/,
+    "business.html collects a company and never creates one");
+  const auth = readFileSync(join(FE, "assets", "paltas-auth.js"), "utf8");
+  assert.match(auth, /request\("\/organizations", \{\s*method: "POST"/,
+    "createOrganization does not POST to the real organizations endpoint");
+  /* It must not invent a subscription or entitlements — the server does that.
+     Comments stripped, for the same reason as the bypass test above. */
+  const authCode = auth.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(authCode, /TRIALING|entitlement/i,
+    "the frontend is deciding subscription or entitlement state, which is the server's job");
 });

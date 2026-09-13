@@ -89,8 +89,17 @@ export function makeWindow({ href = "https://paltas.io/" } = {}) {
   const url = new URL(href);
   const win = {
     document, navigator: { userAgent: "node-smoke", language: "en-GB", languages: ["en-GB"], onLine: true },
+    /*
+     * `search` and `hash` come FROM THE URL, not hard-coded to "".
+     *
+     * They were empty strings, so any page that reads a query parameter was
+     * untestable: a sign-in page checking ?signin=cancelled saw nothing and the
+     * test passed while the page would have shown no message at all. Parsed
+     * from the href, like a browser does.
+     */
     location: { href, origin: url.origin, protocol: url.protocol, host: url.host,
-                hostname: url.hostname, pathname: url.pathname, search: "", hash: "",
+                hostname: url.hostname, pathname: url.pathname,
+                search: url.search, hash: url.hash,
                 assign(){}, replace(){}, reload(){} },
     localStorage: storage(), sessionStorage: storage(),
     history: { pushState(){}, replaceState(){}, back(){}, forward(){}, go(){} },

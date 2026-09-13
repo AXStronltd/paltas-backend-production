@@ -39,6 +39,14 @@ authRoutes.get("/google", signInLimit, (req, res) => {
  * redirects a human rather than answering a program, so its failures have to
  * land somewhere a person can read, not in a JSON body they will never see.
  */
+/*
+ * WHERE A FAILED SIGN-IN LANDS: /auth/login.html?signin=cancelled|failed.
+ *
+ * That path is correct and the page is live. I briefly "fixed" it to
+ * /login.html after testing the wrong URL and concluding the sign-in page did
+ * not exist — it does, in the auth/ folder, which is also what the frontend's
+ * own ${A} prefix resolves to. Left exactly as it was.
+ */
 authRoutes.get("/google/callback", signInLimit, async (req, res, next) => {
   try {
     if (req.query.error) {
