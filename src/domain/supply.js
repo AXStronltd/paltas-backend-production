@@ -283,6 +283,24 @@ export function normaliseOffer(offer, { name, sandbox, label, disclosure }) {
     image: offer.image ? String(offer.image) : null,
     deepLink: offer.deepLink ? String(offer.deepLink) : null,
 
+    /*
+     * THE IDENTIFIER THAT MAKES A PRICE ACTIONABLE.
+     *
+     * This shape is a whitelist — an adapter cannot smuggle arbitrary fields
+     * onto a public row — and `offerId` was being dropped by it, which meant
+     * every card showed a price nothing could be done with. A price a guest
+     * cannot act on is worse than no price: it is an invitation to a dead end.
+     *
+     * Null for a supplier whose model has no bookable offer id, and a caller
+     * must treat null as "not bookable here" rather than as an error.
+     */
+    offerId: offer.offerId ? String(offer.offerId) : null,
+    /* What the cheapest offer actually is, for a card that wants to say. */
+    roomName: offer.roomName ? String(offer.roomName) : "",
+    boardName: offer.boardName ? String(offer.boardName) : "",
+    /* The property's own star rating, which is not a guest score. */
+    stars: Number.isFinite(Number(offer.stars)) ? Number(offer.stars) : null,
+
     /* Provenance, written here and not by the adapter. */
     source: name,
     supplier: {

@@ -21,6 +21,7 @@ import { promotionRoutes } from "./routes/promotions.js";
 import { productRoutes } from "./routes/products.js";
 import { marketRoutes } from "./routes/market.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
+import { stayRoutes } from "./routes/stays.js";
 import { guestRoutes } from "./routes/guest.js";
 import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
@@ -144,6 +145,7 @@ export function createApp() {
   });
 
   app.use(marketplaceRoutes);
+  app.use(stayRoutes);
   app.use(marketRoutes);
 
   /* ------------------------------------------------------------------ *

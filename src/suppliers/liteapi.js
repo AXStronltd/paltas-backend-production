@@ -77,11 +77,115 @@ export function cheapestRate(hotel) {
       const currency = String(first.currency || "").toUpperCase();
       if (!currency) continue;
       if (!best || minor < best.price) {
-        best = { price: minor, currency, refundable: refundableFrom(rate) };
+        best = {
+          price: minor,
+          currency,
+          refundable: refundableFrom(rate),
+          /*
+           * THE IDENTIFIER THE WHOLE BOOKING FLOW HANGS ON.
+           *
+           * `offerId` lives on the ROOM TYPE, not on the rate — `rateId` is the
+           * rate within it. /rates/prebook takes the offerId, so it has to be
+           * carried up from the parent here. Reading it off the rate returns
+           * undefined and prebook fails with a validation error that says
+           * nothing about where the id was supposed to come from.
+           */
+          offerId: rt.offerId ? String(rt.offerId) : null,
+          rateId: rate.rateId ? String(rate.rateId) : null,
+          /* What the room actually is, which a guest choosing between two rates
+             at the same hotel needs to see. */
+          roomName: rt.name || rate.name || "",
+          boardName: rate.boardName || rate.boardType || "",
+          maxOccupancy: Number.isFinite(Number(rate.maxOccupancy))
+            ? Number(rate.maxOccupancy) : null,
+        };
       }
     }
   }
   return best;
+}
+
+/**
+ * Every bookable offer at one hotel, cheapest first.
+ *
+ * `cheapestRate` answers "what does this hotel cost", which is all a marketplace
+ * card needs. This answers "what could I actually book", which is what a guest
+ * needs once they have chosen the hotel — a room name, a board type, what it
+ * costs and whether it can be cancelled, per offer.
+ *
+ * An offer with no offerId is omitted: it cannot be prebooked, so showing it
+ * would be offering something that cannot be taken.
+ */
+export function offersFor(hotel) {
+  const out = [];
+  for (const rt of hotel.roomTypes || []) {
+    if (!rt.offerId) continue;
+    for (const rate of rt.rates || []) {
+      const total = rate.retailRate && rate.retailRate.total;
+      const first = Array.isArray(total) ? total[0] : total;
+      if (!first) continue;
+      const minor = toMinor(first.amount);
+      if (minor === null) continue;
+      const currency = String(first.currency || "").toUpperCase();
+      if (!currency) continue;
+      out.push({
+        offerId: String(rt.offerId),
+        rateId: rate.rateId ? String(rate.rateId) : null,
+        roomName: rt.name || rate.name || "",
+        boardName: rate.boardName || rate.boardType || "",
+        maxOccupancy: Number.isFinite(Number(rate.maxOccupancy))
+          ? Number(rate.maxOccupancy) : null,
+        price: minor,
+        currency,
+        refundable: refundableFrom(rate),
+        cancellation: cancellationFrom(rate),
+      });
+    }
+  }
+  /*
+   * DEDUPLICATED, because LiteAPI returns a great many near-identical offers.
+   *
+   * A live sandbox search for one Nairobi hotel returned 200 offers, most of
+   * them the same room at the same board at the same price with the same
+   * cancellation terms — different supplier routings to the same thing. A guest
+   * choosing between twelve identical "2 Single Beds, Breakfast Included,
+   * USD 125.58" rows is not being given a choice, they are being given a wall.
+   *
+   * So offers that a guest could not tell apart are collapsed to the first one,
+   * which keeps a real offerId to book with. Anything that differs in room,
+   * board, price or refundability survives as its own row, because those are
+   * the things somebody is actually choosing between.
+   */
+  const seen = new Set();
+  const distinct = [];
+  for (const o of out.sort((a, b) => a.price - b.price)) {
+    const key = [o.roomName, o.boardName, o.price, o.currency, o.refundable].join("|");
+    if (seen.has(key)) continue;
+    seen.add(key);
+    distinct.push(o);
+  }
+  return distinct;
+}
+
+/**
+ * The cancellation deadlines and charges, as the supplier states them.
+ *
+ * Amounts stay in MINOR UNITS like every other figure in this service. A policy
+ * the supplier did not send comes back as an empty array rather than as "free
+ * cancellation", because the absence of a policy is not a generous one.
+ */
+export function cancellationFrom(rate) {
+  const cp = rate && rate.cancellationPolicies;
+  const infos = (cp && Array.isArray(cp.cancelPolicyInfos)) ? cp.cancelPolicyInfos : [];
+  return infos.map((i) => ({
+    /* Verbatim from the supplier; never reformatted into a local timezone,
+       because the timezone is part of the deadline. */
+    until: i.cancelTime ? String(i.cancelTime) : null,
+    timezone: i.timezone ? String(i.timezone) : null,
+    amount: toMinor(i.amount),
+    currency: i.currency ? String(i.currency).toUpperCase() : null,
+    type: i.type ? String(i.type) : null,
+  })).filter((i) => i.until || i.amount !== null);
 }
 
 /**
@@ -324,12 +428,266 @@ export function liteApi({
           /* The hotel's own star rating, which is a different thing from a guest
              score. Carried because it is real; the card does not render it yet. */
           stars: Number.isFinite(Number(d.stars)) ? Number(d.stars) : null,
+          /*
+           * What a guest would prebook to take this price. Carried on the card's
+           * offer so selecting a room does not need the search run again — and
+           * so a price shown is provably a price that can be acted on.
+           */
+          offerId: p.offerId,
+          roomName: p.roomName,
+          boardName: p.boardName,
         });
         if (offers.length >= take) break;
       }
 
       return { offers };
     },
+
+    /* ================================================================ *
+     * THE BOOKING LIFECYCLE.
+     *
+     * search -> rooms -> prebook -> book -> retrieve -> cancel
+     *
+     * Every step returns what the supplier said and nothing else. Where a step
+     * can fail in a way that matters commercially — a price that moved between
+     * prebook and book, a cancellation that charges anyway — that is surfaced
+     * rather than smoothed over, because the guest is the one who pays for it.
+     * ================================================================ */
+
+    /**
+     * Every bookable room and rate at ONE hotel, for a stay.
+     *
+     * This is the step between "here is a hotel at a price" and "book it". The
+     * card's price is the cheapest offer; a guest choosing a room needs to see
+     * the others, what board they include and whether they can be cancelled.
+     */
+    async rooms({ hotelId = "", checkIn = "", checkOut = "", guests = 2, currency: want = "" } = {}) {
+      if (!hotelId) throw new SupplyUnavailable("A hotel id is needed to list its rooms.");
+      const a = Date.parse(`${checkIn}T00:00:00Z`);
+      const b = Date.parse(`${checkOut}T00:00:00Z`);
+      if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) {
+        throw new SupplyUnavailable("Room rates need a check-in and a check-out date.");
+      }
+
+      const rated = await call("/hotels/rates", {
+        method: "POST",
+        body: {
+          hotelIds: [String(hotelId)],
+          checkin: checkIn,
+          checkout: checkOut,
+          occupancies: [{ adults: Math.min(10, Math.max(1, Number(guests) || 2)), children: [] }],
+          currency: String(want || currency || "USD").toUpperCase(),
+          guestNationality: String(nationality || "US").toUpperCase(),
+          /* Every rate this time, not one — the whole point is the choice. */
+          limit: 1,
+        },
+      });
+
+      const hotel = (rated && Array.isArray(rated.data) ? rated.data : [])
+        .find((h) => h && String(h.hotelId) === String(hotelId));
+      if (!hotel) return { hotelId: String(hotelId), nights: Math.round((b - a) / 86_400_000), offers: [] };
+
+      return {
+        hotelId: String(hotelId),
+        nights: Math.round((b - a) / 86_400_000),
+        offers: offersFor(hotel),
+      };
+    },
+
+    /**
+     * Hold an offer and get the real, final price.
+     *
+     * The step that exists because a wholesale rate can move between being
+     * shown and being taken. LiteAPI reports that as `priceDifferencePercent`,
+     * and it is returned rather than ignored: a guest who saw one number and is
+     * charged another has been misled by this service, not by the hotel.
+     */
+    async prebook({ offerId = "" } = {}) {
+      if (!offerId) throw new SupplyUnavailable("An offer id is needed to hold a rate.");
+
+      const r = await call("/rates/prebook", {
+        method: "POST",
+        /* usePaymentSdk: false — PALTAS is not collecting a card here. In
+           sandbox the booking is settled with ACC_CREDIT_CARD, and for
+           production this is the decision that needs a payment provider. */
+        body: { offerId: String(offerId), usePaymentSdk: false },
+      });
+      const d = (r && r.data) || {};
+      if (!d.prebookId) {
+        throw new SupplyUnavailable("LiteAPI held no rate — it returned no prebookId.");
+      }
+
+      const total = d.price !== undefined ? toMinor(d.price) : null;
+      return {
+        prebookId: String(d.prebookId),
+        offerId: d.offerId ? String(d.offerId) : String(offerId),
+        hotelId: d.hotelId ? String(d.hotelId) : null,
+        checkIn: d.checkin || null,
+        checkOut: d.checkout || null,
+        price: total,
+        currency: d.currency ? String(d.currency).toUpperCase() : null,
+        /*
+         * Anything other than 0 means the price moved. Surfaced verbatim so a
+         * caller can stop and re-confirm rather than book at a number the guest
+         * never agreed to.
+         */
+        priceDifferencePercent: Number.isFinite(Number(d.priceDifferencePercent))
+          ? Number(d.priceDifferencePercent) : 0,
+        cancellationChanged: Boolean(d.cancellationChanged),
+        boardChanged: Boolean(d.boardChanged),
+        sandbox,
+        /* `secretKey` and `transactionId` are payment-session values. They are
+           deliberately NOT returned: nothing above this needs them, and a value
+           that never leaves here cannot leak from here. */
+      };
+    },
+
+    /**
+     * Take the held rate.
+     *
+     * In sandbox this settles with ACC_CREDIT_CARD, which LiteAPI documents as
+     * simulating a booking without a charge. That is the ONLY payment method
+     * this adapter will send, and it refuses outright on a production key —
+     * because a real booking needs a real payment provider, and PALTAS has none
+     * connected. Booking for free against a live key is somebody else's money.
+     */
+    async book({ prebookId = "", holder = {}, guests = [], clientReference = "" } = {}) {
+      if (!prebookId) throw new SupplyUnavailable("A prebook id is needed to book.");
+      if (!sandbox) {
+        throw new SupplyUnavailable(
+          "PALTAS will not complete a live LiteAPI booking. The only payment " +
+          "method this adapter sends is ACC_CREDIT_CARD, which is a sandbox " +
+          "simulation, and no payment provider is connected to charge a real " +
+          "guest. Connect one before using a production key.");
+      }
+      for (const f of ["firstName", "lastName", "email"]) {
+        if (!holder[f]) throw new SupplyUnavailable(`The booking holder needs a ${f}.`);
+      }
+
+      const r = await call("/rates/book", {
+        method: "POST",
+        body: {
+          prebookId: String(prebookId),
+          /*
+           * ALWAYS a client reference, and always a unique one.
+           *
+           * LiteAPI enforces uniqueness: a repeat reference is refused with
+           * 4005 "duplicate booking attempt with existing client reference".
+           * That is good behaviour — it is what stops a retried request
+           * becoming two bookings — but it means the reference cannot be a
+           * fixed string, and a caller that forgets to vary it gets a failure
+           * that reads like a broken integration.
+           *
+           * So one is generated when none is given. The caller's own reference
+           * is preserved when supplied, because it is how PALTAS ties a
+           * supplier booking back to its own record.
+           */
+          clientReference: String(clientReference || newClientReference()),
+          holder: {
+            firstName: String(holder.firstName),
+            lastName: String(holder.lastName),
+            email: String(holder.email),
+            ...(holder.phone ? { phone: String(holder.phone) } : {}),
+          },
+          guests: (guests.length ? guests : [{
+            occupancyNumber: 1,
+            firstName: holder.firstName, lastName: holder.lastName, email: holder.email,
+          }]).map((g, i) => ({
+            occupancyNumber: Number(g.occupancyNumber) || i + 1,
+            firstName: String(g.firstName || holder.firstName),
+            lastName: String(g.lastName || holder.lastName),
+            ...(g.email ? { email: String(g.email) } : {}),
+            ...(g.phone ? { phone: String(g.phone) } : {}),
+            ...(g.remarks ? { remarks: String(g.remarks) } : {}),
+          })),
+          payment: { method: "ACC_CREDIT_CARD" },
+        },
+      });
+      return wireBooking(r && r.data, sandbox);
+    },
+
+    /** What the supplier currently says about a booking. */
+    async booking({ bookingId = "" } = {}) {
+      if (!bookingId) throw new SupplyUnavailable("A booking id is needed.");
+      const r = await call(`/bookings/${encodeURIComponent(String(bookingId))}`);
+      return wireBooking(r && r.data, sandbox);
+    },
+
+    /**
+     * Cancel, and report honestly what it cost.
+     *
+     * A non-refundable booking still cancels — LiteAPI returns
+     * CANCELLED_WITH_CHARGES with a fee and a zero refund. That distinction is
+     * the whole value of this call, so it is returned rather than flattened into
+     * "cancelled".
+     */
+    async cancel({ bookingId = "" } = {}) {
+      if (!bookingId) throw new SupplyUnavailable("A booking id is needed to cancel.");
+      const r = await call(`/bookings/${encodeURIComponent(String(bookingId))}`, { method: "PUT" });
+      const d = (r && r.data) || {};
+      return {
+        bookingId: d.bookingId ? String(d.bookingId) : String(bookingId),
+        status: d.status ? String(d.status) : null,
+        /* Charged anyway, and said so. */
+        charged: d.status === "CANCELLED_WITH_CHARGES",
+        cancellationFee: d.cancellation_fee !== undefined ? toMinor(d.cancellation_fee) : null,
+        refund: d.refund_amount !== undefined ? toMinor(d.refund_amount) : null,
+        currency: d.currency ? String(d.currency).toUpperCase() : null,
+        sandbox,
+      };
+    },
+  };
+}
+
+/**
+ * A reference unique enough that a retry cannot collide with the attempt before
+ * it. Time plus randomness, prefixed so it is recognisable in LiteAPI's console.
+ */
+export function newClientReference() {
+  const rand = Math.random().toString(36).slice(2, 10);
+  return `PALTAS-${Date.now().toString(36)}-${rand}`;
+}
+
+/**
+ * One booking, in this service's shape.
+ *
+ * Money in minor units like everywhere else. `sandbox` is stamped on the record
+ * because a sandbox booking is not a booking — nobody is arriving — and anything
+ * that stores or displays one has to be able to tell.
+ */
+export function wireBooking(d, sandbox) {
+  if (!d || !d.bookingId) {
+    throw new SupplyUnavailable("LiteAPI returned no booking.");
+  }
+  return {
+    bookingId: String(d.bookingId),
+    clientReference: d.clientReference ? String(d.clientReference) : null,
+    status: d.status ? String(d.status) : null,
+    /* What the guest shows at the desk. */
+    hotelConfirmationCode: d.hotelConfirmationCode ? String(d.hotelConfirmationCode) : null,
+    hotelId: (d.hotel && d.hotel.hotelId) ? String(d.hotel.hotelId)
+           : (d.hotelId ? String(d.hotelId) : null),
+    hotelName: (d.hotel && d.hotel.name) ? String(d.hotel.name) : null,
+    checkIn: d.checkin || null,
+    checkOut: d.checkout || null,
+    price: d.price !== undefined ? toMinor(d.price) : null,
+    currency: d.currency ? String(d.currency).toUpperCase() : null,
+    refundable: d.cancellationPolicies
+      ? (d.cancellationPolicies.refundableTag === "RFN" ? true
+        : d.cancellationPolicies.refundableTag === "NRFN" ? false : null)
+      : null,
+    cancellation: d.cancellationPolicies && Array.isArray(d.cancellationPolicies.cancelPolicyInfos)
+      ? d.cancellationPolicies.cancelPolicyInfos.map((i) => ({
+          until: i.cancelTime ? String(i.cancelTime) : null,
+          timezone: i.timezone ? String(i.timezone) : null,
+          amount: toMinor(i.amount),
+          currency: i.currency ? String(i.currency).toUpperCase() : null,
+        }))
+      : [],
+    createdAt: d.createdAt || null,
+    supplierBookingId: d.supplierBookingId ? String(d.supplierBookingId) : null,
+    source: "liteapi",
+    sandbox: Boolean(sandbox),
   };
 }
 

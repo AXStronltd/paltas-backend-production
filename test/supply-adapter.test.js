@@ -1044,3 +1044,233 @@ test("LiteAPI outranks the other suppliers and the sample catalogue", async () =
     "an empty key must not count as a configured supplier");
   clear();
 });
+
+/* ================================================================ 10
+ * THE LITEAPI BOOKING LIFECYCLE, OFFLINE.
+ *
+ * The live sandbox flow is exercised separately and by hand. These are the
+ * deterministic checks that belong in a suite: the request bodies, the
+ * identifier that everything hangs on, and the refusals that stop money moving
+ * where it should not.
+ * ================================================================ */
+
+const { offersFor, cancellationFrom, newClientReference, wireBooking } =
+  await import("../src/suppliers/liteapi.js");
+
+const L_HOTEL = {
+  hotelId: "lp1",
+  roomTypes: [
+    { offerId: "OFFER-A", name: "Standard Twin", rates: [
+        { rateId: "r1", boardName: "Breakfast Included", maxOccupancy: 2,
+          retailRate: { total: [{ amount: 210, currency: "USD" }] },
+          cancellationPolicies: { refundableTag: "RFN", cancelPolicyInfos: [
+            { cancelTime: "2026-11-25 12:00:00", amount: 0, currency: "USD", type: "amount", timezone: "GMT" }] } },
+        /* identical to the first in every way a guest can see */
+        { rateId: "r2", boardName: "Breakfast Included", maxOccupancy: 2,
+          retailRate: { total: [{ amount: 210, currency: "USD" }] },
+          cancellationPolicies: { refundableTag: "RFN", cancelPolicyInfos: [] } },
+    ] },
+    { offerId: "OFFER-B", name: "Deluxe King", rates: [
+        { rateId: "r3", boardName: "Room Only",
+          retailRate: { total: [{ amount: 180, currency: "USD" }] },
+          cancellationPolicies: { refundableTag: "NRFN" } },
+    ] },
+    /* No offerId: cannot be prebooked, so it must not be offered. */
+    { name: "Phantom Suite", rates: [
+        { rateId: "r4", retailRate: { total: [{ amount: 10, currency: "USD" }] } } ] },
+  ],
+};
+
+test("offersFor omits anything that cannot actually be booked", () => {
+  const offers = offersFor(L_HOTEL);
+  assert.ok(offers.every((o) => o.offerId),
+    "an offer with no offerId was listed — prebook would fail on it, so showing " +
+    "it offers something that cannot be taken");
+  assert.ok(!offers.some((o) => o.roomName === "Phantom Suite"));
+  /* Cheapest first, because that is the order somebody shops in. */
+  assert.deepEqual(offers.map((o) => o.price), [18000, 21000]);
+  assert.equal(offers[0].offerId, "OFFER-B");
+  assert.equal(offers[0].refundable, false);
+  assert.equal(offers[1].refundable, true);
+});
+
+test("offers a guest could not tell apart are collapsed", () => {
+  /*
+   * A live sandbox search for one Nairobi hotel returned 200 offers, most of
+   * them the same room, board, price and terms by a different supplier routing.
+   * Twelve identical rows is not a choice, it is a wall.
+   */
+  const offers = offersFor(L_HOTEL);
+  assert.equal(offers.length, 2,
+    "two rates on OFFER-A are identical in room, board, price and refundability " +
+    "and should appear once");
+  /* But a real difference must survive. */
+  const varied = offersFor({ roomTypes: [{ offerId: "X", name: "Room", rates: [
+    { retailRate: { total: [{ amount: 100, currency: "USD" }] }, boardName: "Room Only",
+      cancellationPolicies: { refundableTag: "RFN" } },
+    { retailRate: { total: [{ amount: 100, currency: "USD" }] }, boardName: "Room Only",
+      cancellationPolicies: { refundableTag: "NRFN" } },
+  ] }] });
+  assert.equal(varied.length, 2, "refundable and non-refundable at the same price are a real choice");
+});
+
+test("cancellation deadlines keep their timezone and their minor units", () => {
+  const policies = cancellationFrom(L_HOTEL.roomTypes[0].rates[0]);
+  assert.equal(policies.length, 1);
+  assert.equal(policies[0].until, "2026-11-25 12:00:00");
+  /* The timezone is part of the deadline, so it is never dropped or localised. */
+  assert.equal(policies[0].timezone, "GMT");
+  assert.equal(policies[0].amount, 0);
+  /* No policy is an empty list, never "free cancellation". */
+  assert.deepEqual(cancellationFrom({}), []);
+  assert.deepEqual(cancellationFrom({ cancellationPolicies: {} }), []);
+});
+
+test("a client reference is always unique, because a repeat is refused", () => {
+  /*
+   * LiteAPI answers a repeated clientReference with 4005 "duplicate booking
+   * attempt". That is the behaviour that stops a retry becoming two bookings,
+   * and it means a fixed reference turns every second attempt into a failure
+   * that reads like a broken integration.
+   */
+  const a = newClientReference(), b = newClientReference();
+  assert.notEqual(a, b);
+  assert.match(a, /^PALTAS-/);
+});
+
+test("a booking is wired into this service's shape, in minor units", () => {
+  const b = wireBooking({
+    bookingId: "BK1", clientReference: "PALTAS-x", status: "CONFIRMED",
+    hotelConfirmationCode: "HC9", hotel: { hotelId: "lp1", name: "Hotel One" },
+    checkin: "2026-12-04", checkout: "2026-12-06", price: 122.86, currency: "usd",
+    cancellationPolicies: { refundableTag: "RFN", cancelPolicyInfos: [
+      { cancelTime: "2026-12-01 00:00:00", amount: 0, currency: "USD", timezone: "GMT" }] },
+    createdAt: "2026-09-13T00:00:00Z",
+  }, true);
+  assert.equal(b.price, 12286, "money must arrive in minor units like everything else");
+  assert.equal(b.currency, "USD");
+  assert.equal(b.hotelName, "Hotel One");
+  assert.equal(b.refundable, true);
+  assert.equal(b.cancellation.length, 1);
+  /* The stamp that stops a sandbox booking being shown as travel. */
+  assert.equal(b.sandbox, true);
+  assert.equal(b.source, "liteapi");
+  assert.throws(() => wireBooking({}, true), /returned no booking/);
+});
+
+test("prebook sends the offerId and keeps payment secrets to itself", async () => {
+  let sent = null;
+  const a = liteApi({ apiKey: "sand_x", fetchImpl: async (url, opts) => {
+    sent = { url, body: JSON.parse(opts.body) };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ data: {
+      prebookId: "PB1", offerId: "OFFER-A", hotelId: "lp1",
+      checkin: "2026-12-04", checkout: "2026-12-06", price: 210, currency: "USD",
+      priceDifferencePercent: 0,
+      /* The supplier sends these. They must not come back out. */
+      secretKey: "sk_live_should_never_escape", transactionId: "tx_123",
+    } }) };
+  } });
+
+  const held = await a.prebook({ offerId: "OFFER-A" });
+  assert.match(sent.url, /\/rates\/prebook$/);
+  assert.equal(sent.body.offerId, "OFFER-A");
+  assert.equal(sent.body.usePaymentSdk, false);
+  assert.equal(held.prebookId, "PB1");
+  assert.equal(held.price, 21000);
+  assert.equal(held.sandbox, true);
+  /* A value that never leaves here cannot leak from here. */
+  const json = JSON.stringify(held);
+  assert.ok(!json.includes("sk_live_should_never_escape"), "a payment secret escaped prebook");
+  assert.ok(!json.includes("tx_123"), "a transaction id escaped prebook");
+  await assert.rejects(() => a.prebook({}), /offer id is needed/i);
+});
+
+test("a price that moved between search and prebook is surfaced, not swallowed", async () => {
+  /*
+   * The whole reason prebook exists. A guest who saw one number and is charged
+   * another has been misled by this service, not by the hotel — so the
+   * difference is returned for a caller to stop on.
+   */
+  const a = liteApi({ apiKey: "sand_x", fetchImpl: async () => ({
+    ok: true, status: 200, text: async () => JSON.stringify({ data: {
+      prebookId: "PB2", price: 260, currency: "USD", priceDifferencePercent: 23.8,
+      cancellationChanged: true } }) }) });
+  const held = await a.prebook({ offerId: "O" });
+  assert.equal(held.priceDifferencePercent, 23.8);
+  assert.equal(held.cancellationChanged, true);
+});
+
+test("booking sends ACC_CREDIT_CARD and only ever that", async () => {
+  let sent = null;
+  const a = liteApi({ apiKey: "sand_x", fetchImpl: async (url, opts) => {
+    sent = JSON.parse(opts.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ data: {
+      bookingId: "BK9", status: "CONFIRMED", clientReference: sent.clientReference,
+      hotel: { hotelId: "lp1", name: "Hotel One" }, price: 210, currency: "USD" } }) };
+  } });
+
+  const b = await a.book({ prebookId: "PB1",
+    holder: { firstName: "Test", lastName: "Guest", email: "t@paltas.io" } });
+  assert.equal(sent.payment.method, "ACC_CREDIT_CARD",
+    "the only payment method this adapter may send is the sandbox simulation");
+  assert.equal(sent.prebookId, "PB1");
+  /* Generated, because LiteAPI refuses a repeat. */
+  assert.match(sent.clientReference, /^PALTAS-/);
+  /* A guest list is built from the holder when none is given — the hotel needs a
+     name against the room, not an empty array. */
+  assert.equal(sent.guests.length, 1);
+  assert.equal(sent.guests[0].occupancyNumber, 1);
+  assert.equal(b.bookingId, "BK9");
+  assert.equal(b.sandbox, true);
+});
+
+test("a production key cannot complete a booking at all", async () => {
+  /*
+   * Two different guards, and this is the adapter's. PALTAS has no payment
+   * provider, and the only method it sends is a sandbox simulation — so booking
+   * against a live key would be taking a room without paying for it. That is
+   * somebody else's money.
+   */
+  const prod = liteApi({ apiKey: "prod_real", fetchImpl: async () => {
+    throw new Error("the network must never be reached on this path");
+  } });
+  await assert.rejects(
+    () => prod.book({ prebookId: "PB", holder: { firstName: "a", lastName: "b", email: "c@d.e" } }),
+    /will not complete a live LiteAPI booking/);
+});
+
+test("booking refuses without the details a hotel needs to check somebody in", async () => {
+  const a = liteApi({ apiKey: "sand_x", fetchImpl: async () => ({
+    ok: true, status: 200, text: async () => JSON.stringify({ data: { bookingId: "x" } }) }) });
+  await assert.rejects(() => a.book({ prebookId: "PB" }), /needs a firstName/);
+  await assert.rejects(() => a.book({ prebookId: "PB", holder: { firstName: "A" } }), /needs a lastName/);
+  await assert.rejects(() => a.book({ prebookId: "PB", holder: { firstName: "A", lastName: "B" } }), /needs a email/);
+  await assert.rejects(() => a.book({}), /prebook id is needed/i);
+});
+
+test("a cancellation that still charges says so", async () => {
+  /*
+   * LiteAPI answers a non-refundable cancellation with CANCELLED_WITH_CHARGES, a
+   * fee and a zero refund. Flattening that into "cancelled" would tell somebody
+   * they had their money back when they did not — verified against the live
+   * sandbox, which charged USD 127.41 and refunded nothing.
+   */
+  const a = liteApi({ apiKey: "sand_x", fetchImpl: async () => ({
+    ok: true, status: 200, text: async () => JSON.stringify({ data: {
+      bookingId: "BK9", status: "CANCELLED_WITH_CHARGES",
+      cancellation_fee: 127.41, refund_amount: 0, currency: "USD" } }) }) });
+  const c = await a.cancel({ bookingId: "BK9" });
+  assert.equal(c.status, "CANCELLED_WITH_CHARGES");
+  assert.equal(c.charged, true);
+  assert.equal(c.cancellationFee, 12741);
+  assert.equal(c.refund, 0);
+  await assert.rejects(() => a.cancel({}), /booking id is needed/i);
+});
+
+test("rooms refuses without a hotel and without dates", async () => {
+  const a = liteApi({ apiKey: "sand_x", fetchImpl: async () => {
+    throw new Error("the network must not be reached");
+  } });
+  await assert.rejects(() => a.rooms({ checkIn: "2026-12-04", checkOut: "2026-12-06" }), /hotel id is needed/i);
+  await assert.rejects(() => a.rooms({ hotelId: "lp1" }), /check-in and a check-out/);
+});
