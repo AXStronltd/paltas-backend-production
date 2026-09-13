@@ -1064,17 +1064,40 @@ test("a supplier image is lazy and never re-hosted", { skip }, async () => {
     "permit re-hosting it");
 });
 
-test("the homepage asks for supplier availability only when it has dates", { skip }, () => {
+test("a default date window is allowed, but never undisclosed", { skip }, () => {
   /*
-   * A wholesaler prices a STAY against live allocation. With no dates there is
-   * nothing it can honestly quote, so none are invented to get an answer — the
-   * request goes without them and only PALTAS's own listings come back.
+   * This replaces a test that asserted the page sends NO dates until the visitor
+   * picks some. That was the wrong guarantee: every real supplier prices a stay,
+   * so no dates meant no rooms, and a visitor arriving at a marketplace saw an
+   * empty page with nothing to suggest that choosing dates would fill it.
+   *
+   * The honest rule is not "never default" — it is "never show a price without
+   * saying which nights it covers". So the page defaults to a window, flags that
+   * the window is ITS OWN rather than the visitor's, and says so above the
+   * prices.
    */
   const js = readFileSync(join(FE, "assets", "paltas-market.js"), "utf8")
     .replace(/\/\*[\s\S]*?\*\//g, "");
-  assert.ok(/STATE\.checkIn\s*&&\s*STATE\.checkOut/.test(js),
-    "the marketplace sends check-in and check-out unconditionally, which means " +
-    "it is either inventing dates or asking a wholesaler an unanswerable question");
+
+  assert.ok(/function defaultStay\(/.test(js),
+    "there is no default window, so a visitor arriving without dates sees no " +
+    "supplier rooms and no hint that dates would produce any");
+
+  /* The flag that distinguishes our window from theirs. */
+  assert.ok(/stayDefaulted/.test(js),
+    "nothing tracks whether the dates are the visitor's own, so a default " +
+    "cannot be labelled as one");
+
+  /* And the line that actually tells them. */
+  assert.ok(/not a search you made/.test(js),
+    "the default window is never disclosed to the visitor");
+  assert.ok(/function stayLine\(/.test(js), "there is no disclosure line");
+
+  /* Choosing dates must clear the flag, or the page keeps apologising for a
+     search the visitor did make. */
+  assert.ok(/STATE\.stayDefaulted\s*=\s*!\(checkIn && checkOut\)/.test(js),
+    "picking dates does not clear the defaulted flag");
+
   assert.ok(/setStay/.test(js), "there is no way for chosen dates to reach the request");
 });
 

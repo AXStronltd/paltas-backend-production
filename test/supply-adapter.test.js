@@ -828,3 +828,219 @@ test("fromEnv carries the forced sandbox through", () => {
   assert.equal(s.sandbox, true,
     "the sandbox token survived the environment without being marked");
 });
+
+/* ================================================================ 9
+ * LITEAPI (Nuitee Connect)
+ *
+ * Contract taken from the published reference, not from memory:
+ *   X-API-Key, base https://api.liteapi.travel/v3.0, sandbox keys `sand_`
+ *   POST /hotels/rates   by cityName + countryCode
+ *   GET  /data/hotels    bulk content by comma-separated hotelIds
+ * ================================================================ */
+
+const {
+  liteApi, cheapestRate, refundableFrom, ratingOf,
+  fromEnv: liteFromEnv, redact: liteRedact,
+} = await import("../src/suppliers/liteapi.js");
+
+const L_RATES = { data: [
+  { hotelId: "lp1897", roomTypes: [{ rates: [
+      { retailRate: {
+          total: [{ amount: 742.5, currency: "USD" }],
+          suggestedSellingPrice: [{ amount: 890, currency: "USD" }] },
+        cancellationPolicies: { refundableTag: "RFN" } },
+      { retailRate: { total: [{ amount: 640, currency: "USD" }] },
+        cancellationPolicies: { refundableTag: "NRFN" } },
+  ] }] },
+  { hotelId: "lp5555", roomTypes: [{ rates: [
+      { retailRate: { total: [{ amount: 310, currency: "USD" }] } },
+  ] }] },
+  { hotelId: "lp9999", roomTypes: [] },                /* unpriced */
+] };
+
+const L_CONTENT = { data: [
+  { id: "lp1897", name: "Diani Reef Beach Resort", address: "Diani Beach Road",
+    city: "Diani", country: "KE", stars: 5, rating: 8.7, reviewCount: 1204,
+    main_photo: "https://static.liteapi.travel/lp1897.jpg" },
+  /* lp5555 priced but absent from content, so it cannot be drawn. */
+], total: 1 };
+
+function stubLite({ rates, content, fail }) {
+  const calls = [];
+  return {
+    calls,
+    fetchImpl: async (url, opts) => {
+      calls.push({ url, method: opts.method || "GET", headers: opts.headers,
+                   body: opts.body ? JSON.parse(opts.body) : null });
+      if (fail) return { ok: false, status: fail,
+        text: async () => JSON.stringify({ error: "bad key", sent: opts.headers }) };
+      const body = url.includes("/hotels/rates") ? rates : content;
+      return { ok: true, status: 200, text: async () => JSON.stringify(body) };
+    },
+  };
+}
+
+test("the cheapest RETAIL total wins, not the suggested selling price", () => {
+  /*
+   * suggestedSellingPrice is a markup recommendation. Retail is what the booking
+   * costs. Showing the suggestion would inflate every supplier room against the
+   * PALTAS listings beside it — the mirror of the net/gross trap in the other
+   * two adapters.
+   */
+  const best = cheapestRate(L_RATES.data[0]);
+  assert.equal(best.price, 64000, "not 74250, and certainly not 89000");
+  assert.equal(best.currency, "USD");
+  assert.equal(best.refundable, false, "the cheapest rate's own terms");
+  assert.equal(cheapestRate({ roomTypes: [] }), null);
+  /* `total` is an array in the contract; a bare object must not crash it. */
+  assert.equal(cheapestRate({ roomTypes: [{ rates: [{ retailRate: {} }] }] }), null);
+});
+
+test("refundability is RFN or NRFN, and anything else is 'not stated'", () => {
+  assert.equal(refundableFrom({ cancellationPolicies: { refundableTag: "RFN" } }), true);
+  assert.equal(refundableFrom({ cancellationPolicies: { refundableTag: "NRFN" } }), false);
+  /* Not false. Defaulting to non-refundable would state terms nobody read. */
+  assert.equal(refundableFrom({}), null);
+  assert.equal(refundableFrom({ cancellationPolicies: {} }), null);
+  assert.equal(refundableFrom({ cancellationPolicies: { refundableTag: "SOMETHING_NEW" } }), null);
+});
+
+test("a review score is taken only on the scale the card renders", () => {
+  assert.equal(ratingOf(8.7), 8.7);
+  assert.equal(ratingOf("8.65"), 8.7);
+  assert.equal(ratingOf(10), 10);
+  /*
+   * The card prints "x / 10". A 92 shown as "92/10" is nonsense and a 92
+   * quietly divided by ten is a fabrication, so anything off-scale is dropped.
+   */
+  assert.equal(ratingOf(92), null);
+  assert.equal(ratingOf(0), null);
+  assert.equal(ratingOf(-1), null);
+  assert.equal(ratingOf(undefined), null);
+});
+
+test("a LiteAPI search prices by city NAME and needs no id map", async () => {
+  const stub = stubLite({ rates: L_RATES, content: L_CONTENT });
+  register(liteApi({ apiKey: "prod_live", fetchImpl: stub.fetchImpl }));
+  const r = await searchSupply({
+    city: "Diani", country: "ke", checkIn: "2026-11-01", checkOut: "2026-11-08",
+    guests: 2, limit: 12,
+  });
+
+  assert.equal(r.failed, false, r.why);
+  assert.equal(r.offers.length, 1, "lp5555 has no content and lp9999 no price");
+
+  const o = r.offers[0];
+  assert.equal(o.title, "Diani Reef Beach Resort");
+  assert.equal(o.city, "Diani");
+  assert.equal(o.country, "KE");
+  assert.equal(o.price, 64000);
+  assert.equal(o.nights, 7);
+  assert.equal(o.perNight, 9143, "64000 over seven nights");
+  assert.equal(o.rating, 8.7);
+  assert.equal(o.ratingCount, 1204);
+  assert.equal(o.image, "https://static.liteapi.travel/lp1897.jpg");
+  assert.equal(o.source, "liteapi");
+  assert.equal(o.id, "liteapi:lp1897");
+
+  /* The request itself: a name, not an opaque id — the whole reason this
+     adapter has no id map where the other two need one. */
+  const rates = stub.calls[0];
+  assert.equal(rates.method, "POST");
+  assert.match(rates.url, /\/hotels\/rates$/);
+  assert.equal(rates.headers["X-API-Key"], "prod_live");
+  assert.equal(rates.body.cityName, "Diani");
+  assert.equal(rates.body.countryCode, "KE");
+  assert.equal(rates.body.checkin, "2026-11-01");
+  assert.deepEqual(rates.body.occupancies, [{ adults: 2, children: [] }]);
+
+  /* And content in ONE call, not one per hotel. */
+  const content = stub.calls[1];
+  assert.equal(stub.calls.length, 2, "content must be fetched in bulk");
+  assert.match(content.url, /\/data\/hotels\?/);
+  assert.match(content.url, /hotelIds=lp1897%2Clp5555/);
+  assert.match(content.url, /countryCode=KE/);
+});
+
+test("a sand_ key forces sandbox mode and cannot be overridden", async () => {
+  /*
+   * The most convincing fake inventory this platform could display: LiteAPI's
+   * sandbox returns REAL hotel names, REAL addresses and REAL photographs with
+   * TEST rates. A real hotel at a price nobody can book.
+   *
+   * So the key decides, not a flag somebody might forget.
+   */
+  const s = liteApi({ apiKey: "sand_00000000-0000-4000-8000-000000000000" });
+  assert.equal(s.sandbox, true);
+  assert.match(s.describe().label, /sandbox/i,
+    "the attribution a visitor reads must say it is a sandbox");
+  assert.match(s.describe().why, /cannot be switched off/);
+  assert.match(s.describe().disclosure, /cannot be booked/);
+
+  const stub = stubLite({ rates: L_RATES, content: L_CONTENT });
+  register(liteApi({ apiKey: "sand_abc", fetchImpl: stub.fetchImpl }));
+  const r = await searchSupply({
+    city: "Diani", country: "KE", checkIn: "2026-11-01", checkOut: "2026-11-08",
+  });
+  assert.ok(r.offers.length > 0);
+  for (const o of r.offers) {
+    assert.equal(o.supplier.sandbox, true);
+    assert.match(o.supplier.disclosure, /sandbox/i);
+    assert.match(o.supplier.disclosure, /cannot be booked/);
+  }
+
+  /* A production key must NOT be caught — marking live inventory unbookable is
+     the mirror-image failure. */
+  assert.equal(liteApi({ apiKey: "prod_xyz" }).sandbox, false);
+});
+
+test("LiteAPI refuses without dates and without a country", async () => {
+  const stub = stubLite({ rates: L_RATES, content: L_CONTENT });
+  register(liteApi({ apiKey: "prod_k", fetchImpl: stub.fetchImpl }));
+
+  let r = await searchSupply({ city: "Diani", country: "KE" });
+  assert.deepEqual(r.offers, []);
+  assert.match(r.why, /check-in and a check-out/);
+
+  r = await searchSupply({ city: "Diani", checkIn: "2026-11-01", checkOut: "2026-11-08" });
+  assert.deepEqual(r.offers, []);
+  assert.match(r.why, /needs a country/);
+  assert.equal(stub.calls.length, 0, "neither refusal should make a request");
+});
+
+test("a LiteAPI error never carries the key", async () => {
+  const stub = stubLite({ fail: 401 });
+  register(liteApi({ apiKey: "sand_SUPERSECRETKEYVALUE", fetchImpl: stub.fetchImpl }));
+  const r = await searchSupply({
+    city: "Diani", country: "KE", checkIn: "2026-11-01", checkOut: "2026-11-08",
+  });
+  assert.equal(r.failed, true);
+  assert.deepEqual(r.offers, []);
+  assert.ok(!r.why.includes("SUPERSECRETKEYVALUE"), "the key is in the error: " + r.why);
+  assert.match(r.why, /401/);
+});
+
+test("LiteAPI redaction covers both key prefixes and the header", () => {
+  assert.match(liteRedact("key sand_00000000-0000-4000"), /\[redacted-key\]/);
+  assert.match(liteRedact("key prod_abc123-def"), /\[redacted-key\]/);
+  assert.match(liteRedact('{"X-API-Key":"whatever"}'), /\[redacted\]/);
+  assert.equal(liteRedact("LiteAPI returned 503"), "LiteAPI returned 503");
+});
+
+test("LiteAPI outranks the other suppliers and the sample catalogue", async () => {
+  const { connectSuppliers } = await import("../src/server.js");
+  clear();
+  let s = connectSuppliers({
+    LITEAPI_KEY: "sand_x",
+    EXPEDIA_RAPID_API_KEY: "k", EXPEDIA_RAPID_SECRET: "s",
+    BOOKING_DEMAND_TOKEN: "t", BOOKING_DEMAND_AFFILIATE: "1",
+    PALTAS_SAMPLE_SUPPLY: "1",
+  });
+  assert.equal(s.name, "liteapi");
+  assert.equal(s.sandbox, true, "a sandbox key must survive the boot path");
+
+  clear();
+  assert.equal(connectSuppliers({ LITEAPI_KEY: "" }), null,
+    "an empty key must not count as a configured supplier");
+  clear();
+});

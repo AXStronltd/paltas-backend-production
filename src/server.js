@@ -25,6 +25,7 @@ import { guestRoutes } from "./routes/guest.js";
 import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
 import { register as registerSupplier, status as supplierStatus } from "./domain/supply.js";
+import { fromEnv as liteApiFromEnv } from "./suppliers/liteapi.js";
 import { fromEnv as expediaRapidFromEnv } from "./suppliers/expedia-rapid.js";
 import { fromEnv as bookingDemandFromEnv } from "./suppliers/booking-demand.js";
 import { fromEnv as sampleCatalogueFromEnv } from "./suppliers/sample-catalogue.js";
@@ -211,7 +212,15 @@ export function connectSuppliers(env = process.env) {
      * never quietly outrank real inventory, and can never appear because a
      * variable was left at its default.
      */
-    const real = expediaRapidFromEnv(env) || bookingDemandFromEnv(env);
+    /*
+     * LiteAPI first because it is the supplier this installation holds a key
+     * for, and because it is the only one of the three that can price a city by
+     * NAME — the other two need a hand-maintained id map and return nothing for
+     * any city missing from it.
+     */
+    const real = liteApiFromEnv(env)
+      || expediaRapidFromEnv(env)
+      || bookingDemandFromEnv(env);
     const chosen = real || sampleCatalogueFromEnv(env);
 
     if (!chosen) {
