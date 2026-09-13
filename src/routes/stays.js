@@ -139,12 +139,29 @@ stayRoutes.post("/marketplace/stays/hold",
       const offerId = String((req.body && req.body.offerId) || "").trim();
       if (!offerId) throw badRequest("offerId is required — take it from a room offer.");
 
-      const held = await s.prebook({ offerId });
+      /*
+       * WHO IS GOING TO PAY.
+       *
+       * `pay: true` asks LiteAPI for a payment session so the GUEST can pay with
+       * their own card in LiteAPI's hosted form. That is the only way a live
+       * booking completes here, because the alternative — ACC_CREDIT_CARD —
+       * charges PALTAS's own card in production.
+       *
+       * Defaulted to true whenever the supplier is live, so the dangerous path
+       * cannot be taken by leaving a flag out.
+       */
+      const pay = req.body && req.body.pay !== undefined
+        ? Boolean(req.body.pay)
+        : !s.sandbox;
+
+      const held = await s.prebook({ offerId, usePaymentSdk: pay });
       res.set("Cache-Control", "no-store");
       res.json({
         hold: held,
         /* Said out loud rather than left for a client to infer from a number. */
         priceChanged: held.priceDifferencePercent !== 0,
+        /* Whether the guest now has to pay before this can be booked. */
+        paymentRequired: Boolean(held.payment),
         supplier: supplyStatus(),
       });
     } catch (e) { next(e); }
@@ -162,13 +179,25 @@ stayRoutes.post("/marketplace/stays/book",
   async (req, res, next) => {
     try {
       const s = live();
-      sandboxOnly(s);
       if (typeof s.book !== "function") {
         throw unavailable(`${supplyStatus().label} cannot complete a booking.`);
       }
       const b = req.body || {};
       const prebookId = String(b.prebookId || "").trim();
       if (!prebookId) throw badRequest("prebookId is required — hold the rate first.");
+      const transactionId = String(b.transactionId || "").trim();
+
+      /*
+       * A PAID booking may proceed on a live key; an unpaid one may not.
+       *
+       * The adapter enforces the money side — no transaction and no sandbox
+       * means it refuses. This enforces the RECORD side, which is a different
+       * problem: PALTAS does not store supplier bookings, so there is nothing
+       * tying one to the person who made it. Without a transaction we are in
+       * sandbox and that is tolerable for testing. With a real paid booking it
+       * is not, so the guest is told plainly to keep their reference.
+       */
+      if (!transactionId) sandboxOnly(s);
 
       const holder = b.holder || {};
       for (const f of ["firstName", "lastName", "email"]) {
@@ -180,6 +209,7 @@ stayRoutes.post("/marketplace/stays/book",
       const booking = await s.book({
         prebookId,
         holder,
+        transactionId,
         guests: Array.isArray(b.guests) ? b.guests : [],
         /* The adapter generates one when absent. LiteAPI refuses a repeat, which
            is what stops a retried request becoming two bookings. */
@@ -194,9 +224,19 @@ stayRoutes.post("/marketplace/stays/book",
          * booking — nobody is arriving — and a client that renders one as
          * confirmed travel has misled somebody.
          */
-        sandbox: true,
-        notice: "This is a SANDBOX booking. No room is reserved, nobody has been " +
-                "charged, and no guest should be told to travel on it.",
+        sandbox: booking.sandbox,
+        notice: booking.sandbox
+          ? "This is a SANDBOX booking. No room is reserved, nobody has been " +
+            "charged, and no guest should be told to travel on it."
+          : /*
+             * A real booking, and PALTAS cannot look it up for them later: there
+             * is no stored record, so the reference IS the booking as far as this
+             * platform is concerned. Saying so is the difference between a guest
+             * keeping it and losing it.
+             */
+            "Keep your booking reference and confirmation code. PALTAS does not " +
+            "yet store supplier bookings, so this reference is how you or the " +
+            "hotel find this reservation.",
         supplier: supplyStatus(),
       });
     } catch (e) { next(e); }
@@ -211,6 +251,13 @@ stayRoutes.get("/marketplace/stays/:bookingId",
   async (req, res, next) => {
     try {
       const s = live();
+      /*
+       * Still sandbox-only, and this is the honest reason: with no stored
+       * booking there is no owner to check a reader against, so a live booking
+       * id would be readable by anybody holding it. A session narrows that to
+       * signed-in people and is not ownership. The fix is a Booking row with a
+       * userId, not a looser guard here.
+       */
       sandboxOnly(s);
       if (typeof s.booking !== "function") {
         throw unavailable(`${supplyStatus().label} cannot retrieve a booking.`);

@@ -139,6 +139,50 @@ curl https://paltas.io/api/marketplace/suppliers
 #   "capabilities":[],"why":"No accommodation supplier is connected..."}]}
 ```
 
+### Taking payment for a hotel booking
+
+**PALTAS needs no Stripe account for this.** LiteAPI owns the Stripe account:
+*"you never need your own Stripe account or your own server-side Stripe
+integration — the PaymentIntent is created on LiteAPI's Stripe platform when you
+call the prebook endpoint."*
+
+The flow:
+
+1. `POST /marketplace/stays/hold` → backend calls prebook with
+   `usePaymentSdk: true` → LiteAPI returns `prebookId`, `transactionId` and a
+   Stripe PaymentIntent client secret.
+2. The browser loads `js.stripe.com/v3/` **at that moment, not on page view**,
+   mounts a Payment Element with **LiteAPI's publishable key**, and the guest's
+   card goes straight to Stripe.
+3. `POST /marketplace/stays/book` with `payment.method = TRANSACTION_ID` and the
+   exact `transactionId` from that prebook. LiteAPI captures.
+
+| | |
+|---|---|
+| `LITEAPI_STRIPE_PK_TEST` | LiteAPI's `pk_test_…` — sandbox only |
+| `LITEAPI_STRIPE_PK_LIVE` | LiteAPI's `pk_live_…` — production only |
+
+**These are not in LiteAPI's dashboard.** They come from your account manager or
+support. Until they are set, `describe().canTakePayment` is `false`, the
+marketplace still shows rates, and the checkout says plainly that the room cannot
+be paid for yet rather than walking somebody to a dead end.
+
+Which key is used is decided by the **API key's own prefix** — a `sand_` key can
+only ever receive `pk_test_`, a `prod_` key only `pk_live_`. That is the whole of
+the sandbox/production separation on the payment side and it is not a flag anyone
+can set wrongly.
+
+> **ACC_CREDIT_CARD is never used for a customer booking.** In production it
+> charges PALTAS's own card — *"the partner bears full financial responsibility
+> for the transaction"* — so every room a visitor booked would be billed to
+> PALTAS with nothing collected from the traveller. The adapter refuses a live
+> booking that carries no `transactionId`, and both the adapter and the frontend
+> are tested for it. It remains in use only in sandbox, where it charges nobody.
+>
+> This is **not** a second payment system. Nothing here creates a PaymentIntent,
+> a customer or a charge, no Stripe SDK is installed, and no Stripe secret key
+> exists anywhere in PALTAS. Anything PALTAS-native is untouched.
+
 ### Or: Booking.com Demand
 
 The same seam takes Booking.com instead. One supplier is active at a time, and

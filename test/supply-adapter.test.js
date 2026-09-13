@@ -19,6 +19,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 
 /*
  * The precedence test imports src/server.js, which validates its configuration
@@ -1273,4 +1274,145 @@ test("rooms refuses without a hotel and without dates", async () => {
   } });
   await assert.rejects(() => a.rooms({ checkIn: "2026-12-04", checkOut: "2026-12-06" }), /hotel id is needed/i);
   await assert.rejects(() => a.rooms({ hotelId: "lp1" }), /check-in and a check-out/);
+});
+
+/* ================================================================ 11
+ * DIRECT STRIPE ELEMENTS, AND THE WALL BETWEEN ENVIRONMENTS.
+ *
+ * LiteAPI owns the Stripe account: "you never need your own Stripe account or
+ * your own server-side Stripe integration — the PaymentIntent is created on
+ * LiteAPI's Stripe platform when you call the prebook endpoint." So this is not
+ * a payment system of PALTAS's own, and these tests are mostly about it not
+ * quietly becoming one.
+ * ================================================================ */
+
+const PKS = { stripePkTest: "pk_test_FIXTURE", stripePkLive: "pk_live_FIXTURE" };
+
+function prebookStub(extra) {
+  let sent = null;
+  const a = liteApi({ apiKey: extra.apiKey, ...PKS, fetchImpl: async (url, opts) => {
+    sent = { url, body: JSON.parse(opts.body) };
+    return { ok: true, status: 200, text: async () => JSON.stringify({ data: {
+      prebookId: "PB1", transactionId: "tr_ct_FIXTURE",
+      secretKey: "pi_3FIXTURE_secret_abc", price: 210, currency: "USD",
+      priceDifferencePercent: 0 } }) };
+  } });
+  return { a, sent: () => sent };
+}
+
+test("a sandbox key can never hand out a live publishable key", async () => {
+  /*
+   * The whole of the environment separation on the payment side, and it is not a
+   * flag anybody can set wrongly — it is derived from the API key's own prefix.
+   * A pk_live_ mounted against a sandbox PaymentIntent would fail confusingly;
+   * the reverse would take a real card into a test account.
+   */
+  const { a } = prebookStub({ apiKey: "sand_fixture" });
+  const held = await a.prebook({ offerId: "O", usePaymentSdk: true });
+  assert.equal(held.payment.publishableKey, "pk_test_FIXTURE");
+  assert.equal(held.payment.environment, "sandbox");
+  assert.equal(held.sandbox, true);
+});
+
+test("a production key can never hand out a test publishable key", async () => {
+  const { a } = prebookStub({ apiKey: "prod_fixture" });
+  const held = await a.prebook({ offerId: "O", usePaymentSdk: true });
+  assert.equal(held.payment.publishableKey, "pk_live_FIXTURE");
+  assert.equal(held.payment.environment, "live");
+  assert.equal(held.sandbox, false);
+});
+
+test("prebook hands over a Stripe client secret and Stripe's own script", async () => {
+  const { a, sent } = prebookStub({ apiKey: "sand_fixture" });
+  const held = await a.prebook({ offerId: "O", usePaymentSdk: true });
+
+  assert.equal(sent().body.usePaymentSdk, true);
+  /* A client secret belongs in the browser — that is what it is for — and it is
+     scoped to this one payment. */
+  assert.equal(held.payment.clientSecret, "pi_3FIXTURE_secret_abc");
+  assert.equal(held.payment.transactionId, "tr_ct_FIXTURE");
+  /* Stripe directly, not LiteAPI's hosted wrapper. */
+  assert.equal(held.payment.stripeJsUrl, "https://js.stripe.com/v3/");
+
+  /*
+   * The pair must arrive together. LiteAPI: "Save transactionId and prebookId
+   * together, immediately. Each prebook call generates a new pair, and they
+   * cannot be retrieved later." Losing one means a guest who paid for a room
+   * that was never booked and cannot be found.
+   */
+  assert.ok(held.prebookId && held.payment.transactionId);
+});
+
+test("no payment session is returned when none was asked for", async () => {
+  /* A value with no use cannot leak. On the ACC_CREDIT_CARD path nothing in a
+     browser has any business holding a payment session. */
+  const { a } = prebookStub({ apiKey: "sand_fixture" });
+  const held = await a.prebook({ offerId: "O" });
+  assert.equal(held.payment, undefined);
+});
+
+test("a missing publishable key means browse-only, never a wrong-environment fallback", async () => {
+  /*
+   * LiteAPI issues these through an account manager rather than their dashboard,
+   * so a working API key with no payment key is a legitimate state. It must
+   * degrade to "cannot take payment" rather than to the other environment's key.
+   */
+  let sent = null;
+  const a = liteApi({ apiKey: "prod_fixture", stripePkTest: "pk_test_FIXTURE",
+    fetchImpl: async (url, opts) => {
+      sent = JSON.parse(opts.body);
+      return { ok: true, status: 200, text: async () => JSON.stringify({ data: {
+        prebookId: "PB", transactionId: "tr_x", secretKey: "pi_x_secret_y",
+        price: 1, currency: "USD" } }) };
+    } });
+  assert.equal(a.describe().canTakePayment, false,
+    "a client must be able to tell BEFORE it offers somebody a pay button");
+  const held = await a.prebook({ offerId: "O", usePaymentSdk: true });
+  assert.equal(held.payment.publishableKey, null,
+    "a production prebook fell back to the TEST publishable key");
+});
+
+test("a customer booking is never settled with ACC_CREDIT_CARD on a live key", async () => {
+  /*
+   * ACC_CREDIT_CARD charges the PARTNER's card in production — "the partner bears
+   * full financial responsibility for the transaction". Used for customer
+   * bookings it would bill PALTAS for every room a visitor took, with nothing
+   * collected from the traveller.
+   */
+  let body = null;
+  const a = liteApi({ apiKey: "prod_fixture", ...PKS, fetchImpl: async (url, opts) => {
+    body = JSON.parse(opts.body);
+    return { ok: true, status: 200, text: async () => JSON.stringify({ data: {
+      bookingId: "B", status: "CONFIRMED", hotel: { hotelId: "h", name: "H" },
+      price: 210, currency: "USD" } }) };
+  } });
+
+  await a.book({ prebookId: "PB", transactionId: "tr_paid",
+    holder: { firstName: "A", lastName: "B", email: "a@b.c" } });
+  assert.equal(body.payment.method, "TRANSACTION_ID");
+  assert.equal(body.payment.transactionId, "tr_paid");
+  assert.ok(!JSON.stringify(body).includes("ACC_CREDIT_CARD"),
+    "ACC_CREDIT_CARD appears in a live customer booking");
+});
+
+test("PALTAS creates no Stripe object of its own, anywhere", () => {
+  /*
+   * The instruction was not to build a second payment system. This is the check
+   * that it was not built by accident: the backend may name Stripe in prose and
+   * hand over a client secret, but it must not depend on the Stripe SDK, create a
+   * PaymentIntent, or hold a secret key of its own.
+   */
+  const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
+  const deps = { ...(pkg.dependencies || {}), ...(pkg.devDependencies || {}) };
+  assert.ok(!deps.stripe && !deps["@stripe/stripe-js"],
+    "a Stripe SDK was added as a dependency — this flow needs none, because the " +
+    "PaymentIntent is created on LiteAPI's platform");
+
+  const src = readFileSync(new URL("../src/suppliers/liteapi.js", import.meta.url), "utf8");
+  assert.ok(!/new Stripe\(|require\(["']stripe|from ["']stripe/.test(src),
+    "the adapter instantiates Stripe server-side");
+  /* And it must never hold a Stripe SECRET key — only the client secret, which
+     is a different thing and belongs in a browser. */
+  assert.ok(!/sk_live_|sk_test_|STRIPE_SECRET/.test(src),
+    "a Stripe secret key appears in the adapter");
 });

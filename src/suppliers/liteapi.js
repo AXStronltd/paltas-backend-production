@@ -54,6 +54,22 @@ import { SupplyUnavailable, toMinor } from "../domain/supply.js";
 
 const BASE = "https://api.liteapi.travel/v3.0";
 
+/*
+ * Stripe.js, loaded by the browser for the Payment Element.
+ *
+ * DIRECT STRIPE ELEMENTS, not LiteAPI's hosted wrapper. The difference that
+ * matters: the PaymentIntent is created on LITEAPI'S Stripe platform when
+ * prebook is called, so — in their words — "you never need your own Stripe
+ * account or your own server-side Stripe integration". PALTAS mounts an Element
+ * against LiteAPI's PaymentIntent using LiteAPI's publishable key, the guest's
+ * card goes straight to Stripe, and LiteAPI captures on booking.
+ *
+ * This is therefore NOT a second payment system. It creates no PaymentIntent, no
+ * customer, no charge and no Stripe account of its own, and it is reachable only
+ * from a hotel checkout. Anything PALTAS-native stays wherever it already lives.
+ */
+export const STRIPE_JS_URL = "https://js.stripe.com/v3/";
+
 /**
  * The cheapest retail total across a hotel's room types and rates.
  *
@@ -230,6 +246,14 @@ export function liteApi({
   apiKey,
   currency = "USD",
   nationality = "US",
+  /*
+   * LiteAPI's Stripe publishable keys, one per environment. Both are PUBLIC
+   * values — a publishable key is designed to sit in a web page — but they are
+   * still configuration rather than constants, because they are LiteAPI's to
+   * rotate and they arrive from an account manager rather than a dashboard.
+   */
+  stripePkTest = "",
+  stripePkLive = "",
   fetchImpl,
   timeoutMs = 7000,
 } = {}) {
@@ -315,6 +339,14 @@ export function liteApi({
           ? "These rates come from LiteAPI's sandbox environment. The hotel is " +
             "real but the price is test data and the room cannot be booked."
           : "",
+        /*
+         * Whether a guest could actually pay. Said out loud because the
+         * difference between "bookable" and "browsable" is the difference
+         * between a checkout and a dead end, and a client needs to know which
+         * it is BEFORE it offers somebody a button.
+         */
+        canTakePayment: Boolean(sandbox ? stripePkTest : stripePkLive),
+        paymentEnvironment: sandbox ? "sandbox" : "live",
       };
     },
 
@@ -502,15 +534,27 @@ export function liteApi({
      * and it is returned rather than ignored: a guest who saw one number and is
      * charged another has been misled by this service, not by the hotel.
      */
-    async prebook({ offerId = "" } = {}) {
+    async prebook({ offerId = "", usePaymentSdk = false } = {}) {
       if (!offerId) throw new SupplyUnavailable("An offer id is needed to hold a rate.");
 
+      /*
+       * TWO WAYS TO PAY, AND ONLY ONE OF THEM IS SAFE ON A LIVE KEY.
+       *
+       *   usePaymentSdk: false -> settled later with ACC_CREDIT_CARD. In
+       *     PRODUCTION that charges PALTAS'S OWN CARD, not the guest's —
+       *     "the partner bears full financial responsibility for the
+       *     transaction". Every booking any visitor made would be billed to
+       *     PALTAS with nothing collected from the traveller. `book()` refuses
+       *     this combination outright.
+       *
+       *   usePaymentSdk: true -> LiteAPI returns a payment session and the
+       *     GUEST pays with their own card in LiteAPI's hosted form. PALTAS
+       *     never sees the card and never fronts the money. This is the only
+       *     way a live booking may be completed here.
+       */
       const r = await call("/rates/prebook", {
         method: "POST",
-        /* usePaymentSdk: false — PALTAS is not collecting a card here. In
-           sandbox the booking is settled with ACC_CREDIT_CARD, and for
-           production this is the decision that needs a payment provider. */
-        body: { offerId: String(offerId), usePaymentSdk: false },
+        body: { offerId: String(offerId), usePaymentSdk: Boolean(usePaymentSdk) },
       });
       const d = (r && r.data) || {};
       if (!d.prebookId) {
@@ -536,9 +580,47 @@ export function liteApi({
         cancellationChanged: Boolean(d.cancellationChanged),
         boardChanged: Boolean(d.boardChanged),
         sandbox,
-        /* `secretKey` and `transactionId` are payment-session values. They are
-           deliberately NOT returned: nothing above this needs them, and a value
-           that never leaves here cannot leak from here. */
+
+        /*
+         * THE PAYMENT SESSION, returned ONLY when the SDK path was asked for.
+         *
+         * `secretKey` is a client-side payment session key in the same sense as
+         * a Stripe client secret: LiteAPI's hosted form needs it in the
+         * browser, and it is scoped to this one transaction. So it has to be
+         * returned — withholding it means the guest cannot pay.
+         *
+         * It is still not returned on the other path. A value with no use
+         * cannot leak, and on the ACC_CREDIT_CARD route nothing in the browser
+         * has any business holding a payment session.
+         */
+        ...(usePaymentSdk ? {
+          payment: {
+            /*
+             * The Stripe PaymentIntent client secret, on LiteAPI's Stripe
+             * platform. It belongs in the browser — that is what a client secret
+             * is for — and it is scoped to this one payment.
+             */
+            clientSecret: d.secretKey ? String(d.secretKey) : null,
+            transactionId: d.transactionId ? String(d.transactionId) : null,
+            /*
+             * LiteAPI's OWN Stripe publishable key, for the environment this key
+             * belongs to.
+             *
+             * Chosen from `sandbox`, which is derived from the API key's prefix,
+             * so the two environments cannot cross: a sand_ key can never hand
+             * out a pk_live_ and a prod_ key can never hand out a pk_test_. That
+             * is the whole of the sandbox/production separation on the payment
+             * side, and it is not a flag anybody can set wrongly.
+             *
+             * Null when this installation has not been given the key. LiteAPI
+             * does not publish it in their dashboard — it comes from an account
+             * manager — so its absence is normal and has to be survivable.
+             */
+            publishableKey: sandbox ? (stripePkTest || null) : (stripePkLive || null),
+            stripeJsUrl: STRIPE_JS_URL,
+            environment: sandbox ? "sandbox" : "live",
+          },
+        } : {}),
       };
     },
 
@@ -551,14 +633,30 @@ export function liteApi({
      * because a real booking needs a real payment provider, and PALTAS has none
      * connected. Booking for free against a live key is somebody else's money.
      */
-    async book({ prebookId = "", holder = {}, guests = [], clientReference = "" } = {}) {
+    async book({ prebookId = "", holder = {}, guests = [], clientReference = "",
+                 transactionId = "" } = {}) {
       if (!prebookId) throw new SupplyUnavailable("A prebook id is needed to book.");
-      if (!sandbox) {
+
+      /*
+       * WHO PAID decides whether this is allowed to proceed.
+       *
+       * With a transactionId the guest has already paid through LiteAPI's hosted
+       * form, so settling with TRANSACTION_ID simply completes what they bought.
+       * That is safe on a live key.
+       *
+       * Without one the only method available is ACC_CREDIT_CARD, which in
+       * production charges PALTAS's own card. In sandbox it charges nobody and
+       * is the documented way to simulate a booking. So: no transaction and no
+       * sandbox means refuse, and the refusal says which of the two is missing.
+       */
+      const paid = Boolean(transactionId);
+      if (!paid && !sandbox) {
         throw new SupplyUnavailable(
-          "PALTAS will not complete a live LiteAPI booking. The only payment " +
-          "method this adapter sends is ACC_CREDIT_CARD, which is a sandbox " +
-          "simulation, and no payment provider is connected to charge a real " +
-          "guest. Connect one before using a production key.");
+          "PALTAS will not complete a live LiteAPI booking that nobody has paid " +
+          "for. Without a transactionId the only method available is " +
+          "ACC_CREDIT_CARD, which in production charges PALTAS's own card rather " +
+          "than the guest's. Hold the rate with usePaymentSdk, let the guest pay, " +
+          "and pass the transactionId back.");
       }
       for (const f of ["firstName", "lastName", "email"]) {
         if (!holder[f]) throw new SupplyUnavailable(`The booking holder needs a ${f}.`);
@@ -600,7 +698,13 @@ export function liteApi({
             ...(g.phone ? { phone: String(g.phone) } : {}),
             ...(g.remarks ? { remarks: String(g.remarks) } : {}),
           })),
-          payment: { method: "ACC_CREDIT_CARD" },
+          /*
+           * TRANSACTION_ID when the guest paid; ACC_CREDIT_CARD only ever in
+           * sandbox, where it charges nobody.
+           */
+          payment: paid
+            ? { method: "TRANSACTION_ID", transactionId: String(transactionId) }
+            : { method: "ACC_CREDIT_CARD" },
         },
       });
       return wireBooking(r && r.data, sandbox);
@@ -706,5 +810,10 @@ export function fromEnv(env = process.env) {
     apiKey: env.LITEAPI_KEY,
     currency: env.LITEAPI_CURRENCY || "USD",
     nationality: env.LITEAPI_NATIONALITY || "US",
+    /* Both kept apart by name so neither can be used for the wrong
+       environment, and both optional so a missing key degrades to
+       browse-only rather than breaking the marketplace. */
+    stripePkTest: env.LITEAPI_STRIPE_PK_TEST || "",
+    stripePkLive: env.LITEAPI_STRIPE_PK_LIVE || "",
   });
 }

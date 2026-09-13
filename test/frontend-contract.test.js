@@ -1173,3 +1173,105 @@ test("the supplier attribution reads as a brand, not an adapter name", { skip },
   assert.ok(!/Supplied by booking-demand/.test(html),
     "the internal adapter name is printed on the public page");
 });
+
+/* ====================================================================== *
+ * THE HOTEL CHECKOUT.
+ *
+ * The instruction was explicit: do not build a second payment system. These
+ * are the checks that one was not built by accident.
+ * ====================================================================== */
+
+test("the checkout is not a second payment system", { skip }, () => {
+  const js = readFileSync(join(FE, "assets", "paltas-checkout.js"), "utf8");
+  const code = js.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  /*
+   * LiteAPI owns the Stripe account: "you never need your own Stripe account or
+   * your own server-side Stripe integration — the PaymentIntent is created on
+   * LiteAPI's Stripe platform when you call the prebook endpoint."
+   *
+   * So this file may MOUNT an Element against LiteAPI's PaymentIntent using
+   * LiteAPI's publishable key. It must not create a PaymentIntent, a customer or
+   * a charge, and it must not carry a key of its own.
+   */
+  assert.ok(!/pk_live_[A-Za-z0-9]|pk_test_[A-Za-z0-9]/.test(code),
+    "a Stripe publishable key is hard-coded. It belongs in configuration — it is " +
+    "LiteAPI's to rotate and it differs per environment.");
+  assert.ok(!/sk_live_|sk_test_/.test(code), "a Stripe SECRET key appears in browser code");
+  assert.ok(!/paymentIntents\.create|createPaymentIntent|customers\.create/.test(code),
+    "the checkout is creating Stripe objects — LiteAPI already created the " +
+    "PaymentIntent, and a second one would charge twice");
+
+  /* The publishable key must arrive from the backend, per environment. */
+  assert.ok(/publishableKey/.test(code), "the checkout does not read a publishable key at all");
+  assert.ok(/Stripe\(\s*p\.publishableKey|Stripe\(p\.publishableKey/.test(code),
+    "Stripe is not initialised from the key the backend supplied");
+});
+
+test("Stripe.js is not loaded until somebody reaches payment", { skip }, async () => {
+  /*
+   * A visitor reading the homepage has not asked to be introduced to a payment
+   * processor. A third-party script on every page view is a performance cost and
+   * a privacy one.
+   */
+  const w = openPage("index.html", { inlineToo: true });
+  await new Promise((r) => setTimeout(r, 40));
+  const loaded = (w.win.document.head.children || [])
+    .filter((e) => /js\.stripe\.com/.test(e.src || ""));
+  assert.equal(loaded.length, 0, "Stripe.js is loaded on page view");
+
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  assert.ok(!/js\.stripe\.com/.test(html),
+    "Stripe.js is hard-linked in the page rather than loaded at the payment step");
+});
+
+test("the checkout refuses rather than offering a payment it cannot take", { skip }, () => {
+  /*
+   * LiteAPI issues publishable keys through an account manager, not their
+   * dashboard — so a working API key with no payment key is a legitimate state.
+   * Offering a pay button then walks somebody through a form to a dead end.
+   */
+  const js = readFileSync(join(FE, "assets", "paltas-checkout.js"), "utf8");
+  assert.ok(/if \(!p\.publishableKey\)/.test(js),
+    "the checkout does not check for a publishable key before taking somebody to payment");
+  assert.ok(/cannot be paid for yet/.test(js), "there is no honest refusal state");
+  assert.ok(/Nothing has been charged/.test(js),
+    "a failure path does not reassure the guest that nothing was charged");
+});
+
+test("the pair is saved before payment, never only in the URL", { skip }, () => {
+  /*
+   * LiteAPI: "Save transactionId and prebookId together, immediately. Each
+   * prebook call generates a new pair, and they cannot be retrieved later."
+   * Losing one means a guest who paid for a room that was never booked and
+   * cannot be found.
+   */
+  /* Comments stripped first. The header explains this rule in prose, and an
+     earlier version of this test found the word there instead of in the code —
+     asserting my own documentation rather than my own behaviour. */
+  const js = readFileSync(join(FE, "assets", "paltas-checkout.js"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const confirm = js.indexOf("confirmPayment");
+  const saveBefore = js.lastIndexOf("save()", confirm);
+  assert.ok(confirm > 0 && saveBefore > 0 && saveBefore < confirm,
+    "the journey is not persisted before confirmPayment, so a 3D Secure redirect " +
+    "would lose the transaction");
+  assert.ok(/sessionStorage/.test(js), "nothing survives the redirect");
+  /* And a pasted return URL must not try to book anything. */
+  assert.ok(/!saved\.prebookId \|\| !saved\.transactionId/.test(js),
+    "the return handler does not verify it has a real journey to finish");
+});
+
+test("a customer never settles a hotel booking with ACC_CREDIT_CARD", { skip }, () => {
+  /*
+   * It charges the PARTNER's card in production — "the partner bears full
+   * financial responsibility for the transaction" — so used for customer
+   * bookings it bills PALTAS for every room a visitor takes.
+   */
+  /* Comments stripped: the code explains in prose why the other path exists and
+     that explanation is not a use of it. */
+  const js = readFileSync(join(FE, "assets", "paltas-checkout.js"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+  assert.ok(!/ACC_CREDIT_CARD/.test(js),
+    "the checkout SENDS ACC_CREDIT_CARD, which would bill PALTAS rather than the guest");
+});
