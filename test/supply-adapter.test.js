@@ -784,7 +784,7 @@ test("a sand_ token forces sandbox mode even when the flag is off", async () => 
    * legitimate reason to present test inventory as live.
    */
   const s = bookingDemand({
-    token: "sand_39ae6723-474f-401c-af75-0c5e0f4bbfdc",
+    token: "sand_00000000-0000-4000-8000-000000000000",   /* fixture, not a real token */
     affiliateId: "1",
     /* explicitly NOT in test mode */
     test: false,
@@ -822,7 +822,7 @@ test("a production token is left alone", () => {
 
 test("fromEnv carries the forced sandbox through", () => {
   const s = bookingFromEnv({
-    BOOKING_DEMAND_TOKEN: "sand_39ae6723-474f-401c-af75-0c5e0f4bbfdc",
+    BOOKING_DEMAND_TOKEN: "sand_00000000-0000-4000-8000-000000000000",
     BOOKING_DEMAND_AFFILIATE: "12345",
   });
   assert.equal(s.sandbox, true,
