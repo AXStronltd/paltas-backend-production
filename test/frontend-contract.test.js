@@ -1549,38 +1549,81 @@ test("classification and guest score are rendered as different things", { skip }
     "the score appears above the classification, which invites reading one as the other");
 });
 
-test("every primary CTA on the public site uses the one brand token", { skip }, () => {
+test("every primary CTA uses the one brand token, and is readable on it", { skip }, () => {
   /*
-   * The report was about a bright cyan button. Two primary CTAs used
-   * `var(--grad)` — a #00c4ac → #2ea6ff gradient — and two CTA links used
-   * --teal-ink (#008a79), which measures 4.28:1 on white and fails AA.
+   * This used to assert four specific hex values. That made it a test of
+   * FASHION — it failed the moment the brand changed, which is a decision, not
+   * a defect, and it said nothing about whether the result could be read.
    *
-   * Status colours are deliberately NOT swept in: success, warning and error
-   * must stay semantic, and a green that means "paid" is not a brand decision.
+   * What matters is the property underneath: whatever colour the brand is, the
+   * text sitting on it has to pass WCAG AA. The brand has now been a deep teal
+   * and a bright turquoise; the arithmetic below holds for both, and for the
+   * next one.
+   *
+   * It is not academic. White on the current brand measures 2.09:1 — which is
+   * why the text on it is charcoal.
    */
   const css = readFileSync(join(FE, "index.html"), "utf8");
 
-  assert.ok(/--mk-accent:#0F766E/.test(css), "the brand CTA token is not #0F766E");
-  assert.ok(/--mk-deep:#115E59/.test(css), "no hover token");
-  assert.ok(/--mk-pressed:#134E4A/.test(css), "no pressed token");
-  assert.ok(/--mk-brand-soft:#CCFBF1/.test(css), "no light brand surface");
+  const token = (name) => {
+    const m = css.match(new RegExp("--" + name + ":\\s*(#[0-9A-Fa-f]{6})"));
+    assert.ok(m, `the --${name} token is missing`);
+    return m[1];
+  };
 
+  /* Relative luminance and contrast, per WCAG 2.x. */
+  const lin = (c) => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+  const lum = (hex) => {
+    const n = parseInt(hex.slice(1), 16);
+    return 0.2126 * lin((n >> 16) & 255) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255);
+  };
+  const ratio = (a, b) => {
+    const x = lum(a), y = lum(b);
+    return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05);
+  };
+
+  const accent = token("mk-accent");
+  const deep = token("mk-deep");
+  const pressed = token("mk-pressed");
+  const onAccent = token("mk-on-accent");
+  const brandInk = token("mk-brand-ink");
+
+  /* Text on the button, in all three states. */
+  for (const [state, fill] of [["rest", accent], ["hover", deep], ["pressed", pressed]]) {
+    const r = ratio(onAccent, fill);
+    assert.ok(r >= 4.5,
+      `text on the ${state} CTA is ${r.toFixed(2)}:1 — below the 4.5:1 AA asks for. ` +
+      `A CTA nobody can read is not a CTA.`);
+  }
+
+  /* The brand used as TEXT, on the two grounds the site actually has. */
+  for (const [where, bg] of [["white", "#ffffff"], ["the tinted section ground", "#f7f8fa"]]) {
+    const r = ratio(brandInk, bg);
+    assert.ok(r >= 4.5,
+      `brand text on ${where} is ${r.toFixed(2)}:1 — below AA`);
+  }
+
+  /*
+   * And the bright fill must never BE the text. That is the specific mistake
+   * this guards: a brand chosen for a button, then reused for a link.
+   */
+  assert.ok(!/[^-]color:var\(--mk-accent\)/.test(css),
+    "the brand fill is being used as text somewhere. It is chosen to sit " +
+    "behind letters, not to be them.");
+
+  /* Every primary CTA resolves to the token rather than its own colour. */
   for (const cta of ["hs-search", "promo-btn"]) {
     const rule = (css.match(new RegExp("^\\." + cta + "\\{[^}]*", "m")) || [""])[0];
-    assert.ok(!/var\(--grad\)/.test(rule),
-      `.${cta} still uses the cyan gradient instead of the brand token`);
+    assert.ok(!/var\(--grad\)/.test(rule), `.${cta} uses a gradient instead of the brand token`);
     assert.ok(/var\(--mk-accent\)/.test(rule), `.${cta} does not use the brand token`);
   }
   for (const link of ["rb-switch", "view-all-link"]) {
     const rule = (css.match(new RegExp("^\\." + link + "\\{[^}]*", "m")) || [""])[0];
-    assert.ok(!/--teal-ink/.test(rule),
-      `.${link} uses --teal-ink, which is 4.28:1 on white and fails AA`);
+    assert.ok(!/--teal-ink/.test(rule), `.${link} uses --teal-ink, which is 4.28:1 and fails AA`);
   }
 
-  /* And the dashboard demos keep their own palette — a separate surface, and
-     not what this report was about. */
-  assert.ok(/\.portal-app :root/.test(css),
-    "the embedded demos no longer scope their own tokens");
+  /* The embedded demos keep their own palette — a separate surface. */
+  assert.ok(/\.portal-app :root/.test(css), "the embedded demos no longer scope their own tokens");
 });
 
 test("switching country re-asks the supplier, every time", { skip }, async () => {
