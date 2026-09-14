@@ -913,6 +913,13 @@ const SUPPLY = [
 function marketplaceWithSupply(listings, supply, suppliers) {
   const w = openPage("index.html", { inlineToo: true });
   w.win.fetch = (u) => {
+    /*
+     * Recorded, because the shim only records ITS own fetch. Replacing fetch
+     * after boot made every later request invisible — an assertion counting
+     * them saw only the one made while the scripts were still loading, and a
+     * test of "did this trigger a reload" could never pass.
+     */
+    w.calls.fetch.push(String(u));
     if (!/marketplace\/listings/.test(String(u))) return Promise.reject(new Error("unrelated"));
     const body = {
       listings, count: listings.length, source: "live-listings",
@@ -1557,4 +1564,66 @@ test("every primary CTA on the public site uses the one brand token", { skip }, 
      not what this report was about. */
   assert.ok(/\.portal-app :root/.test(css),
     "the embedded demos no longer scope their own tokens");
+});
+
+test("switching country re-asks the supplier, every time", { skip }, async () => {
+  /*
+   * Reported from the live site: changing country repainted the header, the
+   * currency label and the hero copy, and left the marketplace showing the
+   * previous country's hotels. The page said "Sweden, SEK" above a shelf of
+   * Nairobi rooms priced in dollars, and nothing said it was stale.
+   *
+   * `stayCountry` is what the supplier prices against, so changing it has to
+   * re-ask. The old answer is not an approximation of the new one — it is a
+   * different country.
+   */
+  const w = marketplaceWithSupply(SAMPLE, SUPPLY);
+  await rendered(w);
+
+  const asked = () => w.calls.fetch.filter((u) => /marketplace\/listings/.test(u));
+  const before = asked().length;
+  assert.ok(before > 0, "the marketplace never asked for anything");
+
+  const MK = w.win.PALTAS && w.win.PALTAS.Market;
+  assert.ok(MK && MK.setCountry, "the market service is not on the page");
+
+  MK.setCountry("AE", "chosen");
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(asked().length > before,
+    "changing country did not re-ask the supplier — the shelf keeps the previous " +
+    "country's hotels while the header says somewhere else");
+  assert.match(asked().slice(-1)[0], /stayCountry=AE/,
+    "the new country is not what the supplier was asked for");
+
+  /* Every switch, not only the first. */
+  const second = asked().length;
+  MK.setCountry("GB", "chosen");
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(asked().length > second, "the second switch did nothing");
+  assert.match(asked().slice(-1)[0], /stayCountry=GB/);
+
+  /*
+   * And a typed destination does not travel. A city belongs to the market it
+   * was typed in — carrying "Mombasa" into Sweden asks for a place that is not
+   * there, and the empty shelf that comes back looks like a fault.
+   */
+  w.win.PALTAS_SEARCH({ category: "hotels", city: "London" });
+  await new Promise((r) => setTimeout(r, 40));
+  assert.match(asked().slice(-1)[0], /stayCity=London/);
+  MK.setCountry("KE", "chosen");
+  await new Promise((r) => setTimeout(r, 40));
+  assert.ok(!/stayCity=London/.test(asked().slice(-1)[0]),
+    "a London search was carried into Kenya");
+
+  /*
+   * But only the market. Language, residence and destination also emit, and
+   * none of them changes which country is being priced — reloading on each
+   * would be needless round trips to a wholesaler.
+   */
+  const quiet = asked().length;
+  MK.setLanguage("sw");
+  MK.setDestination("Diani");
+  await new Promise((r) => setTimeout(r, 40));
+  assert.equal(asked().length, quiet,
+    "a language or destination change re-asked the supplier for no reason");
 });
