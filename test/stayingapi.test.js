@@ -181,6 +181,35 @@ test("search asks for no more than it needs, and only real platforms", async () 
   await assert.rejects(() => c.search({}), (e) => /needs somewhere to search/.test(e.message));
 });
 
+test("either spelling of the variable works, and a conflict is refused", () => {
+  /*
+   * The product is "StayingAPI", so STAYINGAPI_KEY reads as its name;
+   * STAYING_API_KEY reads as "the Staying API key", which is how most people
+   * type it and what was actually set on production. Neither is wrong, and a
+   * support round over which one the code happened to pick is a wasted
+   * afternoon.
+   */
+  assert.equal(fromEnv({ STAYINGAPI_KEY: TEST_KEY }).sandbox, true);
+  assert.equal(fromEnv({ STAYING_API_KEY: TEST_KEY }).sandbox, true,
+    "the spelling most people type was not accepted");
+
+  /* The same key under both names is one key, not a conflict. */
+  assert.ok(fromEnv({ STAYINGAPI_KEY: TEST_KEY, STAYING_API_KEY: TEST_KEY }),
+    "the same value under both names was treated as a disagreement");
+
+  /*
+   * DIFFERENT values is what a half-finished rotation looks like. Preferring
+   * either silently runs the service on a credential its operator believes
+   * they replaced, which is worse than the feature not starting.
+   */
+  assert.throws(() => fromEnv({ STAYINGAPI_KEY: TEST_KEY, STAYING_API_KEY: LIVE_KEY }), (e) => {
+    assert.match(e.message, /both set and hold DIFFERENT keys/);
+    assert.ok(!e.message.includes(TEST_KEY) && !e.message.includes(LIVE_KEY),
+      "the conflict message quoted the keys it was refusing to choose between");
+    return true;
+  });
+});
+
 test("fromEnv builds nothing without a key", () => {
   assert.equal(fromEnv({}), null, "a client was built with no credential");
   const c = fromEnv({ STAYINGAPI_KEY: TEST_KEY });
@@ -215,6 +244,7 @@ test("a key pasted with whitespace is trimmed, and a blank one is absent", () =>
    * not, which must look identical to not having set it at all.
    */
   assert.equal(fromEnv({ STAYINGAPI_KEY: "   " }), null, "a blank value built a client");
+  assert.equal(fromEnv({ STAYING_API_KEY: "   " }), null, "a blank value under the alias built a client");
   assert.equal(fromEnv({ STAYINGAPI_KEY: "\n\t " }), null, "a whitespace value built a client");
   assert.equal(fromEnv({ STAYINGAPI_KEY: "" }), null);
 

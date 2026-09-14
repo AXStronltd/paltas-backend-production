@@ -412,21 +412,48 @@ export function stayingApi({
   };
 }
 
-/**
- * Built only when a key is present, so a missing one degrades to nothing.
+/*
+ * BOTH SPELLINGS, BECAUSE BOTH ARE REASONABLE.
  *
- * TRIMMED, and a blank value counts as ABSENT. Pasting a key into a dashboard
- * field is how one acquires a trailing newline, and an untrimmed key is sent
- * to the API in an Authorization header where it fails as a credential rather
- * than as a configuration mistake — a 401 that looks like a revoked key. A
- * whitespace-only value is somebody who meant to set it and did not.
+ * The product is "StayingAPI", so STAYINGAPI_KEY reads as its name — and
+ * STAYING_API_KEY reads as "the Staying API key", which is how most people
+ * type it and what was actually set on production. Neither is wrong, and
+ * spending a support round on which one the code happened to pick is a waste
+ * of somebody's afternoon. The first is canonical; the second is accepted.
+ *
+ * BOTH SET AND DIFFERENT IS REFUSED rather than resolved by precedence. That
+ * is the state after somebody rotates one and forgets the other, and silently
+ * preferring either means the service runs on a key its operator believes they
+ * replaced — which is worse than not starting the feature at all.
  */
+export const KEY_NAMES = ["STAYINGAPI_KEY", "STAYING_API_KEY"];
+
+/** Built only when a key is present, so a missing one degrades to nothing. */
 export function fromEnv(env = process.env) {
-  const key = String(env.STAYINGAPI_KEY || "").trim();
-  if (!key) return null;
+  /*
+   * TRIMMED, and a blank value counts as ABSENT. Pasting a key into a dashboard
+   * field is how one acquires a trailing newline, and an untrimmed key is sent
+   * to the API in an Authorization header where it fails as a credential rather
+   * than as a configuration mistake — a 401 that looks like a revoked key.
+   */
+  const found = KEY_NAMES
+    .map((n) => [n, String(env[n] || "").trim()])
+    .filter(([, v]) => v);
+
+  if (!found.length) return null;
+
+  const values = new Set(found.map(([, v]) => v));
+  if (values.size > 1) {
+    throw new SupplyUnavailable(
+      found.map(([n]) => n).join(" and ") + " are both set and hold DIFFERENT " +
+      "keys. PALTAS will not choose between them: that is what a half-finished " +
+      "rotation looks like, and picking either one runs this service on a " +
+      "credential somebody believes they have replaced. Remove whichever is stale.");
+  }
+
   return stayingApi({
-    apiKey: key,
-    baseUrl: env.STAYINGAPI_BASE_URL || DEFAULT_BASE,
-    currency: env.STAYINGAPI_CURRENCY || "USD",
+    apiKey: found[0][1],
+    baseUrl: env.STAYINGAPI_BASE_URL || env.STAYING_API_BASE_URL || DEFAULT_BASE,
+    currency: env.STAYINGAPI_CURRENCY || env.STAYING_API_CURRENCY || "USD",
   });
 }

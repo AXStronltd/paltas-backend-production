@@ -198,17 +198,17 @@ test("the diagnosis tells an empty value and a misspelt name apart", async () =>
    */
   clearCompare();
   connectComparison({});
-  assert.match(compareStatus().why, /is not set on this service/);
+  assert.match(compareStatus().why, /Neither STAYINGAPI_KEY nor STAYING_API_KEY is set/);
 
   clearCompare();
   connectComparison({ STAYINGAPI_KEY: "   " });
   assert.match(compareStatus().why, /exists on this service but its value is empty/);
 
   clearCompare();
-  connectComparison({ STAYING_API_KEY: "whatever", STAYINGAPI_TOKEN: "whatever" });
+  connectComparison({ STAYINGAPI_TOKEN: "whatever", STAYING_SECRET: "whatever" });
   const why = compareStatus().why;
   /* Order-independent: the names are sorted, and "A" sorts before "_". */
-  for (const name of ["STAYING_API_KEY", "STAYINGAPI_TOKEN"]) {
+  for (const name of ["STAYING_SECRET", "STAYINGAPI_TOKEN"]) {
     assert.ok(why.includes(name),
       `${name} was not reported, so a typo in the variable name stays invisible`);
   }
@@ -218,7 +218,7 @@ test("the diagnosis tells an empty value and a misspelt name apart", async () =>
    * variable is spelt.
    */
   clearCompare();
-  connectComparison({ STAYING_API_KEY: "stay_live_" + "z".repeat(30) });
+  connectComparison({ STAYINGAPI_TOKEN: "stay_live_" + "z".repeat(30) });
   assert.ok(!/stay_live_z/.test(compareStatus().why),
     "the diagnosis printed the value of a near-miss variable");
 

@@ -98,6 +98,9 @@ services:
       # The prefix decides the environment and nothing overrides it: stay_test_
       # is the deterministic sandbox and free, stay_live_ spends credits PER
       # RESULT, so nothing calls it on page load.
+      # Either spelling works. STAYING_API_KEY is accepted as well, because it
+      # is how most people type it; setting BOTH to different values is refused
+      # rather than resolved, since that is a half-finished rotation.
       - key: STAYINGAPI_KEY
         sync: false            # stay_test_… or stay_live_… — the prefix decides
       - key: STAYINGAPI_CURRENCY

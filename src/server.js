@@ -30,7 +30,7 @@ import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
 import { register as registerSupplier, status as supplierStatus } from "./domain/supply.js";
 import { fromEnv as liteApiFromEnv } from "./suppliers/liteapi.js";
-import { fromEnv as stayingApiFromEnv } from "./suppliers/stayingapi.js";
+import { fromEnv as stayingApiFromEnv, KEY_NAMES as STAYING_KEYS } from "./suppliers/stayingapi.js";
 import { registerCompare, compareStatus, noteCompareUnavailable } from "./domain/compare.js";
 import { fromEnv as expediaRapidFromEnv } from "./suppliers/expedia-rapid.js";
 import { fromEnv as bookingDemandFromEnv } from "./suppliers/booking-demand.js";
@@ -300,19 +300,21 @@ export function connectComparison(env = process.env) {
        * can actually see turns a typo from an afternoon into a sentence. No
        * value is read, and none could be: only Object.keys is consulted.
        */
-      const raw = env.STAYINGAPI_KEY;
+      const blank = STAYING_KEYS.filter(
+        (n) => typeof env[n] === "string" && String(env[n]).trim() === "");
       const nearby = Object.keys(env)
-        .filter((k) => /STAYING/i.test(k) && k !== "STAYINGAPI_KEY")
+        .filter((k) => /STAYING/i.test(k) && !STAYING_KEYS.includes(k))
         .sort();
 
       let why;
-      if (typeof raw === "string" && raw.trim() === "") {
-        why = "STAYINGAPI_KEY exists on this service but its value is empty.";
+      if (blank.length) {
+        why = blank.join(" and ") + " exists on this service but its value is empty.";
       } else if (nearby.length) {
-        why = "STAYINGAPI_KEY is not set, but this service can see " +
+        why = STAYING_KEYS.join(" / ") + " are not set, but this service can see " +
               nearby.join(" and ") + " — one of those is probably meant to be it.";
       } else {
-        why = "STAYINGAPI_KEY is not set on this service, so no other sellers are shown.";
+        why = "Neither " + STAYING_KEYS.join(" nor ") +
+              " is set on this service, so no other sellers are shown.";
       }
       noteCompareUnavailable(why);
       log.info("price comparison: " + why);
