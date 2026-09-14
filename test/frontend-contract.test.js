@@ -835,21 +835,38 @@ test("the filter bar keeps every airport-transfer chip the page had", { skip }, 
    * direction typed beside each, which is why this test checks they are OFF
    * rather than just present.
    */
+  /*
+   * At rest the homepage shows the property types and ONE airport-transfer
+   * chip. The four refinements live behind it — the page's job is to show
+   * property, and seven filter controls plus a heading above the fold is not
+   * that. What matters is that none of them was DROPPED, so each is checked
+   * where it now lives.
+   */
   for (const label of ["All", "Hotels", "Short stays", "Long stays", "Buy / Sell",
-                       "Developments", "Airport transfer", "Pickup available",
-                       "Drop-off available", "Free transfer", "Paid transfer"]) {
+                       "Developments", "Airport transfer"]) {
     assert.ok(html.includes(label), `the "${label}" filter chip is gone from the marketplace`);
   }
 
+  const w2 = marketplaceWithSupply(SAMPLE, SUPPLY);
+  await rendered(w2);
+  w2.win.PALTAS.Marketplace.setFilter("transfer");
+  await new Promise((r) => setTimeout(r, 30));
+  const opened = w2.win.document.getElementById("paltas-marketplace").innerHTML;
+  for (const label of ["Pickup available", "Drop-off available",
+                       "Free transfer", "Paid transfer"]) {
+    assert.ok(opened.includes(label),
+      `the "${label}" filter is not reachable even after choosing airport transfer`);
+  }
+
   for (const gone of ["Pickup available", "Drop-off available"]) {
-    const chip = (html.match(new RegExp('<button[^>]*>' + gone + '</button>')) || [])[0] || "";
+    const chip = (opened.match(new RegExp('<button[^>]*>' + gone + '</button>')) || [])[0] || "";
     assert.ok(/disabled/.test(chip) && /aria-disabled="true"/.test(chip),
       `"${gone}" is an active filter again, but nothing in the schema records ` +
       `transfer direction — so it can only be filtering on something invented. ` +
       `Chip: ${chip || "not found as a button"}`);
   }
 
-  assert.ok(/mk-filter-note/.test(html),
+  assert.ok(/mk-filter-note/.test(opened),
     "the two disabled chips give no reason, so they read as a bug rather than a gap");
 
   /* And the three that DO work must actually narrow. */
@@ -1696,4 +1713,59 @@ test("the promotional carousel pauses, and comes back", { skip }, () => {
   /* Rotating a phone changes how many cards fit, and so how many dots there are. */
   assert.ok(/addEventListener\("resize", function \(\) \{ drawDots\(\); paint\(\); \}/.test(html),
     "the dot count is not recounted on resize");
+});
+
+test("the transfer options do not clutter the homepage at rest", { skip }, async () => {
+  /*
+   * There were two permanent rows: property types, then a labelled "AIRPORT
+   * TRANSFER" row of five more chips — two of which are disabled forever,
+   * because nothing in the schema records which direction a transfer runs in.
+   * Seven controls and a heading above the fold, on a page whose job is to show
+   * property.
+   */
+  const w = marketplaceWithSupply(SAMPLE, SUPPLY);
+  const html = await rendered(w);
+  const bar = (html.match(/<div class="mk-filters">[\s\S]*?(?=<section)/) || [""])[0];
+
+  assert.equal((bar.match(/class="mk-filter-row/g) || []).length, 1,
+    "the filter bar still has two permanent rows");
+  assert.ok(!/mk-filter-label/.test(bar),
+    "the always-on AIRPORT TRANSFER heading is back");
+  assert.equal((bar.match(/mk-chip-off/g) || []).length, 0,
+    "permanently-disabled chips are on show before anybody asked about transfers");
+  assert.ok(!/mk-filter-note/.test(bar),
+    "the explanation of why two chips are dead is shown to everyone");
+  /* But the way in is still there. */
+  assert.ok(/mk-chip-transfer/.test(bar), "airport transfer is not reachable at all");
+});
+
+test("choosing airport transfer reveals its options, and they are all still there", { skip }, async () => {
+  /*
+   * The disabled pair is preserved deliberately — an earlier decision was that
+   * these five filters must survive. They now live where somebody has actually
+   * asked about transfers, next to the sentence explaining why two cannot work,
+   * rather than in front of everyone browsing hotels.
+   */
+  const w = marketplaceWithSupply(SAMPLE, SUPPLY);
+  await rendered(w);
+  w.win.PALTAS.Marketplace.setFilter("transfer");
+  await new Promise((r) => setTimeout(r, 30));
+
+  const open = w.win.document.getElementById("paltas-marketplace").innerHTML;
+  assert.ok(/mk-refine/.test(open), "nothing was revealed");
+  for (const label of ["Free transfer", "Paid transfer", "Pickup available", "Drop-off available"]) {
+    assert.ok(open.includes(label), `"${label}" was dropped rather than moved`);
+  }
+  assert.ok(/aria-expanded="true"/.test(open),
+    "the parent chip does not tell a screen reader it opened something");
+  assert.ok(/mk-filter-note/.test(open),
+    "the two greyed options are shown with no reason given");
+
+  /* And it folds away again. */
+  w.win.PALTAS.Marketplace.setFilter("all");
+  await new Promise((r) => setTimeout(r, 30));
+  const closed = w.win.document.getElementById("paltas-marketplace").innerHTML;
+  assert.ok(!/mk-refine/.test(closed), "the options stay open after moving off transfer");
+  assert.equal((closed.match(/mk-chip-off/g) || []).length, 0,
+    "the disabled chips remain on the homepage");
 });
