@@ -1396,3 +1396,73 @@ test("the products on the homepage are ones PALTAS can actually deliver", { skip
   assert.ok(!html.includes("PALTAS Platform</h3>"),
     "the internal staff console is being offered to customers");
 });
+
+test("a guest is asked to sign in BEFORE typing their details", { skip }, () => {
+  /*
+   * Reported from the live site: the guest chose a room, reviewed it, filled in
+   * their name, email and phone, pressed continue — and was bounced to sign in,
+   * losing the lot. The session is needed to HOLD a rate, and the hold happens
+   * after the form, so it was discovered at the last possible moment.
+   */
+  const js = readFileSync(join(FE, "assets", "paltas-checkout.js"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+
+  const details = js.indexOf("function details(");
+  const render = js.indexOf("function renderDetails(");
+  assert.ok(details > 0 && render > details,
+    "details() no longer gates before rendering the form");
+  const gate = js.slice(details, render);
+  assert.ok(/whoAmI\(\)/.test(gate), "the session is not checked before the form is drawn");
+  assert.ok(/askToSignIn/.test(gate), "there is no sign-in step before the form");
+
+  /*
+   * And the check must use what index.html ACTUALLY loads. An earlier version
+   * reached for PALTAS.Auth — which that page does not load — found nothing,
+   * assumed signed-in, and showed the form to everybody, which is the bug it
+   * was written to prevent.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const loads = (name) => html.includes(`src="assets/${name}"`);
+  const usesAuthModule = /PALTAS\.Auth\.status/.test(js);
+  assert.ok(!usesAuthModule || loads("paltas-auth.js"),
+    "the checkout asks PALTAS.Auth for the session, but index.html does not " +
+    "load paltas-auth.js — so the check silently answers 'signed in' for everyone");
+});
+
+test("signing in to book never routes through the business onboarding", { skip }, () => {
+  /*
+   * The sign-in PAGE puts a new account through a wizard whose first question is
+   * "Do you also do business on PALTAS?" — the right question for a letting
+   * agent, and completely the wrong one for somebody booking four nights. A
+   * guest reported landing there mid-booking.
+   */
+  const js = readFileSync(join(FE, "assets", "paltas-checkout.js"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  const fn = js.slice(js.indexOf("function signInHref("));
+  const body = fn.slice(0, fn.indexOf("\n  }"));
+
+  assert.ok(!/login\.html/.test(body),
+    "the booking sign-in goes via login.html, which opens the business wizard");
+  assert.ok(/auth\/google/.test(body), "it does not go straight to Google");
+  assert.ok(/next=/.test(body), "it carries no next=, so the guest lands on the homepage");
+  assert.ok(/paltas_booking=resume/.test(body),
+    "nothing marks the return, so the journey restarts instead of resuming");
+
+  /* And the journey must actually resume rather than just return. */
+  assert.ok(/paltas_booking=resume/.test(js.slice(js.indexOf("function resumeIfReturning"))),
+    "the return marker is never handled");
+});
+
+test("a confirmed booking leads somewhere, and that place is real", { skip }, () => {
+  /* A confirmation with no way onward is a dead end: the booking exists and
+     nothing on screen says where to find it again. */
+  const js = readFileSync(join(FE, "assets", "paltas-checkout.js"), "utf8");
+  assert.ok(/data-pc="stays"/.test(js), "the confirmation offers no next step");
+  assert.ok(/D\.request\("\/marketplace\/stays"\)/.test(js),
+    "My bookings does not read PALTAS's own record");
+  assert.ok(/data-pc="cancel"/.test(js), "a stay cannot be cancelled from the list");
+  /* Non-refundable cancellations charge anyway; saying only "cancelled" would
+     tell somebody they had their money back. */
+  assert.ok(/body\.charged/.test(js),
+    "the cancellation outcome does not distinguish charged from refunded");
+});
