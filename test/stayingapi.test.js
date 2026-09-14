@@ -205,3 +205,20 @@ test("it is not registered as the marketplace's supplier", () => {
     "StayingAPI is being registered as the bookable supplier");
 });
 import { readFileSync } from "node:fs";
+
+test("a key pasted with whitespace is trimmed, and a blank one is absent", () => {
+  /*
+   * Pasting into a dashboard field is how one acquires a trailing newline. An
+   * untrimmed key goes into an Authorization header and fails as a CREDENTIAL —
+   * a 401 that reads as revoked — rather than as the configuration mistake it
+   * is. And a whitespace-only value is somebody who meant to set it and did
+   * not, which must look identical to not having set it at all.
+   */
+  assert.equal(fromEnv({ STAYINGAPI_KEY: "   " }), null, "a blank value built a client");
+  assert.equal(fromEnv({ STAYINGAPI_KEY: "\n\t " }), null, "a whitespace value built a client");
+  assert.equal(fromEnv({ STAYINGAPI_KEY: "" }), null);
+
+  const c = fromEnv({ STAYINGAPI_KEY: "  " + TEST_KEY + "\n" });
+  assert.ok(c, "a key with surrounding whitespace was refused instead of trimmed");
+  assert.equal(c.sandbox, true, "the prefix was not seen through the whitespace");
+});

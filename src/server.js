@@ -265,11 +265,35 @@ export function connectComparison(env = process.env) {
   try {
     const p = stayingApiFromEnv(env);
     if (!p) {
-      /* Absent is a normal state, and saying WHICH absence it is turns a
-         silent feature into a one-line diagnosis from outside the machine. */
-      noteCompareUnavailable(
-        "STAYINGAPI_KEY is not set on this service, so no other sellers are shown.");
-      log.info("price comparison: none configured — no other sellers are shown");
+      /*
+       * WHY fromEnv() returned nothing, in the detail an operator needs.
+       *
+       * "Not set" is true of three different mistakes and only one of them is
+       * "you forgot". A value that saved as empty, and a value that saved under
+       * a name one character out, both present as absent — and from outside the
+       * machine there is no way to tell them apart, which is exactly where
+       * somebody debugging this is standing.
+       *
+       * NAMES ARE NOT SECRETS. Listing which STAYING-ish variables this process
+       * can actually see turns a typo from an afternoon into a sentence. No
+       * value is read, and none could be: only Object.keys is consulted.
+       */
+      const raw = env.STAYINGAPI_KEY;
+      const nearby = Object.keys(env)
+        .filter((k) => /STAYING/i.test(k) && k !== "STAYINGAPI_KEY")
+        .sort();
+
+      let why;
+      if (typeof raw === "string" && raw.trim() === "") {
+        why = "STAYINGAPI_KEY exists on this service but its value is empty.";
+      } else if (nearby.length) {
+        why = "STAYINGAPI_KEY is not set, but this service can see " +
+              nearby.join(" and ") + " — one of those is probably meant to be it.";
+      } else {
+        why = "STAYINGAPI_KEY is not set on this service, so no other sellers are shown.";
+      }
+      noteCompareUnavailable(why);
+      log.info("price comparison: " + why);
       return null;
     }
     registerCompare(p);

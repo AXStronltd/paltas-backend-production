@@ -120,6 +120,7 @@ export function stayingApi({
   maxPolls = 12,
   fetchImpl,
 } = {}) {
+  apiKey = String(apiKey || "").trim();
   if (!apiKey) throw new SupplyUnavailable("StayingAPI needs an API key.");
 
   const env = environmentOf(apiKey);
@@ -411,11 +412,20 @@ export function stayingApi({
   };
 }
 
-/** Built only when a key is present, so a missing one degrades to nothing. */
+/**
+ * Built only when a key is present, so a missing one degrades to nothing.
+ *
+ * TRIMMED, and a blank value counts as ABSENT. Pasting a key into a dashboard
+ * field is how one acquires a trailing newline, and an untrimmed key is sent
+ * to the API in an Authorization header where it fails as a credential rather
+ * than as a configuration mistake — a 401 that looks like a revoked key. A
+ * whitespace-only value is somebody who meant to set it and did not.
+ */
 export function fromEnv(env = process.env) {
-  if (!env.STAYINGAPI_KEY) return null;
+  const key = String(env.STAYINGAPI_KEY || "").trim();
+  if (!key) return null;
   return stayingApi({
-    apiKey: env.STAYINGAPI_KEY,
+    apiKey: key,
     baseUrl: env.STAYINGAPI_BASE_URL || DEFAULT_BASE,
     currency: env.STAYINGAPI_CURRENCY || "USD",
   });

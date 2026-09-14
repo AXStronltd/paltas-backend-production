@@ -7,6 +7,16 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+
+/* connectComparison() lives in server.js, whose config guard refuses to load
+   without these. They are stubs — nothing here starts a server or opens a
+   socket; only the one function is called, with an env object of its own. */
+process.env.SESSION_SECRET ||= "test-secret-that-is-long-enough-to-pass";
+process.env.GOOGLE_CLIENT_ID ||= "test-client.apps.googleusercontent.com";
+process.env.GOOGLE_CLIENT_SECRET ||= "test-client-secret";
+process.env.PUBLIC_URL ||= "http://127.0.0.1:8080";
+process.env.APP_URL ||= "http://127.0.0.1:8899";
+process.env.DATABASE_URL ||= "postgresql://unused@127.0.0.1:1/none";
 import {
   registerCompare, clearCompare, compareStatus, comparePrices, forgetComparisons,
 } from "../src/domain/compare.js";
@@ -174,5 +184,49 @@ test("'not connected' says WHICH absence it is, and never with a key", async () 
   registerCompare({ compare: async () => ({ offers: [] }), describe: () => ({ name: "x" }) });
   assert.equal(compareStatus().connected, true);
   assert.ok(!/was set but rejected/.test(compareStatus().why), "a stale failure survived a successful connect");
+  clearCompare();
+});
+
+test("the diagnosis tells an empty value and a misspelt name apart", async () => {
+  const { connectComparison } = await import("../src/server.js");
+
+  /*
+   * Three mistakes present identically as "not set", and only one of them is
+   * "you forgot": a value that saved empty, a name one character out, and a
+   * genuine absence. From outside the machine they are indistinguishable —
+   * which is exactly where somebody debugging a live service is standing.
+   */
+  clearCompare();
+  connectComparison({});
+  assert.match(compareStatus().why, /is not set on this service/);
+
+  clearCompare();
+  connectComparison({ STAYINGAPI_KEY: "   " });
+  assert.match(compareStatus().why, /exists on this service but its value is empty/);
+
+  clearCompare();
+  connectComparison({ STAYING_API_KEY: "whatever", STAYINGAPI_TOKEN: "whatever" });
+  const why = compareStatus().why;
+  /* Order-independent: the names are sorted, and "A" sorts before "_". */
+  for (const name of ["STAYING_API_KEY", "STAYINGAPI_TOKEN"]) {
+    assert.ok(why.includes(name),
+      `${name} was not reported, so a typo in the variable name stays invisible`);
+  }
+
+  /*
+   * And it reads NAMES only. A value must never reach this field, however the
+   * variable is spelt.
+   */
+  clearCompare();
+  connectComparison({ STAYING_API_KEY: "stay_live_" + "z".repeat(30) });
+  assert.ok(!/stay_live_z/.test(compareStatus().why),
+    "the diagnosis printed the value of a near-miss variable");
+
+  /* A key with an unrecognised prefix is a different answer again. */
+  clearCompare();
+  connectComparison({ STAYINGAPI_KEY: "sk_live_not_a_staying_key" });
+  assert.match(compareStatus().why, /was set but rejected/);
+  assert.ok(!/sk_live_not_a_staying_key/.test(compareStatus().why),
+    "the rejected key was quoted back");
   clearCompare();
 });
