@@ -2157,3 +2157,43 @@ test("every discovery CTA uses the one brand token", { skip }, () => {
   assert.equal((html.match(/--mk-accent:#12C6D4/g) || []).length, 1,
     "the brand turquoise is declared more than once");
 });
+
+test("nothing on the discovery rail can block a finger", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const rail = (html.match(/^\.pdisc-rail\{[\s\S]*?\}/m) || [""])[0];
+
+  /*
+   * `touch-action: pan-x pinch-zoom` READS like "this scrolls sideways" and
+   * MEANS "this does nothing else". Dropping pan-y from a 400-520px tall
+   * full-width carousel stopped a finger landing on it from scrolling the PAGE,
+   * and made the browser reject any swipe with diagonal drift instead of
+   * reading it as horizontal. The section was dead in both directions.
+   *
+   * The default lets the browser pick the axis from the gesture, which is the
+   * behaviour that was wanted all along.
+   */
+  assert.ok(!/touch-action/.test(rail),
+    "the rail declares a touch-action, which can only ever remove a gesture the browser would have handled");
+
+  /*
+   * The snap alignment has to agree with the driver's arithmetic. goTo(),
+   * index() and normalise() all place slide i at i * step() from zero — that is
+   * START alignment. Under `center` the browser's resting places sit half a gap
+   * from every one of those, so each programmatic scroll was corrected to
+   * somewhere unexpected and a finger released near a boundary was pulled back.
+   */
+  /* Anchored to the start of a line, or this matches the tail of the compound
+     selector `.pdisc-rail.dragging .pdisc-card` and tests the wrong rule. */
+  const card = (html.match(/^\.pdisc-card\{[\s\S]*?\}/m) || [""])[0];
+  assert.ok(/scroll-snap-align:start/.test(card),
+    "the rail snaps to a different place than the driver scrolls to, so the two fight");
+
+  /* Momentum on older iOS, which is every iPhone that has not been updated. */
+  assert.ok(/-webkit-overflow-scrolling:touch/.test(rail),
+    "the rail has no momentum scrolling on older iOS");
+
+  /* And the marketplace rows, which use the same gesture, must stay consistent. */
+  const mk = (html.match(/^\.mk-rail\{[\s\S]*?\}/m) || [""])[0];
+  assert.ok(!/touch-action/.test(mk), "the marketplace rows declare a touch-action too");
+  assert.ok(/-webkit-overflow-scrolling:touch/.test(mk), "the marketplace rows lost their momentum");
+});
