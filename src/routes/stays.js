@@ -45,6 +45,7 @@ import { badRequest, unavailable, notFound } from "../http/errors.js";
 import { rateLimit } from "../http/rate-limit.js";
 import { requireSession } from "../http/session.js";
 import { supplier, isConnected, status as supplyStatus } from "../domain/supply.js";
+import { comparePrices, compareStatus } from "../domain/compare.js";
 
 export const stayRoutes = Router();
 
@@ -130,6 +131,52 @@ stayRoutes.get("/marketplace/hotels/:hotelId/rooms",
         count: out.offers.length,
         supplier: supplyStatus(),
       });
+    } catch (e) { next(e); }
+  });
+
+/* ---------------------------------------------------------------- 1b
+ * WHAT THIS HOTEL COSTS ELSEWHERE.
+ *
+ * A public read, and the most expensive endpoint PALTAS has: every miss is a
+ * 30-credit call to StayingAPI against a metered account. So three things
+ * guard it, and none of them is optional.
+ *
+ * THE HOTEL MUST BE ONE PALTAS ALREADY SELLS. The request supplies an id and a
+ * country, never a property name — the name asked about comes from LiteAPI's
+ * own content for that id. A route that took a name would let anyone price any
+ * hotel on earth at PALTAS's expense.
+ *
+ * THE ANSWER IS CACHED. What Booking.com charges for a stay in three weeks does
+ * not move minute to minute, and a visitor opening the same hotel twice must
+ * not cost twice.
+ *
+ * THE RATE LIMIT IS TIGHT — 20 a minute rather than the 120 the rooms list
+ * gets, because the rooms list costs nothing and this costs money.
+ * ---------------------------------------------------------------- */
+stayRoutes.get("/marketplace/hotels/:hotelId/compare",
+  rateLimit({ windowMs: 60_000, max: 20 }),
+  async (req, res, next) => {
+    try {
+      const stay = stayOf(req.query);
+      const country = String(req.query.country || "").toUpperCase();
+      if (!/^[A-Z]{2}$/.test(country)) {
+        throw badRequest("A two-letter country code is needed to identify the hotel.");
+      }
+      const currency = String(req.query.currency || "").toUpperCase();
+      if (currency && !/^[A-Z]{3}$/.test(currency)) {
+        throw badRequest("currency must be a three-letter ISO-4217 code.");
+      }
+
+      const out = await comparePrices({
+        supplier: live(),
+        hotelId: String(req.params.hotelId),
+        country, currency, ...stay,
+      });
+
+      /* A scraped third-party price is a snapshot, not a quote PALTAS stands
+         behind, so a browser may hold it briefly and nothing else may. */
+      res.set("Cache-Control", "private, max-age=600");
+      res.json(out);
     } catch (e) { next(e); }
   });
 

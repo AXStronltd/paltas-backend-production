@@ -324,20 +324,73 @@ export function stayingApi({
       };
     },
 
-    async compare({ location, checkIn, checkOut, listings = [], adults = 2 } = {}) {
+    /**
+     * WHAT THE SAME PROPERTY COSTS ELSEWHERE.
+     *
+     * Google-aggregator mode: a name and a location, no listing ids needed, 30
+     * credits flat. This is the mode that suits PALTAS, because the hotels
+     * being compared are ones LiteAPI already sells by name — there are no
+     * Airbnb or Vrbo ids to supply for a Hilton.
+     *
+     * TWO RULES, BOTH FROM THE SPEC AND BOTH ABOUT NOT LYING WITH TRUE NUMBERS.
+     *
+     * ONE — compare on `totalPrice` and nothing else. The per-fee breakdown is
+     * direct-mode only and, in the spec's own words, best-effort: Airbnb reports
+     * cleaning, service and taxes, Booking.com reports taxes only, Vrbo and
+     * Google report none. A null fee does NOT mean the platform does not charge
+     * it, it means nobody could read it — so a breakdown shown beside a total
+     * would invite exactly the wrong conclusion. It is not returned here.
+     *
+     * TWO — an offer quoted in another currency is DROPPED, not converted.
+     * PALTAS holds no exchange rate it would be willing to stand behind, and
+     * "£310" beside "$380" invites a comparison that is wrong by whatever the
+     * rate happens to be. How many were dropped is reported instead, so the
+     * page can say the comparison is partial rather than implying it is whole.
+     */
+    async compare({ name, location, googleHotelId, checkIn, checkOut,
+                    adults = 2, children = 0, currency: want = "" } = {}) {
+      if (!checkIn || !checkOut) {
+        throw new SupplyUnavailable("A price comparison needs a check-in and a check-out date.");
+      }
+      if (!name && !location && !googleHotelId) {
+        throw new SupplyUnavailable(
+          "A price comparison needs a property name, a location or a Google hotel id.");
+      }
+      const cur = String(want || currency).toUpperCase();
       const r = await call("/price-compare", {
-        location, checkIn, checkOut, adults, currency,
-        listings: listings.length ? listings.join(",") : undefined,
+        name, location, googleHotelId, checkIn, checkOut, adults, children, currency: cur,
       });
       const d = (r && r.data) || {};
-      const offers = Array.isArray(d.offers || d.results) ? (d.offers || d.results) : [];
+      const raw = Array.isArray(d.offers) ? d.offers : [];
+
+      const offers = raw.map((o) => ({
+        /* In Google mode this is the seller's name as Google reported it. It is
+           displayed, so it is trimmed and never invented. */
+        ota: String(o.ota || "").trim() || null,
+        price: moneyFrom(o.totalPrice, o.currency),
+        url: o.url || null,
+        bookable: false,
+      })).filter((o) => o.ota && o.price && o.price.currency === cur);
+
+      /* Cheapest and median come from the API already excluding other
+         currencies, so they agree with the list above rather than contradicting
+         it. Recomputed from what survived only if it did not send them. */
+      const totals = offers.map((o) => o.price.amountMinor).sort((x, y) => x - y);
+      const median = totals.length
+        ? totals[Math.floor((totals.length - 1) / 2)] : null;
+
       return {
-        offers: offers.map((o) => ({
-          via: String(o.platform || "").toLowerCase() || null,
-          price: moneyFrom(o.total ?? o.price, o.currency || currency),
-          url: o.url || null,
-          bookable: false,
-        })).filter((o) => o.price),
+        property: d.property || name || null,
+        checkIn: d.checkIn || checkIn,
+        checkOut: d.checkOut || checkOut,
+        currency: cur,
+        offers,
+        min: moneyFrom(d.min, cur) || (totals.length ? { amountMinor: totals[0], currency: cur } : null),
+        median: moneyFrom(d.median, cur) || (median !== null ? { amountMinor: median, currency: cur } : null),
+        /* Said out loud: a comparison missing three of five sellers is a
+           different fact from one that found two. */
+        dropped: Math.max(0, raw.length - offers.length),
+        via: "google",
       };
     },
 

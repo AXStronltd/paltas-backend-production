@@ -577,6 +577,39 @@ export function liteApi({
      * and it is returned rather than ignored: a guest who saw one number and is
      * charged another has been misled by this service, not by the hotel.
      */
+    /**
+     * ONE HOTEL'S CONTENT — its name, city and classification.
+     *
+     * Added for the price comparison, and added HERE rather than trusting the
+     * browser to say which property it wants priced. A comparison costs 30
+     * credits at StayingAPI, so a caller that could name any property in the
+     * world would be an open door onto somebody else's bill. The only thing
+     * PALTAS accepts is a hotel id it already sells; the name it asks Google
+     * about comes from the supplier, not from the request.
+     *
+     * `countryCode` is not optional — /data/hotels demands it.
+     */
+    async hotel({ hotelId = "", countryCode = "" } = {}) {
+      if (!hotelId) throw new SupplyUnavailable("A hotel id is needed.");
+      const cc = String(countryCode || "").toUpperCase();
+      if (!/^[A-Z]{2}$/.test(cc)) {
+        throw new SupplyUnavailable("A two-letter country code is needed to look a hotel up.");
+      }
+      const r = await call("/data/hotels", {
+        params: [["countryCode", cc], ["hotelIds", String(hotelId)], ["limit", "1"]],
+      });
+      const d = (Array.isArray(r && r.data) ? r.data : [])
+        .find((x) => x && String(x.id) === String(hotelId));
+      if (!d) return null;
+      return {
+        hotelId: String(d.id),
+        name: d.name ? String(d.name) : null,
+        city: d.city ? String(d.city) : null,
+        country: d.country ? String(d.country) : cc,
+        stars: Number.isFinite(Number(d.stars)) && Number(d.stars) > 0 ? Number(d.stars) : null,
+      };
+    },
+
     async prebook({ offerId = "", usePaymentSdk = false } = {}) {
       if (!offerId) throw new SupplyUnavailable("An offer id is needed to hold a rate.");
 

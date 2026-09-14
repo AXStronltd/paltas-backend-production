@@ -30,6 +30,8 @@ import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
 import { register as registerSupplier, status as supplierStatus } from "./domain/supply.js";
 import { fromEnv as liteApiFromEnv } from "./suppliers/liteapi.js";
+import { fromEnv as stayingApiFromEnv } from "./suppliers/stayingapi.js";
+import { registerCompare, compareStatus } from "./domain/compare.js";
 import { fromEnv as expediaRapidFromEnv } from "./suppliers/expedia-rapid.js";
 import { fromEnv as bookingDemandFromEnv } from "./suppliers/booking-demand.js";
 import { fromEnv as sampleCatalogueFromEnv } from "./suppliers/sample-catalogue.js";
@@ -250,6 +252,43 @@ export function connectPayments(env = process.env) {
   }
 }
 
+/**
+ * The price-comparison provider — separate from connectSuppliers(), and that
+ * separation is the point.
+ *
+ * StayingAPI has no booking endpoint. Registering it as a SUPPLIER would put
+ * rooms on the marketplace that nobody can take; registering it here attaches
+ * what other sellers charge to a LiteAPI room that IS bookable. Two different
+ * seams, because they are two different promises to a visitor.
+ */
+export function connectComparison(env = process.env) {
+  try {
+    const p = stayingApiFromEnv(env);
+    if (!p) {
+      log.info("price comparison: none configured — no other sellers are shown");
+      return null;
+    }
+    registerCompare(p);
+    const s = compareStatus();
+    log.info(`price comparison: ${s.name}${s.sandbox ? " (SANDBOX — fixtures, no credits)" : " (LIVE — 30 credits per comparison)"}`);
+    if (!s.sandbox) {
+      /*
+       * Worth saying on every boot. This is the only endpoint PALTAS has that
+       * spends money per request, and the guards on it — a hotel PALTAS
+       * already sells, a six-hour cache, twenty a minute — are the difference
+       * between a feature and a bill.
+       */
+      log.info("  comparisons are cached for 6h and rate limited to 20/min, and only for hotels PALTAS sells");
+    }
+    return s;
+  } catch (e) {
+    /* A comparison is an extra. Failing to wire one must never stop the API
+       from booting or take a bookable room off the marketplace. */
+    log.error("price comparison failed to connect:", e && e.message);
+    return null;
+  }
+}
+
 export function connectSuppliers(env = process.env) {
   try {
     /*
@@ -306,6 +345,7 @@ export function connectSuppliers(env = process.env) {
 
 if (isMain) {
   connectSuppliers();
+  connectComparison();
   connectPayments();
   const app = createApp();
   const server = app.listen(config.port, () => {

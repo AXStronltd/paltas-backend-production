@@ -2197,3 +2197,57 @@ test("nothing on the discovery rail can block a finger", { skip }, () => {
   assert.ok(!/touch-action/.test(mk), "the marketplace rows declare a touch-action too");
   assert.ok(/-webkit-overflow-scrolling:touch/.test(mk), "the marketplace rows lost their momentum");
 });
+
+test("a rival's price is never dressed up as a PALTAS booking", { skip }, () => {
+  const js = readFileSync(join(FE, "assets/paltas-checkout.js"), "utf8");
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const fn = js.slice(js.indexOf("function compare(offers)"), js.indexOf("/** Whose inventory this is"));
+  assert.ok(fn, "the rooms view does not compare anything");
+
+  /*
+   * IT IS AN EXTRA, AND EXTRAS DO NOT BLOCK.
+   *
+   * Fired after the rooms are on screen and never awaited, so a slow or failing
+   * comparison cannot delay, empty or break the list a visitor came for.
+   */
+  assert.ok(/compare\(offers\);/.test(js), "the comparison is not fired from the rooms view");
+  assert.ok(!/await .*compare\(/.test(js), "the rooms view waits on a comparison");
+  assert.ok(/\.catch\(function \(\) \{/.test(fn),
+    "a failed comparison is not swallowed, so it can surface as an error on the rooms page");
+
+  /*
+   * LIKE-FOR-LIKE, OR SAID NOT TO BE.
+   *
+   * PALTAS quotes one room on one board basis; these are what other sellers
+   * advertise for the property. Two totals side by side read as comparable
+   * unless something says otherwise, so the server's sentence is printed rather
+   * than paraphrased — and the count of offers dropped for being in another
+   * currency is printed with it, or a partial comparison looks whole.
+   */
+  assert.ok(/c\.basis/.test(fn), "the comparison prints no caveat about what is being compared");
+  assert.ok(/c\.dropped/.test(fn), "offers dropped for currency are not disclosed");
+  assert.ok(/another currency and left out rather than converted/.test(fn),
+    "the page does not say the dropped offers were left out rather than converted");
+
+  /* Asked in the currency PALTAS is quoting, or it is not a comparison. */
+  assert.ok(/currency=" \+ encodeURIComponent\(cur\)/.test(fn),
+    "the comparison is not requested in the currency the rooms are priced in");
+
+  /*
+   * AND IT MUST NOT LOOK BOOKABLE.
+   *
+   * Every action that takes money on this page wears the brand fill. A rival's
+   * listing is a text link that leaves the site, and says so to a screen reader
+   * as well as to an eye.
+   */
+  assert.ok(/rel="noopener noreferrer nofollow"/.test(fn),
+    "an outbound link to another seller has no rel protection");
+  assert.ok(/opens in a new tab/.test(fn), "a new tab opens with no warning to a screen reader");
+  assert.ok(!/pc-btn/.test(fn), "another seller's offer is drawn as a PALTAS button");
+
+  const css = (html.match(/\.pc-ota-go\{[^}]*\}/) || [""])[0];
+  assert.ok(css && !/background:var\(--mk-accent/.test(css),
+    "the outbound link wears the brand fill, so it reads as a PALTAS action");
+  assert.ok(/\.pc-compare:empty\{display:none\}/.test(html),
+    "an empty comparison still draws its border and heading");
+});
