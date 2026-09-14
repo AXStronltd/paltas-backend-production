@@ -1266,15 +1266,49 @@ model SupplierBooking {
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   /// Which supplier, and their identifiers for it.
-  supplier              String
+  supplier  String
   /// The supplier's booking id — what a guest quotes.
-  bookingId             String
+  ///
+  /// NULL until the booking is actually made. The row is created when the rate
+  /// is HELD, before any money moves, so that the prebook pair below is durable
+  /// the moment it exists rather than living only in a browser that may close.
+  /// Postgres permits many NULLs in a unique index, so unbooked holds do not
+  /// collide with each other.
+  bookingId String?
+
+  /// THE PREBOOK PAIR, persisted immediately.
+  ///
+  /// LiteAPI is explicit: "Save transactionId and prebookId together,
+  /// immediately. Each prebook call generates a new pair, and they cannot be
+  /// retrieved later." Lose them after the customer has paid and there is a
+  /// charge with no booking and no way to look one up.
+  ///
+  /// `prebookId` is also the IDEMPOTENCY KEY: it is unique per supplier, so a
+  /// retried book cannot become a second reservation.
+  ///
+  /// NULLABLE for one reason only: a row written before this column existed has
+  /// no prebook, and adding a NOT NULL column without a default to a table that
+  /// has rows is rejected by Postgres — which would fail the migration, abort
+  /// `npm start`, and take the API down. A default of "" would be worse: two
+  /// legacy rows would then collide on the unique index below.
+  ///
+  /// Every row this code writes sets it, and the index still guarantees one
+  /// reservation per prebook for every value that is not null.
+  prebookId             String?
+  /// Sensitive in the sense that it settles money — but it is an identifier,
+  /// not a credential. The Stripe CLIENT SECRET from the same prebook is never
+  /// stored anywhere: it goes straight to the payment UI and nowhere else.
+  transactionId         String  @default("")
+  /// PENDING -> PAID -> CONFIRMED, or FAILED. Distinct from `status`, which is
+  /// the supplier's view of the RESERVATION. A booking can be paid and not yet
+  /// confirmed, and that gap is exactly where a guest loses money quietly.
+  paymentStatus         String  @default("PENDING")
   /// Ours, generated per attempt. LiteAPI refuses a repeat, which is what stops
   /// a retried request becoming two bookings.
-  clientReference       String @default("")
-  supplierBookingId     String @default("")
+  clientReference       String  @default("")
+  supplierBookingId     String  @default("")
   /// What the hotel's own desk recognises.
-  hotelConfirmationCode String @default("")
+  hotelConfirmationCode String  @default("")
 
   /// Enough of the stay to show it back without asking the supplier again.
   hotelId   String    @default("")
@@ -1311,6 +1345,10 @@ model SupplierBooking {
 
   /// One row per supplier booking, so a retry cannot record it twice.
   @@unique([supplier, bookingId])
+  /// One row per PREBOOK. This is what makes booking idempotent: a second
+  /// attempt against the same held rate finds this row instead of creating a
+  /// second reservation the guest would be charged for once and hold twice.
+  @@unique([supplier, prebookId])
   @@index([userId, createdAt])
 }
 

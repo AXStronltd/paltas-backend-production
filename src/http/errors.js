@@ -57,6 +57,37 @@ export function errorHandler(log) {
       });
     }
 
+    /*
+     * ERRORS FROM OUTSIDE THIS FILE THAT STILL KNOW WHAT THEY ARE.
+     *
+     * SupplyUnavailable, PaymentsUnavailable and NotReadyToCharge are thrown by
+     * the integration adapters. They are not ApiError — they carry their own
+     * `status` and mark themselves `expose: true` — and before this branch
+     * existed they fell through to the generic 500 below.
+     *
+     * That mattered. A guest whose card had not gone through was told
+     * "Something went wrong at our end" instead of "payment not completed", and
+     * a company not yet verified by Stripe was told the same. Both are the
+     * caller's situation, not a fault in this service, and both are actionable
+     * only if said out loud.
+     *
+     * Guarded on BOTH the explicit flag and a client-safe status, so an
+     * exception that merely happens to have a `status` property — a database
+     * driver, an HTTP client — cannot talk its way into a response body.
+     */
+    const exposable = err && err.expose === true
+      && Number.isInteger(err.status)
+      && ((err.status >= 400 && err.status < 500) || err.status === 503);
+
+    if (exposable) {
+      return res.status(err.status).json({
+        error: String(err.name || "error")
+          .replace(/([a-z])([A-Z])/g, "$1_$2").toLowerCase(),
+        message: err.message,
+        ...(err.details ? { details: err.details } : {}),
+      });
+    }
+
     /* Anything else is a bug in this service. The caller gets a reference and
        nothing else; the log gets everything. */
     const ref = Math.random().toString(36).slice(2, 10);

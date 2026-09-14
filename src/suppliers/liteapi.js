@@ -52,7 +52,8 @@
 
 import { SupplyUnavailable, toMinor } from "../domain/supply.js";
 
-const BASE = "https://api.liteapi.travel/v3.0";
+/** Where LiteAPI lives. Overridable so a proxy or a future host is config. */
+export const DEFAULT_BASE = "https://api.liteapi.travel/v3.0";
 
 /*
  * Stripe.js, loaded by the browser for the Payment Element.
@@ -244,6 +245,18 @@ export function ratingOf(value) {
  */
 export function liteApi({
   apiKey,
+  /** Overridable base, for a proxy or a future host. */
+  baseUrl = DEFAULT_BASE,
+  /**
+   * An EXPLICIT environment, when one is given.
+   *
+   * The key's prefix already decides this and stays authoritative for safety —
+   * but a declared LITEAPI_ENV that DISAGREES with the key is a
+   * misconfiguration worth refusing rather than silently resolving, because the
+   * two ways of being wrong are "test rates shown as real" and "real money
+   * taken in a test flow".
+   */
+  environment = "",
   currency = "USD",
   nationality = "US",
   /*
@@ -278,10 +291,37 @@ export function liteApi({
    * So the key decides, not a flag an operator might forget to set. There is no
    * legitimate reason to present sandbox rates as live.
    */
-  const sandbox = /^sand[_-]/i.test(String(apiKey).trim());
+  const keySaysSandbox = /^sand[_-]/i.test(String(apiKey).trim());
+
+  /*
+   * THE KEY DECIDES, AND A CONTRADICTING DECLARATION IS AN ERROR.
+   *
+   * LITEAPI_ENV exists so an operator can state their intent. When it agrees
+   * with the key, nothing changes. When it disagrees, that is refused: one of
+   * the two is wrong, and guessing which means either showing test rates as
+   * real or running live money through a sandbox flow. Neither is a thing to
+   * resolve quietly at boot.
+   */
+  const declared = String(environment || "").trim().toLowerCase();
+  if (declared && declared !== "sandbox" && declared !== "production") {
+    throw new SupplyUnavailable(
+      `LITEAPI_ENV must be "sandbox" or "production", not "${declared}".`);
+  }
+  if (declared) {
+    const declaredSandbox = declared === "sandbox";
+    if (declaredSandbox !== keySaysSandbox) {
+      throw new SupplyUnavailable(
+        `LITEAPI_ENV says "${declared}" but the API key is a ` +
+        `${keySaysSandbox ? "sandbox (sand_)" : "production (prod_)"} key. ` +
+        `One of the two is wrong, and PALTAS will not guess which: the wrong ` +
+        `answer either shows test rates as real or puts live money through a ` +
+        `test flow.`);
+    }
+  }
+  const sandbox = keySaysSandbox;
 
   async function call(path, { method = "GET", body = null, params = null } = {}) {
-    const url = new URL(BASE + path);
+    const url = new URL(baseUrl + path);
     if (params) for (const [k, v] of params) url.searchParams.append(k, String(v));
 
     const controller = new AbortController();
@@ -329,7 +369,10 @@ export function liteApi({
         label: sandbox ? "LiteAPI (sandbox)" : "LiteAPI",
         connected: true,
         sandbox,
-        capabilities: ["search", "rates", "content"],
+        capabilities: ["search", "rates", "content", "prebook", "book", "cancel"],
+        /* Safe to show: a base URL is not a credential, and an operator
+           debugging a proxy needs to see which host is being called. */
+        baseUrl,
         why: sandbox
           ? "LiteAPI is connected with a SANDBOX key (it begins \"sand_\"), so " +
             "sandbox mode is forced and cannot be switched off. The hotels are " +
@@ -808,6 +851,8 @@ export function fromEnv(env = process.env) {
   if (!env.LITEAPI_KEY) return null;
   return liteApi({
     apiKey: env.LITEAPI_KEY,
+    baseUrl: env.LITEAPI_BASE_URL || DEFAULT_BASE,
+    environment: env.LITEAPI_ENV || "",
     currency: env.LITEAPI_CURRENCY || "USD",
     nationality: env.LITEAPI_NATIONALITY || "US",
     /* Both kept apart by name so neither can be used for the wrong

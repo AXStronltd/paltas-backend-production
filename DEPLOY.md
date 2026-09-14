@@ -125,6 +125,8 @@ id map: `POST /hotels/rates` accepts `cityName` and `countryCode` directly.
 | | |
 |---|---|
 | `LITEAPI_KEY` | `sand_…` for sandbox, `prod_…` for live |
+| `LITEAPI_BASE_URL` | optional; defaults to `https://api.liteapi.travel/v3.0` |
+| `LITEAPI_ENV` | optional; `sandbox` or `production`. **Must agree with the key's prefix** — a contradiction is refused at boot rather than resolved by guessing, because the two ways of being wrong are "test rates shown as real" and "live money through a test flow" |
 | `LITEAPI_CURRENCY` | optional, default `USD` |
 | `LITEAPI_NATIONALITY` | optional ISO-2 guest nationality, default `US` |
 
@@ -141,6 +143,36 @@ header `X-API-Key`, `POST /hotels/rates` for prices and `GET /data/hotels` for
 content in one bulk call. Retail price is used, never
 `suggestedSellingPrice` — the latter is a markup recommendation, not what the
 booking costs.
+
+### The hotel booking lifecycle
+
+```
+select rate -> hold (prebook) -> pay (Stripe Elements) -> book -> confirmed
+```
+
+**Holding a rate requires an account.** LiteAPI cannot return the prebook pair
+later — *"they cannot be retrieved later"* — so it is persisted the moment it
+exists, and a row with no owner is one PALTAS could never show the person who
+paid. `POST /marketplace/stays/hold` is `401` anonymously.
+
+**What is persisted at hold, before the browser is told anything:** the PALTAS
+booking id, `prebookId`, `transactionId`, `paymentStatus: PENDING`, the price
+and the dates. **The Stripe client secret is not.** It settles one payment, it
+goes to the payment UI and nowhere else, and a copy at rest is a copy that can
+leak.
+
+**Booking is idempotent on `prebookId`.** A retry — a double-click, a dropped
+connection, a client that missed the response — replays the same booking with
+`idempotent: true` rather than reserving a second room the guest paid for once.
+Enforced by `@@unique([supplier, prebookId])`, so it is the database's problem
+rather than a race between two requests.
+
+**The transactionId comes from PALTAS's own row, never from the request.** One
+sent by a client could belong to a different prebook and would settle the wrong
+payment against this reservation.
+
+**A booking is only CONFIRMED when the backend's BOOK call succeeds** — never on
+a browser redirect.
 
 **Supplier precedence**, highest first: LiteAPI → Expedia Rapid → Booking.com →
 sample catalogue. One is active at a time, and a real supplier always outranks

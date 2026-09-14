@@ -624,7 +624,10 @@ function bookingSupplier() {
     name: "expedia-rapid", sandbox: true,
     describe() { return { name: "expedia-rapid", label: "Expedia", connected: true, sandbox: true, capabilities: [], why: "" }; },
     async search() { return { offers: [] }; },
-    async prebook() { return { prebookId: "PB", price: 10000, currency: "USD", priceDifferencePercent: 0, sandbox: true }; },
+    /* Unique per instance: prebookId is @@unique([supplier, prebookId]) now,
+       so a fixture that always says "PB" collides across tests — and the second
+       test would find the FIRST test's hold, owned by somebody else. */
+    async prebook() { return { prebookId: `PB-${run}-${made.size + 1}`, price: 10000, currency: "USD", priceDifferencePercent: 0, sandbox: true }; },
     async book({ holder }) {
       const id = "BK" + run + "-" + (made.size + 1);
       const b = { bookingId: id, status: "CONFIRMED", hotelName: "Test Hotel", hotelId: "h1",
@@ -652,7 +655,7 @@ test("a booking is recorded against the person who made it", { skip }, async () 
   supply.register(bookingSupplier());
   try {
     const alice = await person("alice");
-    const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false });
+    const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false }, alice.cookie);
     const made = await withCookie("POST", "/marketplace/stays/book", {
       prebookId: hold.json.hold.prebookId,
       holder: { firstName: "Alice", lastName: "Traveller", email: "alice@paltas.io" },
@@ -685,7 +688,7 @@ test("one person cannot read or cancel another's booking", { skip }, async () =>
     const alice = await person("alice");
     const mallory = await person("mallory");
 
-    const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false });
+    const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false }, alice.cookie);
     const made = await withCookie("POST", "/marketplace/stays/book", {
       prebookId: hold.json.hold.prebookId,
       holder: { firstName: "Alice", lastName: "T", email: "alice@paltas.io" },
@@ -715,7 +718,7 @@ test("a cancellation writes back what it actually cost", { skip }, async () => {
   supply.register(bookingSupplier());
   try {
     const alice = await person("alice");
-    const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false });
+    const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false }, alice.cookie);
     const made = await withCookie("POST", "/marketplace/stays/book", {
       prebookId: hold.json.hold.prebookId,
       holder: { firstName: "Alice", lastName: "T", email: "alice@paltas.io" },
@@ -744,7 +747,7 @@ test("the bookings list needs no supplier at all", { skip }, async () => {
    */
   supply.register(bookingSupplier());
   const alice = await person("alice");
-  const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false });
+  const hold = await withCookie("POST", "/marketplace/stays/hold", { offerId: "O", pay: false }, alice.cookie);
   await withCookie("POST", "/marketplace/stays/book", {
     prebookId: hold.json.hold.prebookId,
     holder: { firstName: "Alice", lastName: "T", email: "alice@paltas.io" },
@@ -756,4 +759,199 @@ test("the bookings list needs no supplier at all", { skip }, async () => {
   assert.equal(list.status, 200, "the list broke when the supplier went away");
   assert.equal(list.json.count, 1);
   assert.equal(list.json.stays[0].hotelName, "Test Hotel");
+});
+
+/* ====================================================================== *
+ * THE PREBOOK PAIR, AND NOT BOOKING TWICE.
+ *
+ * LiteAPI: "Save transactionId and prebookId together, immediately. Each
+ * prebook call generates a new pair, and they cannot be retrieved later."
+ *
+ * Everything below is a consequence of that sentence. Lose the pair after a
+ * customer has paid and there is a charge with no reservation and no way to
+ * find one; reuse it carelessly and there are two reservations for one payment.
+ * ====================================================================== */
+
+/** A supplier with the full payment lifecycle, deterministic per instance. */
+function payingSupplier() {
+  const run = Date.now().toString(36) + Math.round(Math.random() * 1e6).toString(36);
+  let n = 0;
+  const booked = new Map();
+  return {
+    name: "liteapi", sandbox: true,
+    describe() { return { name: "liteapi", label: "LiteAPI", connected: true, sandbox: true, capabilities: [], why: "" }; },
+    async search() { return { offers: [] }; },
+    async rooms() { return { hotelId: "h1", nights: 2, offers: [{ offerId: "OFF-1", roomName: "King", price: 25000, currency: "USD", refundable: true, cancellation: [] }] }; },
+    async prebook({ offerId, usePaymentSdk }) {
+      const id = `PB-${run}-${++n}`;
+      return {
+        prebookId: id, offerId, hotelId: "h1",
+        checkIn: "2027-03-10", checkOut: "2027-03-12",
+        price: 25000, currency: "USD", priceDifferencePercent: 0, sandbox: true,
+        ...(usePaymentSdk ? { payment: {
+          clientSecret: `pi_${run}_secret_${n}`, transactionId: `tr_${run}_${n}`,
+          publishableKey: "pk_test_FIXTURE", stripeJsUrl: "https://js.stripe.com/v3/",
+          environment: "sandbox" } } : {}),
+      };
+    },
+    async book({ prebookId, holder, transactionId }) {
+      const id = `BK-${run}-${prebookId}`;
+      const b = { bookingId: id, status: "CONFIRMED", hotelName: "Test Hotel", hotelId: "h1",
+        checkIn: "2027-03-10", checkOut: "2027-03-12", price: 25000, currency: "USD",
+        refundable: true, cancellation: [], source: "liteapi", sandbox: true,
+        clientReference: "ref-" + id, hotelConfirmationCode: "HC-" + id,
+        supplierBookingId: "", createdAt: new Date().toISOString(), holder, transactionId };
+      booked.set(id, b);
+      return b;
+    },
+    async booking({ bookingId }) { const b = booked.get(bookingId); if (!b) throw new Error("404"); return b; },
+    async cancel({ bookingId }) { return { bookingId, status: "CANCELLED", charged: false, cancellationFee: 0, refund: 25000, currency: "USD", sandbox: true }; },
+  };
+}
+
+test("holding a rate requires an account, and records the pair at once", { skip }, async () => {
+  supply.register(payingSupplier());
+  try {
+    /* Anonymous: there would be nobody to record it against. */
+    const anon = await withCookie("POST", "/marketplace/stays/hold", { offerId: "OFF-1", pay: true });
+    assert.equal(anon.status, 401, "a rate was held with no account to record it against");
+
+    const alice = await person("alice");
+    const held = await withCookie("POST", "/marketplace/stays/hold",
+      { offerId: "OFF-1", pay: true }, alice.cookie);
+    assert.equal(held.status, 200, held.text.slice(0, 200));
+
+    const pb = held.json.hold.prebookId;
+    const tx = held.json.hold.payment.transactionId;
+    assert.ok(pb && tx, "the prebook pair did not come back");
+    assert.ok(held.json.paltasBookingId, "no PALTAS booking id was returned");
+
+    /* Durable BEFORE the browser is told anything — it may never come back. */
+    const row = await db.supplierBooking.findFirst({ where: { prebookId: pb } });
+    assert.ok(row, "the prebook was not persisted");
+    assert.equal(row.transactionId, tx, "the transactionId was not stored with its prebook");
+    assert.equal(row.userId, alice.user.id);
+    assert.equal(row.status, "HELD");
+    assert.equal(row.paymentStatus, "PENDING");
+    assert.equal(row.bookingId, null, "a bookingId exists before anything was booked");
+
+    /*
+     * And the Stripe client secret is NOT among it. It settles one payment, it
+     * belongs in the payment UI, and a copy at rest is a copy that can leak.
+     */
+    const stored = JSON.stringify(row, (k, v) => (typeof v === "bigint" ? String(v) : v));
+    assert.ok(!stored.includes("_secret_"), "the Stripe client secret was persisted");
+  } finally { supply.clear(); }
+});
+
+test("booking uses the transactionId from ITS OWN prebook, never the caller's", { skip }, async () => {
+  /*
+   * A transactionId from a different prebook would settle the wrong payment
+   * against this reservation. The client is not trusted with it at all — the
+   * value comes from the row PALTAS wrote when the rate was held.
+   */
+  supply.register(payingSupplier());
+  try {
+    const alice = await person("alice");
+    const a = await withCookie("POST", "/marketplace/stays/hold", { offerId: "OFF-1", pay: true }, alice.cookie);
+    const b = await withCookie("POST", "/marketplace/stays/hold", { offerId: "OFF-1", pay: true }, alice.cookie);
+    const mine = a.json.hold.prebookId;
+    const other = b.json.hold.payment.transactionId;
+
+    const made = await withCookie("POST", "/marketplace/stays/book", {
+      prebookId: mine,
+      /* Deliberately somebody else's transaction. It must be ignored. */
+      transactionId: other,
+      holder: { firstName: "Alice", lastName: "T", email: "a@paltas.io" },
+    }, alice.cookie);
+    assert.equal(made.status, 201, made.text.slice(0, 200));
+
+    const row = await db.supplierBooking.findFirst({ where: { prebookId: mine } });
+    assert.equal(row.transactionId, a.json.hold.payment.transactionId,
+      "the booking settled against a transactionId the client supplied");
+    assert.notEqual(row.transactionId, other);
+  } finally { supply.clear(); }
+});
+
+test("a retried booking replays the first, it does not reserve a second room", { skip }, async () => {
+  supply.register(payingSupplier());
+  try {
+    const alice = await person("alice");
+    const held = await withCookie("POST", "/marketplace/stays/hold", { offerId: "OFF-1", pay: true }, alice.cookie);
+    const pb = held.json.hold.prebookId;
+    const body = { prebookId: pb, holder: { firstName: "Alice", lastName: "T", email: "a@paltas.io" } };
+
+    const first = await withCookie("POST", "/marketplace/stays/book", body, alice.cookie);
+    assert.equal(first.status, 201);
+
+    /* A double-click, a flaky connection, a client that missed the response. */
+    const again = await withCookie("POST", "/marketplace/stays/book", body, alice.cookie);
+    assert.equal(again.status, 200, "a retry created a new booking instead of replaying");
+    assert.equal(again.json.idempotent, true);
+    assert.equal(again.json.booking.bookingId, first.json.booking.bookingId,
+      "the retry returned a DIFFERENT booking — the guest now holds two rooms");
+    assert.match(again.json.notice, /not been charged again/);
+
+    const rows = await db.supplierBooking.count({ where: { prebookId: pb } });
+    assert.equal(rows, 1, `${rows} rows for one prebook`);
+  } finally { supply.clear(); }
+});
+
+test("somebody else's held rate cannot be booked", { skip }, async () => {
+  supply.register(payingSupplier());
+  try {
+    const alice = await person("alice");
+    const mallory = await person("mallory");
+    const held = await withCookie("POST", "/marketplace/stays/hold", { offerId: "OFF-1", pay: true }, alice.cookie);
+
+    const stolen = await withCookie("POST", "/marketplace/stays/book", {
+      prebookId: held.json.hold.prebookId,
+      holder: { firstName: "M", lastName: "X", email: "m@paltas.io" },
+    }, mallory.cookie);
+    assert.equal(stolen.status, 404, "a stranger booked a rate somebody else was holding");
+
+    const row = await db.supplierBooking.findFirst({ where: { prebookId: held.json.hold.prebookId } });
+    assert.equal(row.bookingId, null, "the hold was consumed by somebody who did not own it");
+  } finally { supply.clear(); }
+});
+
+test("an unknown prebook is refused rather than invented", { skip }, async () => {
+  supply.register(payingSupplier());
+  try {
+    const alice = await person("alice");
+    const r = await withCookie("POST", "/marketplace/stays/book", {
+      prebookId: "PB-does-not-exist",
+      holder: { firstName: "A", lastName: "B", email: "a@paltas.io" },
+    }, alice.cookie);
+    assert.equal(r.status, 404);
+    assert.match(r.text, /not one PALTAS is holding/);
+  } finally { supply.clear(); }
+});
+
+test("a supplier's own refusal reaches the caller, not a generic 500", { skip }, async () => {
+  /*
+   * Verified against the live sandbox, which answers an unpaid book with
+   * `{"code":2014,"description":"payment not completed"}`. Before the error
+   * handler learned to honour `expose`, that became "Something went wrong at
+   * our end" — telling a guest whose card had not gone through that PALTAS was
+   * broken, which is both wrong and unactionable.
+   */
+  const s = payingSupplier();
+  s.book = async () => {
+    const { SupplyUnavailable } = await import("../src/domain/supply.js");
+    throw new SupplyUnavailable("LiteAPI returned 400: payment not completed");
+  };
+  supply.register(s);
+  try {
+    const alice = await person("alice");
+    const held = await withCookie("POST", "/marketplace/stays/hold", { offerId: "OFF-1", pay: true }, alice.cookie);
+    const r = await withCookie("POST", "/marketplace/stays/book", {
+      prebookId: held.json.hold.prebookId,
+      holder: { firstName: "A", lastName: "B", email: "a@paltas.io" },
+    }, alice.cookie);
+
+    assert.equal(r.status, 503, "a supplier refusal was reported as a fault in PALTAS");
+    assert.match(r.json.message, /payment not completed/);
+    assert.ok(!/Something went wrong at our end/.test(r.text));
+  } finally { supply.clear(); }
 });

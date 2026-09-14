@@ -144,6 +144,16 @@ stayRoutes.get("/marketplace/hotels/:hotelId/rooms",
  * ---------------------------------------------------------------- */
 stayRoutes.post("/marketplace/stays/hold",
   rateLimit({ windowMs: 60_000, max: 60 }),
+  /*
+   * SIGNED IN, and this is a change from when holding was anonymous.
+   *
+   * LiteAPI says the prebook pair "cannot be retrieved later", so it has to be
+   * persisted the moment it exists — and a row with no owner is a row nobody
+   * can be shown afterwards. A guest who paid and then closed the tab needs
+   * PALTAS to be able to find their booking, which means knowing whose it is
+   * before the money moves rather than after.
+   */
+  requireSession(),
   async (req, res, next) => {
     try {
       const s = live();
@@ -169,9 +179,61 @@ stayRoutes.post("/marketplace/stays/hold",
         : !s.sandbox;
 
       const held = await s.prebook({ offerId, usePaymentSdk: pay });
+
+      /*
+       * PERSISTED IMMEDIATELY, before the client is told anything.
+       *
+       * This row is the PALTAS booking. It exists from the moment a rate is
+       * held, carries the prebook pair, and is the only thing that can connect
+       * a Stripe payment back to a reservation if the browser never returns.
+       *
+       * The Stripe CLIENT SECRET is deliberately NOT stored. It is a
+       * credential for one payment, it goes to the payment UI and nowhere
+       * else, and a copy at rest is a copy that can leak.
+       */
+      const supplierName = supplyStatus().name || "";
+      let record = null;
+      try {
+        record = await db.supplierBooking.upsert({
+          /* Keyed on the prebook, so a repeated hold of the same offer updates
+             rather than multiplying rows. */
+          where: { supplier_prebookId: { supplier: supplierName, prebookId: held.prebookId } },
+          create: {
+            userId: req.session.userId,
+            supplier: supplierName,
+            prebookId: held.prebookId,
+            transactionId: held.payment ? (held.payment.transactionId || "") : "",
+            paymentStatus: held.payment ? "PENDING" : "NOT_REQUIRED",
+            hotelId: held.hotelId || "",
+            checkIn: held.checkIn ? new Date(held.checkIn) : null,
+            checkOut: held.checkOut ? new Date(held.checkOut) : null,
+            price: BigInt(held.price == null ? 0 : held.price),
+            currency: held.currency || "USD",
+            status: "HELD",
+            sandbox: Boolean(held.sandbox),
+          },
+          update: {
+            transactionId: held.payment ? (held.payment.transactionId || "") : "",
+            price: BigInt(held.price == null ? 0 : held.price),
+            currency: held.currency || "USD",
+          },
+        });
+      } catch (e) {
+        /*
+         * A hold that cannot be recorded must NOT proceed to payment. Taking
+         * money against a reservation PALTAS has no record of is the failure
+         * this whole row exists to prevent.
+         */
+        console.error("prebook not recorded:", e && e.message);
+        throw unavailable(
+          "The booking could not be prepared. Nothing has been charged and no " +
+          "rate is held against your name.");
+      }
       res.set("Cache-Control", "no-store");
       res.json({
         hold: held,
+        /* The PALTAS booking this payment belongs to. */
+        paltasBookingId: record.id,
         /* Said out loud rather than left for a client to infer from a number. */
         priceChanged: held.priceDifferencePercent !== 0,
         /* Whether the guest now has to pay before this can be booked. */
@@ -199,7 +261,48 @@ stayRoutes.post("/marketplace/stays/book",
       const b = req.body || {};
       const prebookId = String(b.prebookId || "").trim();
       if (!prebookId) throw badRequest("prebookId is required — hold the rate first.");
-      const transactionId = String(b.transactionId || "").trim();
+      const supplierName = supplyStatus().name || "";
+
+      /*
+       * THE HELD RATE, AND WHOSE IT IS.
+       *
+       * Looked up before anything else. It carries the transactionId from the
+       * SAME prebook — which is what LiteAPI requires and what a client must
+       * never be trusted to supply, because a transactionId from a different
+       * prebook would settle the wrong payment against this reservation.
+       */
+      const held = await db.supplierBooking.findUnique({
+        where: { supplier_prebookId: { supplier: supplierName, prebookId } },
+      });
+      if (!held) {
+        throw notFound(
+          "That held rate is not one PALTAS is holding. Nothing has been charged.");
+      }
+      if (held.userId !== req.session.userId) {
+        /* Somebody else's hold. 404 rather than 403 — see ownedBy. */
+        throw notFound("That held rate is not one PALTAS is holding.");
+      }
+
+      /*
+       * IDEMPOTENT. A retried book — a double-click, a flaky connection, a
+       * client that did not see the first response — returns the booking that
+       * already exists instead of reserving a second room the guest paid for
+       * once and would be charged for twice.
+       */
+      if (held.bookingId) {
+        res.set("Cache-Control", "no-store");
+        return res.status(200).json({
+          booking: fromRecord(held),
+          recorded: true,
+          idempotent: true,
+          sandbox: held.sandbox,
+          notice: "This rate was already booked. You have not been charged again.",
+          supplier: supplyStatus(),
+        });
+      }
+
+      /* From OUR record, never from the request. */
+      const transactionId = String(held.transactionId || "").trim();
 
       /*
        * A PAID booking may proceed on a live key; an unpaid one may not.
@@ -240,34 +343,36 @@ stayRoutes.post("/marketplace/stays/book",
        * missing row is recoverable from the supplier; a guest who was told
        * their paid booking failed is not.
        */
+      /*
+       * The outcome lands on the row that has existed since the rate was held,
+       * so there is exactly one record of this reservation from first hold to
+       * final status.
+       */
       let recorded = true;
       try {
-        await db.supplierBooking.create({
+        await db.supplierBooking.update({
+          where: { id: held.id },
           data: {
-            userId: req.session.userId,
-            supplier: booking.source || supplyStatus().name || "",
             bookingId: booking.bookingId,
             clientReference: booking.clientReference || "",
             supplierBookingId: booking.supplierBookingId || "",
             hotelConfirmationCode: booking.hotelConfirmationCode || "",
-            hotelId: booking.hotelId || "",
             hotelName: booking.hotelName || "",
-            checkIn: booking.checkIn ? new Date(booking.checkIn) : null,
-            checkOut: booking.checkOut ? new Date(booking.checkOut) : null,
-            price: BigInt(booking.price == null ? 0 : booking.price),
-            currency: booking.currency || "USD",
+            checkIn: booking.checkIn ? new Date(booking.checkIn) : held.checkIn,
+            checkOut: booking.checkOut ? new Date(booking.checkOut) : held.checkOut,
+            price: BigInt(booking.price == null ? Number(held.price) : booking.price),
+            currency: booking.currency || held.currency,
             status: booking.status || "CONFIRMED",
             refundable: booking.refundable,
-            sandbox: Boolean(booking.sandbox),
+            /* Paid AND confirmed. Until the supplier said yes it was only paid. */
+            paymentStatus: transactionId ? "CONFIRMED" : "NOT_REQUIRED",
             holderName: [holder.firstName, holder.lastName].filter(Boolean).join(" "),
             holderEmail: String(holder.email || ""),
           },
         });
       } catch (e) {
         recorded = false;
-        req.log && req.log.error
-          ? req.log.error("supplier booking not recorded", e && e.message)
-          : console.error("supplier booking not recorded:", e && e.message);
+        console.error("supplier booking not recorded:", e && e.message);
       }
 
       res.set("Cache-Control", "no-store");
@@ -439,3 +544,31 @@ stayRoutes.get("/marketplace/stays",
       });
     } catch (e) { next(e); }
   });
+
+/**
+ * A stored row as the booking shape a client already understands.
+ *
+ * Used for the idempotent replay: a second book against the same held rate must
+ * answer with the SAME booking, not a fresh call to the supplier. Asking LiteAPI
+ * again would be a second reservation attempt for a rate already taken.
+ */
+function fromRecord(r) {
+  return {
+    bookingId: r.bookingId,
+    clientReference: r.clientReference || null,
+    status: r.status,
+    hotelConfirmationCode: r.hotelConfirmationCode || null,
+    hotelId: r.hotelId || null,
+    hotelName: r.hotelName || null,
+    checkIn: r.checkIn,
+    checkOut: r.checkOut,
+    price: r.price,
+    currency: r.currency,
+    refundable: r.refundable,
+    cancellation: [],
+    createdAt: r.createdAt,
+    supplierBookingId: r.supplierBookingId || null,
+    source: r.supplier,
+    sandbox: r.sandbox,
+  };
+}
