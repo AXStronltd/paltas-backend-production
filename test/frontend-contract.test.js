@@ -2224,6 +2224,19 @@ test("a rival's price is never dressed up as a PALTAS booking", { skip }, () => 
    * than paraphrased — and the count of offers dropped for being in another
    * currency is printed with it, or a partial comparison looks whole.
    */
+  /*
+   * A CAP, AND IT SAYS SO.
+   *
+   * A live comparison returned THIRTY-TWO sellers, most within a pound of each
+   * other. Printing all of them buries the room somebody is choosing. But a
+   * silent cap misrepresents how well covered the hotel is — "listed on five
+   * sites" when it is thirty-two is a lie by omission. The summary counts all
+   * of them, the list shows the cheapest few, the remainder is stated.
+   */
+  assert.ok(/var SHOWN = 5;/.test(fn), "every seller is printed, however many there are");
+  assert.ok(/list\.length/.test(fn), "the summary does not count the sellers that were found");
+  assert.ok(/more seller/.test(fn), "the sellers not shown are dropped silently");
+
   assert.ok(/c\.basis/.test(fn), "the comparison prints no caveat about what is being compared");
   assert.ok(/c\.dropped/.test(fn), "offers dropped for currency are not disclosed");
   assert.ok(/another currency and left out rather than converted/.test(fn),
