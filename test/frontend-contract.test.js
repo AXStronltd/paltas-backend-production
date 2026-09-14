@@ -2583,3 +2583,47 @@ test("the payment step offers a wallet before a keyboard", { skip }, () => {
   assert.match(js, /root\.Stripe\(p\.publishableKey\)/, "the publishable key is no longer the supplier's");
   assert.ok(!/pk_live_|pk_test_/.test(js), "a publishable key is hard-coded in the page");
 });
+
+test("the promotional band is a row, not half the screen", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  /*
+   * It was up to 520px tall on both desktop and phone — most of a screen spent
+   * on a promotion sitting ABOVE the inventory somebody came for. Full width is
+   * kept, because one wide band reads better than three cramped cards and the
+   * photograph still has room to be one. The height is the part that had to go.
+   */
+  const card = (html.match(/^\.pdisc-card\{[\s\S]*?\}/m) || [""])[0];
+  const max = (card.match(/min-height:clamp\([^,]+,[^,]+,\s*(\d+)px\)/) || [])[1];
+  assert.ok(max, "the band has no bounded height");
+  assert.ok(Number(max) <= 280,
+    `the promotional band is still up to ${max}px tall — it is a row, not a panel`);
+
+  /* Still one full-width slide, and still snapping where the driver scrolls. */
+  assert.match(card, /flex:0 0 100%/, "the band stopped being a full row");
+  assert.match(card, /scroll-snap-align:start/, "the snap no longer matches the driver's arithmetic");
+
+  /*
+   * EVERY height rule, at every breakpoint — not one I guessed at.
+   *
+   * The first version of this looked inside `@media (max-width:620px)`, which
+   * is not a breakpoint this stylesheet has; it found nothing and asserted on
+   * `undefined`. Collecting them all cannot be fooled by a breakpoint nobody
+   * anticipated, and a phone is where the height mattered most: a promotion
+   * that fills the screen is one somebody scrolls past to reach the stays.
+   */
+  const heights = [...html.matchAll(/\.pdisc-card\{[^}]*?min-height:clamp\([^,]+,[^,]+,\s*(\d+)px\)/g)]
+    .map((m) => Number(m[1]));
+  assert.ok(heights.length >= 2, "the band has only one height rule; the phone case is missing");
+  const tallest = Math.max(...heights);
+  assert.ok(tallest <= 280,
+    `a breakpoint still lets the band reach ${tallest}px — heights found: ${heights.join(", ")}`);
+
+  /*
+   * And the text cannot push it back out. A two-line clamp means a long
+   * description is cut rather than the band growing to fit it — otherwise the
+   * height above is a suggestion that the longest promotion overrules.
+   */
+  assert.match(html, /-webkit-line-clamp:2/,
+    "a long description can grow the band past the height it was given");
+});
