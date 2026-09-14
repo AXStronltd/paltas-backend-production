@@ -230,3 +230,25 @@ test("the diagnosis tells an empty value and a misspelt name apart", async () =>
     "the rejected key was quoted back");
   clearCompare();
 });
+
+test("health says which build is answering, and since when", async () => {
+  /*
+   * "Is my change live yet?" was being answered by guessing from behaviour,
+   * which fails precisely when it matters: the interesting case is usually one
+   * where the old build and the new one say the SAME thing. That cost several
+   * rounds over one environment variable.
+   *
+   * A commit SHA identifies a build. It is not a credential and grants nothing.
+   */
+  const src = (await import("node:fs")).readFileSync(
+    new URL("../src/server.js", import.meta.url), "utf8");
+  const h = src.slice(src.indexOf('app.get("/health"'), src.indexOf('app.get("/", (_req'));
+
+  assert.match(h, /RENDER_GIT_COMMIT/, "health does not say which build is answering");
+  assert.match(h, /startedAt: STARTED_AT/, "health does not say when the process started");
+  assert.match(h, /\.slice\(0, 7\)/, "the full SHA is published where a short one identifies the build");
+
+  /* Fixed at import — the process's age, not the request's clock. */
+  assert.match(src, /const STARTED_AT = new Date\(\)\.toISOString\(\);/,
+    "startedAt is computed per request, so it can never show a restart");
+});

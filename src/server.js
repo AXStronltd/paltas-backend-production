@@ -41,6 +41,9 @@ const log = {
   error: (...a) => console.error(new Date().toISOString(), ...a),
 };
 
+/* Fixed at import, so it is the process's age and not the request's clock. */
+const STARTED_AT = new Date().toISOString();
+
 export function createApp() {
   const app = express();
 
@@ -107,7 +110,26 @@ export function createApp() {
   app.get("/health", async (_req, res) => {
     try {
       await db.$queryRaw`SELECT 1`;
-      res.json({ ok: true, service: "paltas-api", env: config.env });
+      res.json({
+        ok: true, service: "paltas-api", env: config.env,
+        /*
+         * WHICH BUILD IS ANSWERING, AND SINCE WHEN.
+         *
+         * Without these, "is my change live yet?" is answered by guessing from
+         * behaviour — and that fails exactly when it matters, because the
+         * interesting case is usually one where the old build and the new one
+         * say the same thing. It cost several rounds of confusion over an
+         * environment variable before this existed.
+         *
+         * `startedAt` also answers "did it restart when I saved that variable",
+         * which is the other half of the same question.
+         *
+         * A commit SHA identifies a build; it is not a credential and grants
+         * nothing. Render sets RENDER_GIT_COMMIT on every deploy.
+         */
+        commit: String(process.env.RENDER_GIT_COMMIT || "").slice(0, 7) || null,
+        startedAt: STARTED_AT,
+      });
     } catch (e) {
       res.status(503).json({ ok: false, error: "database_unreachable" });
     }
