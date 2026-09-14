@@ -1466,3 +1466,95 @@ test("a confirmed booking leads somewhere, and that place is real", { skip }, ()
   assert.ok(/body\.charged/.test(js),
     "the cancellation outcome does not distinguish charged from refunded");
 });
+
+test("a star classification is never invented", { skip }, async () => {
+  /*
+   * Stars are an official classification awarded to a building. A guest score is
+   * an average of opinions. A hotel can be 3-star and score 9.4; a 5-star can
+   * score 7.1. Showing one as the other misrepresents both — and inventing
+   * stars for a hotel that has none is the same fabrication as an invented
+   * price.
+   *
+   * In a live Nairobi search, 47 of 48 hotels carried a classification. The
+   * 48th must show nothing.
+   */
+  const withStars = { ...SUPPLY[0], stars: 4, rating: 9, ratingCount: 279 };
+  const noStars = { ...SUPPLY[0], id: "x:2", supplierRef: "2", title: "Unclassified Inn",
+                    stars: null, rating: 8.1, ratingCount: 44 };
+  const noScore = { ...SUPPLY[0], id: "x:3", supplierRef: "3", title: "No Reviews Yet",
+                    stars: 3, rating: null, ratingCount: null };
+
+  const html = await rendered(marketplaceWithSupply([], [withStars, noStars, noScore]));
+  const cardFor = (title) =>
+    (html.match(new RegExp('<article class="mk-card mk-supply">(?:(?!</article>)[\\s\\S])*?' +
+      title + '[\\s\\S]*?</article>')) || [""])[0];
+
+  const classified = cardFor("Nyali Beach Hotel");
+  assert.ok(/mk-stars/.test(classified), "a classified hotel shows no stars");
+  assert.ok(/aria-label="4-star hotel"/.test(classified),
+    "the stars do not announce themselves as a classification");
+  /* Four filled of five — not four glyphs, which would read as a 4-star scale. */
+  /* Four filled of five — not four glyphs, which would read as a 4-star scale. */
+  assert.equal((classified.match(/mk-pip on/g) || []).length, 4);
+  assert.equal((classified.match(/class="mk-pip/g) || []).length, 5);
+
+  const unclassified = cardFor("Unclassified Inn");
+  assert.ok(unclassified, "the unclassified hotel was not drawn at all");
+  assert.ok(!/mk-stars/.test(unclassified),
+    "stars were invented for a hotel the supplier gave no classification for");
+  /* It still has a guest score, and that must still show. */
+  assert.ok(/mk-score/.test(unclassified), "its guest score was dropped along with the stars");
+
+  const unreviewed = cardFor("No Reviews Yet");
+  assert.ok(/mk-stars/.test(unreviewed), "a hotel with stars but no reviews lost its stars");
+  assert.ok(!/mk-score/.test(unreviewed),
+    "a guest score was shown for a hotel nobody has reviewed");
+});
+
+test("classification and guest score are rendered as different things", { skip }, async () => {
+  const o = { ...SUPPLY[0], stars: 3, rating: 9.4, ratingCount: 1401 };
+  const html = await rendered(marketplaceWithSupply([], [o]));
+  const card = (html.match(/<article class="mk-card mk-supply">[\s\S]*?<\/article>/) || [""])[0];
+
+  /* A 3-star scoring 9.4 is the case that proves they are not the same value. */
+  assert.ok(/aria-label="3-star hotel"/.test(card));
+  assert.ok(/9\.4/.test(card) && /1401/.test(card), "the guest score or its count is missing");
+  assert.ok(!/aria-label="9-star|9\.4-star/.test(card),
+    "the guest score is being rendered as a star classification");
+  assert.ok(card.indexOf("mk-stars") < card.indexOf("mk-score"),
+    "the score appears above the classification, which invites reading one as the other");
+});
+
+test("every primary CTA on the public site uses the one brand token", { skip }, () => {
+  /*
+   * The report was about a bright cyan button. Two primary CTAs used
+   * `var(--grad)` — a #00c4ac → #2ea6ff gradient — and two CTA links used
+   * --teal-ink (#008a79), which measures 4.28:1 on white and fails AA.
+   *
+   * Status colours are deliberately NOT swept in: success, warning and error
+   * must stay semantic, and a green that means "paid" is not a brand decision.
+   */
+  const css = readFileSync(join(FE, "index.html"), "utf8");
+
+  assert.ok(/--mk-accent:#0F766E/.test(css), "the brand CTA token is not #0F766E");
+  assert.ok(/--mk-deep:#115E59/.test(css), "no hover token");
+  assert.ok(/--mk-pressed:#134E4A/.test(css), "no pressed token");
+  assert.ok(/--mk-brand-soft:#CCFBF1/.test(css), "no light brand surface");
+
+  for (const cta of ["hs-search", "promo-btn"]) {
+    const rule = (css.match(new RegExp("^\\." + cta + "\\{[^}]*", "m")) || [""])[0];
+    assert.ok(!/var\(--grad\)/.test(rule),
+      `.${cta} still uses the cyan gradient instead of the brand token`);
+    assert.ok(/var\(--mk-accent\)/.test(rule), `.${cta} does not use the brand token`);
+  }
+  for (const link of ["rb-switch", "view-all-link"]) {
+    const rule = (css.match(new RegExp("^\\." + link + "\\{[^}]*", "m")) || [""])[0];
+    assert.ok(!/--teal-ink/.test(rule),
+      `.${link} uses --teal-ink, which is 4.28:1 on white and fails AA`);
+  }
+
+  /* And the dashboard demos keep their own palette — a separate surface, and
+     not what this report was about. */
+  assert.ok(/\.portal-app :root/.test(css),
+    "the embedded demos no longer scope their own tokens");
+});
