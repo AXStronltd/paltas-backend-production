@@ -91,6 +91,17 @@ services:
         sync: false            # prod_… or sand_… — the prefix decides sandbox mode
       - key: LITEAPI_CURRENCY
         sync: false            # optional; default USD
+
+      # StayingAPI reads listings and prices from Airbnb, Booking.com, Vrbo and
+      # the rest. It has NO booking endpoint, so it is deliberately NOT
+      # registered as the marketplace's supplier — see src/suppliers/stayingapi.js.
+      # The prefix decides the environment and nothing overrides it: stay_test_
+      # is the deterministic sandbox and free, stay_live_ spends credits PER
+      # RESULT, so nothing calls it on page load.
+      - key: STAYINGAPI_KEY
+        sync: false            # stay_test_… or stay_live_… — the prefix decides
+      - key: STAYINGAPI_CURRENCY
+        sync: false            # optional; default USD
       - key: LITEAPI_NATIONALITY
         sync: false            # optional ISO-2 guest nationality; default US
 
