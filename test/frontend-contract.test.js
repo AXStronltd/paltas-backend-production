@@ -705,12 +705,32 @@ test("the homepage draws nine marketplace sections, by their own names", { skip 
     "Buy, sell and discover property", "New developments",
     "One platform. Every property journey.",
   ];
-  const missing = TITLES.filter((t) => !html.includes(t));
-  assert.deepEqual(missing, [], "these marketplace sections are not on the homepage: " +
-    missing.join(" | "));
+  /*
+   * All nine are still DEFINED — renaming or deleting one is a content change
+   * and has to be seen. Read from the module rather than the render, because a
+   * section now removes itself when it is empty and "not on the page" and "no
+   * longer exists" are different failures.
+   */
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  const undefined_ = TITLES.filter((t) => !mod.includes(t));
+  assert.deepEqual(undefined_, [], "these marketplace sections no longer exist: " +
+    undefined_.join(" | "));
 
-  assert.equal((html.match(/class="mk-sec"/g) || []).length, 9,
-    "the homepage should draw exactly nine marketplace sections");
+  /*
+   * And eight of the nine DRAW, because SAMPLE has something for each of them.
+   * The ninth is New developments: nothing in the fixture is a development,
+   * nothing in PALTAS ever publishes one, and a section with nothing in it is
+   * no longer given a heading and a dead row. Its absence here IS the rule
+   * working, so it is asserted rather than tolerated.
+   */
+  const drawn = TITLES.filter((t) => html.includes(t));
+  assert.ok(!drawn.includes("New developments"),
+    "New developments drew a heading with nothing underneath it");
+  assert.deepEqual(TITLES.filter((t) => t !== "New developments" && !html.includes(t)), [],
+    "a section with inventory in the fixture did not draw");
+
+  assert.equal((html.match(/class="mk-sec"/g) || []).length, 8,
+    "eight sections have something to show in this fixture");
 });
 
 test("every card on the homepage comes from the API and nothing else", { skip }, async () => {
@@ -755,25 +775,66 @@ test("the homepage invents no rating, no photograph and no review", { skip }, as
   assert.deepEqual(fabrications, [], fabrications.join("; "));
 });
 
-test("with nothing published, every section says why rather than shrugging", { skip }, async () => {
+test("with nothing published, the page says so once instead of nine times", { skip }, async () => {
   const html = await rendered(marketplaceHome([]));
 
-  const empties = (html.match(/class="mk-empty"/g) || []).length;
-  assert.equal(empties, 8,
-    "eight of the nine sections show listings, so with none published all eight " +
-    "should show an empty state — found " + empties);
+  /*
+   * NINE BARE SHELVES WERE NINE APOLOGIES.
+   *
+   * Every section used to keep its heading and hang an empty state under it, so
+   * a marketplace with nothing in it rendered as "Arrive with ease / Nothing
+   * here yet", eight times over. That reads as a broken site rather than a new
+   * one, and it costs a visitor eight headings to learn a single fact.
+   *
+   * An empty section is now absent. Emptiness is answered ONCE, at page level,
+   * where it can be said properly and carry the one useful action.
+   */
+  assert.ok(!/class="mk-empty"[^]*?Arrive with ease|Arrive with ease[^]*?class="mk-empty"/.test(html),
+    "an empty section still draws its heading");
+  for (const gone of ["Arrive with ease", "Trending stays", "Hotels worth checking in to"]) {
+    assert.ok(!html.includes(gone), `"${gone}" has nothing in it but still has a heading`);
+  }
+
+  const page = (html.match(/class="mk-empty mk-empty-page"/g) || []).length;
+  assert.equal(page, 1,
+    "a marketplace with nothing in it must say so exactly once — found " + page);
+
+  /*
+   * And it must never be silent. A page that hides its empty sections and says
+   * nothing is indistinguishable from a page that failed to load, which is the
+   * one thing this rule could have made worse.
+   */
+  assert.ok(/Nothing is published here yet/.test(html),
+    "every section vanished and the page said nothing at all");
+  assert.ok(/partner\.html/.test(html),
+    "the page is empty and offers no way to put something in it");
 
   assert.ok(!/class="mk-card"/.test(html.replace(/class="mk-card mk-prod"/g, "")),
     "a property card was drawn while the API returned no listings at all");
+});
 
+test("a shelf comes back by itself the moment something is published", { skip }, async () => {
   /*
-   * And each reason must be its own. Eight copies of one sentence tells a
-   * visitor nothing about which part of PALTAS is empty and which is broken.
+   * THE OTHER HALF OF THE RULE, AND THE HALF WORTH GUARDING.
+   *
+   * Hiding an empty section is only safe if it returns on its own. Nothing here
+   * is behind a flag, a config value or a deploy — the section is absent
+   * BECAUSE it is empty and present BECAUSE it is not, so publishing one
+   * property is the entire mechanism. This proves it with the two renders that
+   * differ by exactly one listing.
    */
-  const reasons = out(html.match(/class="mk-empty"[\s\S]*?<p>([\s\S]*?)<\/p>/g) || [])
-    .map((b) => (b.match(/<p>([\s\S]*?)<\/p>/) || [])[1]);
-  assert.equal(new Set(reasons).size, reasons.length,
-    "two sections give the same empty-state reason:\n  " + reasons.join("\n  "));
+  const withTransfer = SAMPLE.filter((l) => l.transfer);
+  assert.ok(withTransfer.length, "the fixture has no transfer listing to prove this with");
+
+  const without = await rendered(marketplaceHome(SAMPLE.filter((l) => !l.transfer)));
+  assert.ok(!without.includes("Arrive with ease"),
+    "no property offers a transfer, yet the section is still on the page");
+
+  const with_ = await rendered(marketplaceHome(SAMPLE));
+  assert.ok(with_.includes("Arrive with ease"),
+    "a property with an airport transfer is published and the section did not come back");
+  assert.ok(/id="mk-with-transfer"[^]*?class="mk-rail"/.test(with_),
+    "the section returned as a heading with no rail under it");
 });
 
 test("a failed request empties the page instead of filling it", { skip }, async () => {
@@ -1741,9 +1802,13 @@ test("a card row can be scrolled, not just wrapped", { skip }, async () => {
 test("an empty or product row gets no arrows", { skip }, async () => {
   /* An arrow above something that cannot move is furniture. */
   const html = await rendered(marketplaceWithSupply([], []));
-  const buySell = (html.match(/id="mk-buy-sell"[\s\S]*?(?=<section class="mk-sec"|$)/) || [""])[0];
-  assert.ok(/mk-empty/.test(buySell), "the empty section is not showing its empty state");
-  assert.ok(!/mk-arrow/.test(buySell), "an empty section has scroll arrows");
+
+  /* An empty section is no longer an empty state with no arrows — it is not
+     there at all, which is the same promise kept more thoroughly. */
+  assert.ok(!/id="mk-buy-sell"/.test(html),
+    "nothing is for sale, yet the section still occupies the page");
+  assert.ok(!/mk-arrow/.test(html),
+    "arrows were drawn above a page with no rail on it");
 
   const discover = (html.match(/id="mk-discover"[\s\S]*$/) || [""])[0];
   assert.ok(!/mk-arrow/.test(discover), "the product cards have scroll arrows");
@@ -1883,4 +1948,55 @@ test("every stylesheet parses, and nothing collapses a card to nothing", { skip 
   const cardRule = (html.match(/\.mk-rail > \.mk-card\{[\s\S]*?\}/) || [""])[0];
   assert.ok(/min-width:\s*\d+px/.test(cardRule), "a card can be squeezed to nothing");
   assert.ok(/min-height:\s*\d+px/.test(cardRule), "a card can collapse to no height");
+});
+
+test("the hero gained pilgrimage photography and lost none of its own", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  /*
+   * ADDED TO, NOT SWAPPED.
+   *
+   * The embedded luxury villa is the first frame of every rotation: it is a
+   * data: URI, so it paints before any network request and the hero is never
+   * briefly empty. It must survive untouched, and so must all five global
+   * slides — "add pilgrimage imagery" is not licence to quietly re-shoot the
+   * homepage.
+   */
+  assert.ok(/const PALTAS_HERO = "data:image\/jpeg;base64,/.test(html),
+    "the embedded luxury hero is gone, so the hero is blank until a photo lands");
+  assert.ok(/const slideList = \[PALTAS_HERO\]\.concat\(/.test(html),
+    "the embedded hero is no longer the first frame");
+
+  for (const id of ["1507525428034", "1533105079780", "1512453979798",
+                    "1602002418082", "1520250497591"]) {
+    assert.ok(html.includes("photo-" + id), `an existing global hero slide was removed: ${id}`);
+  }
+
+  /*
+   * A PORTRAIT ORIGINAL NEEDS AN EXPLICIT HEIGHT.
+   *
+   * photo-1513072064285 is 1200x2133. Asked for `w=1920` alone, Unsplash
+   * returns it still portrait, and background-size:cover in a 560px hero then
+   * shows a vertical slice — sky, and none of the subject. `h=` makes the crop
+   * happen at Unsplash, around the subject, instead of at the viewport edge.
+   */
+  const haram = (html.match(/haram:\s*'([^']+)'/) || [])[1];
+  assert.ok(haram, "the Masjid al-Haram slide is not defined");
+  assert.ok(/[?&]w=\d+&h=\d+/.test(haram),
+    "the portrait original is requested without a height, so it is cropped to a slice of sky");
+
+  /* All three reach the same CDN the rest of the hero uses — a stray host would
+     be blocked outright by the page's connect policy. */
+  const pil = (html.match(/const PILGRIMAGE = \{[\s\S]*?\n\};/) || [""])[0];
+  const urls = out(pil.match(/'(https:\/\/[^']+)'/g) || []);
+  assert.equal(urls.length, 3, "expected three pilgrimage photographs, found " + urls.length);
+  assert.ok(urls.every((u) => u.includes("images.unsplash.com")),
+    "a pilgrimage slide points somewhere other than the CDN the hero already uses");
+
+  /*
+   * MENA HAD NO PHOTOGRAPHY OF ITS OWN and was mapped to the neutral set, so a
+   * visitor in Jeddah was shown Santorini. It now has its own.
+   */
+  assert.ok(/mena:'mena'/.test(html), "MENA is still borrowing the neutral region's pictures");
+  assert.ok(/\n  mena:\{/.test(html), "REGIONS has no mena entry to borrow from");
 });
