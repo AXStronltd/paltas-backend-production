@@ -2523,3 +2523,63 @@ test("the installed app opens on stays, not on a photograph", { skip }, () => {
   const block = (html.match(/@media \(display-mode: standalone\), [^{]*\{[\s\S]*?\n\}/) || [""])[0];
   assert.match(block, /\.hero\{ min-height:clamp\(/, "the hero is not trimmed for the app");
 });
+
+test("the wallets are permitted, and nothing else is", { skip }, () => {
+  const toml = readFileSync(join(FE, "netlify.toml"), "utf8");
+  const line = toml.split("\n").find((l) => l.trim().startsWith("Permissions-Policy"));
+  assert.ok(line, "there is no Permissions-Policy at all");
+
+  /* A TOML basic string with escaped inner quotes — decoded before asserting,
+     or the test is reading backslashes. */
+  const m = line.match(/=\s*"((?:[^"\\]|\\.)*)"\s*$/);
+  assert.ok(m, "the Permissions-Policy line is not a valid TOML basic string");
+  const policy = m[1].replace(/\\"/g, '"');
+
+  /*
+   * `payment=()` FORBADE BOTH WALLETS.
+   *
+   * Apple Pay and Google Pay are built on the Payment Request API, and an empty
+   * allowlist blocks it outright — the Payment Element would not offer either,
+   * with nothing in the console to say why. The header was written when this
+   * site took no payments and stopped being right the day it did.
+   */
+  assert.ok(!/payment=\(\)/.test(policy), "payment is forbidden, so no wallet can appear");
+  assert.match(policy, /payment=\(self/, "the site cannot use the Payment Request API itself");
+
+  /*
+   * `self` alone is not enough. Stripe's Payment Element runs in an iframe from
+   * js.stripe.com — a different origin — and a permission is only delegable to
+   * an origin the top-level policy names.
+   */
+  assert.ok(policy.includes('"https://js.stripe.com"'),
+    "payment is not delegated to Stripe's frame, so the wallets cannot render inside it");
+
+  /* Named, not `*`. Exactly one third party needs this; every other frame on
+     the page must stay unable to ask for a payment sheet. */
+  assert.ok(!/payment=\*/.test(policy), "payment is open to every origin");
+
+  /* And nothing else was loosened on the way past. */
+  for (const off of ["camera=()", "microphone=()", "geolocation=()"]) {
+    assert.ok(policy.includes(off), `${off} was dropped while enabling the wallets`);
+  }
+});
+
+test("the payment step offers a wallet before a keyboard", { skip }, () => {
+  const js = readFileSync(join(FE, "assets/paltas-checkout.js"), "utf8");
+
+  /*
+   * An ORDER, not a promise. The Payment Element decides for itself which
+   * wallets a device can actually use and shows only those, so on a desktop
+   * with neither the card form is simply first and nothing is missing.
+   * A wallet is one touch; a card is a keyboard.
+   */
+  assert.match(js, /paymentMethodOrder: \["apple_pay", "google_pay", "card"\]/,
+    "the card form is offered before the wallets");
+  assert.match(js, /wallets: \{ applePay: "auto", googlePay: "auto" \}/,
+    "the wallets are not stated, so switching one off is a discovery rather than an edit");
+
+  /* Still LiteAPI's key against LiteAPI's intent — enabling a wallet must not
+     have quietly moved the money. */
+  assert.match(js, /root\.Stripe\(p\.publishableKey\)/, "the publishable key is no longer the supplier's");
+  assert.ok(!/pk_live_|pk_test_/.test(js), "a publishable key is hard-coded in the page");
+});
