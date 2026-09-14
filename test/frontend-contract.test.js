@@ -1627,3 +1627,73 @@ test("switching country re-asks the supplier, every time", { skip }, async () =>
   assert.equal(asked().length, quiet,
     "a language or destination change re-asked the supplier for no reason");
 });
+
+test("a card row can be scrolled, not just wrapped", { skip }, async () => {
+  /*
+   * The rows were a wrapped CSS grid: four across, then a second row, with
+   * nothing to drag. A visitor could only reach the first handful of what a
+   * search returned, and on a phone got one column and a very long page.
+   */
+  const many = Array.from({ length: 14 }, (_, i) => ({
+    ...SUPPLY[0], id: "x:" + i, supplierRef: String(i), title: "Hotel " + i,
+  }));
+  const html = await rendered(marketplaceWithSupply([], many));
+
+  assert.ok(/class="mk-rail"/.test(html), "the rows are not scrollable rails");
+  assert.ok(/class="mk-arrow"/.test(html), "there is no way to move a rail with a pointer");
+  /* A rail must be reachable and announced, or it is a mouse-only feature. */
+  assert.ok(/tabindex="0"/.test(html), "the rail cannot be reached by keyboard");
+  assert.ok(/role="group" aria-label="[^"]*scrollable"/.test(html),
+    "the rail does not tell a screen reader it scrolls");
+
+  /* More than the eight a wrapped grid could justify — sideways space is cheap. */
+  const inFirst = (html.match(/id="mk-available-today"[\s\S]*?(?=<section class="mk-sec"|$)/) || [""])[0];
+  assert.ok((inFirst.match(/class="mk-card mk-supply"/g) || []).length > 8,
+    "a rail still shows only a wrapped grid's worth of cards");
+
+  const css = readFileSync(join(FE, "index.html"), "utf8");
+  assert.ok(/\.mk-rail\{[\s\S]*?overflow-x:auto/.test(css), "the rail does not scroll");
+  assert.ok(/scroll-snap-type:x/.test(css), "no snapping — a swipe lands between cards");
+  /*
+   * The peek. A row ending flush at the screen edge looks finished, and nobody
+   * swipes a row they believe has ended.
+   */
+  assert.ok(/--mk-peek:44px/.test(css), "no card peeks in on a phone, so the row looks complete");
+});
+
+test("an empty or product row gets no arrows", { skip }, async () => {
+  /* An arrow above something that cannot move is furniture. */
+  const html = await rendered(marketplaceWithSupply([], []));
+  const buySell = (html.match(/id="mk-buy-sell"[\s\S]*?(?=<section class="mk-sec"|$)/) || [""])[0];
+  assert.ok(/mk-empty/.test(buySell), "the empty section is not showing its empty state");
+  assert.ok(!/mk-arrow/.test(buySell), "an empty section has scroll arrows");
+
+  const discover = (html.match(/id="mk-discover"[\s\S]*$/) || [""])[0];
+  assert.ok(!/mk-arrow/.test(discover), "the product cards have scroll arrows");
+});
+
+test("the promotional carousel pauses, and comes back", { skip }, () => {
+  /*
+   * `stop()` set `paused` permanently. On a phone the first finger to land on
+   * the rail killed rotation for the rest of the visit — and a finger lands
+   * there merely scrolling past. Seven cards, none of them ever moving.
+   *
+   * A deliberate choice — an arrow, a dot — still stops it for good: they are
+   * driving, and moving a card out from under a reader is the worst thing a
+   * carousel does.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const fn = html.slice(html.indexOf("function stop(forever)"),
+                        html.indexOf("function startAuto()"));
+  assert.ok(fn, "stop() no longer distinguishes a pause from a permanent halt");
+  assert.ok(/setTimeout/.test(fn), "a paused carousel never resumes");
+  assert.ok(/forever === true/.test(fn), "a deliberate choice does not stop it for good");
+
+  for (const control of ["pdiscPrev", "pdiscNext"]) {
+    assert.ok(new RegExp(control + '[\\s\\S]{0,120}stop\\(true\\)').test(html),
+      `${control} only pauses, so the carousel moves again under somebody who just chose a card`);
+  }
+  /* Rotating a phone changes how many cards fit, and so how many dots there are. */
+  assert.ok(/addEventListener\("resize", function \(\) \{ drawDots\(\); paint\(\); \}/.test(html),
+    "the dot count is not recounted on resize");
+});
