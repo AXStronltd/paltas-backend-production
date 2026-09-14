@@ -2584,46 +2584,61 @@ test("the payment step offers a wallet before a keyboard", { skip }, () => {
   assert.ok(!/pk_live_|pk_test_/.test(js), "a publishable key is hard-coded in the page");
 });
 
-test("the promotional band is a row, not half the screen", { skip }, () => {
+test("the promotional shelf is a boxed grid, and none of it is tall", { skip }, () => {
   const html = readFileSync(join(FE, "index.html"), "utf8");
 
   /*
-   * It was up to 520px tall on both desktop and phone — most of a screen spent
-   * on a promotion sitting ABOVE the inventory somebody came for. Full width is
-   * kept, because one wide band reads better than three cramped cards and the
-   * photograph still has room to be one. The height is the part that had to go.
+   * THREE ACROSS, NOT ONE WIDE BAND.
+   *
+   * It went three boxes -> one full-width band -> back to boxes, and the band
+   * was the wrong turn: at full width a promotion competes with the inventory
+   * rather than sitting beside it, and it needed 520px of height to justify
+   * that width. Three boxes read as a shelf of things to look through, which is
+   * what discovery is, and each only has to be as tall as its own contents.
    */
   const card = (html.match(/^\.pdisc-card\{[\s\S]*?\}/m) || [""])[0];
-  const max = (card.match(/min-height:clamp\([^,]+,[^,]+,\s*(\d+)px\)/) || [])[1];
-  assert.ok(max, "the band has no bounded height");
-  assert.ok(Number(max) <= 280,
-    `the promotional band is still up to ${max}px tall — it is a row, not a panel`);
-
-  /* Still one full-width slide, and still snapping where the driver scrolls. */
-  assert.match(card, /flex:0 0 100%/, "the band stopped being a full row");
-  assert.match(card, /scroll-snap-align:start/, "the snap no longer matches the driver's arithmetic");
+  assert.match(card, /flex:0 0 calc\(\(100% - 36px\)\/3\)/,
+    "the promotional shelf is not three boxes across on a desktop");
+  assert.match(card, /scroll-snap-align:start/,
+    "the snap no longer matches the arithmetic the driver scrolls by");
 
   /*
-   * EVERY height rule, at every breakpoint — not one I guessed at.
+   * LITERAL ARITHMETIC, NOT var() INSIDE calc().
    *
-   * The first version of this looked inside `@media (max-width:620px)`, which
-   * is not a breakpoint this stylesheet has; it found nothing and asserted on
-   * `undefined`. Collecting them all cannot be fooled by a breakpoint nobody
-   * anticipated, and a phone is where the height mattered most: a promotion
-   * that fills the screen is one somebody scrolls past to reach the stays.
+   * Legal CSS after substitution, and exactly the shape older Safari has
+   * mis-evaluated — which is every iPhone. A card with no computed width is an
+   * empty-looking row on the platform hardest to debug; the marketplace rails
+   * were written out per breakpoint for this same reason.
+   */
+  const widths = [...html.matchAll(/\.pdisc-card\{[^}]*flex:0 0 ([^;]+);/g)].map((m) => m[1]);
+  assert.ok(widths.length >= 3, `expected a width at three breakpoints, found ${widths.length}`);
+  for (const w of widths) {
+    assert.ok(!/var\(/.test(w), `a card width uses var() inside calc(): ${w}`);
+  }
+
+  /* One box and a GLIMPSE of the next on a phone. A row ending flush with the
+     screen edge looks finished, and nobody swipes a row they think has ended. */
+  assert.ok(widths.some((w) => /8[0-9]%/.test(w)),
+    "a phone gets a full-width box with no peek, so the row reads as finished");
+
+  /*
+   * And no breakpoint may let a promotion take half a screen. Collected across
+   * ALL of them rather than one guessed at — an earlier version of this test
+   * hardcoded a breakpoint this stylesheet does not have, found nothing, and
+   * asserted on `undefined`.
    */
   const heights = [...html.matchAll(/\.pdisc-card\{[^}]*?min-height:clamp\([^,]+,[^,]+,\s*(\d+)px\)/g)]
     .map((m) => Number(m[1]));
-  assert.ok(heights.length >= 2, "the band has only one height rule; the phone case is missing");
+  assert.ok(heights.length >= 3, "the shelf does not have a height at every breakpoint");
   const tallest = Math.max(...heights);
   assert.ok(tallest <= 280,
-    `a breakpoint still lets the band reach ${tallest}px — heights found: ${heights.join(", ")}`);
+    `a breakpoint still lets a box reach ${tallest}px — heights found: ${heights.join(", ")}`);
 
   /*
-   * And the text cannot push it back out. A two-line clamp means a long
-   * description is cut rather than the band growing to fit it — otherwise the
-   * height above is a suggestion that the longest promotion overrules.
+   * Headline AND description clamped. A three-word headline beside a nine-word
+   * one must leave the boxes the same height, or the row reads as broken rather
+   * than varied — the failure that makes a grid look like a mistake.
    */
-  assert.match(html, /-webkit-line-clamp:2/,
-    "a long description can grow the band past the height it was given");
+  assert.ok((html.match(/-webkit-line-clamp:2/g) || []).length >= 2,
+    "only one of the headline and the description is clamped, so boxes can differ in height");
 });
