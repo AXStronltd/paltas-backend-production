@@ -46,10 +46,16 @@
 #
 # Point `to` at the Render service. Use the custom domain if you have set
 # one up, otherwise the onrender.com address — it is the same service.
+#
+# THE HOST BELOW IS THE LIVE ONE, and it is not obvious. `paltas-api` is a
+# label — it is the service name in render.yaml and the `service` string in
+# /health — but paltas-api.onrender.com returns 404. The machine is called
+# paltas-backend-production. This line pointed at the label for a while, which
+# would have 404'd every API call for anyone who adopted this file.
 # ----------------------------------------------------------------------
 [[redirects]]
   from = "/api/*"
-  to = "https://paltas-api.onrender.com/:splat"
+  to = "https://paltas-backend-production.onrender.com/:splat"
   status = 200
   force = true
 

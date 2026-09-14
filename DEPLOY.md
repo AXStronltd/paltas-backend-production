@@ -313,8 +313,11 @@ Two things that are true by design and worth knowing before anybody debugs them:
 Check it:
 
 ```bash
-curl https://paltas-api.onrender.com/health
+curl https://paltas-backend-production.onrender.com/health
 # {"ok":true,"service":"paltas-api","env":"production"}
+#
+# The HOST is paltas-backend-production; the "service" string is just a label
+# inside the app. paltas-api.onrender.com does not exist and returns 404.
 ```
 
 `/health` touches the database on purpose. A service that answers "healthy"
@@ -330,7 +333,7 @@ Copy `contract/netlify.toml` into the **root** of `paltas-frontend`, beside
 ```toml
 [[redirects]]
   from = "/api/*"
-  to = "https://paltas-api.onrender.com/:splat"
+  to = "https://paltas-backend-production.onrender.com/:splat"
   status = 200
   force = true
 ```

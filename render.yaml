@@ -16,7 +16,17 @@
 
 services:
   - type: web
-    name: paltas-api
+    # THE NAME OF THE ACTUAL SERVICE, because the old one cost an hour.
+    #
+    # This said `paltas-api`, which is not a service — paltas-api.onrender.com
+    # returns 404. It is only a label, and it collides with the `service` string
+    # in /health, so three different things appeared to be called paltas-api
+    # while exactly one machine was serving: paltas-backend-production, which is
+    # what netlify.toml proxies /api/* to.
+    #
+    # An environment variable set against the wrong one of those is invisible,
+    # and the failure looks identical to not having set it at all.
+    name: paltas-backend-production
     runtime: docker
     dockerfilePath: ./Dockerfile
     region: frankfurt          # same region as the database, or every query pays a round trip
@@ -33,9 +43,11 @@ services:
     # leaves the previous instance serving — so the risk of deploying
     # automatically is smaller than the risk of not knowing what is deployed.
     #
-    # NOTE: the live service is named paltas-backend-production while this
-    # blueprint declares paltas-api, so this file may not govern it. The
-    # dashboard toggle is authoritative — check Settings -> Build & Deploy.
+    # NOTE: this blueprint may still not govern the live service — it was
+    # created in the dashboard rather than from this file. The dashboard toggle
+    # is authoritative; check Settings -> Build & Deploy. The rename above makes
+    # the two agree on what the service is CALLED, which is the part that was
+    # actively misleading.
     autoDeploy: true
 
     envVars:
@@ -64,6 +76,45 @@ services:
         sync: false            # e.g. https://paltas.io
       - key: ALLOWED_ORIGINS
         sync: false            # optional; staging or local origins
+
+      # ── ACCOMMODATION SUPPLY ──────────────────────────────────────────
+      #
+      # Declared here so a blueprint sync PRESERVES them. A variable that exists
+      # only in the dashboard is one Render is not told about, and a sync can
+      # remove it — which on this seam means the marketplace silently reverts to
+      # showing no hotels at all, with no error anywhere to say why.
+      #
+      # Absent is a normal state: src/server.js connectSuppliers() registers
+      # nothing, every supplier path returns an honest 503, and PALTAS's own
+      # listings are unaffected. Set LITEAPI_KEY and real hotels appear.
+      - key: LITEAPI_KEY
+        sync: false            # prod_… or sand_… — the prefix decides sandbox mode
+      - key: LITEAPI_CURRENCY
+        sync: false            # optional; default USD
+      - key: LITEAPI_NATIONALITY
+        sync: false            # optional ISO-2 guest nationality; default US
+
+      # LiteAPI's OWN Stripe publishable keys, for the hotel checkout. Issued by
+      # a LiteAPI account manager, not visible in their dashboard. Public values
+      # by design — a publishable key belongs in a web page — but still
+      # configuration, because they are LiteAPI's to rotate. Without them the
+      # marketplace shows rates and the checkout says plainly that the room
+      # cannot be paid for yet.
+      - key: LITEAPI_STRIPE_PK_TEST
+        sync: false            # pk_test_… — only ever paired with a sand_ key
+      - key: LITEAPI_STRIPE_PK_LIVE
+        sync: false            # pk_live_… — only ever paired with a prod_ key
+
+      # ── MEMBER COMPANIES COLLECTING FROM THEIR OWN CUSTOMERS ──────────
+      #
+      # Stripe Connect. Without STRIPE_WEBHOOK_SECRET no webhook can be verified,
+      # and the verified webhook is the ONLY place a Payment row is written — so
+      # payments would be taken and never recorded. The service logs loudly at
+      # boot if a live key is set without one.
+      - key: STRIPE_SECRET_KEY
+        sync: false            # rk_… restricted key preferred over sk_…
+      - key: STRIPE_WEBHOOK_SECRET
+        sync: false            # whsec_…
 
 databases:
   - name: paltas-api-db
