@@ -723,14 +723,23 @@ test("the homepage draws nine marketplace sections, by their own names", { skip 
    * no longer given a heading and a dead row. Its absence here IS the rule
    * working, so it is asserted rather than tolerated.
    */
-  const drawn = TITLES.filter((t) => html.includes(t));
-  assert.ok(!drawn.includes("New developments"),
-    "New developments drew a heading with nothing underneath it");
-  assert.deepEqual(TITLES.filter((t) => t !== "New developments" && !html.includes(t)), [],
-    "a section with inventory in the fixture did not draw");
+  /*
+   * And all nine DRAW, because the page around them is not empty. New
+   * developments has nothing in the fixture and nothing ever publishes one, so
+   * it keeps its heading and carries ONE COMPACT LINE saying so — not the 56px
+   * dashed panel it used to get, which competed with the real inventory beside
+   * it and made a stocked page look bare.
+   */
+  assert.deepEqual(TITLES.filter((t) => !html.includes(t)), [],
+    "a marketplace section did not draw at all");
 
-  assert.equal((html.match(/class="mk-sec"/g) || []).length, 8,
-    "eight sections have something to show in this fixture");
+  const dev = (html.match(/id="mk-developments"[\s\S]*?<\/section>/) || [""])[0];
+  assert.ok(/mk-empty-slim/.test(dev),
+    "New developments is empty but does not use the compact state");
+  assert.ok(!/class="mk-rail"/.test(dev), "New developments drew a rail with nothing in it");
+
+  assert.equal((html.match(/class="mk-sec"/g) || []).length, 9,
+    "all nine sections draw when the page has inventory in it");
 });
 
 test("every card on the homepage comes from the API and nothing else", { skip }, async () => {
@@ -813,28 +822,37 @@ test("with nothing published, the page says so once instead of nine times", { sk
     "a property card was drawn while the API returned no listings at all");
 });
 
-test("a shelf comes back by itself the moment something is published", { skip }, async () => {
+test("an empty PALTAS category says so compactly, and fills itself when published", { skip }, async () => {
   /*
-   * THE OTHER HALF OF THE RULE, AND THE HALF WORTH GUARDING.
+   * THE RULE, BOTH WAYS.
    *
-   * Hiding an empty section is only safe if it returns on its own. Nothing here
-   * is behind a flag, a config value or a deploy — the section is absent
-   * BECAUSE it is empty and present BECAUSE it is not, so publishing one
-   * property is the entire mechanism. This proves it with the two renders that
-   * differ by exactly one listing.
+   * A category PALTAS cannot fill, on a page that is otherwise full, is worth
+   * exactly one line and a way to fix it. It is NOT worth a giant panel — that
+   * is how a marketplace with real hotels in it reads as empty — and it is not
+   * worth hiding either, because then nobody learns the category exists or that
+   * they could be the one to stock it.
+   *
+   * And nothing about it is configured. The line is there BECAUSE the shelf is
+   * empty and gone BECAUSE it is not, so publishing one property is the whole
+   * mechanism. Two renders differing by a single listing prove it.
    */
   const withTransfer = SAMPLE.filter((l) => l.transfer);
   assert.ok(withTransfer.length, "the fixture has no transfer listing to prove this with");
 
   const without = await rendered(marketplaceHome(SAMPLE.filter((l) => !l.transfer)));
-  assert.ok(!without.includes("Arrive with ease"),
-    "no property offers a transfer, yet the section is still on the page");
+  const off = (without.match(/id="mk-with-transfer"[\s\S]*?<\/section>/) || [""])[0];
+  assert.ok(off, "the transfer section vanished entirely instead of saying it is empty");
+  assert.ok(/mk-empty-slim/.test(off), "an empty category did not use the compact state");
+  assert.ok(/No PALTAS property offers an airport transfer yet/.test(off),
+    "the compact line does not say whose shelf is empty");
+  assert.ok(/partner\.html/.test(off), "the compact state offers no way to stock it");
+  assert.ok(!/class="mk-rail"/.test(off), "an empty category drew a rail");
 
-  const with_ = await rendered(marketplaceHome(SAMPLE));
-  assert.ok(with_.includes("Arrive with ease"),
-    "a property with an airport transfer is published and the section did not come back");
-  assert.ok(/id="mk-with-transfer"[^]*?class="mk-rail"/.test(with_),
-    "the section returned as a heading with no rail under it");
+  const on = await rendered(marketplaceHome(SAMPLE));
+  const lit = (on.match(/id="mk-with-transfer"[\s\S]*?<\/section>/) || [""])[0];
+  assert.ok(/class="mk-rail"/.test(lit),
+    "a property with an airport transfer is published and the shelf did not fill");
+  assert.ok(!/mk-empty-slim/.test(lit), "a filled shelf still apologises for being empty");
 });
 
 test("a failed request empties the page instead of filling it", { skip }, async () => {
@@ -1814,30 +1832,59 @@ test("an empty or product row gets no arrows", { skip }, async () => {
   assert.ok(!/mk-arrow/.test(discover), "the product cards have scroll arrows");
 });
 
-test("the promotional carousel pauses, and comes back", { skip }, () => {
-  /*
-   * `stop()` set `paused` permanently. On a phone the first finger to land on
-   * the rail killed rotation for the rest of the visit — and a finger lands
-   * there merely scrolling past. Seven cards, none of them ever moving.
-   *
-   * A deliberate choice — an arrow, a dot — still stops it for good: they are
-   * driving, and moving a card out from under a reader is the worst thing a
-   * carousel does.
-   */
+test("the discovery rail is endless, touch-first and has no arrows", { skip }, () => {
   const html = readFileSync(join(FE, "index.html"), "utf8");
-  const fn = html.slice(html.indexOf("function stop(forever)"),
-                        html.indexOf("function startAuto()"));
-  assert.ok(fn, "stop() no longer distinguishes a pause from a permanent halt");
-  assert.ok(/setTimeout/.test(fn), "a paused carousel never resumes");
-  assert.ok(/forever === true/.test(fn), "a deliberate choice does not stop it for good");
 
-  for (const control of ["pdiscPrev", "pdiscNext"]) {
-    assert.ok(new RegExp(control + '[\\s\\S]{0,120}stop\\(true\\)').test(html),
-      `${control} only pauses, so the carousel moves again under somebody who just chose a card`);
+  /*
+   * THE ARROWS ARE GONE — markup, styles and handlers.
+   *
+   * Leaving any one of the three behind is how a control comes back: a rule
+   * still matching, a listener still bound to an element that no longer exists.
+   */
+  for (const ghost of ["pdiscPrev", "pdiscNext", "pdisc-arrow"]) {
+    assert.equal((html.match(new RegExp(ghost, "g")) || []).length, 0,
+      `${ghost} survives somewhere — the arrows are only half removed`);
   }
-  /* Rotating a phone changes how many cards fit, and so how many dots there are. */
-  assert.ok(/addEventListener\("resize", function \(\) \{ drawDots\(\); paint\(\); \}/.test(html),
-    "the dot count is not recounted on resize");
+
+  /*
+   * ENDLESS means a second identical copy of the slides and a silent correction
+   * once motion has settled. Both halves are load-bearing: without the copy the
+   * rail hits a wall, and without the correction it runs off the end.
+   */
+  assert.ok(/live\.map\(function \(p, i\) \{ return cardHTML\(p, i, true\); \}\)/.test(html),
+    "the rail renders only one copy of the slides, so forward motion hits a wall");
+  assert.ok(/function normalise\(\)/.test(html) && /scrollLeft - w/.test(html),
+    "nothing pulls the rail back a copy's width, so it runs off the end");
+  assert.ok(/aria-hidden="true" tabindex="-1"/.test(html),
+    "the duplicated slides are announced and focusable, so everything is heard twice");
+
+  /*
+   * THE ONE THAT WOULD HAVE BEEN INVISIBLE UNTIL SOMEBODY WATCHED IT.
+   *
+   * With `scroll-behavior:smooth` in the stylesheet, EVERY scrollLeft change
+   * animates — including the correction that is supposed to be imperceptible.
+   * The loop would have rewound in full view. Smoothness is asked for per call
+   * in JS instead, which is also how reduced-motion gets to decline it.
+   */
+  const rail = (html.match(/\.pdisc-rail\{[^}]*\}/) || [""])[0];
+  assert.ok(/scroll-behavior:auto/.test(rail),
+    "the rail is smooth-scrolling in CSS, which makes the endless wrap a visible rewind");
+
+  /* Touch scrolls it natively; a mouse cannot, so a mouse may drag it. */
+  assert.ok(/e\.pointerType !== "mouse"/.test(html),
+    "drag is bound to touch as well, replacing the browser's own scrolling with an imitation");
+  assert.ok(/pdisc-rail\.dragging\{[^}]*scroll-snap-type:none/.test(html),
+    "snapping stays on during a drag and fights the cursor");
+
+  /* 4-5 seconds, and it comes back after being left alone. */
+  const auto = html.slice(html.indexOf("function startAuto()"), html.indexOf("var settle"));
+  assert.ok(/\}, 4500\);/.test(auto), "auto-advance is not in the 4-5s the brief asks for");
+  assert.ok(/if \(reduced \|\| paused \|\| timer\) return;/.test(auto),
+    "a visitor who asked for less motion still gets a slideshow");
+
+  const stopFn = html.slice(html.indexOf("function stop(forever)"), html.indexOf("function startAuto()"));
+  assert.ok(/setTimeout/.test(stopFn), "a paused rail never resumes");
+  assert.ok(/forever === true/.test(stopFn), "a deliberate choice does not stop it for good");
 });
 
 test("the transfer options do not clutter the homepage at rest", { skip }, async () => {
@@ -1989,7 +2036,7 @@ test("the hero gained pilgrimage photography and lost none of its own", { skip }
      be blocked outright by the page's connect policy. */
   const pil = (html.match(/const PILGRIMAGE = \{[\s\S]*?\n\};/) || [""])[0];
   const urls = out(pil.match(/'(https:\/\/[^']+)'/g) || []);
-  assert.equal(urls.length, 3, "expected three pilgrimage photographs, found " + urls.length);
+  assert.equal(urls.length, 4, "expected four pilgrimage photographs, found " + urls.length);
   assert.ok(urls.every((u) => u.includes("images.unsplash.com")),
     "a pilgrimage slide points somewhere other than the CDN the hero already uses");
 
@@ -1999,4 +2046,114 @@ test("the hero gained pilgrimage photography and lost none of its own", { skip }
    */
   assert.ok(/mena:'mena'/.test(html), "MENA is still borrowing the neutral region's pictures");
   assert.ok(/\n  mena:\{/.test(html), "REGIONS has no mena entry to borrow from");
+});
+
+test("the Muslim Travel slide leads, and is backed by hotels that exist", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const slide = (html.match(/id: "muslim-travel"[\s\S]*?\n    \},/) || [""])[0];
+  assert.ok(slide, "there is no Muslim Travel slide");
+
+  /* The copy, as asked for, and the highest priority so it leads the rail. */
+  assert.ok(/title: "Your journey begins in Makkah\."/.test(slide), "the headline is not the one asked for");
+  assert.ok(/badge: "MUSLIM TRAVEL"/.test(slide), "the slide is not labelled MUSLIM TRAVEL");
+  assert.ok(/ctaLabel: "Explore Muslim Travel"/.test(slide), "the CTA is not the one asked for");
+  assert.ok(/priority: 100/.test(slide), "something else outranks the lead slide");
+  assert.ok(/image: PILGRIMAGE\.makkah/.test(slide), "the lead slide has no photograph");
+
+  /*
+   * THE GATE IS GONE, AND THAT HAD TO BE EARNED.
+   *
+   * `requiresService: "hajj_umrah"` showed this only where PALTAS runs a
+   * pilgrimage service — SA, EG, JO, MA, TR, PK, BD, ID. That was RIGHT while
+   * the card said "Planning Hajj or Umrah?", which reads as PALTAS operating
+   * the pilgrimage. It now offers hotels in Makkah, which LiteAPI sells to
+   * anyone: 48 properties in Makkah and 35 in Madinah, by name, with live
+   * rates. Hiding real bookable rooms from a traveller in London because PALTAS
+   * runs no Hajj service in the United Kingdom helps nobody.
+   */
+  assert.ok(!/requiresService/.test(slide),
+    "the lead slide is still gated on a service, so most visitors never see it");
+
+  /* "Mecca" returns 0 hotels from the supplier and "Makkah" returns 48. */
+  assert.ok(/openStays\("Makkah"\)/.test(slide), "the CTA searches a spelling the supplier does not know");
+  assert.ok(!/Mecca/.test(slide), "the slide uses a spelling that returns no hotels");
+});
+
+test("a category slide appears only when that category has something in it", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  /*
+   * A card promising short stays, above a shelf with no short stay on it, is
+   * the same lie told twice. Inventory-backed slides are gated on what the
+   * marketplace actually loaded; product introductions never are, because
+   * "PALTAS runs hotels for you" is true whether or not anybody published a
+   * flat today.
+   */
+  assert.ok(/needsInventory: "hotels"/.test(html), "the Hotels slide is not gated on having hotels");
+  for (const cat of ["short", "long", "sale"]) {
+    assert.ok(new RegExp(`needsInventory: "${cat}"`).test(html),
+      `the ${cat} slide is not gated on having any`);
+  }
+
+  /*
+   * `null` before the first load is the important state: "we have not looked
+   * yet" is not "there is nothing", and treating them the same makes the rail
+   * flicker down to a smaller set a second after the page paints.
+   */
+  assert.ok(/if \(!INVENTORY\) return true;/.test(html),
+    "an unanswered marketplace is treated as an empty one, so the rail flickers");
+  assert.ok(/if \(!p\.needsInventory\) return true;/.test(html),
+    "product introductions are gated on inventory they never claimed to have");
+
+  /* And the marketplace has to actually send the counts. */
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  assert.ok(/D2\.inventory\(\{/.test(mod), "the marketplace never tells the rail what it found");
+  assert.ok(!/title|price/.test((mod.match(/D2\.inventory\(\{[\s\S]*?\}\);/) || [""])[0]),
+    "the rail is being sent rows rather than counts");
+});
+
+test("no discovery slide invents an opportunity, a return or an asset", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const promos = html.slice(html.indexOf("var PALTAS_PROMOS"), html.indexOf("var PALTAS_APPROVED"));
+
+  /*
+   * PALTAS publishes no development to invest in and no tokenised asset to
+   * browse — no tokenisation provider is connected by default, so units cannot
+   * be issued at all. A promotional card is exactly where an invented number
+   * would do the most damage, so there are none.
+   */
+  const copy = out(promos.match(/(?:title|desc|badge|ctaLabel): "([^"]*)"/g) || []);
+  const invented = [];
+  if (/\b\d+(\.\d+)?\s*%/.test(copy.join(" "))) invented.push("a percentage appears");
+  if (/\b(yield|return on|guaranteed|profit|APY|ROI)\b/i.test(copy.join(" ")))
+    invented.push("a financial claim appears");
+  /* Read the COPY, not the source around it — the comments beside these slides
+     quote the very phrases being banned, to record why they were not used. */
+  if (/discover real-world assets/i.test(copy.join(" ")))
+    invented.push("tokenisation offers assets to browse, and none can be issued");
+  if (/discover real estate opportunit/i.test(copy.join(" ")))
+    invented.push("investment offers opportunities to browse, and PALTAS lists none");
+  if (/\b(only \d+ left|selling fast|hurry|limited time)\b/i.test(copy.join(" ")))
+    invented.push("fake urgency or scarcity appears");
+  assert.deepEqual(invented, [], invented.join("; "));
+
+  /* Every CTA must land on a page that exists — there are four. */
+  const hrefs = out(promos.match(/ctaHref: "([^"]*)"/g) || [])
+    .map((m) => m.replace(/ctaHref: "/, "").replace(/"$/, "").split(/[?#]/)[0])
+    .filter(Boolean);
+  const pages = new Set(readdirSync(FE).filter((f) => f.endsWith(".html")));
+  const dead = hrefs.filter((h) => !pages.has(h));
+  assert.deepEqual(dead, [], "a promotion points at a page that does not exist: " + dead.join(" | "));
+});
+
+test("every discovery CTA uses the one brand token", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const cta = (html.match(/\.pdisc-cta\{[^}]*\}/) || [""])[0];
+  assert.ok(/var\(--mk-accent/.test(cta),
+    "the discovery CTA paints itself rather than using the global brand token");
+  const hover = (html.match(/\.pdisc-card:hover \.pdisc-cta\{[^}]*\}/) || [""])[0];
+  assert.ok(/var\(--mk-deep/.test(hover), "the hover state is not the brand hover");
+  /* One turquoise, defined once, at :root. */
+  assert.equal((html.match(/--mk-accent:#12C6D4/g) || []).length, 1,
+    "the brand turquoise is declared more than once");
 });
