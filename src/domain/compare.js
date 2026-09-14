@@ -26,22 +26,41 @@
 
 let provider = null;
 
+/*
+ * WHY THERE IS NO PROVIDER — which is a different question from whether there
+ * is one, and the only question worth answering when one was expected.
+ *
+ * "Not connected" covers three situations that need three different actions:
+ * nobody configured it, somebody configured it wrongly, or it fell over on the
+ * way up. Collapsing them into one message means the only way to tell them
+ * apart is a boot log nobody can read from outside the machine.
+ *
+ * Never holds a credential — the callers below pass a sentence, never a value.
+ */
+let unavailableBecause = "";
+
+export function noteCompareUnavailable(reason) {
+  unavailableBecause = String(reason || "");
+}
+
 /** Wire the comparison provider. Absent is a normal state. */
 export function registerCompare(p) {
   if (p && typeof p.compare !== "function") {
     throw new Error("A comparison provider must implement compare().");
   }
   provider = p || null;
+  if (provider) unavailableBecause = "";
   return provider;
 }
 
-export function clearCompare() { provider = null; CACHE.clear(); }
+export function clearCompare() { provider = null; unavailableBecause = ""; CACHE.clear(); }
 
 export function compareStatus() {
   if (!provider) {
     return {
       connected: false, name: "", label: "",
-      why: "No price-comparison provider is connected, so PALTAS shows no other sellers.",
+      why: unavailableBecause ||
+        "No price-comparison provider is connected, so PALTAS shows no other sellers.",
     };
   }
   const d = provider.describe ? provider.describe() : {};

@@ -31,7 +31,7 @@ import { investmentRoutes } from "./routes/investments.js";
 import { register as registerSupplier, status as supplierStatus } from "./domain/supply.js";
 import { fromEnv as liteApiFromEnv } from "./suppliers/liteapi.js";
 import { fromEnv as stayingApiFromEnv } from "./suppliers/stayingapi.js";
-import { registerCompare, compareStatus } from "./domain/compare.js";
+import { registerCompare, compareStatus, noteCompareUnavailable } from "./domain/compare.js";
 import { fromEnv as expediaRapidFromEnv } from "./suppliers/expedia-rapid.js";
 import { fromEnv as bookingDemandFromEnv } from "./suppliers/booking-demand.js";
 import { fromEnv as sampleCatalogueFromEnv } from "./suppliers/sample-catalogue.js";
@@ -265,6 +265,10 @@ export function connectComparison(env = process.env) {
   try {
     const p = stayingApiFromEnv(env);
     if (!p) {
+      /* Absent is a normal state, and saying WHICH absence it is turns a
+         silent feature into a one-line diagnosis from outside the machine. */
+      noteCompareUnavailable(
+        "STAYINGAPI_KEY is not set on this service, so no other sellers are shown.");
       log.info("price comparison: none configured — no other sellers are shown");
       return null;
     }
@@ -283,8 +287,12 @@ export function connectComparison(env = process.env) {
     return s;
   } catch (e) {
     /* A comparison is an extra. Failing to wire one must never stop the API
-       from booting or take a bookable room off the marketplace. */
-    log.error("price comparison failed to connect:", e && e.message);
+       from booting or take a bookable room off the marketplace.
+       The message is the adapter's own and never contains a credential — it
+       refuses an unrecognised key by describing the PREFIX it wanted. */
+    const why = (e && e.message) || "the provider could not be built";
+    noteCompareUnavailable("STAYINGAPI_KEY was set but rejected: " + why);
+    log.error("price comparison failed to connect:", why);
     return null;
   }
 }

@@ -148,3 +148,31 @@ test("status never carries a credential", () => {
   clearCompare();
   assert.equal(compareStatus().connected, false);
 });
+
+test("'not connected' says WHICH absence it is, and never with a key", async () => {
+  const { noteCompareUnavailable } = await import("../src/domain/compare.js");
+
+  /*
+   * Three situations wear the same words otherwise: nobody configured it,
+   * somebody configured it wrongly, or it fell over on the way up. Each needs a
+   * different action, and a boot log is unreadable from outside the machine —
+   * which is exactly where somebody asking "why is this off?" is standing.
+   */
+  clearCompare();
+  noteCompareUnavailable("STAYINGAPI_KEY is not set on this service, so no other sellers are shown.");
+  assert.match(compareStatus().why, /is not set on this service/);
+
+  noteCompareUnavailable("STAYINGAPI_KEY was set but rejected: A StayingAPI key must begin with stay_test_ or stay_live_.");
+  const why = compareStatus().why;
+  assert.match(why, /was set but rejected/);
+  /* It names the PREFIX it wanted, which is not a credential. Nothing that
+     reaches this field may ever be the value itself. */
+  assert.ok(!/stay_(live|test)_[A-Za-z0-9_-]{8,}/.test(why),
+    "the diagnosis carries something key-shaped");
+
+  /* Connecting clears it, or a working provider carries a stale complaint. */
+  registerCompare({ compare: async () => ({ offers: [] }), describe: () => ({ name: "x" }) });
+  assert.equal(compareStatus().connected, true);
+  assert.ok(!/was set but rejected/.test(compareStatus().why), "a stale failure survived a successful connect");
+  clearCompare();
+});

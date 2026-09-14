@@ -74,6 +74,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { badRequest } from "../http/errors.js";
 import { rateLimit } from "../http/rate-limit.js";
+import { compareStatus } from "../domain/compare.js";
 import { searchSupply, status as supplyStatus } from "../domain/supply.js";
 
 export const marketplaceRoutes = Router();
@@ -374,5 +375,7 @@ marketplaceRoutes.get("/marketplace/suppliers",
   rateLimit({ windowMs: 60_000, max: 120 }),
   (_req, res) => {
     res.set("Cache-Control", "public, max-age=300");
-    res.json({ suppliers: [supplyStatus()] });
+    /* The comparison provider sits beside the supplier because an operator
+       asking "is it on?" means both, and neither status can carry a key. */
+    res.json({ suppliers: [supplyStatus()], comparison: compareStatus() });
   });
