@@ -2264,3 +2264,46 @@ test("a rival's price is never dressed up as a PALTAS booking", { skip }, () => 
   assert.ok(/\.pc-compare:empty\{display:none\}/.test(html),
     "an empty comparison still draws its border and heading");
 });
+
+test("nothing spends a credit until somebody opens a hotel", { skip }, () => {
+  /*
+   * THE COST RULE, WRITTEN DOWN.
+   *
+   * A comparison is 30 credits against a metered account. The homepage loads
+   * inventory on EVERY visit — bots, bounces, people scrolling past — so a
+   * single call from there would spend money on everyone who never intended to
+   * book anything. It is deliberately reachable only from the rooms view, which
+   * means somebody chose a hotel and asked to see its rooms.
+   *
+   * This is the guard against the easy mistake: adding a comparison to the
+   * marketplace CARD, where it would look like a small improvement and would
+   * multiply the bill by the number of cards on the page.
+   */
+  const market = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  assert.ok(!/\/compare/.test(market),
+    "the homepage module calls the metered comparison endpoint, which bills every visit");
+
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  assert.ok(!/\/compare\?/.test(html),
+    "an inline script calls the metered comparison endpoint");
+
+  /* Exactly one caller, and it is the rooms view. */
+  const checkout = readFileSync(join(FE, "assets/paltas-checkout.js"), "utf8");
+  assert.equal((checkout.match(/\/compare\?/g) || []).length, 1,
+    "the comparison is requested from more than one place");
+  assert.equal((checkout.match(/\bcompare\(offers\);/g) || []).length, 1,
+    "compare() is fired from somewhere other than the rooms view");
+
+  /*
+   * AND STAYINGAPI PUTS NO PRODUCTS ON THE SITE.
+   *
+   * It cannot take a booking, so a listing of its own would be a card whose
+   * button has nothing behind it. The decision was to use it for comparison
+   * only; this is that decision, enforced rather than remembered.
+   */
+  for (const f of ["assets/paltas-market.js", "index.html"]) {
+    const src = readFileSync(join(FE, f), "utf8");
+    assert.ok(!/stayingapi/i.test(src),
+      `${f} renders StayingAPI content, which cannot be booked on PALTAS`);
+  }
+});
