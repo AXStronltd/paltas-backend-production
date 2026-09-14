@@ -678,6 +678,14 @@ function marketplaceHome(listings) {
   return w;
 }
 
+/** The product names the closing section offers, read from the page itself. */
+function productTitles() {
+  const js = readFileSync(join(FE, "assets", "paltas-market.js"), "utf8");
+  const start = js.indexOf("var PRODUCTS = [");
+  const block = js.slice(start, js.indexOf("];", start));
+  return [...block.matchAll(/\["([^"]+)"/g)].map((m) => m[1].replace(/&/g, "&amp;"));
+}
+
 /** The rendered marketplace, after the promise chain has settled. */
 async function rendered(w) {
   await new Promise((r) => setTimeout(r, 40));
@@ -713,8 +721,14 @@ test("every card on the homepage comes from the API and nothing else", { skip },
   const titles = out((html.match(/class="mk-title">([^<]*)</g) || [])).map(
     (m) => m.replace(/class="mk-title">/, "").replace(/<$/, ""));
   const known = new Set(SAMPLE.map((l) => l.title)
-    /* the closing section's four cards name PALTAS products, not properties */
-    .concat(["Property Management", "Hotel Management", "Agent &amp; Host", "Security Management"]));
+    /*
+     * The closing section names PALTAS PRODUCTS, not properties. Read from the
+     * page's own list rather than repeated here, so adding a product does not
+     * fail this test for the wrong reason — and so a product added ONLY here,
+     * with nothing behind it, still fails the test that checks the list against
+     * the Product enum.
+     */
+    .concat(productTitles()));
   const invented = titles.filter((t) => !known.has(t));
   assert.deepEqual(invented, [],
     "the homepage rendered a card the API never sent: " + invented.join(" | "));
@@ -1340,4 +1354,45 @@ test("a category decides which real inventory is shown", { skip }, () => {
     assert.ok(new RegExp(`${chip}\\s*:\\s*'${filter}'`).test(map),
       `the "${chip}" category does not map to the "${filter}" inventory`);
   }
+});
+
+test("the products on the homepage are ones PALTAS can actually deliver", { skip }, async () => {
+  /*
+   * A product card is a promise a visitor can click. A product that does not
+   * exist is the same fabrication as an invented listing — told about the
+   * company rather than about a property — and it is the easier one to ship by
+   * accident, because nobody checks a marketing section against the schema.
+   *
+   * So this checks BOTH directions against the Product enum: nothing advertised
+   * that is not built, and nothing built quietly left off.
+   */
+  const schema = readFileSync(new URL("../prisma/schema.prisma", import.meta.url), "utf8");
+  const block = schema.slice(schema.indexOf("enum Product {"));
+  const products = block.slice(0, block.indexOf("}"))
+    .split("\n").map((l) => l.trim())
+    .filter((l) => /^[A-Z_]+$/.test(l));
+
+  const html = await rendered(marketplaceHome(SAMPLE));
+
+  /* PLATFORM is PALTAS's own staff console — not for sale, so not on the page. */
+  const forSale = products.filter((p) => p !== "PLATFORM");
+  const shown = {
+    PROPERTY_MANAGEMENT: "Property Management",
+    AGENT_HOST: "Agent &amp; Host",
+    HOTEL_MANAGEMENT: "Hotel Management",
+    SECURITY_MANAGEMENT: "Security Management",
+    GUEST_PORTAL: "Guest Portal",
+  };
+
+  const missing = forSale.filter((p) => !html.includes(shown[p]));
+  assert.deepEqual(missing, [],
+    "these products exist in the schema but are not offered on the homepage: " +
+    missing.join(", "));
+
+  assert.ok(!/\bFlights?\b|\bAir travel\b/.test(html),
+    "a flights product is advertised. PALTAS has no flights code, no flights " +
+    "data, and LiteAPI returns 404 for flights on this account — so the card " +
+    "would lead a visitor nowhere.");
+  assert.ok(!html.includes("PALTAS Platform</h3>"),
+    "the internal staff console is being offered to customers");
 });
