@@ -68,12 +68,25 @@ test("it says plainly that it cannot take a booking", async () => {
     "book() failed with something other than an explanation");
 });
 
-test("every row it returns is marked as somebody else's, and unbookable", async () => {
+test("every row it returns is marked as somebody else's, and unbookable", { }, async () => {
+  /*
+   * The fixture is the PUBLISHED `Property` shape, not a guess at it. A first
+   * version of normalise() read row.title, row.city and row.rating; every live
+   * card came out with no price and no score, which looked like sparse data and
+   * was three wrong field names.
+   */
   const c = stayingApi({ apiKey: TEST_KEY, fetchImpl: fakeFetch({ body: { data: { results: [
-    { platform: "booking", id: "casa-de-alba", title: "Casa de Alba", city: "Madrid",
-      country: "Spain", total: 412.5, currency: "EUR", rating: 8.8, reviewCount: 240,
-      url: "https://www.booking.com/hotel/es/casa-de-alba.html" },
-    { platform: "airbnb", id: "12345", title: "Loft in Malasaña", total: 150, currency: "EUR", rating: 4.9 },
+    { platform: "booking", platformListingId: "casa-de-alba", name: "Casa de Alba",
+      url: "https://www.booking.com/hotel/es/casa-de-alba.html",
+      location: { city: "Madrid", country: "Spain" },
+      images: ["https://img/1.jpg"],
+      price: { currency: "EUR", totalPrice: 412.5, nightlyPrice: 137.5 },
+      guestRating: 8.8, ratingScale: 10, reviewCount: 240, bedrooms: 2, propertyType: "Apartment" },
+    { platform: "airbnb", platformListingId: "12345", name: "Loft in Malasaña",
+      url: "https://airbnb.com/rooms/12345",
+      location: { city: "Madrid", country: "Spain" },
+      price: { currency: "EUR", totalPrice: 150 },
+      guestRating: 4.9, ratingScale: 5 },
   ] } } }) });
 
   const { results } = await c.search({ location: "Madrid", checkIn: "2026-11-02", checkOut: "2026-11-05" });
@@ -84,27 +97,44 @@ test("every row it returns is marked as somebody else's, and unbookable", async 
     assert.equal(r.paltasOwned, false);
     assert.equal(r.source, "stayingapi");
     assert.ok(r.via, "a row does not say which platform holds it");
+    assert.ok(r.url, "a row has no link to the site that can actually sell it");
+    assert.ok(r.title, "a row lost its name");
   }
 
-  /* Money arrives in integer minor units like everything else in PALTAS. */
+  /* Money in integer minor units, from price.totalPrice — the whole stay, which
+     is what a visitor compares. */
   assert.deepEqual(results[0].price, { amountMinor: 41250, currency: "EUR" });
+  assert.deepEqual(results[0].perNight, { amountMinor: 13750, currency: "EUR" });
+  assert.equal(results[0].city, "Madrid");
+  assert.equal(results[0].image, "https://img/1.jpg");
+  assert.equal(results[0].id, "booking:casa-de-alba");
 
   /*
-   * A 4.9 out of 5 and an 8.8 out of 10 are not the same number, and shown side
-   * by side without their scales they would be a lie told with true figures.
+   * THE SCALE COMES FROM THE SERVICE, NOT FROM THE PLATFORM NAME.
+   *
+   * 4.8 read as out of 10 is a bad hotel; out of 5 it is an excellent one. The
+   * same true number, two opposite meanings.
    */
   assert.deepEqual(results[0].rating, { score: 8.8, outOf: 10 });
   assert.deepEqual(results[1].rating, { score: 4.9, outOf: 5 });
+  /* Nothing invented where the platform gave nothing. */
+  assert.equal(results[1].perNight, null, "a per-night price was divided out of a total");
 });
 
-test("a rating outside its own scale is dropped, not squeezed to fit", async () => {
+test("a rating with no scale, or past its scale, is dropped", { }, async () => {
   const c = stayingApi({ apiKey: TEST_KEY, fetchImpl: fakeFetch({ body: { data: { results: [
-    { platform: "airbnb", id: "1", title: "Nine out of five", rating: 9.1 },
-    { platform: "booking", id: "2", title: "No score at all", rating: 0 },
+    { platform: "airbnb", platformListingId: "1", name: "Nine out of five",
+      url: "https://a/1", guestRating: 9.1, ratingScale: 5 },
+    { platform: "booking", platformListingId: "2", name: "No scale given",
+      url: "https://b/2", guestRating: 9.1, ratingScale: null },
+    { platform: "booking", platformListingId: "3", name: "No score at all",
+      url: "https://b/3", guestRating: 0, ratingScale: 10 },
   ] } } }) });
   const { results } = await c.search({ location: "Lisbon" });
-  assert.equal(results[0].rating, null, "a 9.1 on Airbnb's 5-point scale was kept");
-  assert.equal(results[1].rating, null, "a zero was rendered as a score");
+  assert.equal(results[0].rating, null, "a 9.1 on a 5-point scale was kept");
+  assert.equal(results[1].rating, null,
+    "a score with no scale was given a plausible default instead of being dropped");
+  assert.equal(results[2].rating, null, "a zero was rendered as a score");
 });
 
 test("a completed job is read at data.result, not data", { }, async () => {
@@ -120,7 +150,8 @@ test("a completed job is read at data.result, not data", { }, async () => {
     { status: 202, body: { data: { jobId: "job_77", status: "pending", pollUrl: "/v1/jobs/job_77" } } },
     { status: 200, body: { data: { jobId: "job_77", status: "running", pollUrl: "/v1/jobs/job_77" } } },
     { status: 200, body: { data: { jobId: "job_77", status: "completed",
-        result: { results: [{ platform: "vrbo", id: "9", title: "Cabin" }] } } } },
+        result: { results: [{ platform: "vrbo", platformListingId: "9", name: "Cabin",
+                             url: "https://vrbo.com/9" }] } } } },
   ]);
   const c = stayingApi({ apiKey: TEST_KEY, fetchImpl: f, pollMs: 1 });
   const { results } = await c.search({ location: "Aspen" });

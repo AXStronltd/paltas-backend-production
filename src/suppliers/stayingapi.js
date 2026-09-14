@@ -94,17 +94,21 @@ function moneyFrom(amount, currency) {
 }
 
 /**
- * A rating, only when it is one.
+ * A rating, only when it is one, and only on the scale it was given.
  *
- * Platforms score on different scales — Airbnb out of 5, Booking.com out of 10
- * — and a 4.8 shown beside a 9.2 as if they were the same number is a lie told
- * with true figures. Both are carried with the scale they came on, and anything
- * outside its own range is dropped rather than clamped into plausibility.
+ * The API reports `guestRating` WITH its own `ratingScale`, so there is no need
+ * to infer one from the platform — which is what a first version did, assuming
+ * Airbnb was out of 5 and everyone else out of 10. Reading the scale the
+ * service states is strictly better than guessing it from a name, and a rating
+ * that arrives without one is dropped rather than assigned a plausible default:
+ * 4.8 shown as though out of 10 is a bad hotel, and out of 5 is an excellent
+ * one, from the same true number.
  */
-function ratingFrom(raw, platform) {
-  const n = Number(raw);
+function ratingFrom(score, scale) {
+  const n = Number(score);
+  const outOf = Number(scale);
   if (!Number.isFinite(n) || n <= 0) return null;
-  const outOf = platform === "airbnb" || platform === "vrbo" ? 5 : 10;
+  if (!Number.isFinite(outOf) || outOf <= 0) return null;
   if (n > outOf) return null;
   return { score: Math.round(n * 10) / 10, outOf };
 }
@@ -285,26 +289,41 @@ export function stayingApi({
     return body;
   }
 
-  /** One search result, in PALTAS's shape, flagged for what it is. */
+  /**
+   * One search result, in PALTAS's shape, flagged for what it is.
+   *
+   * Field names are taken from the published `Property` schema rather than
+   * guessed. A first version read `row.title`, `row.city` and `row.rating`, and
+   * every card came out with no price and no score — which looked like sparse
+   * data and was actually three wrong names. The real shape is `name`,
+   * `location.city`, `price.totalPrice` and `guestRating` + `ratingScale`.
+   */
   function normalise(row, platform) {
     if (!row || typeof row !== "object") return null;
     const p = String(row.platform || platform || "").toLowerCase();
-    const id = row.id || row.listingId || row.slug;
+    const id = row.platformListingId || row.id;
     if (!id) return null;
 
-    const price = moneyFrom(
-      row.totalPrice ?? row.total ?? row.price ?? (row.pricing && row.pricing.total),
-      row.currency || (row.pricing && row.pricing.currency) || currency);
+    const loc = row.location || {};
+    const pr = row.price || {};
+    /* The TOTAL for the stay, which is what a visitor compares. A nightly rate
+       beside another site's total is a factor of however many nights. */
+    const price = moneyFrom(pr.totalPrice, pr.currency);
 
     return {
       id: `${p}:${id}`,
-      title: String(row.title || row.name || "").trim() || null,
-      city: (row.city || (row.address && row.address.city) || "") || null,
-      country: (row.country || (row.address && row.address.country) || "") || null,
-      image: row.image || (Array.isArray(row.images) ? row.images[0] : "") || null,
+      title: String(row.name || "").trim() || null,
+      city: loc.city || null,
+      country: loc.country || null,
+      image: Array.isArray(row.images) && row.images.length ? row.images[0] : null,
       price,
-      rating: ratingFrom(row.rating ?? (row.reviews && row.reviews.rating), p),
+      /* Per-night, ONLY as the platform stated it — never divided out of a
+         total, because what a total includes differs per platform. */
+      perNight: moneyFrom(pr.nightlyPrice, pr.currency),
+      rating: ratingFrom(row.guestRating, row.ratingScale),
       reviewCount: Number.isFinite(Number(row.reviewCount)) ? Number(row.reviewCount) : null,
+      bedrooms: Number.isFinite(Number(row.bedrooms)) ? Number(row.bedrooms) : null,
+      propertyType: row.propertyType ? String(row.propertyType) : null,
       /*
        * THE THREE FIELDS THAT KEEP THIS HONEST.
        *
@@ -316,7 +335,7 @@ export function stayingApi({
        */
       bookable: false,
       via: p || null,
-      url: row.url || row.link || null,
+      url: row.url || null,
       source: "stayingapi",
       paltasOwned: false,
     };
