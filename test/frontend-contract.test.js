@@ -2383,3 +2383,143 @@ test("other sites' homes reach one shelf, and cost nothing until asked for", { s
   assert.ok(/function awayFootnote\(n\)/.test(mod), "the shelf never says whose these are");
   assert.ok(/PALTAS does not sell them/.test(mod), "the footnote does not say they are not PALTAS's");
 });
+
+test("the manifest meets Chrome's installability bar, with real PNGs", { skip }, () => {
+  const manifest = JSON.parse(readFileSync(join(FE, "manifest.webmanifest"), "utf8"));
+
+  assert.ok(manifest.name && manifest.short_name, "the app has no name to install under");
+  assert.ok(manifest.start_url, "no start_url");
+  assert.ok(["standalone", "fullscreen", "minimal-ui"].includes(manifest.display),
+    "display is 'browser', which is not an app");
+
+  /*
+   * SVG IS NOT ACCEPTED IN A MANIFEST. The previous manifest declared a single
+   * 512x512 SVG and every other field was correct — so it looked installable in
+   * review and Chrome would never offer to install it. A 192 and a 512 PNG are
+   * the actual bar.
+   */
+  const icons = manifest.icons || [];
+  const png = icons.filter((i) => i.type === "image/png");
+  assert.ok(png.length >= 2, "fewer than two PNG icons; SVG does not count");
+  const sizes = png.flatMap((i) => String(i.sizes).split(" ").map((s) => parseInt(s, 10)));
+  assert.ok(sizes.includes(192), "no 192x192 PNG");
+  assert.ok(sizes.includes(512), "no 512x512 PNG");
+
+  /*
+   * A maskable icon is a SEPARATE file, not the same one relabelled. Android
+   * crops to a circle of about 80% of the canvas, so art that fills its frame
+   * loses its own corners.
+   */
+  const maskable = icons.filter((i) => String(i.purpose || "").includes("maskable"));
+  assert.ok(maskable.length, "no maskable icon, so Android crops the logo");
+  assert.ok(maskable.every((i) => !String(i.purpose).split(" ").includes("any")),
+    "one file is declared both 'any' and 'maskable'; it cannot be correctly framed for both");
+
+  /* Every file it names must exist. */
+  for (const i of icons) {
+    assert.ok(existsSync(join(FE, i.src.replace(/^\//, ""))), `manifest names a missing icon: ${i.src}`);
+  }
+
+  /* The brand, not the colour that predates it. */
+  assert.equal(manifest.theme_color, "#12C6D4", "the app frame is not the brand turquoise");
+
+  /*
+   * AND IT OPENS ON STAYS. Somebody who installed PALTAS and tapped its icon
+   * has already been sold the idea; landing them on a marketing hero makes them
+   * scroll past an advertisement to reach what they opened the app for.
+   */
+  assert.match(manifest.start_url, /go=stay/,
+    "the installed app opens on the marketing page rather than on available stays");
+});
+
+test("the page points at the real manifest and a PNG touch icon", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  assert.match(html, /<link rel="manifest" href="\/manifest\.webmanifest">/,
+    "the manifest is still an inline data: URI");
+  assert.match(html, /<link rel="apple-touch-icon"[^>]*href="\/icons\/apple-touch-icon\.png"/,
+    "iOS is given an SVG touch icon, which it renders inconsistently");
+  assert.ok(!/rel="apple-touch-icon" href="data:image\/svg/.test(html),
+    "the old SVG touch icon is still declared");
+  assert.match(html, /<meta name="theme-color" content="#12C6D4">/, "theme-color is not the brand");
+  assert.equal((html.match(/name="theme-color"/g) || []).length, 1, "theme-color is declared twice");
+  assert.equal((html.match(/apple-mobile-web-app-status-bar-style/g) || []).length, 1,
+    "two conflicting iOS status bar styles are declared");
+});
+
+test("the service worker cannot serve a stale price", { skip }, () => {
+  const sw = readFileSync(join(FE, "sw.js"), "utf8");
+
+  /*
+   * THE WHOLE POINT. A cached room rate is a number somebody will try to pay,
+   * a cached availability is a booking that fails at the last step, and a
+   * cached session belongs to whoever signed in last. The API is not cached in
+   * EITHER direction — not written, not read, not fallen back to offline.
+   */
+  assert.match(sw, /url\.pathname\.startsWith\("\/api\/"\)\) return;/,
+    "the service worker handles /api/, so a price can be served from a cache");
+  assert.match(sw, /url\.pathname\.startsWith\("\/auth\/"\)\) return;/,
+    "sign-in round trips pass through the worker");
+
+  /* A POST is a booking, a hold or a payment. Never replayed. */
+  assert.match(sw, /req\.method !== "GET"\) return;/, "non-GET requests reach the cache");
+
+  /* Another origin's response is another origin's to cache. */
+  assert.match(sw, /url\.origin !== self\.location\.origin\) return;/,
+    "third-party responses are cached by PALTAS's worker");
+
+  /*
+   * Network first for the app itself. Cache-first would be faster and would
+   * mean a deploy is live on the visit AFTER next, with a new page able to
+   * pair with an old script — which is most of an afternoon to diagnose.
+   */
+  assert.match(sw, /fetch\(req\)\s*\n\s*\.then/, "the shell is served cache-first");
+  assert.match(sw, /caches\.match\("\/offline\.html"\)/, "there is no offline page");
+  assert.ok(existsSync(join(FE, "offline.html")), "offline.html is referenced but missing");
+
+  /* A version to bump, and old caches actually deleted. */
+  assert.match(sw, /const VERSION = "paltas-v\d+"/, "the cache has no version to bump");
+  assert.match(sw, /caches\.delete\(k\)/, "old caches are never deleted");
+  assert.match(sw, /clients\.claim\(\)/, "open tabs keep the previous worker");
+});
+
+test("the worker is registered without being able to break the page", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const reg = html.slice(html.indexOf('if (!("serviceWorker" in navigator)) return;'),
+                         html.indexOf("</script>\n</body>"));
+  assert.ok(reg, "no service worker registration");
+
+  assert.match(reg, /if \(!\("serviceWorker" in navigator\)\) return;/,
+    "a browser without service workers is not checked for");
+  assert.match(reg, /\.catch\(function \(\) \{/, "a failed registration is unhandled");
+  assert.match(reg, /window\.addEventListener\("load"/,
+    "the worker is registered before load and competes with the first paint");
+  assert.match(reg, /location\.protocol === "file:"/,
+    "opening the file directly logs a registration error");
+
+  /* One reload, or an activating worker puts the page in a loop. */
+  assert.match(reg, /if \(reloaded\) return;/, "controllerchange can reload forever");
+});
+
+test("the installed app opens on stays, not on a photograph", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+
+  /*
+   * `index.html?go=stay` is written on promotion cards throughout the page and
+   * in the console's campaign builder, as the no-JavaScript fallback for their
+   * click handlers — and NOTHING READ IT. Those links landed on the homepage
+   * and left the visitor to find the marketplace, which is the failure a
+   * fallback exists to prevent.
+   */
+  assert.match(mod, /function intentFromUrl\(\)/, "?go= is still read by nothing");
+  assert.match(mod, /scrollIntoView/, "an intent is applied but never scrolled to");
+  assert.match(mod, /prefers-reduced-motion: reduce/, "the scroll ignores reduced motion");
+
+  /* Standalone gets a shorter hero — not none, since the search bar lives in
+     it, but not a full screen of photography before the inventory either. */
+  assert.match(html, /@media \(display-mode: standalone\)/,
+    "the installed app shows the same full-height hero as the website");
+  const block = (html.match(/@media \(display-mode: standalone\), [^{]*\{[\s\S]*?\n\}/) || [""])[0];
+  assert.match(block, /\.hero\{ min-height:clamp\(/, "the hero is not trimmed for the app");
+});
