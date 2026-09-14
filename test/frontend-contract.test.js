@@ -1829,3 +1829,58 @@ test("choosing airport transfer reveals its options, and they are all still ther
   assert.equal((closed.match(/mk-chip-off/g) || []).length, 0,
     "the disabled chips remain on the homepage");
 });
+
+test("every stylesheet parses, and nothing collapses a card to nothing", { skip }, () => {
+  /*
+   * A page reported blank on a phone while the headings rendered. That signature
+   * — markup present, contents invisible — is CSS, not data, so these are the
+   * three things found while chasing it.
+   *
+   * ONE: an unbalanced stylesheet. index.html carried a stray `}` that closed
+   * nothing. Browsers recover from a top-level parse error, but they are not
+   * obliged to recover IDENTICALLY, and a stray brace one line higher would
+   * have closed a media query early and leaked its rules everywhere.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const blocks = [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].map((m) => m[1]);
+  assert.ok(blocks.length, "the page has no stylesheet at all");
+
+  blocks.forEach((css, i) => {
+    /* Counted outside comments and strings, or a brace in either would lie. */
+    let depth = 0, at = 0;
+    while (at < css.length) {
+      if (css.startsWith("/*", at)) { const e = css.indexOf("*/", at + 2); at = e < 0 ? css.length : e + 2; continue; }
+      const ch = css[at];
+      if (ch === '"' || ch === "'") {
+        let j = at + 1;
+        while (j < css.length && css[j] !== ch) { if (css[j] === "\\") j++; j++; }
+        at = j + 1; continue;
+      }
+      if (ch === "{") depth++;
+      else if (ch === "}") {
+        depth--;
+        assert.ok(depth >= 0, `stylesheet ${i} has a stray closing brace — it closes nothing, and one line higher it would close a media query early`);
+      }
+      at++;
+    }
+    assert.equal(depth, 0, `stylesheet ${i} leaves ${depth} rule(s) unclosed`);
+  });
+
+  /*
+   * TWO: aspect-ratio is Safari 15+. Before that it is ignored, and a box whose
+   * only child is an image at height:100% collapses to nothing — an image area
+   * with no height, on the one platform hardest to debug.
+   */
+  assert.ok(/padding-top:66\.667%/.test(html),
+    "the card image has no pre-aspect-ratio fallback, so it collapses on older Safari");
+  assert.ok(/@supports \(aspect-ratio/.test(html),
+    "the fallback is never overridden, so modern browsers keep the padding hack");
+
+  /*
+   * THREE: a floor under the card. An invisible card and an absent one look
+   * identical to somebody on a phone, so no arithmetic may produce either.
+   */
+  const cardRule = (html.match(/\.mk-rail > \.mk-card\{[\s\S]*?\}/) || [""])[0];
+  assert.ok(/min-width:\s*\d+px/.test(cardRule), "a card can be squeezed to nothing");
+  assert.ok(/min-height:\s*\d+px/.test(cardRule), "a card can collapse to no height");
+});
