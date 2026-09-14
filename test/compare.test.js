@@ -252,3 +252,103 @@ test("health says which build is answering, and since when", async () => {
   assert.match(src, /const STARTED_AT = new Date\(\)\.toISOString\(\);/,
     "startedAt is computed per request, so it can never show a restart");
 });
+
+test("homes are never searched without a destination", async () => {
+  const { findHomes, forgetHomes } = await import("../src/domain/compare.js");
+  const log = [];
+  clearCompare(); forgetHomes();
+  registerCompare({
+    describe: () => ({ name: "stayingapi", sandbox: true }),
+    compare: async () => ({ offers: [] }),
+    search: async (a) => { log.push(a); return { results: [] }; },
+  });
+
+  /*
+   * THE COST CONTROL, AS A GUARD RATHER THAN A CONVENTION.
+   *
+   * This search bills per result per platform, and the homepage loads inventory
+   * on every visit — bots and bounces included. Without a named destination it
+   * must never run, and a caller must not be able to forget that.
+   */
+  const none = await findHomes({ checkIn: "2026-11-02", checkOut: "2026-11-05" });
+  assert.deepEqual(none.homes, []);
+  assert.match(none.why, /Choose a destination/);
+  assert.equal(log.length, 0, "a metered search ran with no destination");
+
+  await findHomes({ city: "   ", checkIn: "2026-11-02", checkOut: "2026-11-05" });
+  assert.equal(log.length, 0, "whitespace counted as a destination");
+
+  /* Dates too — a home is priced for particular nights. */
+  const undated = await findHomes({ city: "Lisbon" });
+  assert.match(undated.why, /need dates/);
+  assert.equal(log.length, 0, "a metered search ran with no dates");
+  clearCompare();
+});
+
+test("homes ask only for the platforms LiteAPI does not cover", async () => {
+  const { findHomes, forgetHomes } = await import("../src/domain/compare.js");
+  const log = [];
+  clearCompare(); forgetHomes();
+  registerCompare({
+    describe: () => ({ name: "stayingapi", sandbox: true }),
+    compare: async () => ({ offers: [] }),
+    search: async (a) => {
+      log.push(a);
+      return { results: [
+        { id: "airbnb:1", title: "Loft", via: "airbnb", bookable: false,
+          url: "https://airbnb.com/1", price: { amountMinor: 18000, currency: "GBP" } },
+        /* Rejected by the filter: no link to open. */
+        { id: "vrbo:2", title: "No link", via: "vrbo", bookable: false, url: null },
+      ] };
+    },
+  });
+
+  const out = await findHomes({ city: "London", checkIn: "2026-11-02", checkOut: "2026-11-05", guests: 3 });
+
+  /* Booking.com and Expedia would return hotels PALTAS already sells through
+     LiteAPI — billed a second time for inventory it already has. */
+  assert.deepEqual(log[0].platforms, ["airbnb", "vrbo"],
+    "the search pays for platforms whose inventory PALTAS already carries");
+  assert.equal(log[0].adults, 3);
+  assert.ok(log[0].limit <= 20, "an unbounded limit was sent to a per-result endpoint");
+
+  assert.equal(out.homes.length, 1, "a home with no link to open was kept");
+  assert.equal(out.homes[0].bookable, false);
+  assert.match(out.basis, /PALTAS does not sell these/,
+    "the shelf carries nothing saying these are not PALTAS's");
+  clearCompare();
+});
+
+test("the same destination is searched once", async () => {
+  const { findHomes, forgetHomes } = await import("../src/domain/compare.js");
+  const log = [];
+  clearCompare(); forgetHomes();
+  registerCompare({
+    describe: () => ({ name: "stayingapi", sandbox: true }),
+    compare: async () => ({ offers: [] }),
+    search: async (a) => { log.push(a); return { results: [] }; },
+  });
+  const q = { city: "Lisbon", checkIn: "2026-11-02", checkOut: "2026-11-05", guests: 2 };
+  await findHomes(q);
+  await findHomes(q);
+  await findHomes({ ...q, city: "  lisbon  " });   /* same place, typed differently */
+  assert.equal(log.length, 1, "a cached destination was bought again");
+
+  await findHomes({ ...q, city: "Porto" });
+  assert.equal(log.length, 2, "a different destination was served a stale answer");
+  clearCompare();
+});
+
+test("a provider that fails leaves the shelf as it was", async () => {
+  const { findHomes, forgetHomes } = await import("../src/domain/compare.js");
+  clearCompare(); forgetHomes();
+  registerCompare({
+    describe: () => ({ name: "stayingapi", sandbox: false }),
+    compare: async () => ({ offers: [] }),
+    search: async () => { throw new Error("StayingAPI is out of credits."); },
+  });
+  const out = await findHomes({ city: "Oslo", checkIn: "2026-11-02", checkOut: "2026-11-05" });
+  assert.deepEqual(out.homes, []);
+  assert.match(out.why, /out of credits/);
+  clearCompare();
+});

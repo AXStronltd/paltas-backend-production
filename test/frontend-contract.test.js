@@ -2307,3 +2307,79 @@ test("nothing spends a credit until somebody opens a hotel", { skip }, () => {
       `${f} renders StayingAPI content, which cannot be booked on PALTAS`);
   }
 });
+
+test("an Airbnb on the homes shelf can never look bookable", { skip }, () => {
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  const fn = mod.slice(mod.indexOf("function homeCard(o)"), mod.indexOf("function supplyCard(o)"));
+  assert.ok(fn, "there is no renderer for another site's home");
+
+  /*
+   * EVERY BUTTON ON THIS PAGE STARTS SOMETHING PALTAS CAN FINISH.
+   *
+   * These cannot be finished here — StayingAPI has no booking endpoint — so the
+   * action is a link that leaves, not a button. Getting this wrong puts a
+   * booking button on a listing PALTAS cannot sell.
+   */
+  assert.ok(!/mk-book|data-mk-rooms/.test(fn),
+    "a home on another site carries the booking control PALTAS uses for its own");
+  assert.ok(/<a class="mk-away-go"/.test(fn), "the action is not a link out");
+  assert.ok(/rel="noopener noreferrer nofollow"/.test(fn), "the outbound link has no rel protection");
+  assert.ok(/opens in a new tab/.test(fn), "a new tab opens with no warning to a screen reader");
+
+  /* Said three times before a thumb reaches it: whose it is, whose price it
+     is, and where the action goes. */
+  assert.ok(/On ' \+ esc\(label\)/.test(fn), "the card does not name the site it belongs to");
+  assert.ok(/' on ' \+ esc\(label\)/.test(fn), "the price is not attributed to the other site");
+  assert.ok(/View on ' \+ esc\(label\)/.test(fn), "the action does not say where it goes");
+
+  /* A rating keeps the scale it came on — Airbnb is out of 5, Booking out of
+     10, and one shown as the other is a lie told with true numbers. */
+  assert.ok(/o\.rating\.outOf/.test(fn), "a rating is shown without the scale it was given on");
+
+  /* The badge must not wear the brand fill: turquoise means "PALTAS can finish
+     this" everywhere else on the page. */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const badge = (html.match(/\.mk-kind-away\{[^}]*\}/) || [""])[0];
+  assert.ok(badge && !/var\(--mk-accent/.test(badge),
+    "another site's badge wears the brand fill, so it reads as PALTAS inventory");
+});
+
+test("other sites' homes reach one shelf, and cost nothing until asked for", { skip }, () => {
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+
+  /*
+   * NO DESTINATION, NO CALL. The page loads inventory on every visit — bots,
+   * bounces, people scrolling past — and this search bills per result. The
+   * guard is on the page as well as the server because either alone is one
+   * mistake away from a bill.
+   */
+  assert.ok(/if \(STATE\.city && !STATE\.homesAsked\) loadHomes\(\);/.test(mod),
+    "homes are fetched without a destination, so browsing costs money");
+  assert.ok(/if \(!STATE\.city\) return;/.test(mod),
+    "loadHomes has no guard of its own");
+
+  /* A new search is a new question — Lisbon's homes must not sit under Nairobi,
+     and the flag has to reopen or the second destination is never looked up. */
+  assert.ok((mod.match(/STATE\.homes = \[\]; STATE\.homesAsked = false;/g) || []).length >= 2,
+    "a new search keeps the previous destination's homes");
+
+  /*
+   * ONE SHELF. A visitor who asked for hotels, long lets or property for sale
+   * did not ask for an Airbnb, and offering one because the shelf looked thin
+   * is a marketplace answering a question nobody put.
+   */
+  assert.ok(/STATE\.filter === "all" \|\| STATE\.filter === "short"/.test(mod),
+    "another site's homes leak into filters that did not ask for a home");
+  assert.equal((mod.match(/away: true/g) || []).length, 1,
+    "more than one section takes other sites' listings");
+
+  /* PALTAS's own first, then a supplier's, then other sites'. Nothing bookable
+     is ever pushed below something that is not. */
+  const order = mod.slice(mod.indexOf("mine.map(card)"), mod.indexOf("awayFootnote(away.length)"));
+  assert.ok(order.indexOf("theirs.map(supplyCard)") < order.indexOf("away.map(homeCard)"),
+    "unbookable listings are drawn above bookable ones");
+
+  /* And the shelf says so once, underneath. */
+  assert.ok(/function awayFootnote\(n\)/.test(mod), "the shelf never says whose these are");
+  assert.ok(/PALTAS does not sell them/.test(mod), "the footnote does not say they are not PALTAS's");
+});

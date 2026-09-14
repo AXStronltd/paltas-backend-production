@@ -45,7 +45,7 @@ import { badRequest, unavailable, notFound } from "../http/errors.js";
 import { rateLimit } from "../http/rate-limit.js";
 import { requireSession } from "../http/session.js";
 import { supplier, isConnected, status as supplyStatus } from "../domain/supply.js";
-import { comparePrices, compareStatus } from "../domain/compare.js";
+import { comparePrices, compareStatus, findHomes } from "../domain/compare.js";
 
 export const stayRoutes = Router();
 
@@ -175,6 +175,44 @@ stayRoutes.get("/marketplace/hotels/:hotelId/compare",
 
       /* A scraped third-party price is a snapshot, not a quote PALTAS stands
          behind, so a browser may hold it briefly and nothing else may. */
+      res.set("Cache-Control", "private, max-age=600");
+      res.json(out);
+    } catch (e) { next(e); }
+  });
+
+/* ---------------------------------------------------------------- 1c
+ * WHOLE HOMES FROM OTHER SITES.
+ *
+ * PALTAS owns no short-stay homes and LiteAPI sells hotel rooms, so the
+ * "Homes for a few nights" shelf is empty. Airbnb and Vrbo are the gap.
+ *
+ * NONE OF THESE IS BOOKABLE HERE, and the route says so in every row it
+ * returns. StayingAPI has no booking endpoint at all — see the long note at the
+ * top of src/suppliers/stayingapi.js.
+ *
+ * A CITY IS REQUIRED, and that is the cost control rather than a convenience.
+ * This search bills per result per platform, and PALTAS's homepage loads
+ * inventory on every visit — so without a named destination it must never run,
+ * or every bot and every bounce is billed for.
+ * ---------------------------------------------------------------- */
+stayRoutes.get("/marketplace/homes",
+  rateLimit({ windowMs: 60_000, max: 30 }),
+  async (req, res, next) => {
+    try {
+      const city = String(req.query.city || "").trim();
+      if (!city) throw badRequest("A destination is needed. Homes are not searched without one.");
+      if (city.length > 120) throw badRequest("That destination is too long.");
+
+      const stay = stayOf(req.query);
+      const currency = String(req.query.currency || "").toUpperCase();
+      if (currency && !/^[A-Z]{3}$/.test(currency)) {
+        throw badRequest("currency must be a three-letter ISO-4217 code.");
+      }
+
+      const out = await findHomes({ city, currency, ...stay });
+
+      /* Somebody else's listing and somebody else's price — a browser may hold
+         it briefly and no shared cache may. */
       res.set("Cache-Control", "private, max-age=600");
       res.json(out);
     } catch (e) { next(e); }

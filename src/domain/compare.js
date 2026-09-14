@@ -18,6 +18,12 @@
  * and a converted figure beside a real one is a comparison wrong by whatever
  * the rate happens to be. Offers in another currency are dropped and counted.
  *
+ * It also answers findHomes(), which is a different product on the same
+ * provider — whole homes from Airbnb and Vrbo, which LiteAPI does not sell at
+ * all. It lives in this file because the PROVIDER is the same one and there
+ * must be exactly one registration: two modules each holding their own would
+ * be two places to connect, two to clear, and two to get out of step.
+ *
  * It will not present the comparison as like-for-like. PALTAS quotes a specific
  * room on a specific board basis; Google reports what sellers advertise for the
  * property. Those are different things, and `basis` says so in words the page
@@ -53,7 +59,12 @@ export function registerCompare(p) {
   return provider;
 }
 
-export function clearCompare() { provider = null; unavailableBecause = ""; CACHE.clear(); }
+export function clearCompare() {
+  provider = null; unavailableBecause = "";
+  CACHE.clear();
+  /* Both caches, or a cleared provider still serves its old homes. */
+  HOMES.clear();
+}
 
 export function compareStatus() {
   if (!provider) {
@@ -188,5 +199,99 @@ export async function comparePrices({
       : "No other seller published a comparable price for these dates.",
   };
   cacheSet(key, value);
+  return value;
+}
+
+
+/*
+ * ================================================================
+ * WHOLE HOMES FROM OTHER SITES
+ * ================================================================
+ *
+ * PALTAS owns no short-stay homes, and LiteAPI sells hotel rooms — so the
+ * "Homes for a few nights" shelf has nothing on it and says so. Airbnb and Vrbo
+ * are exactly the gap, and StayingAPI can read them.
+ *
+ * WHAT THESE ARE NOT: bookable. Every row carries bookable:false and the URL of
+ * the site that holds it, for the same reason the comparison does — this
+ * provider has no booking endpoint, and a card with a PALTAS button on it would
+ * be a promise nobody can keep.
+ *
+ * WHAT THEY COST: /search bills per result PER PLATFORM — Airbnb 2x, Vrbo 1x,
+ * minimum 5. Eight results across both is roughly 24 credits. So this NEVER
+ * runs for a visitor who has not named a destination: browsing the homepage
+ * must cost nothing, and a homepage that loads inventory on every visit would
+ * otherwise bill for bots and bounces alike.
+ */
+const HOMES = new Map();
+const HOMES_TTL_MS = 6 * 60 * 60 * 1000;
+const HOMES_MAX = 300;
+
+export function forgetHomes() { HOMES.clear(); }
+
+export async function findHomes({ city, checkIn, checkOut, guests = 2, currency = "", limit = 8 } = {}) {
+  const base = {
+    homes: [], city: city || "", checkIn, checkOut,
+    provider: compareStatus(),
+    /*
+     * The sentence the page prints. These are not PALTAS's, they are not
+     * bookable here, and a visitor deserves to know that before they click
+     * rather than after.
+     */
+    basis: "Listed by Airbnb and Vrbo. PALTAS does not sell these \u2014 they are " +
+           "booked on the site that lists them.",
+  };
+
+  if (!provider || typeof provider.search !== "function") {
+    return { ...base, why: compareStatus().why };
+  }
+  /*
+   * NO DESTINATION, NO SEARCH, NO CREDIT. This is the whole cost control, and
+   * it is a guard rather than a convention so that a caller cannot forget it.
+   */
+  if (!city || !String(city).trim()) {
+    return { ...base, why: "Choose a destination and these fill in." };
+  }
+  if (!checkIn || !checkOut) {
+    return { ...base, why: "A home is priced for particular nights, so these need dates." };
+  }
+
+  const key = [String(city).trim().toLowerCase(), checkIn, checkOut, guests, currency].join("|");
+  const hit = HOMES.get(key);
+  if (hit && Date.now() <= hit.until) {
+    HOMES.delete(key); HOMES.set(key, hit);
+    return { ...hit.value, cached: true };
+  }
+
+  let out;
+  try {
+    out = await provider.search({
+      location: String(city).trim(),
+      checkIn, checkOut, adults: guests,
+      /* The two platforms LiteAPI does not cover. Asking for the others would
+         return hotels PALTAS already sells, billed a second time. */
+      platforms: ["airbnb", "vrbo"],
+      limit: Math.max(1, Math.min(20, Number(limit) || 8)),
+      sort: "price_asc",
+    });
+  } catch (e) {
+    /* An extra that failed is still an extra: the shelf says what it said
+       before, and the bookable inventory around it is untouched. */
+    return { ...base, why: (e && e.message) || "Other sites could not be read." };
+  }
+
+  const homes = (out.results || []).filter((r) => r && r.bookable === false && r.url);
+  const value = {
+    ...base,
+    homes,
+    count: homes.length,
+    why: homes.length ? "" : "Airbnb and Vrbo list nothing for those dates.",
+  };
+
+  if (HOMES.size >= HOMES_MAX) {
+    const oldest = HOMES.keys().next().value;
+    if (oldest !== undefined) HOMES.delete(oldest);
+  }
+  HOMES.set(key, { value, until: Date.now() + HOMES_TTL_MS });
   return value;
 }
