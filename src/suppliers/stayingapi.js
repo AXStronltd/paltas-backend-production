@@ -159,8 +159,36 @@ export function stayingApi({
    */
   function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
+  /*
+   * MY PATHS ARE RELATIVE TO THE BASE. THE SERVICE'S ARE NOT.
+   *
+   * `base` ends in /v1, and the paths in this file ("/search", "/price-compare")
+   * are written to hang off it. But the pollUrl the service hands back is
+   * ROOT-ABSOLUTE and already carries the version — "/v1/jobs/job_xxx". Pasting
+   * that onto the base produced /v1/v1/jobs/job_xxx and a 404.
+   *
+   * That 404 only ever appeared on a request slow enough to go asynchronous, so
+   * a cached hotel answered perfectly and an uncached one came back empty. Two
+   * comparisons of the SAME hotel on the SAME dates behaved differently
+   * depending on whether the upstream had seen it recently — which reads as
+   * anything except a URL being wrong.
+   */
+  /* Named `apiRoot`, not `baseUrl` — that is already this function's parameter,
+     and shadowing it here made the module fail to parse at all. */
+  const apiRoot = new URL(base);
+  const basePath = apiRoot.pathname.replace(/\/+$/, "");
+
   function urlFor(path, params = {}) {
-    const url = new URL(/^https?:/.test(path) ? path : base + path);
+    let full;
+    if (/^https?:/i.test(path)) {
+      full = path;
+    } else if (basePath && (path === basePath || path.startsWith(basePath + "/"))) {
+      /* Already versioned — hang it off the ORIGIN, not the base. */
+      full = apiRoot.origin + path;
+    } else {
+      full = base + (path.startsWith("/") ? path : "/" + path);
+    }
+    const url = new URL(full);
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
     }

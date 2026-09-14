@@ -160,8 +160,22 @@ test("it follows the pollUrl the service gives, and its Retry-After", { }, async
   ]);
   const c = stayingApi({ apiKey: TEST_KEY, fetchImpl: f, pollMs: 1 });
   await c.search({ location: "Oslo" });
-  assert.ok(/\/jobs\/somewhere-else/.test(f.seen[1].url),
-    "the service's own pollUrl was ignored in favour of a constructed one");
+
+  /*
+   * THE EXACT URL, not a substring of it.
+   *
+   * The first version of this asserted that "/jobs/somewhere-else" APPEARED in
+   * the polled URL — which is true of the broken "/v1/v1/jobs/somewhere-else"
+   * as well. The test passed while the code 404'd against production, and it
+   * only ever 404'd on requests slow enough to go asynchronous, so nothing
+   * synchronous ever showed it.
+   */
+  assert.equal(f.seen[1].url, "https://api.stayingapi.com/v1/jobs/somewhere-else",
+    "the version segment is doubled, or the service's own pollUrl was ignored");
+  assert.ok(!/\/v1\/v1\//.test(f.seen[1].url), "the /v1 prefix is doubled");
+
+  /* And my own relative paths still hang off the versioned base. */
+  assert.equal(f.seen[0].url.split("?")[0], "https://api.stayingapi.com/v1/search");
 });
 
 test("it stops waiting rather than polling forever", async () => {
