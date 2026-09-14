@@ -23,6 +23,7 @@ function fakeFetch(steps) {
     return {
       ok: (next.status || 200) < 400,
       status: next.status || 200,
+      headers: { get: (k) => (next.headers || {})[String(k).toLowerCase()] ?? null },
       json: async () => next.body,
     };
   };
@@ -106,26 +107,65 @@ test("a rating outside its own scale is dropped, not squeezed to fit", async () 
   assert.equal(results[1].rating, null, "a zero was rendered as a score");
 });
 
-test("a live scrape is polled on the free endpoint, not re-run on the billed one", async () => {
+test("a completed job is read at data.result, not data", { }, async () => {
   /*
-   * 202 + jobId means work is running. Polling /jobs costs 0 credits and
-   * re-issuing /search costs the search again, so the difference between these
-   * two is money on every slow query.
+   * THE BUG THIS EXISTS FOR.
+   *
+   * A completed job carries {jobId, status, result} and the payload is at
+   * `result`. Reading `data` gives the wrapper — no offers, no error, no clue.
+   * It looks exactly like "nobody else lists this hotel", which is why it
+   * survived two live comparisons before anything noticed.
    */
   const f = fakeFetch([
-    { status: 202, body: { data: { jobId: "job_77" } } },
-    { status: 200, body: { data: { results: [{ platform: "vrbo", id: "9", title: "Cabin" }] } } },
+    { status: 202, body: { data: { jobId: "job_77", status: "pending", pollUrl: "/v1/jobs/job_77" } } },
+    { status: 200, body: { data: { jobId: "job_77", status: "running", pollUrl: "/v1/jobs/job_77" } } },
+    { status: 200, body: { data: { jobId: "job_77", status: "completed",
+        result: { results: [{ platform: "vrbo", id: "9", title: "Cabin" }] } } } },
   ]);
   const c = stayingApi({ apiKey: TEST_KEY, fetchImpl: f, pollMs: 1 });
   const { results } = await c.search({ location: "Aspen" });
-  assert.equal(results.length, 1);
-  assert.equal(f.seen.length, 2);
-  assert.ok(/\/jobs\/job_77/.test(f.seen[1].url), "the second call was not the free jobs endpoint");
-  assert.ok(!/\/search/.test(f.seen[1].url), "the billed search was issued twice");
+
+  assert.equal(results.length, 1, "the payload under data.result was not unwrapped");
+  assert.equal(results[0].title, "Cabin");
+
+  /* `running` is in progress, not finished. Stopping there returns a wrapper. */
+  assert.equal(f.seen.length, 3, "a running job was treated as terminal");
+
+  /* Polling is free; re-issuing the search is not. */
+  assert.ok(/\/jobs\/job_77/.test(f.seen[1].url) && /\/jobs\/job_77/.test(f.seen[2].url),
+    "the billed endpoint was called again instead of the free jobs one");
+});
+
+test("a failed job is HTTP 200, and is not mistaken for an empty answer", { }, async () => {
+  /*
+   * The spec says this in capitals: detect failure via data.status, NOT via the
+   * status code. Treated as success it is another silent empty result.
+   */
+  const f = fakeFetch([
+    { status: 202, body: { data: { jobId: "job_x", status: "pending", pollUrl: "/v1/jobs/job_x" } } },
+    { status: 200, body: { data: { jobId: "job_x", status: "failed",
+        error: { code: "platform_blocked", message: "Google refused the request.", retryable: true } } } },
+  ]);
+  const c = stayingApi({ apiKey: TEST_KEY, fetchImpl: f, pollMs: 1 });
+  await assert.rejects(() => c.search({ location: "Aspen" }),
+    (e) => e instanceof SupplyUnavailable && /Google refused the request/.test(e.message),
+    "a failed job came back as success with no offers");
+});
+
+test("it follows the pollUrl the service gives, and its Retry-After", { }, async () => {
+  const f = fakeFetch([
+    { status: 202, headers: { "retry-after": "1" },
+      body: { data: { jobId: "j2", status: "pending", pollUrl: "/v1/jobs/somewhere-else" } } },
+    { status: 200, body: { data: { jobId: "j2", status: "completed", result: { results: [] } } } },
+  ]);
+  const c = stayingApi({ apiKey: TEST_KEY, fetchImpl: f, pollMs: 1 });
+  await c.search({ location: "Oslo" });
+  assert.ok(/\/jobs\/somewhere-else/.test(f.seen[1].url),
+    "the service's own pollUrl was ignored in favour of a constructed one");
 });
 
 test("it stops waiting rather than polling forever", async () => {
-  const f = fakeFetch({ status: 202, body: { data: { jobId: "job_stuck" } } });
+  const f = fakeFetch({ status: 202, body: { data: { jobId: "job_stuck", status: "running", pollUrl: "/v1/jobs/job_stuck" } } });
   const c = stayingApi({ apiKey: TEST_KEY, fetchImpl: f, pollMs: 1, maxPolls: 3 });
   await assert.rejects(() => c.search({ location: "Nowhere" }),
     (e) => e instanceof SupplyUnavailable && /stopped waiting/.test(e.message));

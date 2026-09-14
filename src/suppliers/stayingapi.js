@@ -136,17 +136,44 @@ export function stayingApi({
   const http = fetchImpl || (typeof fetch === "function" ? fetch : null);
   if (!http) throw new SupplyUnavailable("No fetch implementation is available for StayingAPI.");
 
-  async function call(path, params = {}, depth = 0) {
-    const url = new URL(base + path);
+  /*
+   * THE ASYNC JOB PROTOCOL, WHICH IS WHERE THE PAYLOAD ACTUALLY LIVES.
+   *
+   * A first version of this read `body.data` for everything and returned
+   * nothing on every slow query — silently, with no error, looking exactly like
+   * "no other seller published a price". Three things in the spec make that
+   * wrong, and all three fail the same quiet way:
+   *
+   *   A COMPLETED JOB PUTS THE PAYLOAD AT data.result, not at data. Reading
+   *   data gives you {jobId, status, result} and no offers at all.
+   *
+   *   IN PROGRESS IS `pending` OR `running`. Checking only for pending treats a
+   *   running job as finished and returns its placeholder.
+   *
+   *   A FAILED JOB IS HTTP 200. The spec says so in capitals: detect it via
+   *   data.status === "failed", NOT via the status code. Treated as success it
+   *   is, again, an empty answer.
+   *
+   * So the unwrapping is done here, once, and every caller below receives the
+   * same shape whether the work was synchronous or took four polls.
+   */
+  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+  function urlFor(path, params = {}) {
+    const url = new URL(/^https?:/.test(path) ? path : base + path);
     for (const [k, v] of Object.entries(params)) {
       if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
     }
+    return url.toString();
+  }
 
+  /** One request. Returns the parsed body plus what the headers asked for. */
+  async function once(url) {
     const stop = new AbortController();
     const t = setTimeout(() => stop.abort(), timeoutMs);
     let res;
     try {
-      res = await http(url.toString(), {
+      res = await http(url, {
         method: "GET",
         signal: stop.signal,
         headers: {
@@ -171,42 +198,61 @@ export function stayingApi({
     if (res.status === 401 || res.status === 403) {
       throw new SupplyUnavailable("StayingAPI refused the key. It may have been rotated or revoked.");
     }
-    if (res.status === 429) {
-      throw new SupplyUnavailable("StayingAPI is rate limiting this account.");
-    }
-    if (res.status === 402) {
-      throw new SupplyUnavailable("This StayingAPI account is out of credits.");
-    }
+    if (res.status === 429) throw new SupplyUnavailable("StayingAPI is rate limiting this account.");
+    if (res.status === 402) throw new SupplyUnavailable("This StayingAPI account is out of credits.");
 
-    /*
-     * 202 means a live scrape is running. Poll the job — which the spec prices
-     * at zero credits — rather than re-issuing the search, which would be
-     * billed again every time.
-     */
-    const jobId = body && body.data && body.data.jobId;
-    if (res.status === 202 && jobId) {
-      if (depth >= maxPolls) {
-        throw new SupplyUnavailable("StayingAPI is still working; PALTAS stopped waiting.");
-      }
-      await new Promise((r) => setTimeout(r, pollMs));
-      return call(`/jobs/${encodeURIComponent(jobId)}`, {}, depth + 1);
-    }
-    /* A poll that is still pending comes back 200 with no result yet. */
-    if (body && body.data && body.data.status === "pending") {
-      if (depth >= maxPolls) {
-        throw new SupplyUnavailable("StayingAPI is still working; PALTAS stopped waiting.");
-      }
-      await new Promise((r) => setTimeout(r, pollMs));
-      return call(path, params, depth + 1);
-    }
-
-    if (!res.ok) {
+    if (!res.ok && res.status !== 202) {
       const why = (body && (body.message || body.error)) || `StayingAPI answered ${res.status}.`;
-      /* Whatever it said, it is not repeated verbatim into a browser — an
-         upstream error can carry an echo of the request, key included. */
+      /* Whatever it said, it is not repeated verbatim: an upstream error can
+         carry an echo of the request, key included. */
       throw new SupplyUnavailable(
         typeof why === "string" && !/stay_(test|live)_/.test(why)
           ? why : `StayingAPI answered ${res.status}.`);
+    }
+
+    /* The service hints its own back-off. Honouring it beats guessing. */
+    let after = 0;
+    try {
+      const h = res.headers && typeof res.headers.get === "function"
+        ? res.headers.get("retry-after") : null;
+      const n = Number(h);
+      if (Number.isFinite(n) && n > 0) after = Math.min(10_000, n * 1000);
+    } catch { /* headers are optional in a fake */ }
+
+    return { status: res.status, body, retryAfter: after };
+  }
+
+  async function call(path, params = {}) {
+    let { body, retryAfter } = await once(urlFor(path, params));
+
+    for (let i = 0; i < maxPolls; i++) {
+      const d = (body && body.data) || {};
+      /* A synchronous answer has no jobId and is already the payload. */
+      if (!d.jobId) break;
+
+      if (d.status === "completed") break;
+      if (d.status === "failed") {
+        const why = (d.error && (d.error.message || d.error.code)) || "the platform could not be read";
+        throw new SupplyUnavailable("StayingAPI could not complete the request: " + why);
+      }
+      /* pending or running — both mean keep waiting. */
+      await sleep(retryAfter || pollMs);
+      const next = await once(urlFor(d.pollUrl || `/jobs/${encodeURIComponent(d.jobId)}`));
+      body = next.body;
+      retryAfter = next.retryAfter;
+    }
+
+    const d = (body && body.data) || {};
+    if (d.jobId && d.status === "completed") {
+      /* THE PAYLOAD. The same shape a synchronous call returns. */
+      return { ...body, data: d.result };
+    }
+    if (d.jobId && d.status === "failed") {
+      const why = (d.error && (d.error.message || d.error.code)) || "the platform could not be read";
+      throw new SupplyUnavailable("StayingAPI could not complete the request: " + why);
+    }
+    if (d.jobId) {
+      throw new SupplyUnavailable("StayingAPI is still working; PALTAS stopped waiting.");
     }
     return body;
   }
