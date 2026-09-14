@@ -1275,3 +1275,69 @@ test("a customer never settles a hotel booking with ACC_CREDIT_CARD", { skip }, 
   assert.ok(!/ACC_CREDIT_CARD/.test(js),
     "the checkout SENDS ACC_CREDIT_CARD, which would bill PALTAS rather than the guest");
 });
+
+test("no public control can open the demo search", { skip }, () => {
+  /*
+   * #bookFlow is a search-and-book experience backed by `LISTINGS` — nine
+   * invented properties with invented names, prices and ratings — plus invented
+   * collections ("Cliffside villas", "Lakeside cottages").
+   *
+   * It was reachable from twenty-one places: the Hotels chip, the hero Search,
+   * every generated row card, the wishlist button, two footers, the inspiration
+   * grid. A customer selecting Hotels on the live site was shown fake hotels.
+   *
+   * The gate is at openFlow(), the single function all of them call, because
+   * twenty-one separate fixes would have missed one — and the one missed is the
+   * one somebody finds.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const fn = html.slice(html.indexOf("window.openFlow=function"),
+                        html.indexOf("window.__demoBookFlow=function"));
+  assert.ok(fn.includes("PALTAS_SEARCH"),
+    "openFlow no longer routes to the real marketplace — the demo search is " +
+    "reachable from every public control again");
+  assert.ok(!/flow\.classList\.add/.test(fn),
+    "openFlow opens the demo modal directly");
+
+  /* And the two controls a customer actually used. */
+  const setStay = html.slice(html.indexOf("window.setStayType=function"),
+                             html.indexOf("window.setStayType=function") + 1400);
+  assert.ok(setStay.includes("PALTAS_SEARCH"), "the category chips open the demo flow again");
+  assert.ok(!/window\.openFlow\(\)/.test(setStay), "setStayType still calls openFlow");
+});
+
+test("the search sends what the visitor chose, not a substitute", { skip }, () => {
+  /*
+   * "Do not silently replace dates with demo/default dates." The page may
+   * DEFAULT a window when none is chosen — and says so — but once somebody
+   * picks a destination, dates or occupancy, those must be what reaches the
+   * supplier.
+   */
+  const js = readFileSync(join(FE, "assets", "paltas-market.js"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+  assert.ok(/stayCity=/.test(js), "the typed destination is never sent to the supplier");
+  assert.ok(/function searchFor\(/.test(js), "there is no single entry point for a real search");
+  assert.ok(/STATE\.stayDefaulted\s*=\s*false/.test(js),
+    "a real search does not clear the defaulted flag, so the page would keep " +
+    "calling the visitor's own dates a default");
+
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const hero = html.slice(html.indexOf("window.heroSearch=function"),
+                          html.indexOf("window.heroSearch=function") + 1600);
+  for (const part of ["heroIn", "heroOut", "heroType", "guests: total"]) {
+    assert.ok(hero.includes(part), `the hero search drops ${part} before calling the API`);
+  }
+});
+
+test("a category decides which real inventory is shown", { skip }, () => {
+  /* Hotels -> a licensed supplier. Everything else -> PALTAS's own published
+     inventory. Nothing maps to a local array. */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const map = html.slice(html.indexOf("const MAP={ all:"), html.indexOf("const MAP={ all:") + 260);
+  for (const [chip, filter] of [["hotel", "hotels"], ["stays", "short"],
+                                ["rent", "long"], ["buy", "sale"],
+                                ["projects", "developments"]]) {
+    assert.ok(new RegExp(`${chip}\\s*:\\s*'${filter}'`).test(map),
+      `the "${chip}" category does not map to the "${filter}" inventory`);
+  }
+});
