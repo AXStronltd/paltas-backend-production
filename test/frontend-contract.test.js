@@ -1718,7 +1718,24 @@ test("a card row can be scrolled, not just wrapped", { skip }, async () => {
    * The peek. A row ending flush at the screen edge looks finished, and nobody
    * swipes a row they believe has ended.
    */
-  assert.ok(/--mk-peek:44px/.test(css), "no card peeks in on a phone, so the row looks complete");
+  /*
+   * On a phone a card must be NARROWER than the rail, so the next one shows at
+   * the edge. A row ending flush looks finished, and nobody swipes a row they
+   * believe has ended.
+   *
+   * Checked as behaviour rather than by token name: this was `--mk-peek:44px`
+   * until the arithmetic was rewritten to keep var() out of calc's multiplier
+   * and divisor, which is the shape older Safari mis-evaluates.
+   */
+  const phone = (css.match(/@media \(max-width:620px\)\{[\s\S]*?\n\}/) || [""])[0];
+  assert.ok(/flex-basis:calc\(100% - \d+px\)/.test(phone),
+    "on a phone the card fills the whole rail, so the row looks complete and " +
+    "nobody swipes it");
+
+  /* And no var() in a calc multiplier or divisor, anywhere in the rail rules. */
+  assert.ok(!/\/ var\(--mk-per\)/.test(css),
+    "a calc() still divides by a custom property — the construct older Safari " +
+    "mis-evaluates, which silently gives a card no width");
 });
 
 test("an empty or product row gets no arrows", { skip }, async () => {
