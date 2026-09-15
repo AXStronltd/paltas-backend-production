@@ -2931,3 +2931,57 @@ test("a visitor with no market still sees hotels, and is told why these ones", {
     "the notice's button does not reach the real destination field");
   assert.ok(html.includes('id="heroWhere"'), "the field the button focuses does not exist");
 });
+
+test("the timezone map is big enough to actually detect somebody", { skip }, () => {
+  const cfg = readFileSync(join(FE, "assets/market-config.js"), "utf8");
+  const m = /TZ_COUNTRY\s*=\s*\{/.exec(cfg);
+  assert.ok(m, "there is no timezone map at all");
+  let i = m.index + m[0].length, depth = 1;
+  while (depth) { if (cfg[i] === "{") depth++; else if (cfg[i] === "}") depth--; i++; }
+  const pairs = [...cfg.slice(m.index + m[0].length, i - 1)
+    .matchAll(/"([^"]+)"\s*:\s*"([A-Z]{2})"/g)].map((x) => [x[1], x[2]]);
+
+  /*
+   * SIXTY-NINE ZONES COVERED FIFTY COUNTRIES — roughly one apiece, when the
+   * United States alone has thirty. Somebody in Detroit, Indianapolis, St
+   * John's, Recife, Tijuana, Hobart or the Azores resolved to NO country, and
+   * no country meant no market, which meant the marketplace asked a wholesaler
+   * about nowhere and showed them an empty page.
+   */
+  assert.ok(pairs.length >= 180,
+    `only ${pairs.length} timezones are mapped; most visitors of a large country fall through`);
+
+  for (const z of ["America/Detroit", "America/Indiana/Indianapolis", "America/St_Johns",
+                   "America/Regina", "America/Recife", "America/Manaus", "America/Tijuana",
+                   "America/Monterrey", "Australia/Hobart", "Australia/Darwin",
+                   "Atlantic/Azores", "Atlantic/Canary", "Asia/Istanbul", "Asia/Kuching",
+                   "Asia/Pontianak", "US/Eastern", "Europe/Busingen"]) {
+    assert.ok(pairs.some(([zone]) => zone === z), `${z} resolves to no country`);
+  }
+
+  /*
+   * AND IT ADDS NO MARKETS. Every code must already be in the catalogue —
+   * a zone pointing at a country the platform does not support would set a
+   * market that has no currency, no payment methods and no services.
+   */
+  const codes = new Set([...cfg.matchAll(/code:\s*"([A-Z]{2})"/g)].map((x) => x[1]));
+  const orphans = pairs.filter(([, c]) => !codes.has(c));
+  assert.deepEqual(orphans, [],
+    "a timezone points at a country the catalogue does not have: " +
+    orphans.map((x) => x.join(" -> ")).join(", "));
+
+  /* No zone may claim two different countries. */
+  const seen = new Map();
+  for (const [z, c] of pairs) {
+    if (seen.has(z)) assert.equal(seen.get(z), c, `${z} is mapped to two different countries`);
+    seen.set(z, c);
+  }
+
+  /* Large countries need more than a token zone each. */
+  const per = {};
+  for (const [, c] of pairs) per[c] = (per[c] || 0) + 1;
+  for (const big of ["US", "CA", "AU", "BR", "MX"]) {
+    assert.ok((per[big] || 0) >= 10,
+      `${big} has only ${per[big] || 0} zones mapped, and it has many more`);
+  }
+});
