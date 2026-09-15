@@ -2812,3 +2812,58 @@ test("the grid's cap names the number it is holding back", { skip }, async () =>
     "the grid does not say how many of how many it is showing");
   assert.match(main, /Show 6 more/, "the control does not name the real remainder");
 });
+
+test("both horizontal rows can be dragged, and say they continue", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+
+  /*
+   * TOUCH-ACTION IS DECLARED ON EVERY BUTTON EXCEPT THE ONES INSIDE A SCROLLER.
+   *
+   * `manipulation` removes the ~300ms double-tap-zoom wait and is worth having.
+   * But the promotional tiles and the Explore tiles are buttons that FILL their
+   * scrolling row, so a finger starting a swipe always starts it on one — and
+   * the touch-action of the element under the finger governs that gesture.
+   * Declaring anything there is declaring something about a swipe, which is the
+   * one gesture these rows exist for.
+   */
+  /* Anchored on the DECLARATION (it ends in a semicolon), not on the comment
+     above it that names the property — that comment is found first. */
+  const at = html.indexOf("touch-action:manipulation;");
+  assert.ok(at > 0, "touch-action:manipulation is not declared anywhere");
+  const sel = html.slice(html.lastIndexOf("}", at) + 1, at);
+  for (const excluded of ["pdisc-card", "mk-tile", "mk-card", "mk-book"]) {
+    assert.ok(sel.includes(`:not(.${excluded})`),
+      `${excluded} is inside a horizontal row and still gets a touch-action`);
+  }
+  /* Declared exactly once. Counted on the semicolon, so the comment that names
+     the property is not mistaken for a second declaration. */
+  assert.equal((html.match(/touch-action:[a-z-]+;/g) || []).length, 1,
+    "touch-action is declared more than once — it can only ever remove a gesture");
+
+  /*
+   * A MOUSE CANNOT SWIPE. Touch scrolls both rows natively, and a trackpad
+   * scrolls sideways, but a mouse does neither — so with six tiles and three
+   * visible a desktop visitor would never reach the last three.
+   */
+  const wire = mod.slice(mod.indexOf("function wireTiles()"), mod.indexOf("function render()"));
+  assert.ok(wire, "the product tiles have no drag at all");
+  assert.match(wire, /e\.pointerType !== "mouse"/,
+    "drag is bound to touch too, replacing the browser's own scrolling");
+  assert.match(wire, /Math\.abs\(dx\) < 5/, "a click with an unsteady hand counts as a drag");
+  assert.match(wire, /if \(moved\) \{ e\.preventDefault\(\)/,
+    "dragging across a tile still chooses it");
+
+  /*
+   * AND A ROW THAT ENDS CLEANLY READS AS FINISHED. Nobody drags something they
+   * believe has ended, which is the whole of the reported problem.
+   */
+  assert.match(html, /\.mk-tiles-wrap\.more::after\{opacity:1\}/,
+    "there is no edge fade saying the row continues");
+  assert.match(wire, /row\.scrollWidth - row\.clientWidth - row\.scrollLeft > 2/,
+    "the fade is not driven by whether there is actually more to see");
+  assert.match(mod, /class="mk-tiles-wrap"/, "the wrapper the fade is drawn on is not rendered");
+
+  /* The promotional rail already had mouse drag; it must keep it. */
+  assert.match(html, /\.pdisc-rail\.dragging\{cursor:grabbing/, "the promotional rail lost its drag");
+});
