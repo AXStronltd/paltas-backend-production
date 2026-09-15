@@ -694,52 +694,58 @@ async function rendered(w) {
   return host.innerHTML;
 }
 
-test("the homepage draws nine marketplace sections, by their own names", { skip }, async () => {
+test("the homepage is one explore section and real inventory, not nine shelves", { skip }, async () => {
   const html = await rendered(marketplaceHome(SAMPLE));
-
-  /* The titles are the product's, not this test's — they are what a visitor
-     reads, and renaming one silently is a content change nobody reviewed. */
-  const TITLES = [
-    "Available today", "Popular near you", "Arrive with ease", "Trending stays",
-    "Hotels worth checking in to", "Homes for a few nights",
-    "Buy, sell and discover property", "New developments",
-    "One platform. Every property journey.",
-  ];
-  /*
-   * All nine are still DEFINED — renaming or deleting one is a content change
-   * and has to be seen. Read from the module rather than the render, because a
-   * section now removes itself when it is empty and "not on the page" and "no
-   * longer exists" are different failures.
-   */
   const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
-  const undefined_ = TITLES.filter((t) => !mod.includes(t));
-  assert.deepEqual(undefined_, [], "these marketplace sections no longer exist: " +
-    undefined_.join(" | "));
 
   /*
-   * And eight of the nine DRAW, because SAMPLE has something for each of them.
-   * The ninth is New developments: nothing in the fixture is a development,
-   * nothing in PALTAS ever publishes one, and a section with nothing in it is
-   * no longer given a heading and a dead row. Its absence here IS the rule
-   * working, so it is asserted rather than tolerated.
+   * NINE SHELVES BECAME ONE SECTION AND THE ROWS THAT HAVE SOMETHING IN THEM.
+   *
+   * Four of the nine drew the same supplier rooms sliced four ways — Available
+   * today, Popular near you, Trending stays, Hotels worth checking in to —
+   * which is why the page felt long without showing anything more. One row of
+   * real rooms says what four did.
    */
+  const sections = mod.slice(mod.indexOf("var SECTIONS = ["),
+                             mod.indexOf("function heldBy"));
+  for (const gone of ["Popular near you", "Trending stays", "Hotels worth checking in to"]) {
+    /* Checked against the section TITLES, not the whole module — the comments
+       explaining why these were removed naturally quote their names. */
+    assert.ok(!sections.includes(`title: "${gone}"`),
+      `"${gone}" still draws a row of the same inventory`);
+  }
+  assert.ok((sections.match(/\n      id: "/g) || []).length <= 6,
+    "there are still more than six rows defined");
+
+  /* One section names what PALTAS offers, once. */
+  assert.match(html, /class="mk-explore"/, "there is no unified Explore PALTAS section");
+  assert.equal((html.match(/class="mk-explore"/g) || []).length, 1,
+    "the explore section is drawn more than once");
+  assert.match(html, /Explore PALTAS/, "the section has no heading");
+  assert.match(html, /Find stays, properties, developments and services available through PALTAS/,
+    "the section has no supporting line");
+
+  /* And real inventory follows it immediately. */
+  assert.match(html, /Available today/, "no inventory row follows the tiles");
+
   /*
-   * And all nine DRAW, because the page around them is not empty. New
-   * developments has nothing in the fixture and nothing ever publishes one, so
-   * it keeps its heading and carries ONE COMPACT LINE saying so — not the 56px
-   * dashed panel it used to get, which competed with the real inventory beside
-   * it and made a stocked page look bare.
+   * NO HEADING WITHOUT SOMETHING UNDER IT.
+   *
+   * The count of headings is not the rule — this fixture genuinely has
+   * transfers, short stays and property for sale, so those rows SHOULD draw.
+   * The rule is that a heading means content: an empty category says "Coming
+   * to PALTAS" on its tile and reserves nothing, so a heading with no rail
+   * beneath it is a shelf that came back.
    */
-  assert.deepEqual(TITLES.filter((t) => !html.includes(t)), [],
-    "a marketplace section did not draw at all");
-
-  const dev = (html.match(/id="mk-developments"[\s\S]*?<\/section>/) || [""])[0];
-  assert.ok(/mk-empty-slim/.test(dev),
-    "New developments is empty but does not use the compact state");
-  assert.ok(!/class="mk-rail"/.test(dev), "New developments drew a rail with nothing in it");
-
-  assert.equal((html.match(/class="mk-sec"/g) || []).length, 9,
-    "all nine sections draw when the page has inventory in it");
+  const rows = [...html.matchAll(/<section class="mk-sec" id="mk-([^"]+)"[\s\S]*?<\/section>/g)];
+  assert.ok(rows.length, "no inventory rows at all");
+  for (const [block, id] of rows.map((m) => [m[0], m[1]])) {
+    if (id === "discover") continue;               /* the products, never inventory */
+    assert.match(block, /class="mk-rail"/,
+      `the "${id}" row draws a heading with nothing under it`);
+    assert.ok(!/class="mk-empty/.test(block),
+      `the "${id}" row reserves an empty state its tile already covers`);
+  }
 });
 
 test("every card on the homepage comes from the API and nothing else", { skip }, async () => {
@@ -822,37 +828,32 @@ test("with nothing published, the page says so once instead of nine times", { sk
     "a property card was drawn while the API returned no listings at all");
 });
 
-test("an empty PALTAS category says so compactly, and fills itself when published", { skip }, async () => {
+test("an empty category says so on its tile, and reserves no row", { skip }, async () => {
   /*
-   * THE RULE, BOTH WAYS.
+   * ONE STATEMENT PER FACT.
    *
-   * A category PALTAS cannot fill, on a page that is otherwise full, is worth
-   * exactly one line and a way to fix it. It is NOT worth a giant panel — that
-   * is how a marketplace with real hotels in it reads as empty — and it is not
-   * worth hiding either, because then nobody learns the category exists or that
-   * they could be the one to stock it.
-   *
-   * And nothing about it is configured. The line is there BECAUSE the shelf is
-   * empty and gone BECAUSE it is not, so publishing one property is the whole
-   * mechanism. Two renders differing by a single listing prove it.
+   * A category PALTAS cannot fill used to keep a heading and a compact line a
+   * few hundred pixels down the page. The Explore tile above now says "Coming
+   * to PALTAS" for exactly that category, so the line below repeated it — and
+   * repeating it is the busyness the unified section was built to remove.
    */
-  const withTransfer = SAMPLE.filter((l) => l.transfer);
-  assert.ok(withTransfer.length, "the fixture has no transfer listing to prove this with");
-
   const without = await rendered(marketplaceHome(SAMPLE.filter((l) => !l.transfer)));
-  const off = (without.match(/id="mk-with-transfer"[\s\S]*?<\/section>/) || [""])[0];
-  assert.ok(off, "the transfer section vanished entirely instead of saying it is empty");
-  assert.ok(/mk-empty-slim/.test(off), "an empty category did not use the compact state");
-  assert.ok(/No PALTAS property offers an airport transfer yet/.test(off),
-    "the compact line does not say whose shelf is empty");
-  assert.ok(/partner\.html/.test(off), "the compact state offers no way to stock it");
-  assert.ok(!/class="mk-rail"/.test(off), "an empty category drew a rail");
+  assert.match(without, /Coming to PALTAS/,
+    "a category with nothing in it does not say so anywhere");
+  assert.ok(!/id="mk-with-transfer"/.test(without),
+    "an empty category still reserves a row under the tiles");
 
+  /* And it fills itself the moment something is published — no deploy, no flag. */
   const on = await rendered(marketplaceHome(SAMPLE));
-  const lit = (on.match(/id="mk-with-transfer"[\s\S]*?<\/section>/) || [""])[0];
-  assert.ok(/class="mk-rail"/.test(lit),
-    "a property with an airport transfer is published and the shelf did not fill");
-  assert.ok(!/mk-empty-slim/.test(lit), "a filled shelf still apologises for being empty");
+  assert.match(on, /id="mk-with-transfer"[\s\S]*?class="mk-rail"/,
+    "a property with a transfer is published and the row did not appear");
+
+  /* The tile's count is REAL — the length of a list this page is holding. */
+  const tile = (on.match(/data-mk-filter="transfer"[\s\S]*?<\/button>/) || [""])[0];
+  const claimed = Number((tile.match(/(\d+) available now/) || [])[1]);
+  const actual = SAMPLE.filter((l) => l.transfer).length;
+  assert.equal(claimed, actual,
+    `the tile claims ${claimed} transfers and the fixture has ${actual}`);
 });
 
 test("a failed request empties the page instead of filling it", { skip }, async () => {
@@ -901,62 +902,28 @@ test("no development-only wording is shown to the public", { skip }, () => {
   }
 });
 
-test("the filter bar keeps every airport-transfer chip the page had", { skip }, async () => {
-  const html = await rendered(marketplaceHome(SAMPLE));
-
+test("every airport-transfer chip survived the consolidation", { skip }, async () => {
   /*
-   * The five transfer chips existed before this redesign and must survive it.
-   * What changed is honesty, not the set: three read the API, and the two that
-   * ask about DIRECTION are disabled, because HotelService records a name, a
-   * kind and a chargeable flag and nothing that says which way a car goes.
-   *
-   * They used to filter on a hard-coded table of three property names with a
-   * direction typed beside each, which is why this test checks they are OFF
-   * rather than just present.
+   * These were required to survive when the transfer row was folded away, and
+   * they survive the removal of the pill bar too. They now live under the
+   * Airport transfer TILE — reached by choosing it, rather than sitting above
+   * the homepage for everybody who is not asking about transfers.
    */
-  /*
-   * At rest the homepage shows the property types and ONE airport-transfer
-   * chip. The four refinements live behind it — the page's job is to show
-   * property, and seven filter controls plus a heading above the fold is not
-   * that. What matters is that none of them was DROPPED, so each is checked
-   * where it now lives.
-   */
-  for (const label of ["All", "Hotels", "Short stays", "Long stays", "Buy / Sell",
-                       "Developments", "Airport transfer"]) {
-    assert.ok(html.includes(label), `the "${label}" filter chip is gone from the marketplace`);
-  }
-
-  const w2 = marketplaceWithSupply(SAMPLE, SUPPLY);
-  await rendered(w2);
-  w2.win.PALTAS.Marketplace.setFilter("transfer");
-  await new Promise((r) => setTimeout(r, 30));
-  const opened = w2.win.document.getElementById("paltas-marketplace").innerHTML;
-  for (const label of ["Pickup available", "Drop-off available",
-                       "Free transfer", "Paid transfer"]) {
-    assert.ok(opened.includes(label),
-      `the "${label}" filter is not reachable even after choosing airport transfer`);
-  }
-
-  for (const gone of ["Pickup available", "Drop-off available"]) {
-    const chip = (opened.match(new RegExp('<button[^>]*>' + gone + '</button>')) || [])[0] || "";
-    assert.ok(/disabled/.test(chip) && /aria-disabled="true"/.test(chip),
-      `"${gone}" is an active filter again, but nothing in the schema records ` +
-      `transfer direction — so it can only be filtering on something invented. ` +
-      `Chip: ${chip || "not found as a button"}`);
-  }
-
-  assert.ok(/mk-filter-note/.test(opened),
-    "the two disabled chips give no reason, so they read as a bug rather than a gap");
-
-  /* And the three that DO work must actually narrow. */
-  const w = marketplaceHome(SAMPLE);
+  const w = marketplaceWithSupply(SAMPLE, SUPPLY);
   await rendered(w);
-  w.win.PALTAS.Marketplace.setFilter("transfer-free");
-  const free = w.win.document.getElementById("paltas-marketplace").innerHTML;
-  assert.ok(free.includes("Deluxe room, ocean wing"),
-    "Free transfer dropped the one listing whose transfer service is not chargeable");
-  assert.ok(!free.includes("Two-bedroom apartment, Nyali"),
-    "Free transfer kept a listing whose transfer service charges");
+  w.win.PALTAS.Marketplace.setFilter("transfer");
+  const html = await rendered(w);
+
+  for (const label of ["Pickup available", "Drop-off available", "Free transfer", "Paid transfer"]) {
+    assert.ok(html.includes(label), `the "${label}" chip was lost`);
+  }
+
+  /* Including the two that cannot work yet, disabled and explained rather than
+     quietly dropped — the schema records no direction for a transfer. */
+  assert.match(html, /class="mk-chip mk-chip-off" disabled/,
+    "the chips that cannot work yet were removed instead of being explained");
+  assert.match(html, /The two greyed options come back the day it does/,
+    "the reason the two are greyed is gone");
 });
 
 test("only one airport-transfer filter bar is built on the homepage", { skip }, () => {
@@ -1894,59 +1861,41 @@ test("the discovery rail is endless, touch-first and has no arrows", { skip }, (
   assert.ok(/forever === true/.test(stopFn), "a deliberate choice does not stop it for good");
 });
 
-test("the transfer options do not clutter the homepage at rest", { skip }, async () => {
-  /*
-   * There were two permanent rows: property types, then a labelled "AIRPORT
-   * TRANSFER" row of five more chips — two of which are disabled forever,
-   * because nothing in the schema records which direction a transfer runs in.
-   * Seven controls and a heading above the fold, on a page whose job is to show
-   * property.
-   */
+test("the homepage at rest shows no transfer options at all", { skip }, async () => {
   const w = marketplaceWithSupply(SAMPLE, SUPPLY);
   const html = await rendered(w);
-  const bar = (html.match(/<div class="mk-filters">[\s\S]*?(?=<section)/) || [""])[0];
 
-  assert.equal((bar.match(/class="mk-filter-row/g) || []).length, 1,
-    "the filter bar still has two permanent rows");
-  assert.ok(!/mk-filter-label/.test(bar),
-    "the always-on AIRPORT TRANSFER heading is back");
-  assert.equal((bar.match(/mk-chip-off/g) || []).length, 0,
-    "permanently-disabled chips are on show before anybody asked about transfers");
-  assert.ok(!/mk-filter-note/.test(bar),
-    "the explanation of why two chips are dead is shown to everyone");
-  /* But the way in is still there. */
-  assert.ok(/mk-chip-transfer/.test(bar), "airport transfer is not reachable at all");
+  /*
+   * There were two permanent rows of chips, then a pill bar, then nine section
+   * headings. At rest there is now one row of six product tiles and nothing
+   * else between the promotion and the inventory.
+   */
+  assert.ok(!/class="mk-filters"/.test(html), "the old category pill bar is still drawn");
+  assert.ok(!/class="mk-refine"/.test(html),
+    "the transfer refinements are on the page before anybody asked about transfers");
+  for (const label of ["Pickup available", "Free transfer"]) {
+    assert.ok(!html.includes(label), `"${label}" is on the homepage at rest`);
+  }
+
+  /* Six tiles, one row, and that is the whole of the navigation. */
+  assert.equal((html.match(/class="mk-tile[ "]/g) || []).length, 6,
+    "the explore section does not carry exactly six product entry points");
 });
 
-test("choosing airport transfer reveals its options, and they are all still there", { skip }, async () => {
-  /*
-   * The disabled pair is preserved deliberately — an earlier decision was that
-   * these five filters must survive. They now live where somebody has actually
-   * asked about transfers, next to the sentence explaining why two cannot work,
-   * rather than in front of everyone browsing hotels.
-   */
+test("choosing airport transfer reveals its options, under the tile", { skip }, async () => {
   const w = marketplaceWithSupply(SAMPLE, SUPPLY);
   await rendered(w);
   w.win.PALTAS.Marketplace.setFilter("transfer");
-  await new Promise((r) => setTimeout(r, 30));
+  const html = await rendered(w);
 
-  const open = w.win.document.getElementById("paltas-marketplace").innerHTML;
-  assert.ok(/mk-refine/.test(open), "nothing was revealed");
-  for (const label of ["Free transfer", "Paid transfer", "Pickup available", "Drop-off available"]) {
-    assert.ok(open.includes(label), `"${label}" was dropped rather than moved`);
-  }
-  assert.ok(/aria-expanded="true"/.test(open),
-    "the parent chip does not tell a screen reader it opened something");
-  assert.ok(/mk-filter-note/.test(open),
-    "the two greyed options are shown with no reason given");
+  assert.match(html, /class="mk-filter-row mk-refine"/,
+    "choosing airport transfer reveals nothing");
+  assert.equal((html.match(/class="mk-chip/g) || []).length, 4,
+    "the four refinements are not all there");
 
-  /* And it folds away again. */
-  w.win.PALTAS.Marketplace.setFilter("all");
-  await new Promise((r) => setTimeout(r, 30));
-  const closed = w.win.document.getElementById("paltas-marketplace").innerHTML;
-  assert.ok(!/mk-refine/.test(closed), "the options stay open after moving off transfer");
-  assert.equal((closed.match(/mk-chip-off/g) || []).length, 0,
-    "the disabled chips remain on the homepage");
+  /* The tile itself shows as chosen, so it is clear what is being refined. */
+  assert.match(html, /data-mk-filter="transfer" aria-pressed="true"/,
+    "the transfer tile does not show as the chosen one");
 });
 
 test("every stylesheet parses, and nothing collapses a card to nothing", { skip }, () => {
