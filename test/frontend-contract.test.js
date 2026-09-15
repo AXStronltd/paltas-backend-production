@@ -2146,16 +2146,39 @@ test("no discovery slide invents an opportunity, a return or an asset", { skip }
   assert.deepEqual(dead, [], "a promotion points at a page that does not exist: " + dead.join(" | "));
 });
 
-test("every discovery CTA uses the one brand token", { skip }, () => {
+test("the promotional tile is the control, and still says what it does", { skip }, () => {
   const html = readFileSync(join(FE, "index.html"), "utf8");
-  const cta = (html.match(/\.pdisc-cta\{[^}]*\}/) || [""])[0];
-  assert.ok(/var\(--mk-accent/.test(cta),
-    "the discovery CTA paints itself rather than using the global brand token");
-  const hover = (html.match(/\.pdisc-card:hover \.pdisc-cta\{[^}]*\}/) || [""])[0];
-  assert.ok(/var\(--mk-deep/.test(hover), "the hover state is not the brand hover");
-  /* One turquoise, defined once, at :root. */
+
+  /*
+   * THE PILL IS GONE FROM THE SHELF, AND THAT IS DELIBERATE.
+   *
+   * One tile design at every width meant losing the two things that could not
+   * survive a ~156px phone tile: the description, and a CTA whose longest label
+   * ("Explore Property Development") is wider than the tile it would sit in.
+   * Nothing is lost by removing the pill — the tile is ALREADY an <a> or a
+   * <button> wrapping its contents, so the pill was a second control for the
+   * same action.
+   *
+   * But `display:none` would have taken its WORDS out of the accessibility tree
+   * too, leaving a tile whose accessible name is a headline and whose purpose a
+   * screen reader has to infer. So it is visually hidden, not removed.
+   */
+  const cta = (html.match(/^\.pdisc-cta\{[\s\S]*?\}/m) || [""])[0];
+  assert.ok(cta, "the promotional CTA rule is gone entirely");
+  assert.ok(!/display:none/.test(cta),
+    "the CTA is display:none, which hides its words from a screen reader as well as an eye");
+  assert.match(cta, /clip:rect\(0 0 0 0\)/, "the CTA is not visually hidden in the accessible way");
+
+  /* And the markup still emits it, or there is nothing to read. */
+  assert.match(html, /'<span class="pdisc-cta">' \+ p\.ctaLabel/,
+    "the tile no longer carries a label saying what it does");
+
+  /* The brand token still belongs to every control that starts something — it
+     just is not on this shelf any more. One declaration, at :root, as before. */
   assert.equal((html.match(/--mk-accent:#12C6D4/g) || []).length, 1,
     "the brand turquoise is declared more than once");
+  assert.match(html, /\.mk-book\{[^}]*var\(--mk-accent/,
+    "the marketplace's own booking control lost the brand token");
 });
 
 test("nothing on the discovery rail can block a finger", { skip }, () => {
@@ -2597,8 +2620,8 @@ test("the promotional shelf is a boxed grid, and none of it is tall", { skip }, 
    * what discovery is, and each only has to be as tall as its own contents.
    */
   const card = (html.match(/^\.pdisc-card\{[\s\S]*?\}/m) || [""])[0];
-  assert.match(card, /flex:0 0 calc\(\(100% - 36px\)\/3\)/,
-    "the promotional shelf is not three boxes across on a desktop");
+  assert.match(card, /flex:0 0 calc\(\(100% - 54px\)\/4\)/,
+    "the promotional shelf is not four tiles across on a desktop");
   assert.match(card, /scroll-snap-align:start/,
     "the snap no longer matches the arithmetic the driver scrolls by");
 
@@ -2610,7 +2633,7 @@ test("the promotional shelf is a boxed grid, and none of it is tall", { skip }, 
    * empty-looking row on the platform hardest to debug; the marketplace rails
    * were written out per breakpoint for this same reason.
    */
-  const widths = [...html.matchAll(/\.pdisc-card\{[^}]*flex:0 0 ([^;]+);/g)].map((m) => m[1]);
+  const widths = [...html.matchAll(/\.pdisc-card\{[^}]*flex:0 0 ([^;}]+)[;}]/g)].map((m) => m[1]);
   assert.ok(widths.length >= 3, `expected a width at three breakpoints, found ${widths.length}`);
   for (const w of widths) {
     assert.ok(!/var\(/.test(w), `a card width uses var() inside calc(): ${w}`);
@@ -2664,13 +2687,22 @@ test("the promotional shelf is a boxed grid, and none of it is tall", { skip }, 
    * card is already an <a> or a <button> wrapping its contents, so a pill
    * inside it was a second control for the same action.
    */
-  const narrow = html.slice(html.indexOf("@media (max-width:720px)"));
-  assert.match(narrow, /\.pdisc-cta\{display:none\}/,
-    "a CTA pill wider than its own tile is still drawn on a phone");
-  assert.match(narrow, /\.pdisc-card p,\.pdisc-sub\{display:none\}/,
-    "the description is kept on a tile too narrow to hold a sentence");
+  /*
+   * ONE DESIGN, NOT ONE PER SCREEN.
+   *
+   * The description and the CTA are dropped in the BASE rule, not inside a
+   * phone media query. That is the difference between one tile shown more or
+   * fewer times, and three different objects sharing a class name.
+   */
+  assert.match(html, /\.pdisc-card p,\.pdisc-sub\{display:none\}/,
+    "the description survives on a tile too narrow to hold a sentence");
+  const phoneBlock = html.slice(html.indexOf("@media (max-width:720px)"),
+                                html.indexOf("@media (max-width:720px)") + 1400);
+  assert.ok(!/\.pdisc-card p[^}]*display:none/.test(phoneBlock),
+    "the phone hides content the other screens still show, so it is a second design");
 
-  /* The base rule must still exist — hidden on a phone, not deleted. */
-  assert.match(html, /\.pdisc-cta\{[^}]*var\(--mk-accent/,
-    "the CTA lost the brand token rather than just being hidden on small screens");
+  /* The only thing a breakpoint may change is how many tiles fit. */
+  const perScreen = [...html.matchAll(/\.pdisc-card\{[^}]*flex:0 0 ([^;}]+)[;}]/g)].map((m) => m[1]);
+  assert.equal(new Set(perScreen).size, perScreen.length,
+    "two breakpoints declare the same tile width, so one of them is doing nothing");
 });
