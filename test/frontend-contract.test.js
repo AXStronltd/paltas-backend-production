@@ -2607,116 +2607,100 @@ test("the payment step offers a wallet before a keyboard", { skip }, () => {
   assert.ok(!/pk_live_|pk_test_/.test(js), "a publishable key is hard-coded in the page");
 });
 
-test("the promotional shelf is a boxed grid, and none of it is tall", { skip }, () => {
+test("the promotional shelf is two rows that scroll sideways together", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const rail = (html.match(/^\.pdisc-rail\{[\s\S]*?\}/m) || [""])[0];
+
+  /*
+   * TWO ROWS, ONE SWIPE.
+   *
+   * `grid-auto-flow:column` fills top-to-bottom then moves right, so both rows
+   * travel as a block. A flex row could not do this at all — it would wrap into
+   * two independent rows that scroll separately, or not wrap and stay one.
+   */
+  assert.match(rail, /display:grid/, "the shelf is not a grid, so it cannot have two rows");
+  assert.match(rail, /grid-auto-flow:column/,
+    "the grid flows in rows, so a swipe would move one row and not the other");
+  assert.match(rail, /grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/,
+    "the shelf is not two rows");
+
+  /*
+   * THE COLUMN WIDTH LIVES ON THE RAIL, NOT THE CARD.
+   *
+   * In a grid a card's flex-basis means nothing at all — it is neither an error
+   * nor a warning, it simply has no effect, which is the kind of dead
+   * declaration that survives for years.
+   */
+  assert.ok(!/\.pdisc-card\{[^}]*flex:0 0/.test(html),
+    "a card still declares a flex width, which a grid ignores entirely");
+  const cols = [...html.matchAll(/grid-auto-columns:([^;}]+)/g)]
+    .map((m) => m[1].trim())
+    .filter((c) => !/minmax/.test(c));
+  assert.ok(cols.length >= 4, `expected a column width at four breakpoints, found ${cols.length}`);
+  for (const c of cols) assert.ok(!/var\(/.test(c), `a column width uses var() inside calc(): ${c}`);
+  assert.equal(new Set(cols).size, cols.length, "two breakpoints declare the same column width");
+
+  /* One column and a sliver on a phone means FOUR tiles on screen at once. */
+  assert.ok(cols.some((c) => /^4\d%$/.test(c)),
+    "no breakpoint sizes a column as a plain percentage, so the phone gets no peek");
+
+  /*
+   * THE FILLER CELL.
+   *
+   * The endless wrap renders every slide twice and pulls the position back by
+   * one copy's width. With two rows and an ODD number of slides a copy is seven
+   * and a half columns, so the second copy would begin in the BOTTOM row and
+   * every tile would be one row out after the wrap. One empty cell rounds the
+   * copy up to a whole column — and it must occupy that cell, so it is
+   * visibility:hidden and not display:none.
+   */
+  assert.match(html, /live\.length % 2\) \? '<span class="pdisc-fill"/,
+    "an odd slide count leaves a copy half a column long, so the wrap shifts every row");
+  assert.match(html, /\.pdisc-fill\{visibility:hidden\}/,
+    "the filler is display:none, which means it occupies no cell and does nothing");
+
+  /* And no breakpoint may let a tile take half a screen — two rows of them. */
+  const heights = [...html.matchAll(/\.pdisc-card\{[^}]*?min-height:clamp\([^,]+,[^,]+,\s*(\d+)px\)/g)]
+    .map((m) => Number(m[1]));
+  assert.ok(heights.length >= 3, "the tile does not have a height at every breakpoint");
+  const tallest = Math.max(...heights);
+  assert.ok(tallest <= 210,
+    `a tile reaches ${tallest}px, which doubled is most of a screen — heights: ${heights.join(", ")}`);
+});
+
+test("the driver counts columns, not slides", { skip }, () => {
   const html = readFileSync(join(FE, "index.html"), "utf8");
 
   /*
-   * THREE ACROSS, NOT ONE WIDE BAND.
+   * THE BUG THIS PREVENTS, AND IT WOULD HAVE BEEN TOTAL AND SILENT.
    *
-   * It went three boxes -> one full-width band -> back to boxes, and the band
-   * was the wrong turn: at full width a promotion competes with the inventory
-   * rather than sitting beside it, and it needed 520px of height to justify
-   * that width. Three boxes read as a shelf of things to look through, which is
-   * what discovery is, and each only has to be as tall as its own contents.
+   * step() was `cards[1].offsetLeft - cards[0].offsetLeft`, which is correct
+   * for one row. With two rows those two cards are the TOP and BOTTOM of the
+   * same column and share an offsetLeft, so the subtraction returns 0 — every
+   * scroll target collapses to zero and the rail never moves again. No error,
+   * no warning, just a shelf that ignores every swipe.
    */
-  const card = (html.match(/^\.pdisc-card\{[\s\S]*?\}/m) || [""])[0];
-  assert.match(card, /flex:0 0 calc\(\(100% - 54px\)\/4\)/,
-    "the promotional shelf is not four tiles across on a desktop");
-  assert.match(card, /scroll-snap-align:start/,
-    "the snap no longer matches the arithmetic the driver scrolls by");
+  const step = html.slice(html.indexOf("function step()"), html.indexOf("function rowCount()"));
+  assert.ok(!/c\[1\]\.offsetLeft - c\[0\]\.offsetLeft/.test(step),
+    "step() measures adjacent cards, which in a two-row grid are the same column");
+  assert.match(step, /if \(c\[i\]\.offsetLeft > x0\)/,
+    "step() does not look for the first card in the NEXT column");
 
   /*
-   * LITERAL ARITHMETIC, NOT var() INSIDE calc().
-   *
-   * Legal CSS after substitution, and exactly the shape older Safari has
-   * mis-evaluated — which is every iPhone. A card with no computed width is an
-   * empty-looking row on the platform hardest to debug; the marketplace rails
-   * were written out per breakpoint for this same reason.
+   * And the row count is READ from the page rather than held as a second
+   * opinion. It is a CSS decision that changes at breakpoints, and a driver
+   * that thinks it knows better breaks on the screen size nobody tested.
    */
-  const widths = [...html.matchAll(/\.pdisc-card\{[^}]*flex:0 0 ([^;}]+)[;}]/g)].map((m) => m[1]);
-  assert.ok(widths.length >= 3, `expected a width at three breakpoints, found ${widths.length}`);
-  for (const w of widths) {
-    assert.ok(!/var\(/.test(w), `a card width uses var() inside calc(): ${w}`);
-  }
+  assert.match(html, /function rowCount\(\)/, "the driver assumes how many rows there are");
+  assert.match(html, /function columns\(\) \{ return Math\.max\(1, Math\.ceil\(slides\(\) \/ rowCount\(\)\)\); \}/,
+    "columns are not derived from slides and rows");
 
-  /*
-   * A PHONE SEES MORE THAN ONE TILE.
-   *
-   * It was 86% — one box and a hint of the next, which reads as a single
-   * promotion you page through rather than a shelf you scan. A percentage in
-   * the forties fits two tiles with the third breaking the screen edge, which
-   * is the density that makes a thumb start moving, and a row that ends flush
-   * with the edge looks finished to everyone.
-   */
-  const phone = widths.map((w) => (w.match(/^(\d+(?:\.\d+)?)%$/) || [])[1])
-    .filter(Boolean).map(Number);
-  assert.ok(phone.length, "no breakpoint sizes a tile as a plain percentage");
-  const narrowest = Math.min(...phone);
-  assert.ok(narrowest <= 60,
-    `the narrowest tile is ${narrowest}% — barely more than one fits, so the row reads as finished`);
-  assert.ok(narrowest >= 30,
-    `a tile at ${narrowest}% is too small to carry a headline`);
-
-  /*
-   * And no breakpoint may let a promotion take half a screen. Collected across
-   * ALL of them rather than one guessed at — an earlier version of this test
-   * hardcoded a breakpoint this stylesheet does not have, found nothing, and
-   * asserted on `undefined`.
-   */
-  const heights = [...html.matchAll(/\.pdisc-card\{[^}]*?min-height:clamp\([^,]+,[^,]+,\s*(\d+)px\)/g)]
-    .map((m) => Number(m[1]));
-  assert.ok(heights.length >= 3, "the shelf does not have a height at every breakpoint");
-  const tallest = Math.max(...heights);
-  assert.ok(tallest <= 280,
-    `a breakpoint still lets a box reach ${tallest}px — heights found: ${heights.join(", ")}`);
-
-  /*
-   * Headline AND description clamped. A three-word headline beside a nine-word
-   * one must leave the boxes the same height, or the row reads as broken rather
-   * than varied — the failure that makes a grid look like a mistake.
-   */
-  assert.ok((html.match(/-webkit-line-clamp:2/g) || []).length >= 2,
-    "only one of the headline and the description is clamped, so boxes can differ in height");
-
-  /*
-   * ON A TILE, THE TILE IS THE BUTTON.
-   *
-   * At ~156px wide the longest CTA label here — "Explore Property Development"
-   * — is wider than the tile it sits in, so the pill would wrap to two lines or
-   * overflow. It is hidden at that size instead, which loses nothing: the whole
-   * card is already an <a> or a <button> wrapping its contents, so a pill
-   * inside it was a second control for the same action.
-   */
-  /*
-   * ONE TILE; WHAT IT CARRIES DEPENDS ON THE ROOM IT HAS.
-   *
-   * The CTA is gone at EVERY width — the tile is already the control, so a pill
-   * inside it was a second control for the same action. The description is
-   * different: at 288-306px, which is what a tile measures everywhere above a
-   * phone, two lines fit and add what a headline cannot; at ~155px they would
-   * be four words of a sentence.
-   *
-   * Showing it where there is room and dropping it where there is not is
-   * responsiveness. The tile, its proportions and its type scale stay one
-   * object, which is the part that must not vary.
-   */
-  assert.match(html, /^\.pdisc-card p\{font-size:clamp\(/m,
-    "the description has no styling, so it is not shown anywhere");
-  const phoneBlock = html.slice(html.indexOf("@media (max-width:720px)"),
-                                html.indexOf("@media (max-width:720px)") + 1600);
-  assert.match(phoneBlock, /\.pdisc-card p\{display:none\}/,
-    "a description is drawn on a tile too narrow to hold a sentence");
-
-  /* The CTA, by contrast, is dropped once and for all — not per breakpoint. */
-  assert.ok(!/@media[^@]*\.pdisc-cta\{display/.test(html),
-    "the CTA is hidden per breakpoint rather than everywhere, so the screens differ");
-
-  /* The only thing a breakpoint may change is how many tiles fit. */
-  const perScreen = [...html.matchAll(/\.pdisc-card\{[^}]*flex:0 0 ([^;}]+)[;}]/g)].map((m) => m[1]);
-  assert.equal(new Set(perScreen).size, perScreen.length,
-    "two breakpoints declare the same tile width, so one of them is doing nothing");
+  /* A resting position is a column, so the dots must count columns — fifteen
+     dots over eight columns offers seven positions that do not exist. */
+  assert.match(html, /var n = columns\(\), at = index\(\) % n/, "the dots still count slides");
+  assert.match(html, /function loopWidth\(\) \{ return columns\(\) \* step\(\); \}/,
+    "the endless wrap is measured in slides rather than columns");
 });
-
 test("nothing leaves a browser's fingerprints on a phone", { skip }, () => {
   const html = readFileSync(join(FE, "index.html"), "utf8");
 
