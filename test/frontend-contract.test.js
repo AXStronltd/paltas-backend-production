@@ -741,7 +741,7 @@ test("the homepage is one explore section and real inventory, not nine shelves",
   assert.ok(rows.length, "no inventory rows at all");
   for (const [block, id] of rows.map((m) => [m[0], m[1]])) {
     if (id === "discover") continue;               /* the products, never inventory */
-    assert.ok(/class="mk-rail"|class="mk-vgrid"/.test(block),
+    assert.ok(/class="mk-rail"|class="mk-srail"/.test(block),
       `the "${id}" row draws a heading with nothing under it`);
     assert.ok(!/class="mk-empty/.test(block),
       `the "${id}" row reserves an empty state its tile already covers`);
@@ -1734,42 +1734,6 @@ test("switching country re-asks the supplier, every time", { skip }, async () =>
     "a language or destination change re-asked the supplier for no reason");
 });
 
-test("inventory lays out downwards; the other rows still scroll", { skip }, async () => {
-  const w = marketplaceWithSupply(SAMPLE, SUPPLY);
-  const html = await rendered(w);
-  const css = readFileSync(join(FE, "index.html"), "utf8");
-
-  /*
-   * THE ROW WITH REAL ROOMS IN IT IS A GRID.
-   *
-   * A horizontal rail showed two hotels at a time on a phone and hid the other
-   * forty-six behind a swipe most people never make. A marketplace holding
-   * forty-eight rooms should look like it holds forty-eight, so this one lays
-   * out downwards and keeps going.
-   */
-  const main = (html.match(/id="mk-available-today"[\s\S]*?<\/section>/) || [""])[0];
-  assert.ok(main, "the main inventory row is gone");
-  assert.match(main, /class="mk-vgrid"/, "the main inventory row is still a single scrolling rail");
-  assert.ok(!/class="mk-arrow"/.test(main),
-    "scroll arrows are drawn above a grid, which has nowhere to scroll sideways");
-  assert.match(main, /class="mk-card mk-supply"/, "the grid drew no supplier room at all");
-
-  /* Two columns on a phone, not one — at one column a card is 340px wide and a
-     screen holds a single hotel, which is the rail's problem with extra steps. */
-  assert.match(css, /@media \(max-width:620px\)\{[\s\S]{0,200}?\.mk-vgrid\{grid-template-columns:repeat\(2,/,
-    "a phone gets one hotel per row in the grid");
-  assert.ok(!/\.mk-vgrid\{[^}]*var\(/.test(css),
-    "the grid's column arithmetic uses var() inside calc, which older Safari mis-evaluates");
-
-  /* Under the cap, everything it holds is drawn and there is nothing to offer. */
-  assert.ok(!/data-mk-more="1"/.test(main),
-    "a grid holding five rooms offers to show more of them");
-
-  /* The rails that remain still behave like rails. */
-  assert.match(css, /\.mk-rail\{[\s\S]*?overflow-x:auto/, "the rail no longer scrolls");
-  assert.match(css, /scroll-snap-type:x/, "no snapping — a swipe lands between cards");
-});
-
 test("an empty or product row gets no arrows", { skip }, async () => {
   /* An arrow above something that cannot move is furniture. */
   const html = await rendered(marketplaceWithSupply([], []));
@@ -2582,7 +2546,13 @@ test("the promotional shelf is two rows that scroll sideways together", { skip }
    */
   assert.ok(!/\.pdisc-card\{[^}]*flex:0 0/.test(html),
     "a card still declares a flex width, which a grid ignores entirely");
-  const cols = [...html.matchAll(/grid-auto-columns:([^;}]+)/g)]
+  /*
+   * Scoped to .pdisc-rail. The first version collected every
+   * grid-auto-columns in the stylesheet, so when the inventory rail was given
+   * the same technique its widths counted as duplicates of this shelf's — a
+   * failure about one component caused entirely by another.
+   */
+  const cols = [...html.matchAll(/\.pdisc-rail[^{}]*\{[^}]*grid-auto-columns:([^;}]+)/g)]
     .map((m) => m[1].trim())
     .filter((c) => !/minmax/.test(c));
   assert.ok(cols.length >= 4, `expected a column width at four breakpoints, found ${cols.length}`);
@@ -2783,36 +2753,6 @@ test("a phone shows two properties in a row, not one", { skip }, () => {
     "the promotional shelf is taking four rows of a phone screen");
 });
 
-test("the grid's cap names the number it is holding back", { skip }, async () => {
-  /*
-   * A ROW THAT QUIETLY STOPS AT TWENTY-FOUR READS AS A MARKETPLACE WITH
-   * TWENTY-FOUR ROOMS IN IT.
-   *
-   * Production returns forty-eight. The page holds all of them and draws the
-   * first twenty-four, so the control has to name the real remainder and the
-   * real total — otherwise the cap is a silent edit to how much PALTAS appears
-   * to have.
-   *
-   * Thirty synthetic rooms, because the shared fixture has one and a cap of
-   * twenty-four cannot be tested with one.
-   */
-  const many = Array.from({ length: 30 }, (_, i) => ({
-    ...SUPPLY[0], id: `expedia-rapid:${900 + i}`, supplierRef: String(900 + i),
-    title: `Test Room ${i + 1}`,
-  }));
-  const html = await rendered(marketplaceWithSupply([], many));
-  const main = (html.match(/id="mk-available-today"[\s\S]*?<\/section>/) || [""])[0];
-  assert.ok(main, "the main inventory row is gone");
-
-  const drawn = (main.match(/class="mk-card mk-supply"/g) || []).length;
-  assert.equal(drawn, 24, `the grid drew ${drawn} rooms, and the cap is twenty-four`);
-
-  assert.match(main, /data-mk-more="1"/, "there is no way to see the other six");
-  assert.match(main, /24 of 30 shown/,
-    "the grid does not say how many of how many it is showing");
-  assert.match(main, /Show 6 more/, "the control does not name the real remainder");
-});
-
 test("both horizontal rows can be dragged, and say they continue", { skip }, () => {
   const html = readFileSync(join(FE, "index.html"), "utf8");
   const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
@@ -2846,13 +2786,17 @@ test("both horizontal rows can be dragged, and say they continue", { skip }, () 
    * scrolls sideways, but a mouse does neither — so with six tiles and three
    * visible a desktop visitor would never reach the last three.
    */
-  const wire = mod.slice(mod.indexOf("function wireTiles()"), mod.indexOf("function render()"));
-  assert.ok(wire, "the product tiles have no drag at all");
+  /* Drag is a shared helper now: the product tiles and every inventory rail
+     use the same one, so there is one place it can be got wrong. */
+  const wire = mod.slice(mod.indexOf("function wireDrag(row)"), mod.indexOf("function render()"));
+  assert.ok(wire, "there is no drag helper at all");
+  assert.match(mod, /wireDrag\(rails\[i\]\)/, "the inventory rails are not draggable");
+  assert.match(mod, /row\.__dragWired/, "a re-render would bind the drag handlers twice");
   assert.match(wire, /e\.pointerType !== "mouse"/,
     "drag is bound to touch too, replacing the browser's own scrolling");
   assert.match(wire, /Math\.abs\(dx\) < 5/, "a click with an unsteady hand counts as a drag");
   assert.match(wire, /if \(moved\) \{ e\.preventDefault\(\)/,
-    "dragging across a tile still chooses it");
+    "dragging across a card still opens it");
 
   /*
    * AND A ROW THAT ENDS CLEANLY READS AS FINISHED. Nobody drags something they
@@ -2866,4 +2810,48 @@ test("both horizontal rows can be dragged, and say they continue", { skip }, () 
 
   /* The promotional rail already had mouse drag; it must keep it. */
   assert.match(html, /\.pdisc-rail\.dragging\{cursor:grabbing/, "the promotional rail lost its drag");
+});
+
+test("the hotels row scrolls sideways in two rows, and holds everything", { skip }, async () => {
+  const w = marketplaceWithSupply(SAMPLE, SUPPLY);
+  const html = await rendered(w);
+  const css = readFileSync(join(FE, "index.html"), "utf8");
+
+  /*
+   * IT WAS THE ONE ROW A THUMB COULD NOT MOVE.
+   *
+   * A vertical grid capped at twenty-four with a "show more" button: the most
+   * hotels on screen at once, the longest section on the page, and the only
+   * part of the marketplace that did not answer a swipe. It behaves like
+   * everything else here now — two rows, scrolled sideways, four on screen at
+   * once on a phone.
+   */
+  const main = (html.match(/id="mk-available-today"[\s\S]*?<\/section>/) || [""])[0];
+  assert.ok(main, "the main inventory row is gone");
+  assert.match(main, /class="mk-srail"/, "the hotels row does not scroll sideways");
+  assert.ok(!/mk-vgrid|data-mk-more/.test(html),
+    "the vertical grid or its show-more button survives somewhere");
+
+  const rail = (css.match(/^\.mk-srail\{[\s\S]*?\}/m) || [""])[0];
+  assert.match(rail, /grid-auto-flow:column/,
+    "the rows flow the wrong way, so a swipe would move one and not the other");
+  assert.match(rail, /grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/, "it is not two rows");
+  assert.match(rail, /overflow-x:auto/, "it does not scroll");
+  assert.match(rail, /-webkit-overflow-scrolling:touch/, "no momentum on older iOS");
+  assert.ok(!/touch-action/.test(rail), "a touch-action can only remove the gesture this row needs");
+
+  /*
+   * NOTHING IS HELD BACK, so there is nothing to press. Swiping reaches the
+   * forty-eighth hotel, and the heading says how many there are rather than how
+   * many are being shown.
+   */
+  assert.match(main, /class="mk-count"/, "the row does not say how many hotels there are");
+
+  /* Two and a sliver on a phone — a row ending flush reads as finished. */
+  assert.match(css, /@media \(max-width:620px\)\{[\s\S]{0,200}?\.mk-srail\{grid-auto-columns:46%/,
+    "a phone does not get two hotels and a peek at the third");
+
+  /* Literal arithmetic — var() inside calc is what older Safari mis-evaluates. */
+  const widths = [...css.matchAll(/\.mk-srail\{[^}]*grid-auto-columns:([^;}]+)/g)].map((m) => m[1]);
+  for (const v of widths) assert.ok(!/var\(/.test(v), `a column width uses var() in calc: ${v}`);
 });
