@@ -34,6 +34,7 @@ import { badRequest, conflict, forbidden, hidden } from "../http/errors.js";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.js";
+import { sync as syncChannel, status as channelStatus } from "../domain/channels.js";
 
 export const productRoutes = Router();
 
@@ -630,6 +631,191 @@ guarded.get("/summary", async (req, res, next) => {
       role: req.actor.role,
       products: req.actor.products,
       counts,
+    });
+  } catch (e) { next(e); }
+});
+
+/* ====================================================================== *
+ * PALTAS CONNECT — SYNCING A CHANNEL.
+ *
+ * The CRUD for `channels` is built by the framework above, because a channel
+ * row is a resource like any other. Syncing one is not: it is work against an
+ * outside system that either happened or did not, and the operator pressing
+ * the button is entitled to know which.
+ *
+ * Both endpoints go through domain/channels.js, which refuses when no channel
+ * manager is attached. That refusal is the correct production behaviour right
+ * now — see the header of that file for why it is a 503 and not a quiet
+ * success.
+ * ====================================================================== */
+
+guarded.post("/channels/:id/sync", async (req, res, next) => {
+  try {
+    need(req, "hotel", "update", "channels");
+
+    const channel = await own("channel", req.params.id, req.actor.orgId);
+    if (channel.status === "PAUSED") {
+      throw conflict(
+        `${channel.name} is paused. Resume it before syncing, or it will be ` +
+        "handed inventory it is not meant to be selling.");
+    }
+
+    /* Throws ChannelUnavailable (503) when nothing is attached. Deliberately
+       NOT caught here: the whole point is that the caller hears it. */
+    const out = await syncChannel(channel);
+
+    const row = await db.channel.update({
+      where: { id: channel.id },
+      data: { lastSyncAt: out.at, status: "LIVE" },
+    });
+
+    await audit(req, "channel.sync", "channel", channel.id,
+      { manager: out.manager, pushed: out.pushed, pulled: out.pulled });
+    res.json({ channel: row, sync: out });
+  } catch (e) { next(e); }
+});
+
+/**
+ * POST /channels/sync — every live channel.
+ *
+ * Reports per channel rather than as one number. "12 channels synced" is the
+ * shape of the toast this replaces, and it was wrong precisely because it
+ * collapsed twelve outcomes into one cheerful sentence.
+ */
+guarded.post("/channels/sync", async (req, res, next) => {
+  try {
+    need(req, "hotel", "update", "channels");
+
+    const rows = await db.channel.findMany({
+      where: { orgId: req.actor.orgId, status: "LIVE" },
+      orderBy: { name: "asc" },
+    });
+    if (!rows.length) {
+      return res.json({ results: [], synced: 0, failed: 0, note: "No channel is live." });
+    }
+
+    const results = [];
+    for (const channel of rows) {
+      try {
+        const out = await syncChannel(channel);
+        await db.channel.update({
+          where: { id: channel.id }, data: { lastSyncAt: out.at },
+        });
+        results.push({ id: channel.id, name: channel.name, ok: true,
+                       pushed: out.pushed, pulled: out.pulled });
+      } catch (e) {
+        /* One channel refusing must not hide the other eleven. The failure is
+           recorded against that channel and the loop continues. */
+        await db.channel.update({
+          where: { id: channel.id }, data: { status: "ERROR", note: e.message },
+        }).catch(() => {});
+        results.push({ id: channel.id, name: channel.name, ok: false, why: e.message });
+      }
+    }
+
+    const synced = results.filter((r) => r.ok).length;
+    await audit(req, "channel.syncAll", "channel", "", { synced, failed: results.length - synced });
+    res.json({ results, synced, failed: results.length - synced });
+  } catch (e) { next(e); }
+});
+
+/** GET /connect/status — whether a channel manager is attached. No secrets. */
+guarded.get("/connect/status", async (req, res, next) => {
+  try {
+    /* Carries no credential and no company data — but the rule that every
+       hand-written endpoint checks a role has no exceptions worth making,
+       and whether this hotel's distribution is wired is its own business. */
+    need(req, "hotel", "list", "channels");
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json(channelStatus());
+  } catch (e) { next(e); }
+});
+
+/**
+ * GET /connect/rollup — what each channel actually sold.
+ *
+ * The console's channel KPIs used to read `res: 0, rev: 0` against real data
+ * and plausible numbers against the demo array, because a Reservation had no
+ * way to point at a Channel. It has one now, and this is the only place the
+ * roll-up is computed — on the server, in minor units, grouped by the foreign
+ * key rather than by matching a channel's name against a free-text `source`.
+ *
+ * Cancellations and no-shows are excluded: a channel is not owed commission
+ * on a stay that did not happen, so counting them would overstate both the
+ * revenue and the commission the operator thinks they are paying.
+ *
+ * `unattributed` is reported rather than hidden. A hotel that has just linked
+ * its channels will see most of its reservations there, and that is the true
+ * state — quietly spreading them across the channels would be the fabrication
+ * this endpoint replaces.
+ */
+guarded.get("/connect/rollup", async (req, res, next) => {
+  try {
+    /* "list", not "read": ACT_LEVEL maps list/get/create/update/delete, and
+       an act it does not name is refused for everyone. */
+    need(req, "hotel", "list", "channels");
+
+    const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
+    const since = new Date(Date.now() - days * 86_400_000);
+    const countable = { notIn: ["CANCELLED", "NO_SHOW"] };
+
+    const [channels, grouped, loose] = await Promise.all([
+      db.channel.findMany({
+        where: { orgId: req.actor.orgId },
+        orderBy: { name: "asc" },
+      }),
+      db.reservation.groupBy({
+        by: ["channelId"],
+        where: {
+          orgId: req.actor.orgId,
+          createdAt: { gte: since },
+          status: countable,
+          channelId: { not: null },
+        },
+        _count: { _all: true },
+        _sum: { rate: true },
+      }),
+      db.reservation.count({
+        where: {
+          orgId: req.actor.orgId,
+          createdAt: { gte: since },
+          status: countable,
+          channelId: null,
+        },
+      }),
+    ]);
+
+    const by = new Map(grouped.map((g) => [g.channelId, g]));
+
+    const rows = channels.map((c) => {
+      const g = by.get(c.id);
+      /* `rate` is BigInt minor units. Number() only after summing, and the
+         commission is taken from the same integer — never from a float that
+         has already been divided for display. */
+      const revenue = g?._sum?.rate ? Number(g._sum.rate) : 0;
+      return {
+        id: c.id,
+        name: c.name,
+        mark: c.mark || "",
+        status: c.status,
+        mapped: c.mapped || 0,
+        total: c.total || 0,
+        lastSyncAt: c.lastSyncAt,
+        note: c.note || "",
+        reservations: g?._count?._all || 0,
+        revenueMinor: revenue,
+        commissionMinor: Math.round((revenue * (c.commissionBps || 0)) / 10_000),
+        commissionBps: c.commissionBps || 0,
+      };
+    });
+
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({
+      days,
+      since: since.toISOString(),
+      channels: rows,
+      unattributed: loose,
+      basis: "Reservations booked in the window, excluding cancellations and no-shows, grouped by the channel recorded against each one.",
     });
   } catch (e) { next(e); }
 });

@@ -208,6 +208,10 @@ export const RESOURCES = {
       nights: "int", adults: "int", children: "int", eta: "string",
       source: "string", status: "enum:ReservationStatus",
       rate: "money", currency: "string",
+      /* Which channel sold it. `source` stays as the human label; this is the
+         join the commission roll-up reads. `id:channel` makes the framework
+         check the channel belongs to the same company before writing it. */
+      channelId: "id:channel",
     },
     required: ["guestName"], numbered: "ref",
     search: ["ref", "guestName"],

@@ -1128,13 +1128,21 @@ enum RoomCondition {
 }
 
 model Reservation {
-  id      String       @id @default(cuid())
-  orgId   String
-  org     Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  roomId  String?
-  room    Room?        @relation(fields: [roomId], references: [id], onDelete: SetNull)
-  guestId String?
-  guest   Party?       @relation(fields: [guestId], references: [id], onDelete: SetNull)
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  roomId    String?
+  room      Room?        @relation(fields: [roomId], references: [id], onDelete: SetNull)
+  guestId   String?
+  guest     Party?       @relation(fields: [guestId], references: [id], onDelete: SetNull)
+  /// Which channel sold this stay. NULL means nobody attributed it — the
+  /// front desk, or a reservation taken before the channel was linked.
+  /// `source` is free text and stays as the human label; this is the join,
+  /// because rolling revenue up by matching the channel "Booking.com" against
+  /// the string "BOOKING" is how a commission figure comes to be confidently
+  /// wrong.
+  channelId String?
+  channel   Channel?     @relation(fields: [channelId], references: [id], onDelete: SetNull)
 
   ref        String
   guestName  String            @default("")
@@ -1165,6 +1173,7 @@ model Reservation {
   @@unique([orgId, ref])
   @@index([orgId, status])
   @@index([orgId, arriveOn])
+  @@index([orgId, channelId])
 }
 
 enum ReservationStatus {
@@ -2261,6 +2270,8 @@ model Channel {
   commissionBps Int           @default(0)
   lastSyncAt    DateTime?
   note          String        @default("")
+
+  reservations Reservation[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
