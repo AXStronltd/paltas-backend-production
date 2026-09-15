@@ -2556,21 +2556,20 @@ test("the promotional shelf is two rows that scroll sideways together", { skip }
   assert.match(rail, /display:grid/, "the shelf is not a grid, so it cannot have two rows");
   assert.match(rail, /grid-auto-flow:column/,
     "the grid flows in rows, so a swipe would move one row and not the other");
-  assert.match(rail, /grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/,
-    "the shelf is not two rows above a phone");
+  assert.match(rail, /grid-template-rows:repeat\(1,minmax\(0,1fr\)\)/,
+    "the promotional shelf is not one row");
 
   /*
-   * TWO ROWS ON A PHONE, AND IT STAYS SMALL.
+   * ONE ROW, ON EVERY SCREEN.
    *
-   * This briefly went to four, because "four rows" was read as being about this
-   * shelf. It was not — it was about the INVENTORY rows, which were showing one
-   * property at a time. A signpost to the rest of PALTAS is not worth 570px of
-   * a phone screen.
+   * It went one, then two, then four, and back to one. The shelf is a signpost
+   * to the rest of PALTAS; the inventory grid below it is what anybody came
+   * for, and that is where the vertical space belongs.
    */
   const phone = html.slice(html.indexOf("@media (max-width:720px)"),
                            html.indexOf("@media (max-width:720px)") + 1800);
-  assert.match(phone, /grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/,
-    "the promotional shelf is not two rows on a phone");
+  assert.match(phone, /grid-template-rows:repeat\(1,minmax\(0,1fr\)\)/,
+    "the promotional shelf is not one row on a phone");
   assert.match(phone, /grid-auto-flow/.test(rail) ? /grid-auto-columns:46%/ : /.^/,
     "the phone lost its column width");
 
@@ -2605,14 +2604,15 @@ test("the promotional shelf is two rows that scroll sideways together", { skip }
    * visibility:hidden and not display:none.
    */
   /*
-   * Padding to a multiple of FOUR, not two. The row count now differs by
-   * breakpoint — four on a phone, two above it — and draw() runs before any of
-   * that is laid out, so it cannot ask which. Four divides by 4, by 2 and by 1,
-   * so one rule serves every layout: fifteen slides become sixteen cells, which
-   * is four columns of four on a phone and eight columns of two above it.
+   * AT ONE ROW THERE IS NOTHING TO PAD, AND PADDING WOULD BE VISIBLE.
+   *
+   * The filler rounds a copy up to a whole number of columns, which only
+   * matters when a column holds more than one slide. At one row every slide IS
+   * a column, so a copy is already whole — and an empty cell would be a blank
+   * column sitting between the real set and its clone, appearing once per loop.
    */
-  assert.match(html, /var ROWS_MAX = 4;/,
-    "the filler assumes one row count, so the wrap misaligns at the other");
+  assert.match(html, /var ROWS_MAX = 1;/,
+    "the filler still pads at one row, which puts a visible gap in the loop");
   assert.match(html, /\(ROWS_MAX - \(live\.length % ROWS_MAX\)\) % ROWS_MAX/,
     "the copy is not rounded up to a whole column");
   assert.match(html, /\.pdisc-fill\{visibility:hidden\}/,
