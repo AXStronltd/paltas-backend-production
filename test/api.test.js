@@ -597,3 +597,142 @@ test("starting a sign-in hands the browser its pending state, and the callback s
   assert.match(cb.headers.get("location") || "", /login\.html\?signin=/,
     "a failed sign-in does not land on the sign-in page");
 });
+
+/* ======================================================================
+ * REGISTRATION — the function that creates every PALTAS account.
+ *
+ * It had no test. Sign-in was covered end to end; what happens to the PERSON
+ * on the other side of it was not, which is the half a client experiences.
+ * ====================================================================== */
+
+const IDENTITY = {
+  googleSub: "sub_new_person_001",
+  email: "new.person@example.com",
+  name: "New Person",
+  picture: "https://lh3.example/pic.jpg",
+};
+
+test("a first sign-in creates the account", { skip }, async () => {
+  const { upsertUser } = await import("../src/routes/auth.js");
+
+  const before = await db.user.findUnique({ where: { email: IDENTITY.email } });
+  assert.equal(before, null, "the fixture is dirty — this person already exists");
+
+  const user = await upsertUser(IDENTITY);
+  assert.ok(user.id, "no account was created");
+  assert.equal(user.email, IDENTITY.email);
+  assert.equal(user.googleSub, IDENTITY.googleSub);
+  assert.equal(user.name, "New Person");
+
+  /* A registration is a row somebody can be looked up by later, not an object
+     returned once. */
+  const stored = await db.user.findUnique({ where: { googleSub: IDENTITY.googleSub } });
+  assert.ok(stored, "the account was returned but not stored");
+  assert.equal(stored.id, user.id);
+});
+
+test("signing in again returns the same person, not a second one", { skip }, async () => {
+  const { upsertUser } = await import("../src/routes/auth.js");
+
+  const first = await upsertUser(IDENTITY);
+  const second = await upsertUser(IDENTITY);
+  assert.equal(second.id, first.id, "a second sign-in created a SECOND account");
+
+  const all = await db.user.findMany({ where: { email: IDENTITY.email } });
+  assert.equal(all.length, 1, `${all.length} accounts exist for one person`);
+});
+
+test("a returning person's name and picture are refreshed from Google", { skip }, async () => {
+  const { upsertUser } = await import("../src/routes/auth.js");
+  await upsertUser(IDENTITY);
+
+  const updated = await upsertUser({ ...IDENTITY, name: "New Name", picture: "https://lh3.example/2.jpg" });
+  assert.equal(updated.name, "New Name", "a changed name is not picked up");
+  assert.equal(updated.picture, "https://lh3.example/2.jpg");
+
+  /* But Google sending nothing must not erase what is on file. */
+  const blanked = await upsertUser({ ...IDENTITY, name: "", picture: "" });
+  assert.equal(blanked.name, "New Name", "an empty name from Google wiped the stored one");
+});
+
+test("an address already on file is claimed by its Google account", { skip }, async () => {
+  const { upsertUser } = await import("../src/routes/auth.js");
+
+  /*
+   * Somebody invited to a company before they ever signed in: a User row with
+   * an email and NO googleSub. Their first sign-in must attach to that row, or
+   * they arrive as a stranger with none of the access they were given.
+   */
+  const invited = await db.user.create({
+    data: { email: "invited@example.com", name: "Invited Person" },
+  });
+  assert.equal(invited.googleSub, null);
+
+  const claimed = await upsertUser({
+    googleSub: "sub_invited_001", email: "invited@example.com",
+    name: "Invited From Google", picture: "",
+  });
+  assert.equal(claimed.id, invited.id, "the invitation was not claimed — a duplicate person was made");
+  assert.equal(claimed.googleSub, "sub_invited_001");
+  /* The name already on file wins: somebody chose it deliberately. */
+  assert.equal(claimed.name, "Invited Person", "a stored name was overwritten by Google's");
+});
+
+test("an address claimed by a DIFFERENT Google account is refused", { skip }, async () => {
+  const { upsertUser } = await import("../src/routes/auth.js");
+
+  /*
+   * THE REFUSAL THAT MATTERS MOST, AND IT HAD NO TEST.
+   *
+   * Two Google accounts presenting one address. Guessing means handing one
+   * person another's company — every membership, every booking, every invoice.
+   * It refuses and says which account to use instead.
+   */
+  await upsertUser({ googleSub: "sub_owner_A", email: "shared@example.com", name: "Owner A", picture: "" });
+
+  await assert.rejects(
+    () => upsertUser({ googleSub: "sub_intruder_B", email: "shared@example.com", name: "B", picture: "" }),
+    (e) => {
+      assert.equal(e.status, 403, `refused with ${e.status}, expected 403`);
+      assert.match(e.message, /already attached to a different Google account/);
+      return true;
+    },
+    "a second Google account took over an existing address");
+
+  /* And the original is untouched. */
+  const owner = await db.user.findUnique({ where: { email: "shared@example.com" } });
+  assert.equal(owner.googleSub, "sub_owner_A", "the intruder overwrote the owner's account");
+  assert.equal(owner.name, "Owner A");
+});
+
+test("a new account can sign in and reach its own data", { skip }, async () => {
+  /*
+   * Registration is only complete if the person can then USE the site. This
+   * walks it: create the account the way the Google callback does, mint the
+   * session the same way, and call the endpoints a new guest would hit.
+   */
+  const { upsertUser } = await import("../src/routes/auth.js");
+  const user = await upsertUser({
+    googleSub: "sub_walks_001", email: "walks@example.com", name: "Walker", picture: "",
+  });
+
+  const { createSession } = await import("../src/auth/sessions.js");
+  const { token } = await createSession(user.id, { userAgent: "test", ip: "127.0.0.1" });
+  const cookie = `paltas_session=${token}`;
+
+  const who = await fetch(`${base}/auth/session`, { headers: { cookie } });
+  assert.equal(who.status, 200, "a freshly registered person cannot read their own session");
+  const body = await who.json();
+  assert.equal(body.user.email, "walks@example.com");
+
+  /* A guest with no company is a valid, complete state — not a broken one. */
+  assert.ok(!body.organization || body.organization === null,
+    "a person with no company was given one");
+
+  /* And the endpoints a new guest uses answer them rather than refusing. */
+  const mine = await fetch(`${base}/marketplace/stays`, { headers: { cookie } });
+  assert.equal(mine.status, 200, "a registered person cannot list their own bookings");
+  const stays = await mine.json();
+  assert.ok(Array.isArray(stays.stays || stays.bookings || []),
+    "the bookings endpoint did not return a list");
+});

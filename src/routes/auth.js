@@ -124,7 +124,18 @@ authRoutes.get("/google/callback", signInLimit, async (req, res, next) => {
  * The one exception is the first sign-in of somebody a colleague invited by
  * email: that row exists with no `googleSub` yet, so it is claimed here, once.
  */
-async function upsertUser(identity) {
+/*
+ * THE FUNCTION THAT CREATES EVERY PALTAS ACCOUNT.
+ *
+ * Exported because it had no test, and an untested account-creation path is
+ * the last thing to discover with a client in front of you. Three behaviours
+ * here are load-bearing and none of them was covered: that a second sign-in
+ * returns the SAME person rather than a second one, that an address already on
+ * file is claimed by its rightful Google account, and that an address claimed
+ * by a DIFFERENT Google account is refused outright rather than guessed at —
+ * guessing means handing somebody another person's company.
+ */
+export async function upsertUser(identity) {
   const bySub = await db.user.findUnique({ where: { googleSub: identity.googleSub } });
   if (bySub) {
     return db.user.update({
