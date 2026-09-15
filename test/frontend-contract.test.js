@@ -2622,7 +2622,21 @@ test("the promotional shelf is two rows that scroll sideways together", { skip }
   assert.match(rail, /grid-auto-flow:column/,
     "the grid flows in rows, so a swipe would move one row and not the other");
   assert.match(rail, /grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/,
-    "the shelf is not two rows");
+    "the shelf is not two rows above a phone");
+
+  /*
+   * FOUR ROWS ON A PHONE.
+   *
+   * Two columns of four, so a phone shows eight tiles at once and the shelf
+   * reads as a grid to scroll rather than a strip to swipe. A thumb still moves
+   * all four rows together, because the flow is still by column.
+   */
+  const phone = html.slice(html.indexOf("@media (max-width:720px)"),
+                           html.indexOf("@media (max-width:720px)") + 1800);
+  assert.match(phone, /grid-template-rows:repeat\(4,minmax\(0,1fr\)\)/,
+    "a phone does not get four rows");
+  assert.match(phone, /grid-auto-flow/.test(rail) ? /grid-auto-columns:46%/ : /.^/,
+    "the phone lost its column width");
 
   /*
    * THE COLUMN WIDTH LIVES ON THE RAIL, NOT THE CARD.
@@ -2654,8 +2668,17 @@ test("the promotional shelf is two rows that scroll sideways together", { skip }
    * copy up to a whole column — and it must occupy that cell, so it is
    * visibility:hidden and not display:none.
    */
-  assert.match(html, /live\.length % 2\) \? '<span class="pdisc-fill"/,
-    "an odd slide count leaves a copy half a column long, so the wrap shifts every row");
+  /*
+   * Padding to a multiple of FOUR, not two. The row count now differs by
+   * breakpoint — four on a phone, two above it — and draw() runs before any of
+   * that is laid out, so it cannot ask which. Four divides by 4, by 2 and by 1,
+   * so one rule serves every layout: fifteen slides become sixteen cells, which
+   * is four columns of four on a phone and eight columns of two above it.
+   */
+  assert.match(html, /var ROWS_MAX = 4;/,
+    "the filler assumes one row count, so the wrap misaligns at the other");
+  assert.match(html, /\(ROWS_MAX - \(live\.length % ROWS_MAX\)\) % ROWS_MAX/,
+    "the copy is not rounded up to a whole column");
   assert.match(html, /\.pdisc-fill\{visibility:hidden\}/,
     "the filler is display:none, which means it occupies no cell and does nothing");
 
@@ -2665,7 +2688,10 @@ test("the promotional shelf is two rows that scroll sideways together", { skip }
   assert.ok(heights.length >= 3, "the tile does not have a height at every breakpoint");
   const tallest = Math.max(...heights);
   assert.ok(tallest <= 210,
-    `a tile reaches ${tallest}px, which doubled is most of a screen — heights: ${heights.join(", ")}`);
+    `a tile reaches ${tallest}px, which stacked is most of a screen — heights: ${heights.join(", ")}`);
+  /* Four of them stack on a phone, so the phone tile has to be the shortest. */
+  assert.ok(Math.min(...heights) <= 140,
+    `the shortest tile is ${Math.min(...heights)}px; four of those is more than a phone screen`);
 });
 
 test("the driver counts columns, not slides", { skip }, () => {
