@@ -2878,3 +2878,56 @@ test("hotels are independent rows, grouped by what the supplier said", { skip },
       `an arrow points at "${m[1]}", which is not on the page`);
   }
 });
+
+test("a visitor with no market still sees hotels, and is told why these ones", { skip }, () => {
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  /*
+   * THE FIRST-TIME VISITOR SAW AN EMPTY MARKETPLACE.
+   *
+   * A wholesaler cannot price "anywhere" — it needs a country. With no market
+   * and no destination the page asked for nothing, got nothing, and every
+   * section fell away to "Nothing is published here yet", while PALTAS had
+   * forty-eight hotels in all fifteen markets tested. On a freshly cleared
+   * phone that is exactly the state somebody arrives in.
+   */
+  assert.match(mod, /function supplierScope\(\)/, "there is no fallback at all");
+  assert.match(mod, /var SUGGESTED = \{ code: "AE"/, "the fallback destination is not named");
+  assert.match(mod, /if \(askCity\) q\.push\("stayCity="/,
+    "only a country is sent, so the fallback is a whole nation rather than a city");
+
+  /*
+   * A DESTINATION IS NOT A MARKET, and that is what makes this safe.
+   *
+   * market-config.js has no default country ON PURPOSE: defaulting to Kenya
+   * would show a Swedish visitor M-Pesa and shillings and call it
+   * localisation. This must not undo that — it decides which city to show
+   * hotels in, and nothing else.
+   */
+  const cfg = readFileSync(join(FE, "assets/market-config.js"), "utf8");
+  assert.match(cfg, /This file has no default country/,
+    "the market config grew a default country, which is the bug this avoided");
+  assert.ok(!/selectedCountry\s*=\s*["']AE["']/.test(mod),
+    "the fallback destination is being written into the visitor's MARKET");
+  assert.match(mod, /stayCountry=/, "the hint is sent as something other than a supplier scope");
+  assert.ok(!/q\.push\("country="/.test(mod),
+    "a country that narrows PALTAS's own listings is being sent");
+
+  /*
+   * AND IT SAYS SO. A suggestion that is not announced is a presumption — it
+   * is the difference between "here are some hotels in Dubai" and "here are
+   * your hotels".
+   */
+  assert.match(mod, /function suggestedLine\(\)/, "the suggestion is made silently");
+  assert.match(mod, /because you have not told us/, "the notice does not say why these hotels");
+  assert.match(mod, /if \(!sg \|\| STATE\.status !== "ready"\) return "";/,
+    "the notice shows even when PALTAS did not choose the destination");
+  assert.match(html, /\.mk-suggested\{/, "the notice has no styling");
+
+  /* The button opens the search field the page already has, rather than a
+     second one invented for the message. */
+  assert.match(mod, /document\.getElementById\("heroWhere"\)/,
+    "the notice's button does not reach the real destination field");
+  assert.ok(html.includes('id="heroWhere"'), "the field the button focuses does not exist");
+});
