@@ -680,10 +680,12 @@ function marketplaceHome(listings) {
 
 /** The product names the closing section offers, read from the page itself. */
 function productTitles() {
+  /* PRODUCTS is a list of objects now — it carries features, a tone and an
+     illustration per product, not just a title and a href. */
   const js = readFileSync(join(FE, "assets", "paltas-market.js"), "utf8");
   const start = js.indexOf("var PRODUCTS = [");
-  const block = js.slice(start, js.indexOf("];", start));
-  return [...block.matchAll(/\["([^"]+)"/g)].map((m) => m[1].replace(/&/g, "&amp;"));
+  const block = js.slice(start, js.indexOf("\n  ];", start));
+  return [...block.matchAll(/title: "([^"]+)"/g)].map((m) => m[1].replace(/&/g, "&amp;"));
 }
 
 /** The rendered marketplace, after the promise chain has settled. */
@@ -1444,14 +1446,28 @@ test("the products on the homepage are ones PALTAS can actually deliver", { skip
 
   const html = await rendered(marketplaceHome(SAMPLE));
 
-  /* PLATFORM is PALTAS's own staff console — not for sale, so not on the page. */
-  const forSale = products.filter((p) => p !== "PLATFORM");
+  /*
+   * TWO ENTRIES IN THE ENUM ARE NOT THINGS A VISITOR CHOOSES.
+   *
+   * PLATFORM is PALTAS's own staff console — not for sale.
+   *
+   * GUEST_PORTAL is an entitlement rather than a product. Everything it does
+   * still works and is still in the schema: a guest's bookings, current stay,
+   * folio, messages and support. But it is what a customer ALREADY HAS once
+   * they sign in, reached through their account — not something they pick.
+   * Offering it beside Property Management asked somebody to choose between a
+   * business system and their own profile.
+   *
+   * The other direction of this test is unchanged and is the one that catches
+   * fabrication: nothing may be advertised that is not built.
+   */
+  const notSold = ["PLATFORM", "GUEST_PORTAL"];
+  const forSale = products.filter((p) => !notSold.includes(p));
   const shown = {
     PROPERTY_MANAGEMENT: "Property Management",
     AGENT_HOST: "Agent &amp; Host",
     HOTEL_MANAGEMENT: "Hotel Management",
     SECURITY_MANAGEMENT: "Security Management",
-    GUEST_PORTAL: "Guest Portal",
   };
 
   const missing = forSale.filter((p) => !html.includes(shown[p]));
@@ -1465,6 +1481,13 @@ test("the products on the homepage are ones PALTAS can actually deliver", { skip
     "would lead a visitor nowhere.");
   assert.ok(!html.includes("PALTAS Platform</h3>"),
     "the internal staff console is being offered to customers");
+
+  /* And the guest experience must still EXIST, just not as a card here. */
+  assert.ok(!/>Guest Portal</.test(html),
+    "Guest Portal is still offered as a product to choose");
+  const guestRoutes = readFileSync(new URL("../src/routes/guest.js", import.meta.url), "utf8");
+  assert.ok(/guest\/stay|guest\/services/.test(guestRoutes),
+    "the guest endpoints were removed along with the card — the functionality must stay");
 });
 
 test("a guest is asked to sign in BEFORE typing their details", { skip }, () => {
@@ -2983,5 +3006,95 @@ test("the timezone map is big enough to actually detect somebody", { skip }, () 
   for (const big of ["US", "CA", "AU", "BR", "MX"]) {
     assert.ok((per[big] || 0) >= 10,
       `${big} has only ${per[big] || 0} zones mapped, and it has many more`);
+  }
+});
+
+test("the product section is four cards, one illustration family", { skip }, async () => {
+  const html = await rendered(marketplaceHome(SAMPLE));
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  const css = readFileSync(join(FE, "index.html"), "utf8");
+
+  /* Exactly four, in the order the section argues for. */
+  const cards = (html.match(/class="mk-card mk-prod mk-prod-/g) || []).length;
+  assert.equal(cards, 4, `the section shows ${cards} product cards, not four`);
+  for (const t of ["Property Management", "Hotel Management", "Agent &amp; Host",
+                   "Security Management"]) {
+    assert.ok(html.includes(t), `${t} is missing from the product section`);
+  }
+  assert.ok(!/Guest Portal/.test(html), "Guest Portal is still a card");
+
+  /* The copy the section was given, not a paraphrase of it. */
+  assert.ok(html.includes("One platform. Every property journey."), "the heading changed");
+  assert.ok(html.includes("The software behind the listings"), "the supporting line changed");
+  assert.ok(html.includes("Explore PALTAS"), "the section CTA changed");
+
+  /* Every card carries the same five parts. */
+  for (const part of ["mk-prod-brand", "mk-prod-art", "mk-prod-go", "mk-prod-feats"]) {
+    assert.equal((html.match(new RegExp(part, "g")) || []).length >= 4, true,
+      `${part} is missing from at least one card`);
+  }
+  assert.equal((html.match(/class="mk-iso"/g) || []).length, 4,
+    "not every card has an illustration");
+  /* Three features each, twelve in all. */
+  const feats = [...html.matchAll(/class="mk-prod-feats">([\s\S]*?)<\/span><\/span>/g)];
+  assert.equal(feats.length, 4, "a card is missing its feature row");
+  for (const f of feats) {
+    assert.equal((f[1].match(/<span>/g) || []).length, 3,
+      "a card does not carry exactly three features");
+  }
+
+  /*
+   * ONE FAMILY, NOT FOUR CLIP-ART CHOICES.
+   *
+   * All four illustrations come from one generated isometric projection: the
+   * same axes, the same light from the top left, the same shadow at the same
+   * scale. That is the difference between a set and four pictures — so the
+   * test pins the shared geometry rather than the drawings.
+   */
+  /* They are stored as JS string literals, so every quote inside them is
+     backslash-escaped. Unescaping once is clearer than writing a regex that
+     has to survive two layers of it. */
+  const flat = mod.replace(/\\"/g, '"');
+  const isos = [...flat.matchAll(/<svg class="mk-iso" viewBox="([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(isos.length, 4, `there are ${isos.length} illustrations, not four`);
+  assert.equal(new Set(isos).size, 1, `the illustrations use different viewBoxes: ${isos.join(" | ")}`);
+  const shadows = [...flat.matchAll(/<ellipse cx="60" cy="92" rx="42" ry="13"/g)];
+  assert.equal(shadows.length, 4, "the illustrations do not share one ground shadow");
+  assert.ok(!/<image |\.jpg|\.png/.test(mod.slice(mod.indexOf("var ISO"), mod.indexOf("var PRODUCTS"))),
+    "an illustration is a photograph rather than a drawing");
+
+  /* A pastel behind the art only — a whole tinted card makes four of them
+     shout at each other. */
+  for (const tone of ["blue", "peach", "lilac", "mint"]) {
+    /* A plain string, not a constructed regex — the escaping needed to survive
+       a template literal AND RegExp was what made the first version fail. */
+    assert.ok(css.includes(`.mk-prod-${tone}{--tone:#`),
+      `the ${tone} tone is not defined`);
+  }
+  /* Four tones, four different pastels — no two cards may share one. */
+  const tones = [...css.matchAll(/\.mk-prod-(?:blue|peach|lilac|mint)\{--tone:(#[0-9A-Fa-f]{6})\}/g)]
+    .map((m) => m[1].toUpperCase());
+  assert.equal(tones.length, 4, `found ${tones.length} tone definitions, expected four`);
+  assert.equal(new Set(tones).size, 4, `two products share a pastel: ${tones.join(" ")}`);
+  assert.match(css, /\.mk-prod-art\{[^}]*background:var\(--tone\)/,
+    "the pastel is applied somewhere other than behind the illustration");
+
+  /* Four across, two across, then a rail — and the illustration must survive. */
+  assert.match(css, /\.mk-grid\{ grid-template-columns:repeat\(4,minmax\(0,1fr\)\) \}/, "not four across");
+  assert.match(css, /@media \(max-width:1180px\)\{ \.mk-grid\{grid-template-columns:repeat\(2,/, "no 2x2");
+  assert.match(css, /@media \(max-width:620px\)\{[\s\S]{0,400}?\.mk-card\.mk-prod\{flex:0 0 7\d%/,
+    "a phone does not get a swipe rail with the cards kept large");
+
+  /* Motion is a lift and an arrow, and neither happens for somebody who asked
+     for less of it. */
+  assert.match(css, /\.mk-card\.mk-prod:hover\{[\s\S]{0,120}transform:translateY\(-4px\)/, "no hover lift");
+  assert.match(css, /:hover \.mk-prod-go\{[\s\S]{0,140}transform:translateX\(3px\)/, "the arrow does not move");
+  const rm = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce){\n  .mk-card.mk-prod"));
+  assert.match(rm.slice(0, 220), /transform:none/, "reduced motion still gets the lift");
+
+  /* The existing route, not a new one. */
+  assert.ok(!/href="\/products|href="\/platform/.test(html), "a new product route was invented");
+  for (const m of html.matchAll(/class="mk-card mk-prod[^"]*" href="([^"]+)"/g)) {
+    assert.match(m[1], /^partner\.html\?p=/, `a card points at ${m[1]}, not the existing product page`);
   }
 });
