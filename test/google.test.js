@@ -27,7 +27,7 @@ process.env.GOOGLE_CLIENT_SECRET ||= "test-client-secret";
 process.env.PUBLIC_URL ||= "https://api.example.test";
 process.env.APP_URL ||= "https://app.example.test";
 
-const { beginSignIn, completeSignIn, verifyIdToken, _resetPending, _pendingSize } =
+const { beginSignIn, completeSignIn, verifyIdToken, openPending } =
   await import("../src/auth/google.js");
 
 /* ---------------------------------------------------- a fake Google ---- */
@@ -64,7 +64,8 @@ function tokenEndpoint(token, sink = {}) {
   };
 }
 
-test.beforeEach(() => _resetPending());
+/* Nothing to reset: the pending sign-in lives in the browser's cookie, not in
+   this module. Each test carries its own. */
 
 /* ================================================================ */
 test("the sign-in URL carries a PKCE challenge and a state", () => {
@@ -83,11 +84,11 @@ test("the sign-in URL carries a PKCE challenge and a state", () => {
 });
 
 test("the verifier sent to Google matches the challenge shown to the browser", async () => {
-  const { url, state } = beginSignIn({});
+  const { url, state, cookie } = beginSignIn({});
   const challenge = new URL(url).searchParams.get("code_challenge");
 
   const sink = {};
-  await completeSignIn({ code: "abc", state }, {
+  await completeSignIn({ code: "abc", state, cookie }, {
     fetch: tokenEndpoint(await idToken(), sink),
     jwks,
   });
@@ -98,32 +99,82 @@ test("the verifier sent to Google matches the challenge shown to the browser", a
   assert.equal(derived, challenge, "the verifier does not match the challenge");
 });
 
-test("a state can be used exactly once", async () => {
-  const { state } = beginSignIn({});
+test("a callback with no cookie is refused, which is what a replay gets", async () => {
+  /*
+   * WHERE SINGLE USE LIVES NOW.
+   *
+   * It used to be here: the Map deleted the entry as it read it. The pending
+   * sign-in is a cookie now, so the ROUTE clears it before completing — a
+   * replayed callback therefore arrives with nothing, and this is that arrival.
+   * The route's own test asserts the clearing; this asserts the refusal.
+   */
+  const { state, cookie } = beginSignIn({});
+  const deps = { fetch: tokenEndpoint(await idToken()), jwks };
+  await assert.rejects(
+    () => completeSignIn({ code: "abc", state, cookie: null }, deps),
+    /expired or was already used/i);
+});
+
+test("a cookie from one sign-in cannot complete another", async () => {
+  /*
+   * The signature proves this service issued the cookie. This proves it was
+   * issued for THIS attempt — without the check, a valid cookie from one
+   * sign-in could complete a callback belonging to a different one, which is
+   * exactly the cross-site request forgery `state` exists to prevent.
+   */
+  const a = beginSignIn({});
+  const b = beginSignIn({});
+  const deps = { fetch: tokenEndpoint(await idToken()), jwks };
+  await assert.rejects(
+    () => completeSignIn({ code: "abc", state: b.state, cookie: a.cookie }, deps),
+    /expired or was already used/i);
+});
+
+test("a forged or tampered cookie is refused", async () => {
+  const { state, cookie } = beginSignIn({});
   const deps = { fetch: tokenEndpoint(await idToken()), jwks };
 
-  const first = await completeSignIn({ code: "abc", state }, deps);
-  assert.equal(first.identity.email, "person@example.com");
-
-  /* A replayed callback must not produce a second session. */
+  /* Same payload, a signature somebody made up. */
+  const body = cookie.slice(0, cookie.lastIndexOf("."));
   await assert.rejects(
-    () => completeSignIn({ code: "abc", state }, deps),
+    () => completeSignIn({ code: "abc", state, cookie: body + ".notarealsignature" }, deps),
     /expired or was already used/i);
+
+  /* Unsigned, and shaped like the payload it replaces. */
+  const forged = Buffer.from(JSON.stringify({
+    state, verifier: "x".repeat(43), next: "/", expires: Date.now() + 60000,
+  })).toString("base64url");
+  await assert.rejects(
+    () => completeSignIn({ code: "abc", state, cookie: forged + "." + forged }, deps),
+    /expired or was already used/i);
+
+  assert.equal(openPending(body + ".notarealsignature"), null, "a bad signature opened");
+  assert.equal(openPending("nonsense"), null, "a malformed cookie opened");
+  assert.equal(openPending(null), null, "a missing cookie opened");
+});
+
+test("an expired cookie is refused", () => {
+  /* Ten minutes is the window. A cookie past it is not a sign-in in progress,
+     it is a tab somebody left open yesterday. */
+  const old = Buffer.from(JSON.stringify({
+    state: "s", verifier: "v", next: "/", expires: Date.now() - 1,
+  })).toString("base64url");
+  assert.equal(openPending(old + ".whatever"), null);
 });
 
 test("a state nobody issued is refused", async () => {
   const deps = { fetch: tokenEndpoint(await idToken()), jwks };
   await assert.rejects(
-    () => completeSignIn({ code: "abc", state: "invented" }, deps),
+    () => completeSignIn({ code: "abc", state: "invented", cookie: null }, deps),
     /expired or was already used/i);
 });
 
 test("a missing code or state is refused before anything else happens", async () => {
-  const { state } = beginSignIn({});
-  await assert.rejects(() => completeSignIn({ state }, {}), /did not return a sign-in code/i);
-  await assert.rejects(() => completeSignIn({ code: "x" }, {}), /did not return the state/i);
-  /* And neither attempt consumed the pending sign-in. */
-  assert.equal(_pendingSize(), 1);
+  const { state, cookie } = beginSignIn({});
+  await assert.rejects(() => completeSignIn({ state, cookie }, {}), /did not return a sign-in code/i);
+  await assert.rejects(() => completeSignIn({ code: "x", cookie }, {}), /did not return the state/i);
+  /* And neither attempt spent the cookie — it is still good for the real one. */
+  assert.ok(openPending(cookie), "a refused callback consumed the pending sign-in");
 });
 
 test("a token signed by somebody other than Google is refused", async () => {
@@ -181,9 +232,8 @@ test("`next` cannot be turned into an open redirect", async () => {
   ];
 
   for (const bad of attempts) {
-    _resetPending();
-    const { state } = beginSignIn({ next: bad });
-    const { next } = await completeSignIn({ code: "abc", state },
+    const { state, cookie } = beginSignIn({ next: bad });
+    const { next } = await completeSignIn({ code: "abc", state, cookie },
       { fetch: tokenEndpoint(await idToken()), jwks });
     assert.ok(next.startsWith("/") && !next.startsWith("//"),
       `\`next\` of ${JSON.stringify(bad)} produced ${JSON.stringify(next)}`);
@@ -192,29 +242,29 @@ test("`next` cannot be turned into an open redirect", async () => {
 });
 
 test("a legitimate path is kept", async () => {
-  const { state } = beginSignIn({ next: "/dashboard/hotel.html" });
-  const { next } = await completeSignIn({ code: "abc", state },
+  const { state, cookie } = beginSignIn({ next: "/dashboard/hotel.html" });
+  const { next } = await completeSignIn({ code: "abc", state, cookie },
     { fetch: tokenEndpoint(await idToken()), jwks });
   assert.equal(next, "/dashboard/hotel.html");
 });
 
 /* ================================================================ */
 test("a refusal from Google's token endpoint names the likely cause", async () => {
-  const { state } = beginSignIn({});
+  const { state, cookie } = beginSignIn({});
   const failing = async () => ({
     ok: false,
     text: async () => '{"error":"redirect_uri_mismatch"}',
   });
   await assert.rejects(
-    () => completeSignIn({ code: "abc", state }, { fetch: failing, jwks }),
+    () => completeSignIn({ code: "abc", state, cookie }, { fetch: failing, jwks }),
     /redirect URI registered in Google Cloud must be exactly/i);
 });
 
 test("a response with no ID token is refused rather than half-trusted", async () => {
-  const { state } = beginSignIn({});
+  const { state, cookie } = beginSignIn({});
   const noToken = async () => ({ ok: true, json: async () => ({ access_token: "a" }) });
   await assert.rejects(
-    () => completeSignIn({ code: "abc", state }, { fetch: noToken, jwks }),
+    () => completeSignIn({ code: "abc", state, cookie }, { fetch: noToken, jwks }),
     /did not return an identity token/i);
 });
 

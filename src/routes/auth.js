@@ -7,7 +7,7 @@
 import { Router } from "express";
 import { config } from "../config.js";
 import { db } from "../db.js";
-import { beginSignIn, completeSignIn } from "../auth/google.js";
+import { beginSignIn, completeSignIn, OAUTH_COOKIE } from "../auth/google.js";
 import {
   COOKIE, clearSessionCookie, createSession, destroySession,
   setSessionCookie, switchOrganization,
@@ -28,7 +28,28 @@ const signInLimit = rateLimit({ windowMs: 60_000, max: 20 });
  * and needs no code at all to start a sign-in.
  */
 authRoutes.get("/google", signInLimit, (req, res) => {
-  const { url } = beginSignIn({ next: req.query.next });
+  const { url, cookie } = beginSignIn({ next: req.query.next });
+
+  /*
+   * The verifier travels with the browser rather than in this process.
+   *
+   * It used to sit in a Map here, which meant a sign-in begun before a deploy
+   * or on an instance Render later stopped could never be completed — the
+   * person was bounced back to the sign-in page with nothing to act on. See
+   * the long note in auth/google.js.
+   *
+   * SameSite=Lax is load-bearing: Google's callback is a top-level GET
+   * navigation and Lax permits it. "Strict" would drop the cookie on exactly
+   * the request that needs it.
+   */
+  res.cookie(OAUTH_COOKIE, cookie, {
+    httpOnly: true,
+    secure: config.secureCookies,
+    sameSite: "lax",
+    maxAge: 10 * 60 * 1000,
+    path: "/auth",
+  });
+
   res.redirect(url);
 });
 
@@ -56,9 +77,21 @@ authRoutes.get("/google/callback", signInLimit, async (req, res, next) => {
       return res.redirect(`${config.appUrl}/auth/login.html?signin=${why}`);
     }
 
+    const cookie = req.cookies ? req.cookies[OAUTH_COOKIE] : null;
+    /*
+     * CLEARED BEFORE IT IS USED, AND THAT IS WHAT MAKES IT SINGLE USE.
+     *
+     * A replayed callback then arrives with no cookie and cannot mint a second
+     * session, which is the property the old Map got from deleting the entry.
+     */
+    res.clearCookie(OAUTH_COOKIE, {
+      httpOnly: true, secure: config.secureCookies, sameSite: "lax", path: "/auth",
+    });
+
     const { identity, next: where } = await completeSignIn({
       code: req.query.code,
       state: req.query.state,
+      cookie,
     });
 
     const user = await upsertUser(identity);

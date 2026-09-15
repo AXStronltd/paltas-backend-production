@@ -536,3 +536,64 @@ function complete() {
     placement: "discover", audience: "travellers", language: "en", priority: 60,
   };
 }
+
+test("starting a sign-in hands the browser its pending state, and the callback spends it", { skip }, async () => {
+  /*
+   * THE BUG THIS EXISTS FOR — reported from production, before onboarding.
+   *
+   * "Log in with Google, pick my email, and I come back where I started."
+   *
+   * The PKCE verifier was held in a `new Map()` in this process. Render stops
+   * an idle instance; every deploy empties the Map; a second instance would
+   * break it outright. So a person who pressed sign in, spent twenty seconds on
+   * Google's account chooser and came back to a process started in between had
+   * their state looked up in a Map that no longer held it — and was redirected
+   * to the sign-in page with nothing to act on. It reads as "this site will not
+   * let me in" rather than "try again".
+   *
+   * It travels with the browser now, so none of those three things can lose it.
+   */
+  const r = await fetch(`${base}/auth/google`, { redirect: "manual" });
+  assert.equal(r.status, 302, "sign-in does not redirect to Google");
+
+  const setCookie = r.headers.getSetCookie
+    ? r.headers.getSetCookie().join("\n")
+    : (r.headers.get("set-cookie") || "");
+  assert.match(setCookie, /paltas_oauth=/,
+    "the browser is given nothing to bring back, so the callback cannot complete");
+
+  /*
+   * SameSite=Lax is load-bearing, not a default worth leaving to chance.
+   * Google's callback is a top-level GET navigation, which Lax permits;
+   * "Strict" would drop the cookie on exactly the request that needs it, and
+   * the sign-in would fail the same way it did before.
+   */
+  assert.match(setCookie, /SameSite=Lax/i, "the cookie will not survive Google's redirect back");
+  assert.match(setCookie, /HttpOnly/i, "script can read the pending sign-in");
+
+  /* And the value is signed, not a readable payload anybody could mint. */
+  const value = (setCookie.match(/paltas_oauth=([^;]+)/) || [])[1];
+  assert.ok(value && value.includes("."), "the cookie carries no signature");
+
+  /*
+   * THE CALLBACK CLEARS IT BEFORE USING IT, and that is what makes it single
+   * use — the property the old Map got from deleting its entry as it read it.
+   * A replayed callback then arrives with nothing.
+   */
+  const state = new URL(r.headers.get("location")).searchParams.get("state");
+  const cb = await fetch(
+    `${base}/auth/google/callback?code=irrelevant&state=${encodeURIComponent(state)}`,
+    { headers: { cookie: `paltas_oauth=${value}` }, redirect: "manual" });
+
+  const cleared = cb.headers.getSetCookie
+    ? cb.headers.getSetCookie().join("\n")
+    : (cb.headers.get("set-cookie") || "");
+  assert.match(cleared, /paltas_oauth=;|paltas_oauth=(?=;|$)/,
+    "the callback does not clear the pending cookie, so it could be replayed");
+
+  /* The code is nonsense, so this cannot succeed — it must land a person on a
+     page with words rather than on a stack trace. */
+  assert.equal(cb.status, 302, "a failed sign-in does not redirect a human anywhere");
+  assert.match(cb.headers.get("location") || "", /login\.html\?signin=/,
+    "a failed sign-in does not land on the sign-in page");
+});

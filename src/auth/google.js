@@ -39,21 +39,79 @@ const JWKS = createRemoteJWKSet(new URL("https://www.googleapis.com/oauth2/v3/ce
 /* ------------------------------------------------------ the handshake */
 
 /*
- * The pending sign-in, held for ten minutes.
+ * THE PENDING SIGN-IN LIVES IN A COOKIE, NOT IN THIS PROCESS.
  *
- * In memory, deliberately. These rows are worthless thirty seconds after they
- * are made and putting them in Postgres means a write and a delete on every
- * sign-in for no benefit. The cost is that a sign-in started before a deploy
- * and finished after it fails — the person presses the button again. If PALTAS
- * ever runs more than one instance of this service, this moves to Redis or the
- * database, and that is the only reason it would need to.
+ * It used to be `new Map()`, held in memory for ten minutes, with a comment
+ * saying the cost was that "a sign-in started before a deploy and finished
+ * after it fails — the person presses the button again". That reasoning was
+ * sound and the conclusion was wrong for where this actually runs:
+ *
+ *   Render stops an idle instance. Somebody arrives at a cold site, presses
+ *   sign in, spends twenty seconds on Google's account chooser, and comes back
+ *   to a process that was started after their state was created.
+ *
+ *   Every deploy empties the Map. On a day with a dozen deploys, a dozen
+ *   windows exist in which any sign-in in flight dies.
+ *
+ *   A second instance breaks it outright: the callback can land anywhere.
+ *
+ * And the failure is the worst shape available — no error a person can act on,
+ * just a redirect back to the sign-in page they started from, which reads as
+ * "this site will not let me in" rather than "try again".
+ *
+ * So the verifier travels with the browser instead, in a signed, HttpOnly,
+ * ten-minute cookie. No storage, nothing to sweep, nothing to lose on deploy,
+ * and it works with any number of instances. The signature is what stops it
+ * being forged; `state` still has to match what Google hands back, so a cookie
+ * from one attempt cannot complete another.
+ *
+ * SameSite=Lax is correct and load-bearing: Google's callback is a top-level
+ * GET navigation, which Lax permits. "Strict" would drop the cookie on exactly
+ * that request and break every sign-in.
  */
-const pending = new Map();
 const TEN_MINUTES = 10 * 60 * 1000;
 
-function sweep() {
-  const now = Date.now();
-  for (const [k, v] of pending) if (v.expires < now) pending.delete(k);
+export const OAUTH_COOKIE = "paltas_oauth";
+
+function sign(payload) {
+  return crypto.createHmac("sha256", config.sessionSecret).update(payload).digest("base64url");
+}
+
+/** The cookie value: the payload, and proof this service wrote it. */
+export function sealPending(held) {
+  const body = Buffer.from(JSON.stringify(held)).toString("base64url");
+  return body + "." + sign(body);
+}
+
+/**
+ * Read it back, or nothing.
+ *
+ * Returns null for anything that is not exactly right — missing, malformed,
+ * wrong signature, expired. A caller cannot accidentally treat a forged cookie
+ * as a real one, because there is no shape in which this returns a half-valid
+ * answer.
+ */
+export function openPending(cookie) {
+  if (!cookie || typeof cookie !== "string") return null;
+  const cut = cookie.lastIndexOf(".");
+  if (cut < 1) return null;
+  const body = cookie.slice(0, cut);
+  const mac = cookie.slice(cut + 1);
+
+  const expect = sign(body);
+  /* Constant-time, so a wrong signature cannot be found one character at a
+     time by measuring how long the comparison took. */
+  const a = Buffer.from(mac);
+  const b = Buffer.from(expect);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+
+  let held;
+  try { held = JSON.parse(Buffer.from(body, "base64url").toString("utf8")); }
+  catch { return null; }
+
+  if (!held || typeof held.verifier !== "string" || typeof held.state !== "string") return null;
+  if (!Number.isFinite(held.expires) || Date.now() > held.expires) return null;
+  return held;
 }
 
 const b64url = (buf) => Buffer.from(buf).toString("base64url");
@@ -66,13 +124,13 @@ const b64url = (buf) => Buffer.from(buf).toString("base64url");
  * is how a phishing page borrows your domain's good name.
  */
 export function beginSignIn({ next } = {}) {
-  sweep();
-
   const state = b64url(crypto.randomBytes(32));
   const verifier = b64url(crypto.randomBytes(32));
   const challenge = b64url(crypto.createHash("sha256").update(verifier).digest());
 
-  pending.set(state, { verifier, next: safeNext(next), expires: Date.now() + TEN_MINUTES });
+  const held = {
+    state, verifier, next: safeNext(next), expires: Date.now() + TEN_MINUTES,
+  };
 
   const url = new URL(AUTH_ENDPOINT);
   url.searchParams.set("client_id", config.google.clientId);
@@ -88,7 +146,8 @@ export function beginSignIn({ next } = {}) {
      under the wrong identity. */
   url.searchParams.set("prompt", "select_account");
 
-  return { url: url.toString(), state };
+  /* The caller sets `cookie`; this module never touches a response. */
+  return { url: url.toString(), state, cookie: sealPending(held) };
 }
 
 /**
@@ -107,18 +166,26 @@ function safeNext(next) {
  * Step two. Hand it the `code` and `state` Google came back with; get a
  * verified identity or an error that says which part failed.
  */
-export async function completeSignIn({ code, state }, deps = {}) {
+export async function completeSignIn({ code, state, cookie }, deps = {}) {
   const fetchImpl = deps.fetch || globalThis.fetch;
-  sweep();
 
   if (!code) throw badRequest("Google did not return a sign-in code.");
   if (!state) throw badRequest("Google did not return the state value.");
 
-  const held = pending.get(state);
-  /* Single use. A replayed callback must not produce a second session. */
-  pending.delete(state);
+  const held = openPending(cookie);
 
-  if (!held) {
+  /*
+   * THE STATE FROM GOOGLE MUST MATCH THE ONE IN THE COOKIE.
+   *
+   * The signature proves this service issued the cookie; this proves it was
+   * issued for THIS attempt. Without it a valid cookie from one sign-in could
+   * complete a callback belonging to another, which is the cross-site request
+   * forgery that `state` exists to prevent.
+   *
+   * Single use is the caller's job — the route clears the cookie before it
+   * gets here, so a replayed callback arrives with nothing.
+   */
+  if (!held || held.state !== state) {
     throw unauthorized(
       "That sign-in link has expired or was already used. Press sign in again — it takes a second."
     );
@@ -199,10 +266,12 @@ export async function verifyIdToken(idToken, deps = {}) {
   };
 }
 
-/** For tests, and for a deploy that wants to start clean. */
-export function _resetPending() {
-  pending.clear();
-}
-export function _pendingSize() {
-  return pending.size;
-}
+/*
+ * There is nothing left to reset.
+ *
+ * `_resetPending()` and `_pendingSize()` existed to empty and count the Map
+ * this module used to keep. Nothing is stored here now — the pending sign-in
+ * travels in the browser's cookie — so both are gone rather than left as
+ * functions that would quietly do nothing and let a test believe it had
+ * cleared state that never existed.
+ */
