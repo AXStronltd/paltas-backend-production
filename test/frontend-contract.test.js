@@ -2812,72 +2812,69 @@ test("both horizontal rows can be dragged, and say they continue", { skip }, () 
   assert.match(html, /\.pdisc-rail\.dragging\{cursor:grabbing/, "the promotional rail lost its drag");
 });
 
-test("the hotels row scrolls sideways in two rows, and holds everything", { skip }, async () => {
-  const w = marketplaceWithSupply(SAMPLE, SUPPLY);
-  const html = await rendered(w);
+test("hotels are independent rows, grouped by what the supplier said", { skip }, async () => {
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
   const css = readFileSync(join(FE, "index.html"), "utf8");
 
   /*
-   * IT WAS THE ONE ROW A THUMB COULD NOT MOVE.
+   * A FINGER MOVES THE ROW IT IS ON, AND NOTHING ELSE.
    *
-   * A vertical grid capped at twenty-four with a "show more" button: the most
-   * hotels on screen at once, the longest section on the page, and the only
-   * part of the marketplace that did not answer a swipe. It behaves like
-   * everything else here now — two rows, scrolled sideways, four on screen at
-   * once on a phone.
+   * This was one grid whose three rows all moved together — touch any of them
+   * and all three slid. Airbnb, Alibaba and the food apps do the opposite, and
+   * that is what was asked for.
    */
+  assert.ok(!/mk-srail/.test(mod) && !/mk-srail/.test(css),
+    "the single grid that moved every row at once is still here");
+  assert.match(mod, /class="mk-group"/, "the rows are not separate groups");
+
+  /*
+   * SEPARATE ROWS NEED SEPARATE MEANINGS, or the split is arbitrary and
+   * reaching the end of one row tells a visitor nothing about why the next
+   * exists. Grouping by CITY was the obvious candidate and the live data
+   * refuses it — Nairobi is 33 of 48, London 38, Dubai 44. Star classification
+   * is the real spread AND comes from the supplier rather than from anything
+   * computed here.
+   */
+  assert.match(mod, /n \+ "-star hotels"/, "the rows are not grouped by classification");
+  assert.match(mod, /Number\.isFinite\(n\) && n >= 3 && n <= 5/,
+    "a classification outside 3-5 is being treated as one");
+
+  /*
+   * AND NOTHING IS INVENTED. A hotel the supplier sent with no classification
+   * is not given one — it goes to a row that claims nothing about quality.
+   */
+  assert.match(mod, /More places to stay/, "unclassified hotels have nowhere to go");
+  assert.ok(!/stars \|\| 3|stars \|\| 4|stars \|\| 5/.test(mod),
+    "an unclassified hotel is being defaulted into a star row");
+
+  /* A row of two is a gap, not a shelf. */
+  assert.match(mod, /if \(got\.length >= 3\)/,
+    "a classification with one or two hotels becomes a row of its own");
+
+  /* PALTAS's own are never mixed in with a supplier's. */
+  assert.match(mod, /label: "Listed on PALTAS"/, "PALTAS's own listings have no row of their own");
+
+  /*
+   * EACH ROW CARRIES ITS OWN ARROWS. One pair for the section could only ever
+   * drive one rail and would quietly do nothing for the rest.
+   */
+  assert.match(mod, /data-mk-rail="' \+ rid \+ '"/, "the arrows do not name the row they move");
+  assert.match(mod, /wrapSection\(sec, lead, body, total, true\)/,
+    "the section still draws a pair of arrows it cannot drive");
+  assert.match(mod, /var scrollable = !grouped &&/,
+    "a grouped section would draw arrows of its own as well as the rows'");
+
+  /* Rendered, against the live shape of things. */
+  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
   const main = (html.match(/id="mk-available-today"[\s\S]*?<\/section>/) || [""])[0];
-  assert.ok(main, "the main inventory row is gone");
-  assert.match(main, /class="mk-srail"/, "the hotels row does not scroll sideways");
-  assert.ok(!/mk-vgrid|data-mk-more/.test(html),
-    "the vertical grid or its show-more button survives somewhere");
-
-  const rail = (css.match(/^\.mk-srail\{[\s\S]*?\}/m) || [""])[0];
-  assert.match(rail, /grid-auto-flow:column/,
-    "the rows flow the wrong way, so a swipe would move one and not the other");
-  assert.match(rail, /grid-template-rows:repeat\(3,minmax\(0,1fr\)\)/, "it is not three rows");
-
-  /*
-   * SEVEN TO TEN HOTELS ON SCREEN AT ONCE.
-   *
-   * Three rows is the vertical half of the balance; the column width is the
-   * sideways half, and the two multiply. Checked as the PRODUCT rather than as
-   * either number, because three rows of one column and one row of nine are
-   * both wrong in the same way — and either could be introduced by changing a
-   * value that looks unrelated to the other.
-   *
-   * A very wide screen is allowed more: cards there would be enormous
-   * otherwise, and more inventory visible is the right answer when there is
-   * room for it.
-   */
-  const ROWS = 3;
-  for (const m of css.matchAll(/\.mk-srail\{[^}]*grid-auto-columns:([^;}]+)/g)) {
-    const v = m[1].trim();
-    const cols = v.endsWith("%")
-      ? 100 / parseFloat(v)
-      : Number((v.match(/\/(\d)\)/) || [])[1]);
-    assert.ok(Number.isFinite(cols) && cols > 0, `unreadable column width: ${v}`);
-    const seen = Math.round(cols * ROWS);
-    const wide = /min-width:1700px/.test(css.slice(Math.max(0, m.index - 120), m.index));
-    assert.ok(wide ? seen >= 7 : seen >= 7 && seen <= 10,
-      `${v} shows ${seen} hotels at once — the balance is seven to ten`);
+  assert.ok(main, "the main inventory section is gone");
+  const rails = (main.match(/class="mk-rail"/g) || []).length;
+  assert.ok(rails >= 1, "no scrollable rows were drawn");
+  assert.equal((main.match(/class="mk-group-h"/g) || []).length, rails,
+    "a row was drawn without a heading saying what it is");
+  /* Every row's arrows point at a rail that exists. */
+  for (const m of main.matchAll(/data-mk-rail="([^"]+)"/g)) {
+    assert.ok(main.includes(`data-mk-railid="${m[1]}"`),
+      `an arrow points at "${m[1]}", which is not on the page`);
   }
-  assert.match(rail, /overflow-x:auto/, "it does not scroll");
-  assert.match(rail, /-webkit-overflow-scrolling:touch/, "no momentum on older iOS");
-  assert.ok(!/touch-action/.test(rail), "a touch-action can only remove the gesture this row needs");
-
-  /*
-   * NOTHING IS HELD BACK, so there is nothing to press. Swiping reaches the
-   * forty-eighth hotel, and the heading says how many there are rather than how
-   * many are being shown.
-   */
-  assert.match(main, /class="mk-count"/, "the row does not say how many hotels there are");
-
-  /* Two and a bit across on a phone — a row ending flush reads as finished. */
-  assert.match(css, /@media \(max-width:620px\)\{[\s\S]{0,200}?\.mk-srail\{grid-auto-columns:4\d%/,
-    "a phone does not get a peek at the next column, so the row reads as finished");
-
-  /* Literal arithmetic — var() inside calc is what older Safari mis-evaluates. */
-  const widths = [...css.matchAll(/\.mk-srail\{[^}]*grid-auto-columns:([^;}]+)/g)].map((m) => m[1]);
-  for (const v of widths) assert.ok(!/var\(/.test(v), `a column width uses var() in calc: ${v}`);
 });
