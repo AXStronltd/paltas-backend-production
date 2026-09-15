@@ -158,7 +158,36 @@ export function beginSignIn({ next } = {}) {
 function safeNext(next) {
   const s = String(next || "");
   if (!s) return "/";
+
+  /* Must be a path on this app, not somewhere else's. */
   if (!s.startsWith("/") || s.startsWith("//")) return "/";
+
+  /*
+   * A BACKSLASH IS A SLASH TO A BROWSER.
+   *
+   * "/\evil.example" passes a startsWith("//") check and is then normalised by
+   * Chrome and Safari into "//evil.example" — the same off-site redirect the
+   * line above exists to stop, spelled differently. Refused outright rather
+   * than rewritten, because there is no legitimate path here with one in it.
+   */
+  if (s.includes("\\")) return "/";
+
+  /*
+   * NO CLIMBING OUT.
+   *
+   * "/../../etc" survived the checks above and resolved to somewhere the app
+   * does not live. Same origin, so not an open redirect — but `next` is
+   * documented as a path on the app and this was not one.
+   */
+  if (s.split(/[/?#]/).some((seg) => seg === "..")) return "/";
+
+  /*
+   * A newline in a Location header is a second header. Express escapes this
+   * today; relying on that is relying on somebody else's implementation
+   * detail for a security property.
+   */
+  if (/[\r\n\t\0]/.test(s)) return "/";
+
   return s;
 }
 

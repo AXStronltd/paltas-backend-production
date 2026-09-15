@@ -276,3 +276,46 @@ test("the impostor key really is a different key", async () => {
   assert.notEqual(a.n, b.n);
   assert.ok(impostorJwks);
 });
+
+test("`next` is a path on this app, and nothing else", () => {
+  /*
+   * Found by driving the live endpoint during an audit. The off-site forms were
+   * already refused; these three were not.
+   */
+  const cases = [
+    // [what somebody sends,            what must come back]
+    ["https://evil.example/steal",      "/"],
+    ["//evil.example",                  "/"],
+    ["/dashboard/guest.html",           "/dashboard/guest.html"],
+
+    /* A BACKSLASH IS A SLASH TO A BROWSER. Chrome and Safari normalise
+       "/\\evil.example" into "//evil.example" — the same off-site redirect,
+       spelled so it passes a startsWith("//") check. */
+    ["/\\evil.example",                 "/"],
+    ["/\\\\evil.example",               "/"],
+
+    /* NO CLIMBING OUT. Same origin, so never an open redirect — but `next` is
+       documented as a path on the app, and this was not one. */
+    ["/../../etc",                      "/"],
+    ["/dashboard/../../../admin",       "/"],
+
+    /* A newline in a Location header is a second header. */
+    ["/ok\r\nSet-Cookie: a=b",          "/"],
+    ["/ok\nX-Injected: 1",              "/"],
+
+    /* And the ordinary ones still work. */
+    ["/",                               "/"],
+    ["",                                "/"],
+    ["/auth/login.html?signin=failed",  "/auth/login.html?signin=failed"],
+    /* ".." only counts as a whole segment — a filename may contain dots. */
+    ["/dashboard/my..file.html",        "/dashboard/my..file.html"],
+  ];
+
+  for (const [sent, want] of cases) {
+    const { state, cookie } = beginSignIn({ next: sent });
+    const held = openPending(cookie);
+    assert.equal(held.state, state);
+    assert.equal(held.next, want,
+      `next=${JSON.stringify(sent)} became ${JSON.stringify(held.next)}, expected ${JSON.stringify(want)}`);
+  }
+});
