@@ -1802,14 +1802,21 @@ test("a card row can be scrolled, not just wrapped", { skip }, async () => {
    * the edge. A row ending flush looks finished, and nobody swipes a row they
    * believe has ended.
    *
-   * Checked as behaviour rather than by token name: this was `--mk-peek:44px`
-   * until the arithmetic was rewritten to keep var() out of calc's multiplier
-   * and divisor, which is the shape older Safari mis-evaluates.
+   * Checked as BEHAVIOUR rather than by shape. This was `--mk-peek:44px`, then
+   * `calc(100% - 44px)` once var() was taken out of calc's multiplier and
+   * divisor, and it is now a plain percentage that fits two properties on
+   * screen. All three satisfy the rule; only the last is a marketplace rather
+   * than a slideshow, and a test pinned to one spelling would have blocked the
+   * change that mattered.
    */
   const phone = (css.match(/@media \(max-width:620px\)\{[\s\S]*?\n\}/) || [""])[0];
-  assert.ok(/flex-basis:calc\(100% - \d+px\)/.test(phone),
-    "on a phone the card fills the whole rail, so the row looks complete and " +
-    "nobody swipes it");
+  const width = (phone.match(/\.mk-rail > \.mk-card\{flex-basis:([^;}]+)/) || [])[1];
+  assert.ok(width, "no phone width is declared for an inventory card at all");
+  const pct = Number((width.match(/^(\d+(?:\.\d+)?)%$/) || [])[1]);
+  const peeks = /calc\(100% - \d+px\)/.test(width) || (pct > 0 && pct < 100);
+  assert.ok(peeks,
+    `on a phone the card is "${width}", which fills the rail — the row looks ` +
+    "complete and nobody swipes it");
 
   /* And no var() in a calc multiplier or divisor, anywhere in the rail rules. */
   assert.ok(!/\/ var\(--mk-per\)/.test(css),
@@ -2625,16 +2632,17 @@ test("the promotional shelf is two rows that scroll sideways together", { skip }
     "the shelf is not two rows above a phone");
 
   /*
-   * FOUR ROWS ON A PHONE.
+   * TWO ROWS ON A PHONE, AND IT STAYS SMALL.
    *
-   * Two columns of four, so a phone shows eight tiles at once and the shelf
-   * reads as a grid to scroll rather than a strip to swipe. A thumb still moves
-   * all four rows together, because the flow is still by column.
+   * This briefly went to four, because "four rows" was read as being about this
+   * shelf. It was not — it was about the INVENTORY rows, which were showing one
+   * property at a time. A signpost to the rest of PALTAS is not worth 570px of
+   * a phone screen.
    */
   const phone = html.slice(html.indexOf("@media (max-width:720px)"),
                            html.indexOf("@media (max-width:720px)") + 1800);
-  assert.match(phone, /grid-template-rows:repeat\(4,minmax\(0,1fr\)\)/,
-    "a phone does not get four rows");
+  assert.match(phone, /grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/,
+    "the promotional shelf is not two rows on a phone");
   assert.match(phone, /grid-auto-flow/.test(rail) ? /grid-auto-columns:46%/ : /.^/,
     "the phone lost its column width");
 
@@ -2799,4 +2807,50 @@ test("the installed app clears the notch and the home indicator", { skip }, () =
    * single most common reason a web app feels a few pixels wrong.
    */
   assert.match(app.slice(0, 1400), /34dvh/, "the hero is measured in vh, which iOS reports as taller than the screen");
+});
+
+test("a phone shows two properties in a row, not one", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  /*
+   * THE ONE THAT ACTUALLY MATTERED.
+   *
+   * The inventory rows — Available today, Hotels worth checking in to, Homes
+   * for a few nights — sized a card at `calc(100% - 44px)` on a phone: the full
+   * width minus a glimpse of the next. ONE PROPERTY AT A TIME.
+   *
+   * That turns a marketplace into a slideshow. To compare two hotels you have
+   * to remember the first, and a shelf holding forty-eight of them reads as
+   * holding one. Every other density decision on this page was being made while
+   * this was the actual complaint.
+   */
+  const phone = html.slice(html.indexOf("@media (max-width:620px)"),
+                           html.indexOf("@media (max-width:620px)") + 2000);
+  assert.ok(!/flex-basis:calc\(100% - 44px\)/.test(phone),
+    "a phone still shows one property per row");
+  assert.match(phone, /\.mk-rail > \.mk-card\{flex-basis:4\d%/,
+    "the inventory card is not sized to put two on a phone screen");
+
+  /*
+   * At ~156px the price and the button were competing for about 130px, so the
+   * button wrapped its own label and the price lost its line. Stacked, each
+   * gets the card's full width and the button becomes a full-width tap target —
+   * easier to hit than a pill that has been squeezed.
+   */
+  assert.match(phone, /\.mk-card-foot\{[\s\S]{0,120}flex-direction:column/,
+    "the price and the booking button still compete for one line on a phone");
+  assert.match(phone, /\.mk-book\{[^}]*width:100%/,
+    "the booking button is not a full-width tap target on a phone");
+
+  /* And the row still scrolls, with the arrows still gone on touch. */
+  assert.match(phone, /scroll-snap-type:x proximity/, "the row lost its snapping");
+  assert.match(phone, /\.mk-arrows\{display:none\}/, "pointer arrows are drawn for a thumb");
+
+  /*
+   * The promotional shelf is NOT what this was about, and it stays small — two
+   * rows, four tiles. It is a signpost to the rest of PALTAS, not the thing
+   * anybody arrived for.
+   */
+  assert.ok(!/grid-template-rows:repeat\(4,/.test(html),
+    "the promotional shelf is taking four rows of a phone screen");
 });
