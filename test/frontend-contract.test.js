@@ -2616,10 +2616,23 @@ test("the promotional shelf is a boxed grid, and none of it is tall", { skip }, 
     assert.ok(!/var\(/.test(w), `a card width uses var() inside calc(): ${w}`);
   }
 
-  /* One box and a GLIMPSE of the next on a phone. A row ending flush with the
-     screen edge looks finished, and nobody swipes a row they think has ended. */
-  assert.ok(widths.some((w) => /8[0-9]%/.test(w)),
-    "a phone gets a full-width box with no peek, so the row reads as finished");
+  /*
+   * A PHONE SEES MORE THAN ONE TILE.
+   *
+   * It was 86% — one box and a hint of the next, which reads as a single
+   * promotion you page through rather than a shelf you scan. A percentage in
+   * the forties fits two tiles with the third breaking the screen edge, which
+   * is the density that makes a thumb start moving, and a row that ends flush
+   * with the edge looks finished to everyone.
+   */
+  const phone = widths.map((w) => (w.match(/^(\d+(?:\.\d+)?)%$/) || [])[1])
+    .filter(Boolean).map(Number);
+  assert.ok(phone.length, "no breakpoint sizes a tile as a plain percentage");
+  const narrowest = Math.min(...phone);
+  assert.ok(narrowest <= 60,
+    `the narrowest tile is ${narrowest}% — barely more than one fits, so the row reads as finished`);
+  assert.ok(narrowest >= 30,
+    `a tile at ${narrowest}% is too small to carry a headline`);
 
   /*
    * And no breakpoint may let a promotion take half a screen. Collected across
@@ -2641,4 +2654,23 @@ test("the promotional shelf is a boxed grid, and none of it is tall", { skip }, 
    */
   assert.ok((html.match(/-webkit-line-clamp:2/g) || []).length >= 2,
     "only one of the headline and the description is clamped, so boxes can differ in height");
+
+  /*
+   * ON A TILE, THE TILE IS THE BUTTON.
+   *
+   * At ~156px wide the longest CTA label here — "Explore Property Development"
+   * — is wider than the tile it sits in, so the pill would wrap to two lines or
+   * overflow. It is hidden at that size instead, which loses nothing: the whole
+   * card is already an <a> or a <button> wrapping its contents, so a pill
+   * inside it was a second control for the same action.
+   */
+  const narrow = html.slice(html.indexOf("@media (max-width:720px)"));
+  assert.match(narrow, /\.pdisc-cta\{display:none\}/,
+    "a CTA pill wider than its own tile is still drawn on a phone");
+  assert.match(narrow, /\.pdisc-card p,\.pdisc-sub\{display:none\}/,
+    "the description is kept on a tile too narrow to hold a sentence");
+
+  /* The base rule must still exist — hidden on a phone, not deleted. */
+  assert.match(html, /\.pdisc-cta\{[^}]*var\(--mk-accent/,
+    "the CTA lost the brand token rather than just being hidden on small screens");
 });
