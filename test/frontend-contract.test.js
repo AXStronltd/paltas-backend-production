@@ -2688,21 +2688,105 @@ test("the promotional shelf is a boxed grid, and none of it is tall", { skip }, 
    * inside it was a second control for the same action.
    */
   /*
-   * ONE DESIGN, NOT ONE PER SCREEN.
+   * ONE TILE; WHAT IT CARRIES DEPENDS ON THE ROOM IT HAS.
    *
-   * The description and the CTA are dropped in the BASE rule, not inside a
-   * phone media query. That is the difference between one tile shown more or
-   * fewer times, and three different objects sharing a class name.
+   * The CTA is gone at EVERY width — the tile is already the control, so a pill
+   * inside it was a second control for the same action. The description is
+   * different: at 288-306px, which is what a tile measures everywhere above a
+   * phone, two lines fit and add what a headline cannot; at ~155px they would
+   * be four words of a sentence.
+   *
+   * Showing it where there is room and dropping it where there is not is
+   * responsiveness. The tile, its proportions and its type scale stay one
+   * object, which is the part that must not vary.
    */
-  assert.match(html, /\.pdisc-card p,\.pdisc-sub\{display:none\}/,
-    "the description survives on a tile too narrow to hold a sentence");
+  assert.match(html, /^\.pdisc-card p\{font-size:clamp\(/m,
+    "the description has no styling, so it is not shown anywhere");
   const phoneBlock = html.slice(html.indexOf("@media (max-width:720px)"),
-                                html.indexOf("@media (max-width:720px)") + 1400);
-  assert.ok(!/\.pdisc-card p[^}]*display:none/.test(phoneBlock),
-    "the phone hides content the other screens still show, so it is a second design");
+                                html.indexOf("@media (max-width:720px)") + 1600);
+  assert.match(phoneBlock, /\.pdisc-card p\{display:none\}/,
+    "a description is drawn on a tile too narrow to hold a sentence");
+
+  /* The CTA, by contrast, is dropped once and for all — not per breakpoint. */
+  assert.ok(!/@media[^@]*\.pdisc-cta\{display/.test(html),
+    "the CTA is hidden per breakpoint rather than everywhere, so the screens differ");
 
   /* The only thing a breakpoint may change is how many tiles fit. */
   const perScreen = [...html.matchAll(/\.pdisc-card\{[^}]*flex:0 0 ([^;}]+)[;}]/g)].map((m) => m[1]);
   assert.equal(new Set(perScreen).size, perScreen.length,
     "two breakpoints declare the same tile width, so one of them is doing nothing");
+});
+
+test("nothing leaves a browser's fingerprints on a phone", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  /*
+   * Each of these removes ONE specific tell that a browser leaves and a native
+   * app does not. All four were missing.
+   *
+   * THE TAP HIGHLIGHT is the loudest. iOS paints a translucent grey box over
+   * anything tappable the instant a finger lands; no native control does that.
+   */
+  assert.match(html, /-webkit-tap-highlight-color:transparent/,
+    "iOS still paints its grey box over every tap");
+
+  /*
+   * ...but removing feedback without replacing it makes a page feel broken
+   * rather than native, so there is a real pressed state — and only where there
+   * is no hover to give feedback instead.
+   */
+  assert.match(html, /@media \(hover:none\) and \(pointer:coarse\)/,
+    "the pressed state is not scoped to touch, so a mouse gets it too");
+  assert.match(html, /\.pdisc-card:active[,{]/,
+    "a tile has no pressed state now that the tap highlight is gone");
+  assert.match(html, /transform:scale\(\.9\d+\)/,
+    "the pressed state does not actually move anything");
+
+  /* A sticky :hover on touch leaves the last-tapped card looking selected. */
+  assert.match(html, /\.pdisc-card:hover,\.mk-card:hover\{transform:none\}/,
+    "a tapped card keeps its hover state on a touchscreen");
+
+  /* ~300ms of hesitation before a button responds, waiting for a second tap
+     that on this site never means zoom. */
+  assert.match(html, /touch-action:manipulation/, "controls still wait for a double-tap");
+
+  /* iOS inflates text on rotation and silently breaks a layout measured in
+     portrait. */
+  assert.match(html, /-webkit-text-size-adjust:100%/, "text is resized when the phone rotates");
+
+  /* Pulling past the end reveals the browser's own background, and in a
+     standalone app triggers pull-to-refresh — which discards whatever was
+     typed into the search. */
+  assert.match(html, /overscroll-behavior-y:contain/, "the page bounces past its own end");
+
+  /* And reduced motion means no spring either. */
+  const rm = html.slice(html.indexOf("@media (prefers-reduced-motion: reduce){\n  .mk-book:active"));
+  assert.match(rm.slice(0, 300), /transform:none/,
+    "a visitor who asked for less motion still gets the press animation");
+});
+
+test("the installed app clears the notch and the home indicator", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const app = html.slice(html.indexOf("@media (display-mode: standalone), (display-mode: fullscreen)"));
+
+  /*
+   * `viewport-fit=cover` is what makes an installed app look full-bleed, and it
+   * is also what puts the first line of text under the clock and the last
+   * control under the home bar. The insets are the other half of it, and having
+   * one without the other is worse than having neither.
+   */
+  assert.match(html, /viewport-fit=cover/, "the app is letterboxed rather than full-bleed");
+  assert.match(app.slice(0, 1400), /padding-top:env\(safe-area-inset-top\)/,
+    "content runs under the notch");
+  assert.match(app.slice(0, 1400), /padding-bottom:env\(safe-area-inset-bottom\)/,
+    "content runs under the home indicator");
+  assert.match(app.slice(0, 1400), /max\(clamp\([^)]*\), env\(safe-area-inset-left\)\)/,
+    "a landscape notch cuts into the side gutters");
+
+  /*
+   * dvh, not vh. On iOS `vh` is the height with the URL bar HIDDEN, so a 100vh
+   * block is taller than the screen for as long as the bar is showing — the
+   * single most common reason a web app feels a few pixels wrong.
+   */
+  assert.match(app.slice(0, 1400), /34dvh/, "the hero is measured in vh, which iOS reports as taller than the screen");
 });
