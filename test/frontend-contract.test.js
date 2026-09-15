@@ -2835,7 +2835,33 @@ test("the hotels row scrolls sideways in two rows, and holds everything", { skip
   const rail = (css.match(/^\.mk-srail\{[\s\S]*?\}/m) || [""])[0];
   assert.match(rail, /grid-auto-flow:column/,
     "the rows flow the wrong way, so a swipe would move one and not the other");
-  assert.match(rail, /grid-template-rows:repeat\(2,minmax\(0,1fr\)\)/, "it is not two rows");
+  assert.match(rail, /grid-template-rows:repeat\(3,minmax\(0,1fr\)\)/, "it is not three rows");
+
+  /*
+   * SEVEN TO TEN HOTELS ON SCREEN AT ONCE.
+   *
+   * Three rows is the vertical half of the balance; the column width is the
+   * sideways half, and the two multiply. Checked as the PRODUCT rather than as
+   * either number, because three rows of one column and one row of nine are
+   * both wrong in the same way — and either could be introduced by changing a
+   * value that looks unrelated to the other.
+   *
+   * A very wide screen is allowed more: cards there would be enormous
+   * otherwise, and more inventory visible is the right answer when there is
+   * room for it.
+   */
+  const ROWS = 3;
+  for (const m of css.matchAll(/\.mk-srail\{[^}]*grid-auto-columns:([^;}]+)/g)) {
+    const v = m[1].trim();
+    const cols = v.endsWith("%")
+      ? 100 / parseFloat(v)
+      : Number((v.match(/\/(\d)\)/) || [])[1]);
+    assert.ok(Number.isFinite(cols) && cols > 0, `unreadable column width: ${v}`);
+    const seen = Math.round(cols * ROWS);
+    const wide = /min-width:1700px/.test(css.slice(Math.max(0, m.index - 120), m.index));
+    assert.ok(wide ? seen >= 7 : seen >= 7 && seen <= 10,
+      `${v} shows ${seen} hotels at once — the balance is seven to ten`);
+  }
   assert.match(rail, /overflow-x:auto/, "it does not scroll");
   assert.match(rail, /-webkit-overflow-scrolling:touch/, "no momentum on older iOS");
   assert.ok(!/touch-action/.test(rail), "a touch-action can only remove the gesture this row needs");
@@ -2847,9 +2873,9 @@ test("the hotels row scrolls sideways in two rows, and holds everything", { skip
    */
   assert.match(main, /class="mk-count"/, "the row does not say how many hotels there are");
 
-  /* Two and a sliver on a phone — a row ending flush reads as finished. */
-  assert.match(css, /@media \(max-width:620px\)\{[\s\S]{0,200}?\.mk-srail\{grid-auto-columns:46%/,
-    "a phone does not get two hotels and a peek at the third");
+  /* Two and a bit across on a phone — a row ending flush reads as finished. */
+  assert.match(css, /@media \(max-width:620px\)\{[\s\S]{0,200}?\.mk-srail\{grid-auto-columns:4\d%/,
+    "a phone does not get a peek at the next column, so the row reads as finished");
 
   /* Literal arithmetic — var() inside calc is what older Safari mis-evaluates. */
   const widths = [...css.matchAll(/\.mk-srail\{[^}]*grid-auto-columns:([^;}]+)/g)].map((m) => m[1]);
