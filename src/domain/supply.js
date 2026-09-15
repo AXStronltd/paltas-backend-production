@@ -210,11 +210,40 @@ export function status() {
       /* A supplier may say, in its own words, what a visitor must be told about
          its inventory. A sample catalogue uses this to say it is not real. */
       disclosure: d.disclosure || "",
+
+      /*
+       * CAN A GUEST ACTUALLY PAY? — the question this envelope could not answer.
+       *
+       * The LiteAPI adapter has computed this all along and the whitelist above
+       * dropped it, so the only way to learn that a booking cannot be completed
+       * was to sign in, choose a room, hold a rate and reach a payment step that
+       * says "the payment could not be set up". Everything up to that point
+       * looks like a working marketplace.
+       *
+       * The difference between BOOKABLE and BROWSABLE is the difference between
+       * a checkout and a dead end, and it belongs where an operator can read it
+       * without spending somebody's afternoon finding out.
+       *
+       * It is a boolean and a word. No key, no fragment of one, and nothing
+       * from which one could be derived — the adapter reports only whether a
+       * publishable key is present for the environment it is running in.
+       */
+      canTakePayment: Boolean(d.canTakePayment),
+      paymentEnvironment: d.paymentEnvironment || "",
+      /* Said in words too, because a false boolean explains nothing. */
+      paymentWhy: d.canTakePayment
+        ? ""
+        : (d.paymentEnvironment === "sandbox"
+            ? "LITEAPI_STRIPE_PK_TEST is not set, so a sandbox booking cannot reach a payment step."
+            : "LITEAPI_STRIPE_PK_LIVE is not set, so a booking cannot be paid for. " +
+              "Rooms are browsable and holdable; checkout will refuse."),
     };
   } catch (e) {
     return {
       connected: false, name: "", label: "", sandbox: false, capabilities: [],
-      disclosure: "",
+      disclosure: "", canTakePayment: false, paymentEnvironment: "",
+      paymentWhy: "The supplier could not describe itself, so whether it can " +
+                  "take a payment is unknown.",
       why: "The configured accommodation supplier could not describe itself: " +
            String(e && e.message).slice(0, 160),
     };

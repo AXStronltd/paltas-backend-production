@@ -955,3 +955,56 @@ test("a supplier's own refusal reaches the caller, not a generic 500", { skip },
     assert.ok(!/Something went wrong at our end/.test(r.text));
   } finally { supply.clear(); }
 });
+
+test("the supplier envelope says whether a guest could actually pay", { skip }, async () => {
+  /*
+   * THE QUESTION THIS COULD NOT ANSWER.
+   *
+   * The LiteAPI adapter has computed `canTakePayment` all along — whether a
+   * Stripe publishable key exists for the environment it is running in — and
+   * the seam's whitelist dropped it. So the only way to learn that a booking
+   * cannot be completed was to sign in, choose a room, hold a rate, and reach
+   * a payment step that says "the payment could not be set up".
+   *
+   * Everything before that point looks like a working marketplace. The
+   * difference between BOOKABLE and BROWSABLE is the difference between a
+   * checkout and a dead end.
+   */
+  supply.register({
+    name: "liteapi",
+    search: async () => ({ offers: [] }),
+    describe: () => ({
+      name: "liteapi", connected: true, sandbox: false,
+      capabilities: ["search", "book"],
+      canTakePayment: false, paymentEnvironment: "live",
+    }),
+  });
+
+  const r = await fetch(`${base}/marketplace/suppliers`);
+  const body = await r.json();
+  const s = body.suppliers[0];
+
+  assert.equal(s.canTakePayment, false, "the envelope does not report whether a guest can pay");
+  assert.equal(s.paymentEnvironment, "live");
+  assert.match(s.paymentWhy, /LITEAPI_STRIPE_PK_LIVE is not set/,
+    "a false boolean explains nothing on its own");
+
+  /* And it names the variable without carrying a key, or a piece of one. */
+  const raw = JSON.stringify(body);
+  assert.ok(!/pk_(live|test)_[A-Za-z0-9]/.test(raw), "a publishable key reached the envelope");
+  assert.ok(!/sk_|sand_|prod_/.test(raw), "a secret-shaped string reached the envelope");
+
+  /* With a key present it simply says so. */
+  supply.register({
+    name: "liteapi",
+    search: async () => ({ offers: [] }),
+    describe: () => ({
+      name: "liteapi", connected: true, sandbox: false,
+      capabilities: ["search", "book"],
+      canTakePayment: true, paymentEnvironment: "live",
+    }),
+  });
+  const ok = await (await fetch(`${base}/marketplace/suppliers`)).json();
+  assert.equal(ok.suppliers[0].canTakePayment, true);
+  assert.equal(ok.suppliers[0].paymentWhy, "", "a working checkout still carries a complaint");
+});
