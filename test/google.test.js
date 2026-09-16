@@ -319,3 +319,62 @@ test("`next` is a path on this app, and nothing else", () => {
       `next=${JSON.stringify(sent)} became ${JSON.stringify(held.next)}, expected ${JSON.stringify(want)}`);
   }
 });
+
+/* ====================================================================== *
+ * THE COOKIE HAS TO REACH THE CALLBACK.
+ *
+ * This is the bug that made sign-in look like a loop on production: the PKCE
+ * cookie was scoped Path=/auth, Google sent the browser to
+ * /api/auth/google/callback, and a cookie is only returned on request paths
+ * that start with its Path. "/api/auth/google/callback" does not start with
+ * "/auth", so it was never sent. The callback found no verifier, refused, and
+ * redirected the person back to the login page they started on — no error, no
+ * account, no way to tell why.
+ *
+ * It is silent, it is environment-dependent, and every test that stubs the
+ * cookie passes straight through it. So the invariant is asserted directly.
+ * ====================================================================== */
+
+test("the PKCE cookie is scoped so the browser sends it to the callback", async () => {
+  const cases = [
+    ["https://paltas.io/api", "/api/auth"],   /* behind the Netlify proxy */
+    ["https://x.onrender.com", "/auth"],      /* straight at the service  */
+    ["https://paltas.io/api/", "/api/auth"],  /* trailing slash           */
+  ];
+
+  const { readConfig } = await import("../src/config.js");
+  const base = {
+    DATABASE_URL: "postgresql://u@h/db",
+    SESSION_SECRET: "a-long-random-string",
+    GOOGLE_CLIENT_ID: "id.apps.googleusercontent.com",
+    GOOGLE_CLIENT_SECRET: "shh",
+    APP_URL: "https://paltas.io",
+  };
+
+  for (const [publicUrl, want] of cases) {
+    const cfg = readConfig({ ...base, PUBLIC_URL: publicUrl });
+
+    assert.equal(cfg.google.cookiePath, want,
+      `PUBLIC_URL=${publicUrl} must scope the cookie to ${want}`);
+
+    /*
+     * THE ACTUAL RULE, not a restatement of the line above: whatever the
+     * redirect URI is, the cookie path must be a prefix of its path. If these
+     * two ever drift apart again, sign-in breaks and this fails.
+     */
+    const callback = new URL(cfg.google.redirectUri).pathname;
+    assert.ok(callback.startsWith(cfg.google.cookiePath),
+      `the browser will not send a Path=${cfg.google.cookiePath} cookie to ` +
+      `${callback} — sign-in bounces back to the login page`);
+  }
+});
+
+test("nothing hardcodes the cookie path any more", async () => {
+  const { readFileSync } = await import("node:fs");
+  const auth = readFileSync(new URL("../src/routes/auth.js", import.meta.url), "utf8");
+  assert.ok(!/path: ?"\/auth"/.test(auth),
+    'a literal path: "/auth" is back in auth.js. It is correct only when ' +
+    "PUBLIC_URL has no prefix, and wrong on production.");
+  assert.match(auth, /path: config\.google\.cookiePath/,
+    "the cookie path must come from config, where it is derived from PUBLIC_URL");
+});

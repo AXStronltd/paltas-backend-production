@@ -124,6 +124,37 @@ function read(env) {
          including the scheme and any trailing path. Google compares it
          character for character and the error it gives is famously unhelpful. */
       redirectUri: publicUrl + "/auth/google/callback",
+
+      /*
+       * THE PATH THE PKCE COOKIE MUST BE SCOPED TO.
+       *
+       * This is derived, not written down, because getting it wrong breaks
+       * sign-in completely and silently.
+       *
+       * PALTAS is served through a Netlify proxy: the browser asks for
+       * https://paltas.io/api/auth/google, which is forwarded to this service
+       * at /auth/google. The backend never sees the /api, but the BROWSER does
+       * — and a cookie is only sent back on request paths that start with its
+       * Path.
+       *
+       * Scoped to "/auth" it was never sent to /api/auth/google/callback, so
+       * the callback found no verifier, refused, and bounced the person back to
+       * the login screen they started on. Sign-in looked like a loop and no
+       * account could be created.
+       *
+       * PUBLIC_URL already carries whatever prefix the browser sees, so the
+       * prefix comes from there. No prefix (talking to Render directly) gives
+       * "/auth", which is what it should be in that deployment.
+       */
+      cookiePath:
+        (() => {
+          try {
+            const prefix = new URL(publicUrl).pathname.replace(/\/+$/, "");
+            return (prefix || "") + "/auth";
+          } catch {
+            return "/auth";
+          }
+        })(),
     },
 
     /*

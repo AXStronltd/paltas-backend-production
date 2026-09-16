@@ -47,7 +47,7 @@ authRoutes.get("/google", signInLimit, (req, res) => {
     secure: config.secureCookies,
     sameSite: "lax",
     maxAge: 10 * 60 * 1000,
-    path: "/auth",
+    path: config.google.cookiePath,
   });
 
   res.redirect(url);
@@ -85,7 +85,7 @@ authRoutes.get("/google/callback", signInLimit, async (req, res, next) => {
      * session, which is the property the old Map got from deleting the entry.
      */
     res.clearCookie(OAUTH_COOKIE, {
-      httpOnly: true, secure: config.secureCookies, sameSite: "lax", path: "/auth",
+      httpOnly: true, secure: config.secureCookies, sameSite: "lax", path: config.google.cookiePath,
     });
 
     const { identity, next: where } = await completeSignIn({
