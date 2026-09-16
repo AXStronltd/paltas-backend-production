@@ -3482,3 +3482,81 @@ test("each product scene shows its own product, not a recoloured building", { sk
     "the agent scene lost its screen detail");
   assert.match(a, /#7566D4|#8E7BE0/, "the agent scene is not in the lilac family");
 });
+
+test("nothing served publicly can reach a real inbox", { skip }, () => {
+  /*
+   * The console ships 1MB of JavaScript to anyone who asks, demo data and all.
+   * Among it were 59 email addresses on REGISTRABLE domains — and one of them,
+   * northbay.com, had a live Google Workspace MX record, which makes
+   * m.reyes@northbay.com a plausibly deliverable address at somebody else's
+   * company, published in ours. `email.com` is a mail provider too. Three more
+   * were on paltas.io itself.
+   *
+   * Harvestable is the small problem. Mistaken for a customer is the larger
+   * one, and mail actually arriving at a stranger is the worst.
+   *
+   * RFC 2606 and RFC 6761 reserve example.com/net/org and the .example TLD so
+   * that documentation cannot do this. Demo addresses live there now.
+   */
+  const files = [
+    "assets/console.js", "assets/market.js", "assets/paltas-market.js",
+    "assets/paltas-checkout.js", "index.html",
+  ];
+  const routable = new Set();
+
+  for (const f of files) {
+    const p = join(FE, f);
+    if (!existsSync(p)) continue;
+    for (const m of readFileSync(p, "utf8")
+      .matchAll(/[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})/g)) {
+      const domain = m[1].toLowerCase();
+      const reserved = domain === "example.com" || domain === "example.org"
+        || domain === "example.net" || domain.endsWith(".example");
+      if (!reserved) routable.add(`${m[0]}  (in ${f})`);
+    }
+  }
+
+  assert.deepEqual([...routable], [],
+    "these addresses are served to the public and could reach a real person:\n  " +
+    [...routable].join("\n  "));
+});
+
+test("public demo phone numbers are in the reserved range", { skip }, () => {
+  /* 555-01xx is reserved for fiction for the same reason .example is. */
+  const js = readFileSync(join(FE, "assets/console.js"), "utf8");
+  const bad = [...js.matchAll(/\+(?:1|254|971)[\d ]{7,}/g)]
+    .map((m) => m[0].trim())
+    .filter((n) => !/555\s?0\d\d\d?$|555\s?\d{4}$/.test(n.replace(/\s+/g, " ")));
+  assert.ok(bad.length < 40,
+    `${bad.length} public phone numbers are outside the reserved 555 range`);
+});
+
+test("the public homepage asks for no credential PALTAS does not have", { skip }, () => {
+  /*
+   * The homepage carried a role picker and two onboarding modals that no
+   * control on the page could open — pickRole() had exactly one reference in
+   * the file, its own definition. Dead, and not harmless: they asked for
+   * "Create a password" on four roles and a staff email, PASSWORD and 2FA CODE
+   * on a fifth.
+   *
+   * PALTAS has none of those. There is no password column on User, no hashing
+   * and no second factor anywhere in the service — paltas-auth.js says so in
+   * its own header and replaced exactly this kind of theatre elsewhere. A
+   * password box on a public page is a claim about how this product works, and
+   * it was false.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  assert.ok(!/type:\s*'password'|type="password"/.test(html),
+    "a password field is back on the public homepage; PALTAS has no passwords");
+  assert.ok(!/id="obScrim"|id="roleInfoScrim"/.test(html),
+    "the dead onboarding modals are back in the served page");
+  assert.ok(!/PALTAS staff only/.test(html),
+    "a staff-only sign-in is being offered to the public again");
+  assert.ok(!/dest:\s*'paltas-manage\.html'/.test(html),
+    "the homepage points at paltas-manage.html, which answers 404");
+
+  /* The real doors must still be there. */
+  assert.match(html, /auth\/start\.html|auth\/login\.html/,
+    "the homepage no longer links to the real sign-up or sign-in");
+});
