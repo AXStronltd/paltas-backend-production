@@ -1050,8 +1050,22 @@ test("a stay total is never labelled per night on the page", { skip }, async () 
     "the supplier's price does not say what period it covers: " + card.slice(0, 400));
   assert.ok(!/per night<\/span>/.test(card),
     "a supplier's stay total is labelled 'per night'");
-  assert.ok(/worked out from the total/.test(card),
-    "the per-night figure is shown without saying it was derived");
+
+  /*
+   * THE CARD NO LONGER DERIVES A PER-NIGHT FIGURE AT ALL.
+   *
+   * This used to require the words "worked out from the total" beside it,
+   * which was the right rule while the figure was shown: a reader who thinks
+   * the hotel quoted it expects to be charged it.
+   *
+   * The line has been cut from the card, so the rule is now the stronger one.
+   * There is no per-night number to be mistaken for a quote — only the total,
+   * labelled with the nights it covers. If a per-night figure ever returns it
+   * must say it was derived, and this assertion will fail until it does.
+   */
+  assert.ok(!/a night/.test(card),
+    "a per-night figure is back on the card. It must say it was worked out " +
+    "from the total, or not be there: " + card.slice(0, 400));
 });
 
 test("a sandbox rate is marked unbookable on every card", { skip }, async () => {
@@ -3097,4 +3111,102 @@ test("the product section is four cards, one illustration family", { skip }, asy
   for (const m of html.matchAll(/class="mk-card mk-prod[^"]*" href="([^"]+)"/g)) {
     assert.match(m[1], /^partner\.html\?p=/, `a card points at ${m[1]}, not the existing product page`);
   }
+});
+
+/* ====================================================================== *
+ * THE HOTEL CARD, AFTER THE TRIM.
+ *
+ * The card carried nine things: a "Hotel" chip, a star row that also spelled
+ * "5-star" in words beside the glyphs, a title, a location, a guest score, a
+ * refundable line either way, a total, a button, a derived per-night figure,
+ * and an attribution. On a beige #fdf8ef card with a #ecd9b5 border, a
+ * #8f6100 score and #8f6100 stars — every element in the same sepia, which
+ * read as faded rather than warm.
+ *
+ * What is tested here is what must NOT come back, and what must never have
+ * left: the SAMPLE chip, the supplier attribution, and the nights the price
+ * covers. Those three are the difference between a tidier card and a
+ * dishonest one.
+ * ====================================================================== */
+
+test("the hotel card no longer labels a hotel as a hotel", { skip }, async () => {
+  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
+  const card = (html.match(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/) || [])[0] || "";
+  assert.ok(card, "no supplier card was drawn");
+
+  assert.ok(!/>Hotel</.test(card),
+    'the "Hotel" chip is back. It labelled a hotel as a hotel, on a shelf of ' +
+    "hotels, under a photograph of one.");
+  assert.ok(!/Non-refundable/.test(card),
+    '"Non-refundable" is back. Free cancellation earns a line; its absence ' +
+    "says the rest, and the full terms are on the room before anyone pays.");
+  assert.ok(!/-star<\/b>/.test(card),
+    '"5-star" in words is back beside five star glyphs — the same fact twice ' +
+    "on the busiest line of the card");
+});
+
+test("the trim never removed the three things that are not decoration", { skip }, async () => {
+  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
+  const card = (html.match(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/) || [])[0] || "";
+
+  assert.match(card, /nights total/,
+    "the price no longer says what period it covers — a factor-of-seven misread");
+  assert.match(card, /Supplied by/,
+    "the supplier attribution was cut. That is a disclosure, not clutter.");
+  /*
+   * Asserted against the source, not this card: the SUPPLY fixture carries no
+   * star classification, so no star row is drawn for it — which is itself the
+   * correct behaviour and is covered by the "no stars invented" test.
+   */
+  const market = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  assert.match(market, /aria-label="' \+ n \+ '-star hotel"/,
+    "dropping the visible '5-star' text also dropped the screen-reader label");
+});
+
+test("a sample is still marked as a sample", { skip }, async () => {
+  /* The chip that went is the one that said "Hotel". The one that says
+     "Sample" is the only thing separating demonstration data from a real
+     property, and it is on the same line the other one was removed from. */
+  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
+  const samples = (html.match(/mk-kind-sample/g) || []).length;
+  const marked = (html.match(/>Sample</g) || []).length;
+  assert.equal(samples, marked,
+    "a sample card carries the class but not the word, or the other way round");
+});
+
+test("the hotel card is white, and its colour comes from the photograph", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  assert.match(html, /--mk-supply-tint:#ffffff/,
+    "the beige #fdf8ef tint is back — that is the dead colour");
+  assert.ok(!/--mk-supply-line:#ecd9b5/.test(html),
+    "the beige border is back");
+  assert.match(html, /--mk-star:#F59E0B/,
+    "the star glyph is not the vivid amber a hotel star is expected to be");
+  assert.match(html, /\.mk-pip\.on\{color:var\(--mk-star\)\}/,
+    "the stars are drawn in something other than the star colour");
+  assert.match(html, /\.mk-score\{[^}]*color:var\(--mk-ink\)/,
+    "the guest score is back in mustard rather than ink");
+});
+
+test("the photograph is 16:10, and the old-Safari fallback agrees with it", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const shot = html.slice(html.indexOf(".mk-shot{"), html.indexOf("}", html.indexOf(".mk-shot{")));
+
+  assert.match(shot, /aspect-ratio:16\/10/, "the photograph is not 16:10");
+  /*
+   * The two must state the same ratio. padding-top is the pre-Safari-15
+   * technique and aspect-ratio overrides it on anything newer — if they
+   * disagree, the card is one shape on an old iPhone and another on a new
+   * one, which is exactly the bug the fallback exists to prevent.
+   */
+  assert.match(shot, /padding-top:62\.5%/,
+    "the padding-top fallback does not match 16:10 (10/16 = 62.5%)");
+});
+
+test("a white card on a white page still reads as an object", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const supply = html.slice(html.indexOf(".mk-supply{"), html.indexOf("}", html.indexOf(".mk-supply{")));
+  assert.match(supply, /box-shadow:var\(--mk-shadow\)/,
+    "losing the tint without gaining a shadow leaves the card floating on nothing");
 });
