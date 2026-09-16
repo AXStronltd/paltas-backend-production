@@ -139,13 +139,27 @@ test("every page's scripts load without throwing", { skip }, () => {
  *   /health                 the market service's one silent reachability probe
  *   /marketplace/listings   the public marketplace read
  *
- * The second one is new, and it is the exception that proves the rule. The
- * homepage's nine discovery sections ARE the screen — a visitor arriving at
- * paltas.io has already asked for them by arriving — so deferring that request
- * would mean an empty page until something was clicked. Everything else still
- * has to wait until a screen needs it.
+ * The second one is the exception that proves the rule. The homepage's nine
+ * discovery sections ARE the screen — a visitor arriving at paltas.io has
+ * already asked for them by arriving — so deferring that request would mean an
+ * empty page until something was clicked.
+ *
+ *   /auth/session           who is at the keyboard
+ *
+ * The third is identity, and it is not screen data. Every dashboard paints its
+ * shell — company, person, role — before any screen exists, and the session is
+ * the only place those come from: the real one is an httpOnly cookie that
+ * JavaScript cannot read, so it has to be asked for.
+ *
+ * Deferring it is what caused the bug it now prevents. console.js read its own
+ * sessionStorage copy, which nothing ever wrote, so paintShell() fell through
+ * to the sample identity and greeted a real signed-in person as "Alma Real
+ * Estate / Group Managing Director". A shell that waits for a click before it
+ * learns whose it is spends that whole time asserting somebody else's name.
+ *
+ * Everything else still has to wait until a screen needs it.
  */
-const ALLOWED_AT_LOAD = /\/health$|\/marketplace\/listings(\?|$)/;
+const ALLOWED_AT_LOAD = /\/health$|\/marketplace\/listings(\?|$)|\/auth\/session$/;
 
 test("no page reaches the network at load beyond the health probe", { skip }, () => {
   for (const page of PAGES) {
