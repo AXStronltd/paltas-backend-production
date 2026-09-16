@@ -3560,3 +3560,41 @@ test("the public homepage asks for no credential PALTAS does not have", { skip }
   assert.match(html, /auth\/start\.html|auth\/login\.html/,
     "the homepage no longer links to the real sign-up or sign-in");
 });
+
+test("no page reaches for an element that is not in it", { skip }, () => {
+  /*
+   * THE CHECK THE DOM SHIM CANNOT DO.
+   *
+   * test/dom-shim.js returns a NODE from getElementById, never null, and says
+   * why in its own header: returning null would make
+   * `getElementById(x).addEventListener(…)` throw on a page that works, and a
+   * false finding is how a test gets ignored.
+   *
+   * The cost of that choice is this exact blind spot. Removing 1,600 lines of
+   * dead prototype from index.html took 21 elements with it that the surviving
+   * script still reached for, and every one of them would have thrown a
+   * TypeError at load in a real browser — while the harness reported zero
+   * console errors, because every lookup got a stub.
+   *
+   * So this reads the markup instead: any id that is dereferenced immediately
+   * must actually exist in the page. A lookup assigned to a variable is left
+   * alone — those are usually followed by a guard, and flagging them is the
+   * false finding the shim was avoiding.
+   */
+  for (const page of ["index.html", "auth/login.html", "auth/join.html", "dashboard/agent.html"]) {
+    const p = join(FE, page);
+    if (!existsSync(p)) continue;
+    const html = readFileSync(p, "utf8");
+    const present = new Set([...html.matchAll(/\bid="([A-Za-z0-9_-]+)"/g)].map((m) => m[1]));
+
+    const fatal = [...html.matchAll(
+      /getElementById\(\s*['"]([A-Za-z0-9_-]+)['"]\s*\)\s*\.\s*\w+/g)]
+      .map((m) => ({ id: m[1], line: html.slice(0, m.index).split("\n").length }))
+      .filter((h) => !present.has(h.id));
+
+    assert.deepEqual(fatal, [],
+      `${page} dereferences elements it does not contain — each of these throws ` +
+      "a TypeError at load:\n  " +
+      fatal.map((h) => `line ${h.line}  #${h.id}`).join("\n  "));
+  }
+});
