@@ -3327,3 +3327,35 @@ test("cards rise in, staggered, without stealing the hover", { skip }, () => {
     /prefers-reduced-motion:\s*reduce/,
     "`.mk-card{animation:none}` is not inside a reduced-motion block");
 });
+
+test("the dead-link check runs after the file it is checking", { skip }, () => {
+  /*
+   * It used to run where it sits — about line 8700 — while fin_invoices is
+   * assigned around 8919 and fin_reports around 9032, both BELOW it. So it
+   * measured the file halfway through being read and reported two screens
+   * missing that exist and work.
+   *
+   * It was the only error on any dashboard and it was wrong, which is worse
+   * than having no check at all: an error that is always there and always
+   * wrong teaches people to ignore the console, and the next one will be real.
+   */
+  const js = readFileSync(join(FE, "assets/console.js"), "utf8");
+
+  const at = js.indexOf('const TARGETS = ["fin_overview"');
+  assert.ok(at > 0, "the finance dead-link check is gone");
+
+  const opener = js.slice(Math.max(0, at - 260), at);
+  assert.match(opener, /Promise\.resolve\(\)\.then\(/,
+    "the check runs synchronously again, so it reads SCREENS before the file " +
+    "has finished assigning them");
+
+  /* And it must still be checking something real: every target it names has to
+     be a screen that is actually defined somewhere in the file. */
+  const targets = js.slice(at, js.indexOf("]", at)).match(/"([a-z_]+)"/g)
+    .map((t) => t.replace(/"/g, ""));
+  assert.ok(targets.length >= 8, "the target list shrank — check what was dropped");
+  for (const key of targets) {
+    assert.ok(js.includes(`SCREENS.${key} = `),
+      `the check names ${key}, which no longer exists — that is a real dead link`);
+  }
+});
