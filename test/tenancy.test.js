@@ -389,6 +389,22 @@ test("nothing trusts an organization id sent by the caller", () => {
      * next reader believes it does something.
      */
     if (name === "platform.js") continue;
+    /*
+     * PROVISIONING IS NOT MAKING A TRUST DECISION EITHER — and unlike the
+     * console above it WRITES, so this is worth stating rather than borrowing
+     * the read-only argument.
+     *
+     * requirePlatform() has already established that the caller may act on
+     * every company on the service. The orgId in the body picks WHICH of them
+     * is being put on a product; it does not decide whether they may. A
+     * membership check would be meaningless here — PALTAS staff are not
+     * members of a customer's company and never should be.
+     *
+     * What actually guards this is the door (requirePlatform), the refusal to
+     * grant PLATFORM without confirmStaffAccess, and the audit row written to
+     * the customer's own trail. provisioning-api.test.js covers all three.
+     */
+    if (name === "provisioning.js") continue;
     const text = readFileSync(file, "utf8");
     for (const m of text.matchAll(/req\.(body|query|params)\??\.\w*[Oo]rg\w*/g)) {
       const line = text.slice(0, m.index).split("\n").length;

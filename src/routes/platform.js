@@ -43,7 +43,7 @@
 
 import { Router } from "express";
 import { db } from "../db.js";
-import { forbidden } from "../http/errors.js";
+import { badRequest, conflict, forbidden, notFound } from "../http/errors.js";
 import { requireSession } from "../http/session.js";
 import { actorFor } from "../domain/session-view.js";
 
@@ -65,7 +65,9 @@ export const platformRoutes = Router();
  */
 const STAFF_ROLES = new Set(["OWNER", "MANAGER", "MARKETING", "COMPLIANCE", "PUBLISHER"]);
 
-function requirePlatform() {
+/* Exported so provisioning.js can stand behind the SAME door rather than
+   growing a second one that can drift from this. */
+export function requirePlatform() {
   return async (req, _res, next) => {
     try {
       const actor = await actorFor(req.session);
@@ -522,3 +524,4 @@ platformRoutes.get("/platform/summary", async (req, res, next) => {
     });
   } catch (e) { next(e); }
 });
+

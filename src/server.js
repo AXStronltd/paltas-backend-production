@@ -18,6 +18,7 @@ import { pruneExpiredSessions } from "./auth/sessions.js";
 import { authRoutes } from "./routes/auth.js";
 import { organizationRoutes } from "./routes/organizations.js";
 import { invitationRoutes } from "./routes/invitations.js";
+import { provisioningRoutes } from "./routes/provisioning.js";
 import { promotionRoutes } from "./routes/promotions.js";
 import { productRoutes } from "./routes/products.js";
 import { marketRoutes } from "./routes/market.js";
@@ -147,6 +148,7 @@ export function createApp() {
   app.use("/auth", authRoutes);
   app.use("/organizations", organizationRoutes);
   app.use("/invitations", invitationRoutes);
+  app.use("/", provisioningRoutes);
   app.use("/promotions", promotionRoutes);
 
   /* ------------------------------------------------------------------ *
