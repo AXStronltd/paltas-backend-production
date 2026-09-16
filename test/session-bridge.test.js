@@ -212,3 +212,116 @@ test("no dashboard ships a company name in its HTML", { skip }, () => {
     }
   }
 });
+
+/* ====================================================================== *
+ * A CONSOLE THAT IS NOT YOURS.
+ *
+ * Every console page declares what it is in PALTAS_BOOT.system, and nothing
+ * checked it against what the company holds. Opening /dashboard/property.html
+ * with only Agent & Host rendered the property console in full, then every
+ * hydrate call came back 403 and every screen drew empty — which reads as a
+ * broken product rather than somebody else's product.
+ * ====================================================================== */
+
+const HELD = (products) => ({
+  signedIn: true,
+  user: { id: "u1", name: "A", email: "a@example.com", phone: "" },
+  organization: { id: "o1", name: "Kabole LTD", country: "ke", city: "", size: "", status: "ACTIVE" },
+  subscription: { status: "TRIALING", plan: "", planKey: "", trialDays: 30, seats: 1 },
+  entitlements: products.map((p) => ({ product: p, status: "ACTIVE", since: "x" })),
+  memberships: [{ organization: "o1", organizationName: "Kabole LTD", role: "OWNER", scope: { all: true } }],
+  verification: { status: "NOT_STARTED", documents: [] },
+  workspace: { status: "ACTIVE", preferred: products[0] || "" },
+  consumer: false,
+});
+
+/** The bridge, with just enough console.Session to exercise the gate. */
+function gateRig({ page, system, products, openKeys, search }) {
+  let replaced = null;
+  const session = HELD(products);
+  const win = {
+    PALTAS_BOOT: { system },
+    location: { pathname: `/dashboard/${page}`, search: search || "", replace: (u) => { replaced = u; } },
+    history: { replaceState() {} },
+    toast: (msg, tone) => { win.__toast = { msg, tone }; },
+    PALTAS: {
+      Data: { configured: () => true, Session: { read: () => Promise.resolve(session) } },
+      Session: {
+        blank, write: (s) => { win.__written = s; return s; }, read: () => win.__written,
+        openable: () => openKeys.map((k) => ({ key: k })),
+        destination: (_s, base) => (base || "") + "dashboard/" + openKeys[0] + ".html",
+      },
+    },
+    console: { error() {} },
+  };
+  const src = readFileSync(BRIDGE, "utf8");
+  new Function("window", src)(win);
+  return { win, went: () => replaced };
+}
+
+test("a console the company does not hold sends them to one it does", { skip }, async () => {
+  const { went } = gateRig({
+    page: "property.html", system: "property",
+    products: ["AGENT_HOST"], openKeys: ["agent"],
+  });
+  await new Promise((r) => setTimeout(r, 15));
+  assert.match(String(went()), /agent\.html\?need=property$/,
+    "an agent-only company opening the property console was left on an empty page, " +
+    "or was bounced without the reason travelling with them");
+});
+
+test("a console the company does hold is left alone", { skip }, async () => {
+  const { went } = gateRig({
+    page: "agent.html", system: "agent",
+    products: ["AGENT_HOST"], openKeys: ["agent"],
+  });
+  await new Promise((r) => setTimeout(r, 15));
+  assert.equal(went(), null, "the company was redirected away from its own console");
+});
+
+test("the gate never redirects a page to itself", { skip }, async () => {
+  /*
+   * destination() can resolve to the page already being viewed — a company
+   * whose only product IS this one, reached by a path that does not match
+   * what openable() reports. A redirect to where you already are is an
+   * infinite reload, which is worse than the empty screen it replaced.
+   */
+  const { went } = gateRig({
+    page: "agent.html", system: "property",
+    products: ["AGENT_HOST"], openKeys: ["agent"],
+  });
+  await new Promise((r) => setTimeout(r, 15));
+  assert.equal(went(), null, "the gate redirected agent.html to agent.html");
+});
+
+test("the guest portal and the staff console are not gated", { skip }, async () => {
+  for (const system of ["guest", "platform"]) {
+    const { went } = gateRig({
+      page: `${system}.html`, system,
+      products: ["AGENT_HOST"], openKeys: ["agent"],
+    });
+    await new Promise((r) => setTimeout(r, 15));
+    assert.equal(went(), null, `${system} was gated by a product entitlement it does not use`);
+  }
+});
+
+test("the console that receives them says why they are there", { skip }, async () => {
+  const { win } = gateRig({
+    page: "agent.html", system: "agent", products: ["AGENT_HOST"],
+    openKeys: ["agent"], search: "?need=property",
+  });
+  await new Promise((r) => setTimeout(r, 15));
+  assert.ok(win.__toast, "they arrived with no account of why they were moved");
+  assert.match(win.__toast.msg, /Property Management/,
+    "the message does not name the product they asked for");
+  assert.equal(win.__toast.tone, "warn");
+});
+
+test("an ordinary visit explains nothing", { skip }, async () => {
+  const { win } = gateRig({
+    page: "agent.html", system: "agent", products: ["AGENT_HOST"], openKeys: ["agent"],
+  });
+  await new Promise((r) => setTimeout(r, 15));
+  assert.equal(win.__toast, undefined,
+    "every load of the console now raises a message about a redirect that did not happen");
+});
