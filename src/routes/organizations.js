@@ -15,6 +15,12 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { badRequest, conflict, forbidden, requireSession } from "../http/index.js";
+import { notFound, rateLimit } from "../http/index.js";
+import { config } from "../config.js";
+import {
+  INVITE_DAYS, cleanEmail, grantableBy, hashToken, inviteLink, newToken,
+  stateOf, toWire, whyNotInvite,
+} from "../domain/invitations.js";
 import { sessionView } from "../domain/session-view.js";
 
 export const organizationRoutes = Router();
@@ -200,3 +206,150 @@ organizationRoutes.get("/me", requireSession(), async (req, res, next) => {
     });
   } catch (e) { next(e); }
 });
+
+/* ====================================================================== *
+ * INVITATIONS — how a second person joins a company.
+ *
+ * Until this existed the only Membership ever written was the founder's, so
+ * every customer was capped at one user and eighteen of the nineteen roles
+ * could not be given to anybody.
+ *
+ * DELIVERY IS A LINK, NOT AN EMAIL. There is no mail provider in this service,
+ * and a "send invitation" button that silently sends nothing is worse than no
+ * button. The endpoint returns a link; the person who pressed it sends it
+ * however they already talk to their colleague. When a mail provider exists,
+ * only the delivery step changes — the invitation, the token and the accept
+ * are already right.
+ * ====================================================================== */
+
+/** The caller's membership in THIS company, or null. Never from the body. */
+async function membershipIn(userId, orgId) {
+  return db.membership.findUnique({
+    where: { userId_orgId: { userId, orgId } },
+    include: { org: { select: { id: true, name: true } } },
+  });
+}
+
+/**
+ * POST /organizations/:id/invitations
+ *
+ * Returns the link ONCE. The token is stored only as a SHA-256, so this
+ * response is the single moment the plaintext exists — an owner who loses it
+ * revokes the invitation and sends another.
+ */
+organizationRoutes.post("/:id/invitations",
+  requireSession(),
+  rateLimit({ windowMs: 60_000, max: 30 }),
+  async (req, res, next) => {
+    try {
+      const orgId = String(req.params.id);
+      const mine = await membershipIn(req.session.userId, orgId);
+      /*
+       * NOT FOUND rather than FORBIDDEN for a company that is not yours: a
+       * different answer for "exists but is not yours" is a way to discover
+       * which company ids are real.
+       */
+      if (!mine) throw notFound("No company with that id.");
+
+      const role = String(req.body?.role || "").trim().toUpperCase();
+      const no = whyNotInvite(mine.role, role);
+      if (no) throw forbidden(no);
+
+      const email = cleanEmail(req.body?.email);
+      if (!email) throw badRequest("That is not an email address.");
+
+      /* Already in the company: an invitation would either do nothing or, if
+         it were allowed to overwrite, quietly change somebody's role without
+         anyone deciding to. Role changes are their own act, not a side effect
+         of an invitation. */
+      const existing = await db.user.findUnique({
+        where: { email },
+        select: { id: true, memberships: { where: { orgId }, select: { id: true } } },
+      });
+      if (existing?.memberships?.length) {
+        throw conflict(`${email} is already in ${mine.org.name}.`);
+      }
+
+      /* One live invitation per address per company. Sending a second replaces
+         the first, so a forgotten link cannot still be accepted later. */
+      await db.invitation.updateMany({
+        where: { orgId, email, acceptedAt: null, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+
+      const token = newToken();
+      const invite = await db.invitation.create({
+        data: {
+          orgId, email, role,
+          scope: req.body?.scope && typeof req.body.scope === "object"
+            ? req.body.scope : { all: true },
+          tokenHash: hashToken(token),
+          invitedById: req.session.userId,
+          expiresAt: new Date(Date.now() + INVITE_DAYS * 86_400_000),
+        },
+        include: { invitedBy: { select: { name: true, email: true } } },
+      });
+
+      res.setHeader("Cache-Control", "no-store, private");
+      res.status(201).json({
+        invitation: toWire(invite),
+        /* Said out loud, because the caller has to act on it. */
+        link: inviteLink(config.appUrl, token),
+        note:
+          `Send this link to ${email}. It works once, expires in ${INVITE_DAYS} days, ` +
+          "and only that address can accept it. PALTAS does not send it for you.",
+      });
+    } catch (e) { next(e); }
+  });
+
+/** GET /organizations/:id/invitations — what is outstanding. Never a token. */
+organizationRoutes.get("/:id/invitations", requireSession(), async (req, res, next) => {
+  try {
+    const orgId = String(req.params.id);
+    const mine = await membershipIn(req.session.userId, orgId);
+    if (!mine) throw notFound("No company with that id.");
+    if (!grantableBy(mine.role).length) {
+      throw forbidden("Only an owner or a manager can see who has been invited.");
+    }
+
+    const rows = await db.invitation.findMany({
+      where: { orgId },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+      include: { invitedBy: { select: { name: true, email: true } } },
+    });
+
+    res.setHeader("Cache-Control", "no-store, private");
+    res.json({ invitations: rows.map((r) => toWire(r)) });
+  } catch (e) { next(e); }
+});
+
+/** POST /organizations/:id/invitations/:inviteId/revoke — withdraw a link. */
+organizationRoutes.post("/:id/invitations/:inviteId/revoke",
+  requireSession(), async (req, res, next) => {
+    try {
+      const orgId = String(req.params.id);
+      const mine = await membershipIn(req.session.userId, orgId);
+      if (!mine) throw notFound("No company with that id.");
+      if (!grantableBy(mine.role).length) {
+        throw forbidden("Only an owner or a manager can withdraw an invitation.");
+      }
+
+      const invite = await db.invitation.findFirst({
+        where: { id: String(req.params.inviteId), orgId },
+      });
+      if (!invite) throw notFound("No invitation with that id.");
+      if (invite.acceptedAt) {
+        throw conflict(
+          "That invitation has already been accepted. Remove the person from the " +
+          "company instead — withdrawing the link does not take their access away.");
+      }
+
+      const row = await db.invitation.update({
+        where: { id: invite.id },
+        data: { revokedAt: invite.revokedAt || new Date() },
+        include: { invitedBy: { select: { name: true, email: true } } },
+      });
+      res.json({ invitation: toWire(row) });
+    } catch (e) { next(e); }
+  });

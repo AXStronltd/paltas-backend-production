@@ -150,6 +150,9 @@ model User {
   workOrderEvents WorkOrderEvent[]
   incidentEvents  IncidentEvent[]
 
+  invitationsSent     Invitation[] @relation("InvitationsSent")
+  invitationsAccepted Invitation[] @relation("InvitationsAccepted")
+
   @@index([googleSub])
 }
 
@@ -295,6 +298,7 @@ model Organization {
    */
   moderationItems ModerationItem[]
   complianceCases ComplianceCase[]
+  invitations     Invitation[]
 }
 
 model Subscription {
@@ -323,6 +327,48 @@ model Entitlement {
   /// and "agent" holds ONE product, and counting it twice sent that customer
   /// to a workspace door offering the same console twice.
   @@unique([orgId, product])
+}
+
+/// An invitation to join a company, carried by a link.
+///
+/// THE TOKEN IS NOT STORED. Only its SHA-256 is, exactly as Session does with
+/// its own — a link is a credential, and a database copy of every live
+/// credential is a database worth stealing. The plaintext exists once, in the
+/// response that creates it, and is never recoverable afterwards. An owner who
+/// loses the link revokes it and sends another.
+///
+/// BOUND TO AN EMAIL, deliberately. Accepting requires being signed in as the
+/// address the invitation names. Without that, a link forwarded to the wrong
+/// WhatsApp group is a stranger inside the company — and a link is exactly the
+/// kind of thing that gets forwarded.
+model Invitation {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Lower-cased on the way in, so "Sam@x.com" and "sam@x.com" are one person.
+  email     String
+  role      Role
+  /// What the invited person may see, copied onto the Membership on accept.
+  scope     Json   @default("{\"all\": true}")
+  tokenHash String @unique
+
+  invitedById String?
+  invitedBy   User?   @relation("InvitationsSent", fields: [invitedById], references: [id], onDelete: SetNull)
+
+  expiresAt    DateTime
+  /// Set once, on accept. Its presence is what makes an invitation single-use.
+  acceptedAt   DateTime?
+  acceptedById String?
+  acceptedBy   User?     @relation("InvitationsAccepted", fields: [acceptedById], references: [id], onDelete: SetNull)
+  /// Withdrawn by the company before it was taken up.
+  revokedAt    DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([email])
 }
 
 model Membership {
