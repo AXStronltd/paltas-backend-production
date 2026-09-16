@@ -3359,3 +3359,78 @@ test("the dead-link check runs after the file it is checking", { skip }, () => {
       `the check names ${key}, which no longer exists — that is a real dead link`);
   }
 });
+
+/* ====================================================================== *
+ * THE PALTAS MARK, AND THE PRODUCT ROW.
+ * ====================================================================== */
+
+test("the product cards carry a mark, not the word PALTAS four times", { skip }, async () => {
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+
+  assert.ok(!/<span class="mk-prod-brand">PALTAS<\/span>/.test(mod),
+    'the wordmark is back. Six letters repeated on four cards is not branding — ' +
+    "the heading directly above already says whose platform this is.");
+  assert.match(mod, /var MARK =\s*\n?\s*'<svg class="mk-mark"/,
+    "the product cards have no mark at all");
+  assert.match(mod, /fill="currentColor"/,
+    "the mark must inherit its colour — four full-colour marks fight the four " +
+    "pastel illustrations they sit beside");
+
+  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
+  const marks = (html.match(/class="mk-mark"/g) || []).length;
+  assert.equal(marks, 4, `expected one mark per product card, found ${marks}`);
+});
+
+test("four products are never laid out three across", { skip }, () => {
+  /*
+   * .mk-grid is shared with the marketplace shelves and steps 4 -> 3 -> 2 -> 1,
+   * which is right when the card count varies. This section always holds
+   * exactly four, so the three-column step stranded Security Management alone
+   * on a row of its own and read as a layout fault.
+   */
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  assert.match(mod, /class="mk-grid mk-grid-prod"/,
+    "the product row uses the shared grid, so it will go three across again");
+
+  for (const [q, cols] of [["min-width:621px", 2], ["min-width:1181px", 4]]) {
+    const at = html.indexOf(`@media (${q}){`);
+    assert.ok(at > 0, `the ${q} rule for the product grid is gone`);
+    const block = html.slice(at, html.indexOf("}", html.indexOf(".mk-grid-prod", at)));
+    assert.match(block, new RegExp(`repeat\\(${cols},minmax\\(0,1fr\\)\\)`),
+      `at ${q} the product row should be ${cols} across`);
+  }
+  assert.ok(!/\.mk-grid-prod\{grid-template-columns:repeat\(3/.test(html),
+    "a three-column product row is back, which orphans the fourth card");
+});
+
+test("every icon PALTAS ships is the same mark", { skip }, () => {
+  /*
+   * There were three. The auth pages used a blue gradient P-as-key with a wifi
+   * arc, the PWA icon was a mint #00E5C8 tile with a chevron, and the declared
+   * brand token is #12C6D4 — one product wearing three logos.
+   */
+  for (const f of ["icons/icon-512.png", "icons/icon-192.png", "icons/favicon-32.png",
+                   "icons/apple-touch-icon.png", "icons/icon-maskable-512.png",
+                   "assets/mark.png", "assets/paltas-mark.svg"]) {
+    assert.ok(existsSync(join(FE, f)), `${f} is missing`);
+  }
+
+  const svg = readFileSync(join(FE, "assets/paltas-mark.svg"), "utf8");
+  assert.match(svg, /M12,8 L25,8/, "the canonical mark is not the P-key-house glyph");
+
+  /*
+   * THE MARK USES THE SITE'S OWN GRADIENT, not one of its own.
+   *
+   * An earlier draft of this icon invented #2FE3E0 -> #0E9FD4, which is close
+   * to --grad without being it — and "close to the brand colour" is how a
+   * fourth logo gets added to a product that already had three.
+   */
+  const index = readFileSync(join(FE, "index.html"), "utf8");
+  const grad = index.match(/--grad:\s*linear-gradient\([^;]*\)/)[0];
+  for (const stop of svg.match(/stop-color="(#[0-9A-Fa-f]{6})"/g).map((m) => m.slice(12, -1))) {
+    assert.ok(grad.toUpperCase().includes(stop.toUpperCase()),
+      `the mark uses ${stop}, which is not a stop in the site's --grad (${grad})`);
+  }
+});
