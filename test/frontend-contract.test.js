@@ -3096,14 +3096,14 @@ test("the product section is four cards, one illustration family", { skip }, asy
 
   /* A pastel behind the art only — a whole tinted card makes four of them
      shout at each other. */
-  for (const tone of ["blue", "peach", "lilac", "mint"]) {
+  for (const tone of ["blue", "peach", "lilac", "sea"]) {
     /* A plain string, not a constructed regex — the escaping needed to survive
        a template literal AND RegExp was what made the first version fail. */
     assert.ok(css.includes(`.mk-prod-${tone}{--tone:#`),
       `the ${tone} tone is not defined`);
   }
   /* Four tones, four different pastels — no two cards may share one. */
-  const tones = [...css.matchAll(/\.mk-prod-(?:blue|peach|lilac|mint)\{--tone:(#[0-9A-Fa-f]{6})\}/g)]
+  const tones = [...css.matchAll(/\.mk-prod-(?:blue|peach|lilac|sea)\{--tone:(#[0-9A-Fa-f]{6})\}/g)]
     .map((m) => m[1].toUpperCase());
   assert.equal(tones.length, 4, `found ${tones.length} tone definitions, expected four`);
   assert.equal(new Set(tones).size, 4, `two products share a pastel: ${tones.join(" ")}`);
@@ -3433,4 +3433,52 @@ test("every icon PALTAS ships is the same mark", { skip }, () => {
     assert.ok(grad.toUpperCase().includes(stop.toUpperCase()),
       `the mark uses ${stop}, which is not a stop in the site's --grad (${grad})`);
   }
+});
+
+test("each product scene shows its own product, not a recoloured building", { skip }, () => {
+  /*
+   * They used to be four buildings in four hues, which told a reader nothing
+   * about which product they were looking at. Each scene now carries a detail
+   * only its own product would have.
+   */
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  /* Anchor the end AFTER the start — "PRODUCTS" also appears earlier in the
+     file, which made this slice empty and every lookup below fail. */
+  const isoAt = mod.indexOf("var ISO = {");
+  const iso = mod.slice(isoAt, mod.indexOf("PRODUCTS", isoAt));
+
+  const scene = (k) => {
+    const at = iso.indexOf(`    ${k}: "`);
+    assert.ok(at > 0, `no scene for ${k}`);
+    return iso.slice(at, iso.indexOf('",\n', at));
+  };
+
+  /* Distinct silhouettes: no two scenes may be the same drawing. */
+  const keys = ["property", "hotel", "agent", "security"];
+  const seen = new Set();
+  for (const k of keys) {
+    const s = scene(k);
+    assert.ok(s.length > 400, `${k}'s scene is too small to be a drawing`);
+    assert.ok(!seen.has(s), `${k} reuses another product's illustration`);
+    seen.add(s);
+  }
+
+  /* Security is the sea colour that was asked for, not the green it was. */
+  assert.match(scene("security"), /#0FB5B0|#0A8F8B|#8FE9E4/,
+    "the security scene is not in sea");
+  const css = readFileSync(join(FE, "index.html"), "utf8");
+  assert.match(css, /\.mk-prod-sea\{--tone:#E4FAF7\}/,
+    "the security panel is not the sea tint");
+  assert.ok(!/\.mk-prod-mint\{/.test(css), "the old mint panel is back behind a teal scene");
+  assert.match(mod, /key: "security", tone: "sea"/, "security no longer asks for the sea tone");
+
+  /*
+   * Agent & Host is a screen, because an agent's day is spent in one — and it
+   * has thickness. Drawn as a single flat polygon it read as a sticker rather
+   * than an object, which is the opposite of what a 3D scene is for.
+   */
+  const a = scene("agent");
+  assert.ok((a.match(/polygon/g) || []).length >= 10,
+    "the agent scene lost its screen detail");
+  assert.match(a, /#7566D4|#8E7BE0/, "the agent scene is not in the lilac family");
 });
