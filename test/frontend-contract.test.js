@@ -2862,7 +2862,10 @@ test("hotels are independent rows, grouped by what the supplier said", { skip },
    */
   assert.ok(!/mk-srail/.test(mod) && !/mk-srail/.test(css),
     "the single grid that moved every row at once is still here");
-  assert.match(mod, /class="mk-group"/, "the rows are not separate groups");
+  /* `class="mk-group"` or `class="mk-group mk-group-thin"` — a shelf of fewer
+     than three carries a modifier so its cards are laid out to be read rather
+     than swiped. The group itself is what matters here. */
+  assert.match(mod, /class="mk-group('| \+ thin)/, "the rows are not separate groups");
 
   /*
    * SEPARATE ROWS NEED SEPARATE MEANINGS, or the split is arbitrary and
@@ -3209,4 +3212,65 @@ test("a white card on a white page still reads as an object", { skip }, () => {
   const supply = html.slice(html.indexOf(".mk-supply{"), html.indexOf("}", html.indexOf(".mk-supply{")));
   assert.match(supply, /box-shadow:var\(--mk-shadow\)/,
     "losing the tint without gaining a shadow leaves the card floating on nothing");
+});
+
+test("the hotel card's hover lift never reaches a finger", { skip }, () => {
+  /*
+   * The lift and its :active reset both belong to a mouse. Unscoped, the reset
+   * sat after `(hover:none) and (pointer:coarse)`'s `.mk-card:active` at the
+   * same specificity (0,2,0) and won it — so a tap on a phone stopped pressing
+   * the card in, while every other card on the page still did.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  const i = html.indexOf("@media (hover:hover){");
+  assert.ok(i > 0, "the hover block is gone");
+  let depth = 1, j = i + "@media (hover:hover){".length;
+  while (depth > 0 && j < html.length) {
+    if (html[j] === "{") depth++;
+    else if (html[j] === "}") depth--;
+    j++;
+  }
+  const hoverBlock = html.slice(i, j);
+
+  assert.match(hoverBlock, /\.mk-supply:active\{/,
+    "the :active reset is outside @media (hover:hover), where it overrides " +
+    "the touch press feedback");
+
+  /* And nothing may define it a second time at top level. */
+  const outside = html.slice(0, i) + html.slice(j);
+  assert.ok(!/\.mk-supply:active\{/.test(outside),
+    "a second unscoped .mk-supply:active rule is back");
+});
+
+test("a shelf of one is laid out to be read, not swiped", { skip }, () => {
+  /*
+   * Star groups merge upward below three, but the remainder had no floor: one
+   * hotel with no classification produced a "More places to stay 1" shelf, and
+   * in a rail whose cards are 46% wide for scrolling that card sat in half a
+   * row with dead space beside it.
+   *
+   * The grouping is deliberately NOT changed to fix this — filing an
+   * unclassified hotel under "3-star hotels" to pad the row would be a claim
+   * nobody can support. Only the width changes.
+   */
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  assert.match(mod, /g\.rows\.length < 3 \? ' mk-group-thin'/,
+    "short shelves are no longer marked, so a lone card is back in a 46% slot");
+
+  /* And the rule must live where the 46% it overrides does. */
+  const i = html.lastIndexOf("@media (max-width:620px){", html.indexOf(".mk-group-thin"));
+  let depth = 1, j = i + "@media (max-width:620px){".length;
+  while (depth > 0 && j < html.length) {
+    if (html[j] === "{") depth++;
+    else if (html[j] === "}") depth--;
+    j++;
+  }
+  const block = html.slice(i, j);
+  assert.match(block, /\.mk-group-thin \.mk-rail > \.mk-card\{flex-basis:78%\}/,
+    "the thin-shelf width is outside the phone breakpoint it exists to correct");
+  assert.match(block, /\.mk-rail > \.mk-card\{flex-basis:46%/,
+    "the 46% scrolling width it overrides is gone — check the two still agree");
 });
