@@ -1593,7 +1593,7 @@ test("a star classification is never invented", { skip }, async () => {
 
   const html = await rendered(marketplaceWithSupply([], [withStars, noStars, noScore]));
   const cardFor = (title) =>
-    (html.match(new RegExp('<article class="mk-card mk-supply">(?:(?!</article>)[\\s\\S])*?' +
+    (html.match(new RegExp('<article class="mk-card mk-supply"[^>]*>(?:(?!</article>)[\\s\\S])*?' +
       title + '[\\s\\S]*?</article>')) || [""])[0];
 
   const classified = cardFor("Nyali Beach Hotel");
@@ -1621,7 +1621,7 @@ test("a star classification is never invented", { skip }, async () => {
 test("classification and guest score are rendered as different things", { skip }, async () => {
   const o = { ...SUPPLY[0], stars: 3, rating: 9.4, ratingCount: 1401 };
   const html = await rendered(marketplaceWithSupply([], [o]));
-  const card = (html.match(/<article class="mk-card mk-supply">[\s\S]*?<\/article>/) || [""])[0];
+  const card = (html.match(/<article class="mk-card mk-supply"[^>]*>[\s\S]*?<\/article>/) || [""])[0];
 
   /* A 3-star scoring 9.4 is the case that proves they are not the same value. */
   assert.ok(/aria-label="3-star hotel"/.test(card));
@@ -2269,7 +2269,7 @@ test("nothing spends a credit until somebody opens a hotel", { skip }, () => {
 
 test("an Airbnb on the homes shelf can never look bookable", { skip }, () => {
   const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
-  const fn = mod.slice(mod.indexOf("function homeCard(o)"), mod.indexOf("function supplyCard(o)"));
+  const fn = mod.slice(mod.indexOf("function homeCard("), mod.indexOf("function supplyCard("));
   assert.ok(fn, "there is no renderer for another site's home");
 
   /*
@@ -3273,4 +3273,43 @@ test("a shelf of one is laid out to be read, not swiped", { skip }, () => {
     "the thin-shelf width is outside the phone breakpoint it exists to correct");
   assert.match(block, /\.mk-rail > \.mk-card\{flex-basis:46%/,
     "the 46% scrolling width it overrides is gone — check the two still agree");
+});
+
+test("cards rise in, staggered, without stealing the hover", { skip }, () => {
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
+
+  assert.match(html, /@keyframes mkCardIn\{from\{opacity:0;transform:translateY\(10px\)\}\}/,
+    "the entrance keyframe is gone, or grew a `to`");
+
+  const rule = html.slice(html.indexOf(".mk-card{background"), html.indexOf("}", html.indexOf(".mk-card{background")));
+  assert.match(rule, /animation:mkCardIn [\d.]+s [^;]*backwards/,
+    "the entrance must fill BACKWARDS");
+  /*
+   * `both` and `forwards` hold the final keyframe after the animation ends, and
+   * an animation's declarations outrank a rule's — a held `transform:none`
+   * silently beats .mk-supply:hover's lift and the card stops answering the
+   * cursor. The keyframe has no `to` for the same reason.
+   */
+  assert.ok(!/animation:mkCardIn [^;]*(both|forwards)/.test(rule),
+    "the entrance holds its end state and has killed the hover lift");
+
+  /* The stagger is a finished string, never calc(var()) — older Safari
+     mis-evaluates var() inside calc(), and a mis-evaluated delay is a card
+     that never appears. */
+  assert.match(mod, /animation-delay:' \+ \(Math\.min\(n, 8\) \* 45\) \+ 'ms/,
+    "the stagger is no longer a computed literal, or lost its cap");
+  assert.ok(!/animation-delay:calc\(/.test(html),
+    "a calc() animation delay is back — older Safari mis-evaluates var() in calc()");
+
+  /* And it must be silent for anyone who asked for less motion. */
+  /* Scan for the rule, then prove the block around it is a reduced-motion one.
+     Anchoring on the exact text after the `{` matched whitespace, not meaning. */
+  const at = html.indexOf(".mk-card{animation:none}");
+  assert.ok(at > 0,
+    "the entrance still runs for someone who asked for reduced motion");
+  const opener = html.lastIndexOf("@media", at);
+  assert.match(html.slice(opener, html.indexOf("{", opener)),
+    /prefers-reduced-motion:\s*reduce/,
+    "`.mk-card{animation:none}` is not inside a reduced-motion block");
 });
