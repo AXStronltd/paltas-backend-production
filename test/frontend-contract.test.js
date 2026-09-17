@@ -3795,3 +3795,69 @@ test("the rentals figures are counted, not assumed", { skip }, () => {
   assert.match(hyd, /ends: r\.endsOn \|\| null/, "the lease end date is no longer hydrated");
   assert.match(hyd, /at: r\.receivedAt \|\| null/, "the raw payment date is no longer hydrated");
 });
+
+test("the security estate comes from the database, not a seed", { skip }, () => {
+  /*
+   * GATES, DEVICES and EVENTS were the last three arrays in the console with
+   * no source. seedSecurity() filled them with a demonstration estate —
+   * Riverside Court, Marina Vista — so a real company's command centre
+   * reported another estate's gates, cameras and access log.
+   *
+   * They come from zones, cameras and visits now. All three are real
+   * resources with real routes; nothing here invents a device type or an
+   * event the database does not hold.
+   */
+  const hyd = readFileSync(join(FE, "assets/paltas-hydrate.js"), "utf8");
+  const js  = readFileSync(join(FE, "assets/console.js"), "utf8");
+
+  assert.match(hyd, /GATES: \{ slug: "zones"/, "gates no longer come from zones");
+  assert.match(hyd, /DEVICES: \{ slug: "cameras"/, "devices no longer come from cameras");
+  assert.match(hyd, /EVENTS: \{ slug: "visits"/, "access events no longer come from visits");
+
+  /* Registered, or the adapter exists and nothing is ever filled. */
+  assert.match(js, /GATES: GATES, DEVICES: DEVICES, EVENTS: EVENTS/,
+    "the three arrays are not registered with the hydrator, so they stay empty");
+
+  /* A car park is a zone; it is not a gate. */
+  assert.match(hyd, /var THROUGH = \{ GATE: 1, ENTRANCE: 1, LOBBY: 1 \}/,
+    "every zone is being listed as a gate, including floors and car parks");
+
+  /* Rows must carry the company, or secRows() shows them to everybody. */
+  assert.match(hyd, /function orgKey\(\)/, "the security rows no longer carry an org");
+  /*
+   * Each adapter must stamp it, however it gets there — EVENTS resolves
+   * orgKey() once and reuses it across the list, which is one call rather
+   * than one per row. Counting the literal would have failed that.
+   */
+  for (const name of ["GATES", "DEVICES", "EVENTS"]) {
+    const at = hyd.indexOf(name + ": { slug:");
+    const body = hyd.slice(at, hyd.indexOf("}},", at));
+    /* No trailing \b: `orgKey()` ends in ")" and is followed by ",", and
+       neither is a word character, so a boundary there can never match. */
+    assert.match(body, /org: (?:orgKey\(\)|org\b)/,
+      `${name} rows do not carry the company, so secRows() shows them to everybody`);
+  }
+});
+
+test("arriving at a gate is not the same as coming through it", { skip }, () => {
+  /*
+   * presence() counts `entry` events as people on the property. Giving every
+   * arrival that kind put a REFUSED caller and a visitor still WAITING at the
+   * barrier inside the estate — the command centre said three people were in
+   * when one was. On a security product that is the number that matters most.
+   *
+   * The console already had the three words: `arrival` at the gate, `refusal`
+   * turned away, `entry` came through.
+   */
+  const hyd = readFileSync(join(FE, "assets/paltas-hydrate.js"), "utf8");
+  const at = hyd.indexOf('EVENTS: { slug: "visits"');
+  const body = hyd.slice(at, hyd.indexOf("}},", at));
+
+  assert.match(body, /r\.status === "REFUSED" \? "refusal"/,
+    "a refused caller is logged as an entry — they never came in");
+  assert.match(body, /r\.status === "WAITING" \? "arrival"/,
+    "a visitor held at the barrier is logged as an entry");
+  assert.match(body, /needs: r\.status === "WAITING"/,
+    "somebody held at the barrier is not flagged for attention");
+  assert.match(body, /if \(r\.leftAt\)/, "leaving produces no exit event");
+});
