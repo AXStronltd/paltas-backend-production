@@ -3912,8 +3912,20 @@ test("a gate is staffed only by a guard actually on duty", { skip }, () => {
 
   assert.match(body, /GUARDS\.filter\(inM\)/, "gates() no longer reads the shift board");
   assert.match(body, /s\.post/, "the join is not on the shift's post");
-  assert.match(body, /on duty/i,
+  assert.match(body, /onDutyNow\(s\)/,
     "any shift staffs a gate, including one that ended last night");
+
+  /*
+   * And on duty must mean the CLOCK-IN, not the word. `status` on a
+   * GuardShift is free text: one property writes ON_DUTY and another
+   * SIGNED_IN, and matching the words counted only the first spelling — so a
+   * guard standing at the barrier read as absent and their gate as unmanned.
+   */
+  const h = js.indexOf("const onDutyNow =");
+  assert.ok(h > 0, "onDutyNow is gone");
+  const helper = js.slice(h, js.indexOf(";", js.indexOf("indexOf(\"on duty\")", h)));
+  assert.match(helper, /typeof x\.on === "boolean"/,
+    "on duty is read from the words again, not from the clock-in");
   assert.match(body, /guard: on\.n/, "the guard's name is not put on the gate");
 });
 
@@ -3953,4 +3965,176 @@ test("the guards screen counts its patrols instead of asserting them", { skip },
      and every one of those counts is zero. */
   assert.match(js, /s_guards:\s*\["GUARDS", "PATROLS", "GATES"\]/,
     "s_guards does not declare the patrol board and the gates, so they stay empty");
+});
+
+/* ---------------------------------------------------------------------- *
+ * A REFUSAL IS NOT A FAILURE, AND A GATE LOG THAT NAMES NO GATE IS NOT AN
+ * EMPTY GATE. Both of these turned a screen a customer relies on into a
+ * screen that was confidently wrong.
+ * ---------------------------------------------------------------------- */
+
+test("a product this account does not own empties one section, not the screen",
+  { skip }, () => {
+  /*
+   * s_inbox — the security console's Approvals — also lists guest transfer
+   * requests, which belong to hotel management. A security-only company got a
+   * 403 for those, and because any error replaced the WHOLE screen, its own
+   * Approvals screen showed nothing but a hotel error and a Try again button
+   * that could never succeed.
+   */
+  const hy = readFileSync(join(FE, "assets", "paltas-hydrate.js"), "utf8");
+  const js = readFileSync(join(FE, "assets", "console.js"), "utf8");
+
+  assert.match(hy, /function failState\(err\) \{\s*return \{ status: err && err\.forbidden \? "blocked" : "error"/,
+    "a 403 is an error again, so it blanks the screen");
+  /* Every place a fetch can fail has to go through it, or one path still
+     blanks. */
+  assert.ok(!/STATE\[name\] = \{ status: "error"/.test(hy),
+    "a failure path still sets error directly, bypassing failState");
+
+  const w = hy.slice(hy.indexOf("function worst(names)"));
+  assert.match(w, /if \(s\.status === "blocked"\) \{ blocked\.push\(n\); return; \}/,
+    "worst() no longer separates a refusal from a failure");
+  assert.match(w, /out\.blocked = blocked;/, "worst() does not report what was refused");
+
+  assert.match(js, /if \(st\.blocked && st\.blocked\.length\) \{[\s\S]{0,120}withheldNote\(st\.blocked\) \+ original\.apply/,
+    "a refused array does not draw the screen with a note");
+  assert.match(js, /TRANSFER_REQS: "Guest transfer requests are part of hotel management"/,
+    "the withheld section is not named in words a customer can read");
+});
+
+test("a gate log records which gate, and says so when it does not", { skip }, () => {
+  /*
+   * A Visit carried no gate at all — the console read `r.gate`, a field that
+   * never existed — so every gate-by-gate figure read zero. "Visitors
+   * waiting: 0" appeared on a gate where somebody was standing at the
+   * barrier, which is the one thing a gate screen must never get wrong.
+   */
+  const visit = RESOURCES.visits;
+  assert.equal(visit.fields.zoneId, "id:zone", "a visit cannot record its gate");
+  assert.ok(visit.include && visit.include.zone && visit.include.zone.select.name,
+    "the gate's name does not come back with the visit");
+  assert.ok(visit.include.site && visit.include.site.select.name,
+    "the property's name does not come back with the visit");
+
+  const hy = readFileSync(join(FE, "assets", "paltas-hydrate.js"), "utf8");
+  assert.match(hy, /var gate = \(r\.zone && r\.zone\.name\) \|\| "";/,
+    "events read a gate field the API does not send");
+  assert.ok(!/gate: r\.gate/.test(hy), "an event still reads the field that never existed");
+
+  const js = readFileSync(join(FE, "assets", "console.js"), "utf8");
+  assert.match(js, /const gatesAreLogged = \(\) => secRows\(EVENTS\)\.some\(\(r\) => r\.gate\);/,
+    "nothing asks whether this log records gates at all");
+  assert.match(js, /if \(k === "gate" && byGate && r\.gate !== want\) return false;/,
+    "filtering by gate hides every row when the log records no gate");
+  assert.match(js, /Your gate log does not record which gate/,
+    "the screen shows property-wide figures without saying that is what they are");
+  /*
+   * And the half-recorded log, which is the case that hides people: once ANY
+   * movement carries a gate the filter turns strict, and every movement
+   * written before that silently drops out of every gate view while the
+   * control room goes on counting it.
+   */
+  assert.match(js, /const loose = secRows\(EVENTS\)\.filter\(inM\)\.filter\(\(r\) => !r\.gate\)\.length;/,
+    "nothing counts the movements that name no gate");
+  assert.match(js, /not say which gate/,
+    "a half-recorded log hides rows without saying so");
+});
+
+test("the guard's own screen describes the guard reading it", { skip }, () => {
+  /*
+   * GUARD was a fixed object written as scaffolding: Joseph Kimani, badge
+   * G-114, Riverside Court, a supervisor called Esther Mumbi and her mobile
+   * number. It reached the live console, so every real guard opening "My
+   * shift" saw another company's estate and a stranger's telephone number
+   * laid out exactly like their own details.
+   */
+  const js = readFileSync(join(FE, "assets", "console.js"), "utf8");
+  const at = js.indexOf("const GUARD = {");
+  assert.ok(at > 0, "GUARD is gone");
+  const body = js.slice(at, js.indexOf("\n};", at));
+
+  for (const ghost of ["Joseph Kimani", "G-114", "Riverside Court", "Esther Mumbi", "722 900 400"]) {
+    assert.ok(!body.includes(ghost), `${ghost} is back on a real guard's screen`);
+  }
+  assert.match(body, /get name\(\) \{ return secWho\(\); \}/, "the name is not the signed-in person");
+  assert.match(body, /get site\(\).*guardShift\(\)/, "the property is not read from the roster");
+  assert.match(body, /get gate\(\).*guardShift\(\)/, "the post is not read from the roster");
+  assert.match(body, /get clockedIn\(\).*g\.on/, "being clocked in is not read from the shift");
+
+  const gs = js.slice(js.indexOf("function guardShift()"));
+  assert.match(gs, /g\.n === me/, "the shift is not matched to the person reading it");
+  assert.match(gs, /mine\.find\(\(g\) => g\.on\)/, "a finished shift can be shown as tonight's");
+
+  assert.match(js, /s_gate:\s*\["VISITORS", "PATROLS", "DEVICES", "GUARDS", "VEHICLES", "EVENTS"\]/,
+    "the gate screen does not declare the arrays it now reads");
+  assert.match(js, /s_me:\s*\["GUARD_TASKS", "GUARDS"\]/,
+    "My shift does not declare the roster, so it has no shift to show");
+});
+
+test("vehicles inside are counted from the gate log, not the registry", { skip }, () => {
+  /*
+   * VEHICLES is the list of cars a property KNOWS — its own adapter says
+   * whether one is on site right now is a gate event nothing records. The
+   * gate screen filtered it for st === "Inside", a value the adapter never
+   * produces, so the panel was permanently empty while cars sat in the estate
+   * and the control room, counting from the log, said otherwise.
+   */
+  const js = readFileSync(join(FE, "assets", "console.js"), "utf8");
+  const at = js.indexOf("function vehiclesInside()");
+  assert.ok(at > 0, "vehiclesInside is gone");
+  const body = js.slice(at, js.indexOf("\n}", at));
+
+  assert.match(body, /e\.kind === "vehicle_in"/, "an arrival does not put a vehicle inside");
+  assert.match(body, /e\.kind === "vehicle_out"/, "a departure does not take one out");
+  assert.match(body, /\.slice\(\)\.reverse\(\)/,
+    "the log is read newest first, so a car that left and came back reads as out");
+  assert.ok(!/VEHICLES\.filter\(inM\)\.filter\(\(v\) => v\.st === "Inside"\)/.test(js),
+    "a screen still filters the registry for a status it never carries");
+});
+
+test("letting somebody in, or turning them away, is a write", { skip }, () => {
+  /*
+   * secApprove and secRefuse set a pill green or red on an array in memory
+   * and said "the entry is recorded". Nothing was recorded. The guard pressed
+   * Approve, the row went green, the page was refreshed, and the caller was
+   * waiting at the gate again — with none of the audit trail the message
+   * promised. POST /visits/:id/decide had been there the whole time.
+   */
+  const js = readFileSync(join(FE, "assets", "console.js"), "utf8");
+  const hy = readFileSync(join(FE, "assets", "paltas-hydrate.js"), "utf8");
+
+  /* Without the id there is nothing to write to. */
+  const ap = hy.slice(hy.indexOf("APPROVALS_SEC: {"), hy.indexOf("INVESTORS: {"));
+  assert.match(ap, /id: v\.id,/, "a caller waiting at the gate carries no id, so approving one cannot write");
+  assert.match(ap, /gate: \(v\.zone && v\.zone\.name\)/,
+    "the gate is the site name again, so a caller is listed against the property not the gate");
+
+  const dec = js.slice(js.indexOf("function visitDecision("));
+  assert.match(dec, /D\.request\("\/visits\/" \+ encodeURIComponent\(a\.id\) \+ "\/decide"/,
+    "a decision is not sent to the server");
+  assert.match(dec, /method: "POST"/, "the decision is not a write");
+  assert.match(dec, /H\.reset\(\["APPROVALS_SEC", "VISITORS", "EVENTS"\]\)/,
+    "the screens that count these rows are not asked again after a decision");
+  assert.match(dec, /\.catch\(/, "a failed write leaves the screen claiming it succeeded");
+  /* Offline is allowed, but it must SAY so rather than imply a record. */
+  assert.match(dec, /not connected to your account/,
+    "an unconnected page still claims the entry was recorded");
+
+  const ref = js.slice(js.indexOf("ACTIONS.secRefuse ="), js.indexOf("ACTIONS.secRevoke"));
+  assert.match(ref, /window\.prompt\(/, "a refusal is sent with no reason, and the server refuses it");
+  assert.match(ref, /String\(why\)\.trim\(\)\.length < 3/, "an empty reason is sent to the server as a 400");
+
+  /* Signing out, the same: "people inside" is counted from these rows. */
+  /* Comments describe the bug being fixed and NAME it, so they have to go
+     before matching or the test finds its own explanation. */
+  const code = (src) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  const out = code(js.slice(js.indexOf("ACTIONS.signout ="), js.indexOf("ACTIONS.resolveInc")));
+  assert.match(out, /encodeURIComponent\(v\.id\) \+ "\/leave"/, "signing out writes nothing");
+  assert.ok(!/gate: "Main gate"/.test(out), "an exit is recorded at a gate chosen by a default");
+
+  const adm = code(js.slice(js.indexOf("ACTIONS.approve ="), js.indexOf("ACTIONS.signout =")));
+  assert.match(adm, /encodeURIComponent\(v\.id\) \+ "\/decide"/, "admitting at the desk writes nothing");
+  assert.ok(!/gate: "Main gate"/.test(adm), "an entry is recorded at a gate chosen by a default");
 });

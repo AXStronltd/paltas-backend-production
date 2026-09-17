@@ -358,7 +358,7 @@ export const RESOURCES = {
     model: "visit", area: "security", product: "SECURITY_MANAGEMENT",
     label: "visits",
     fields: {
-      siteId: "id:site", hostId: "id:party", visitor: "string",
+      siteId: "id:site", zoneId: "id:zone", hostId: "id:party", visitor: "string",
       category: "enum:VisitCategory", hostName: "string", phone: "string",
       vehicle: "string", purpose: "string", status: "enum:VisitStatus",
       idKind: "string", idRef: "string",
@@ -368,6 +368,11 @@ export const RESOURCES = {
     required: ["visitor"],
     search: ["visitor", "hostName", "phone", "vehicle"],
     order: [{ arrivedAt: "desc" }],
+    /* The gate console reads both: which property, and which gate of it. */
+    include: {
+      site: { select: { id: true, name: true } },
+      zone: { select: { id: true, name: true } },
+    },
   },
 
   passes: {

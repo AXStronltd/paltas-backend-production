@@ -1557,6 +1557,7 @@ model Zone {
   updatedAt DateTime @updatedAt
 
   passes Pass[]
+  visits Visit[]
 
   @@index([orgId, siteId])
 }
@@ -1585,6 +1586,12 @@ model Visit {
   site   Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
   hostId String?
   host   Party?       @relation("VisitHost", fields: [hostId], references: [id], onDelete: SetNull)
+  /// WHICH GATE. Nullable because a visit can be pre-registered before anybody
+  /// picks a lane, and because every row written before this column existed
+  /// genuinely does not know. A console reading gate-by-gate must treat "not
+  /// recorded" as unknown, never as "not there".
+  zoneId String?
+  zone   Zone?        @relation(fields: [zoneId], references: [id], onDelete: SetNull)
 
   visitor  String
   category VisitCategory @default(GUEST)
@@ -1612,6 +1619,7 @@ model Visit {
 
   @@index([orgId, status])
   @@index([orgId, siteId, arrivedAt])
+  @@index([orgId, zoneId, arrivedAt])
 }
 
 enum VisitCategory {
