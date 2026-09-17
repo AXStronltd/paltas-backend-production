@@ -3916,3 +3916,41 @@ test("a gate is staffed only by a guard actually on duty", { skip }, () => {
     "any shift staffs a gate, including one that ended last night");
   assert.match(body, /guard: on\.n/, "the guard's name is not put on the gate");
 });
+
+test("the guards screen counts its patrols instead of asserting them", { skip }, () => {
+  /*
+   * It said "14/19 patrols completed", "98% shift attendance" and "all posts
+   * covered — no gate is unmanned". None was measured, and the last asserted
+   * that every gate was staffed on the one screen whose job is to say when a
+   * gate is not.
+   *
+   * Worse, `p` was PROPS — the LISTINGS array — on a guards screen, so "Posts
+   * covered" was counting properties for sale. Patrol carries `points` and
+   * `pointsHit`; gates() knows who is on each gate; both were right there.
+   */
+  const js = readFileSync(join(FE, "assets/console.js"), "utf8");
+  const at = js.indexOf("SCREENS.s_guards = () => {");
+  const body = js.slice(at, js.indexOf("</div></div>`;", at))
+    .replace(/\/\*[\s\S]*?\*\//g, "");
+
+  assert.ok(!/p = PROPS\.filter/.test(body),
+    "the guards screen reads the listings array again");
+  assert.match(body, /p = PATROLS\.filter\(inM\)/, "it does not read the patrol board");
+
+  for (const [what, re] of [
+    ["patrols completed", /rounds = p\.filter\(\(x\) => x\.points && x\.done >= x\.points\)/],
+    ["checkpoints",       /hit = p\.reduce/],
+    ["posts covered",     /staffed = allGates\.filter\(\(x\) => x\.guard\)/],
+    ["a guard's rounds",  /const roundsFor =/],
+  ]) {
+    assert.match(body, re, `${what} is not counted`);
+  }
+
+  assert.ok(!/"14\/19"|"98%"|d:"all"/.test(body),
+    "a hard-coded patrol, attendance or coverage figure is back");
+
+  /* The arrays it now reads have to be declared, or they are never hydrated
+     and every one of those counts is zero. */
+  assert.match(js, /s_guards:\s*\["GUARDS", "PATROLS", "GATES"\]/,
+    "s_guards does not declare the patrol board and the gates, so they stay empty");
+});
