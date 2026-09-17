@@ -4138,3 +4138,97 @@ test("letting somebody in, or turning them away, is a write", { skip }, () => {
   assert.match(adm, /encodeURIComponent\(v\.id\) \+ "\/decide"/, "admitting at the desk writes nothing");
   assert.ok(!/gate: "Main gate"/.test(adm), "an entry is recorded at a gate chosen by a default");
 });
+
+test("the property console states no figure it cannot measure", { skip }, () => {
+  /*
+   * Ten headline numbers on the property screens were written into the page
+   * and shown to every company as its own: "2.4 days" to resolve, "94%
+   * within SLA", a maintenance spend of 842,000, "6.2% arrears against a
+   * target under 5%", "11 work orders closed, median 3 days", "34 days"
+   * sales velocity, "8.4% net yield", "9 buildings covered", and an oldest
+   * unanswered report of "2 days — Riverside water", which named the demo
+   * estate. A company with no work orders at all read all of them.
+   */
+  const js = readFileSync(join(FE, "assets", "console.js"), "utf8");
+  const code = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  const PM = ["command", "portfolio", "buildings", "units", "rentals", "maintenance",
+              "pm_issues", "documents", "development", "pm_market", "pm_reports",
+              "analytics", "staff"];
+  const bodyOf = (k) => {
+    const at = code.indexOf(`SCREENS.${k} = () =>`);
+    if (at < 0) return "";
+    const end = code.indexOf("\nSCREENS.", at + 10);
+    return code.slice(at, end < 0 ? code.length : end);
+  };
+
+  const literals = [];
+  for (const k of PM) {
+    const body = bodyOf(k);
+    const re = /\bv:\s*(?:"([^"]*)"|money\(\s*[0-9_]+\s*\))\s*,/g;
+    let m;
+    while ((m = re.exec(body)) !== null) {
+      const val = m[1] === undefined ? m[0] : m[1];
+      if (!/\d/.test(val)) continue;
+      /* The one number that is a fact about the law rather than about this
+         company, and it is labelled as statutory and says PALTAS enforces
+         nothing. */
+      if (/^7 years$/.test(val)) continue;
+      literals.push(`${k}: ${val}`);
+    }
+  }
+  assert.deepEqual(literals, [],
+    "a property screen states a figure nobody measured: " + literals.join(", "));
+
+  /* And the ones that DO have a source are counted from it. */
+  assert.match(code, /const open = m\.filter\(\(x\) => \(typeof x\.open === "boolean" \? x\.open : true\)\);/,
+    "open requests counts closed work orders again");
+  assert.match(code, /done\.reduce\(\(n, x\) => n \+ x\.took, 0\) \/ done\.length/,
+    "average time to resolve is not averaged");
+  assert.match(code, /const closed = MAINT\.filter\(inMine\)\.filter\(\(x\) => x\.closedOn\);/,
+    "work orders closed is not counted from closedAt");
+  assert.match(code, /pm_reports:\s*\["PROPS", "UNITS", "TENANTS", "STAFF", "MAINT"\]/,
+    "the reports screen reads work orders without declaring them, so it counts nothing");
+  assert.match(code, /staff:\s*\["STAFF", "APPROVALS_SEC", "BUILDINGS"\]/,
+    "the staff screen counts buildings without declaring them");
+
+  /* The rows have to carry what those counts read. */
+  const hy = readFileSync(join(FE, "assets", "paltas-hydrate.js"), "utf8");
+  const maint = hy.slice(hy.indexOf("MAINT: {"), hy.indexOf("MAINT: {") + 2200);
+  assert.match(maint, /open: r\.status !== "DONE" && r\.status !== "CANCELLED"/,
+    "a work order does not say whether it is still open");
+  assert.match(maint, /closedOn: r\.closedAt \|\| null/, "a work order does not carry when it closed");
+  assert.match(maint, /took: r\.closedAt/, "a work order does not carry how long it took");
+});
+
+test("no property screen names a building the company does not own", { skip }, () => {
+  /*
+   * Two panels invented estates. The buildings screen said an inspection was
+   * due on 14 September at "Brooklyn Lofts". The resident-reports screen
+   * listed who was on site — caretakers at Riverside Court and Nairobi
+   * Heights, a night guard "contracted, not reporting", and Westgate
+   * Residences with nobody after 17:00 — and then argued from that invention
+   * that the company should buy Security Management.
+   */
+  const js = readFileSync(join(FE, "assets", "console.js"), "utf8");
+  const code = js.replace(/\/\*[\s\S]*?\*\//g, "");
+
+  const at = code.indexOf("SCREENS.buildings = () =>");
+  const buildings = code.slice(at, code.indexOf("\nSCREENS.", at + 10));
+  assert.ok(!/Brooklyn/.test(buildings), "the buildings screen names a demo building again");
+  assert.match(buildings, /x\.nextInsp && x\.nextInsp !== "Not booked"/,
+    "the next inspection is stated rather than read from the rows");
+
+  const ai = code.indexOf("SCREENS.pm_issues = () =>");
+  const issues = code.slice(ai, code.indexOf("\nSCREENS.", ai + 10));
+  for (const ghost of ["Riverside Court", "Nairobi Heights", "Westgate Residences"]) {
+    assert.ok(!issues.includes(ghost), `${ghost} is back on the resident-reports screen`);
+  }
+  assert.match(issues, /GUARDS.*filter\(inM\)\.filter\(onDutyNow\)/s,
+    "who is on site is not read from the shift board");
+  assert.match(issues, /PALTAS does not know who is on site/,
+    "an empty roster is filled in rather than admitted");
+  /* The upsell must not rest on an invented risk. */
+  assert.ok(!/have nobody there at night/.test(issues),
+    "Security Management is sold on a fabricated risk again");
+});
