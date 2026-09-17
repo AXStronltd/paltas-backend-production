@@ -3237,7 +3237,15 @@ test("the hotel card's hover lift never reaches a finger", { skip }, () => {
    */
   const html = readFileSync(join(FE, "index.html"), "utf8");
 
-  const i = html.indexOf("@media (hover:hover){");
+  /*
+   * Find the block that CONTAINS the rule, not the first hover block in the
+   * file. The footer added its own `@media (hover:hover)` above this one, and
+   * an index-of-the-first anchor then searched the wrong block and reported a
+   * rule missing that was sitting correctly forty lines below.
+   */
+  const at = html.indexOf(".mk-supply:active{");
+  assert.ok(at > 0, "the :active reset is gone entirely");
+  const i = html.lastIndexOf("@media (hover:hover){", at);
   assert.ok(i > 0, "the hover block is gone");
   let depth = 1, j = i + "@media (hover:hover){".length;
   while (depth > 0 && j < html.length) {
@@ -3663,4 +3671,55 @@ test("no screen is defined twice", { skip }, () => {
   assert.deepEqual(twice, [],
     "these screens are defined more than once; the last definition wins and " +
     "the others are unreachable:\n  " + twice.join("\n  "));
+});
+
+test("the footer links only to things that exist", { skip }, () => {
+  /*
+   * The brief for this footer asked for social icons, app-store badges, a
+   * newsletter, and AI / Analytics / API columns. None of them are here,
+   * because none of them exist: there is no PALTAS account URL anywhere in
+   * the build, no iOS or Android app, no subscribe endpoint in the backend,
+   * and AI and Analytics are two of the gaps from the platform audit.
+   *
+   * A footer is where a dead link hides longest — nobody scrolls there on
+   * purpose — so this asserts the absences as firmly as the presences.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const foot = html.slice(html.indexOf('<footer class="footer"'), html.indexOf("</footer>") + 9);
+  assert.ok(foot.length > 2000, "the footer is gone or was not found");
+
+  /* Nothing that would need an account, an app or an endpoint we do not have. */
+  for (const [what, re] of [
+    ["a social link", /(linkedin|twitter|instagram|facebook|youtube|tiktok)\.com/i],
+    ["an app-store badge", /(apps\.apple\.com|play\.google\.com)/i],
+    ["a newsletter form", /type="email"|subscribe/i],
+  ]) {
+    assert.ok(!re.test(foot), `the footer has ${what}, and PALTAS has no such thing to link to`);
+  }
+
+  /* Every in-page anchor resolves, and every file link is a file that exists. */
+  const ids = new Set([...html.matchAll(/\bid="([A-Za-z0-9_-]+)"/g)].map((m) => m[1]));
+  for (const m of foot.matchAll(/href="([^"]+)"/g)) {
+    const href = m[1];
+    if (href.startsWith("javascript:")) continue;
+    if (href.startsWith("#")) {
+      assert.ok(ids.has(href.slice(1)), `footer anchor ${href} has no target`);
+    } else {
+      assert.ok(existsSync(join(FE, href.split("#")[0])), `footer links to ${href}, which is not in the build`);
+    }
+  }
+
+  /* Every handler it calls is defined, and every INFO panel it opens has copy. */
+  for (const m of foot.matchAll(/onclick="(\w+)\(/g)) {
+    const fn = m[1];
+    assert.ok(new RegExp(`(window\\.${fn}\\s*=|function ${fn}\\s*\\()`).test(html),
+      `the footer calls ${fn}(), which is not defined`);
+  }
+  for (const m of foot.matchAll(/openInfo\('([^']+)'\)/g)) {
+    assert.ok(html.includes(`'${m[1]}':`) || html.includes(`'${m[1]}' :`),
+      `the footer opens the "${m[1]}" panel, which has no copy in INFO`);
+  }
+
+  /* Guest Portal is not a product and must not be sold as one here. */
+  assert.ok(!/Guest Portal/i.test(foot), "Guest Portal is in the footer; it is not a product");
 });
