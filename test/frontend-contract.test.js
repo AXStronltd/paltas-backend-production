@@ -3861,3 +3861,58 @@ test("arriving at a gate is not the same as coming through it", { skip }, () => 
     "somebody held at the barrier is not flagged for attention");
   assert.match(body, /if \(r\.leftAt\)/, "leaving produces no exit event");
 });
+
+test("a vehicle is inside only if the person driving it got in", { skip }, () => {
+  /*
+   * "Vehicles inside" is vehicle_in less vehicle_out, and it read 0 because
+   * nothing emitted either. A Visit records the vehicle as text — the plate
+   * the gate wrote down — so a visit that carried one and was let through is a
+   * vehicle that came in.
+   *
+   * The refusal is the case that matters: a car turned away at the barrier
+   * never parked, and counting it would put a refused vehicle inside the
+   * estate. The guard is `kindWasEntry`, which is only true when the arrival
+   * was an entry rather than an arrival or a refusal.
+   */
+  const hyd = readFileSync(join(FE, "assets/paltas-hydrate.js"), "utf8");
+  const at = hyd.indexOf('EVENTS: { slug: "visits"');
+  const body = hyd.slice(at, hyd.indexOf("}},", at));
+
+  assert.match(body, /kindWasEntry = kind === "entry"/,
+    "nothing records whether the visitor was actually let through");
+  assert.match(body, /if \(r\.vehicle && kindWasEntry\)/,
+    "a vehicle is logged as entering without checking the person got in — a " +
+    "refused car would be counted as inside the estate");
+  assert.match(body, /kind: "vehicle_in"/, "no vehicle_in event is emitted");
+  assert.match(body, /kind: "vehicle_out"/, "no vehicle_out event is emitted");
+
+  /* And the exit must be inside the leftAt branch, or a car that never left
+     is counted out. */
+  const outAt = body.indexOf('kind: "vehicle_out"');
+  const leftAt = body.indexOf("if (r.leftAt)");
+  assert.ok(leftAt > 0 && outAt > leftAt,
+    "vehicle_out is emitted outside the leftAt branch");
+});
+
+test("a gate is staffed only by a guard actually on duty", { skip }, () => {
+  /*
+   * A zone row says what a gate is and nothing about who is standing at it;
+   * the schema has no link between the two. GuardShift does — `post` is the
+   * gate a guard was put on — so the join is by name at read time, which means
+   * the shift board and the gate can never drift apart.
+   *
+   * On duty only. A shift that ended last night is not somebody at the barrier
+   * now, and a gate that reads as staffed when nobody is there is the worst
+   * answer this screen can give.
+   */
+  const js = readFileSync(join(FE, "assets/console.js"), "utf8");
+  const at = js.indexOf("const gates = () =>");
+  assert.ok(at > 0, "gates() is gone");
+  const body = js.slice(at, js.indexOf("\n});", at));
+
+  assert.match(body, /GUARDS\.filter\(inM\)/, "gates() no longer reads the shift board");
+  assert.match(body, /s\.post/, "the join is not on the shift's post");
+  assert.match(body, /on duty/i,
+    "any shift staffs a gate, including one that ended last night");
+  assert.match(body, /guard: on\.n/, "the guard's name is not put on the gate");
+});
