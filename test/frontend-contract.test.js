@@ -3631,12 +3631,28 @@ test("no KPI wears a trend nobody measured", { skip }, () => {
    * data rather than a trend badge. An earlier pass without the anchor
    * rewrote three of those rows and broke the file.
    */
-  const fabricated = [...js.matchAll(/(?<![A-Za-z])d:\s*"([+−\-][\d.]+%)"/g)]
+  /*
+   * THE RULE IS THE SIGN, not the percent.
+   *
+   * The first pass required a % and caught 27. Then "+42" on Rentals and "+5"
+   * on Incidents turned up, so it was widened to signed numbers — and that
+   * still missed 38 more wearing units: "+4pt", "−6 days", "+64 this week",
+   * "−8 min", "+11 units". Every one of them was a literal claim about change
+   * sitting beside a figure the API had made real.
+   *
+   * A leading + or − IS the claim. That is the whole test now.
+   */
+  const fabricated = [...js.matchAll(/(?<![A-Za-z])d:\s*"([+−\-][^"]*)"/g)]
     .map((m) => ({ delta: m[1], line: js.slice(0, m.index).split("\n").length }));
 
   assert.deepEqual(fabricated, [],
     "these KPI badges are literal trends, not measurements:\n  " +
     fabricated.map((f) => `line ${f.line}  d:"${f.delta}"`).join("\n  "));
+
+  /* Descriptors that were WORKED OUT are the reason the field exists and must
+     survive: "on schedule", "4 accounts", "6 checked in", "86.4%". */
+  const kept = [...js.matchAll(/(?<![A-Za-z])d:\s*"([^"]*)"/g)].length;
+  assert.ok(kept > 50, `only ${kept} computed descriptors left — too many were removed`);
 
   /* And the pricing data the anchor protects must still be there. */
   assert.equal((js.match(/weekend:\s*"[+−\-][\d.]+%"/g) || []).length, 3,
