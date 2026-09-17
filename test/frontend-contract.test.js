@@ -3598,3 +3598,39 @@ test("no page reaches for an element that is not in it", { skip }, () => {
       fatal.map((h) => `line ${h.line}  #${h.id}`).join("\n  "));
   }
 });
+
+test("no KPI wears a trend nobody measured", { skip }, () => {
+  /*
+   * 27 KPIs across 20 screens carried a hard-coded percentage badge — "+18%",
+   * "+3.4%", "−3%". They sat beside figures that became real when the console
+   * started reading the API, so each was a live number wearing a made-up
+   * trend. A customer reading "Portfolio value +6.2%" had no way to tell that
+   * the value was theirs and the 6.2% was typed months earlier.
+   *
+   * A real trend needs the previous period and the API returns the current
+   * one. kpi() draws no badge when `d` is absent, so the honest fix was to
+   * remove them.
+   *
+   * WHAT THIS DOES NOT FORBID: a `d` that was worked out — "of 12",
+   * "15% blended", "4 available". Those are derived from the same rows as the
+   * figure beside them and are the reason the field exists.
+   */
+  const js = readFileSync(join(FE, "assets/console.js"), "utf8");
+
+  /*
+   * Anchored on a word boundary. Without it this also matches the `d` at the
+   * end of `weekend:"+15%"` — seasonal uplift in the pricing table, which is
+   * data rather than a trend badge. An earlier pass without the anchor
+   * rewrote three of those rows and broke the file.
+   */
+  const fabricated = [...js.matchAll(/(?<![A-Za-z])d:\s*"([+−\-][\d.]+%)"/g)]
+    .map((m) => ({ delta: m[1], line: js.slice(0, m.index).split("\n").length }));
+
+  assert.deepEqual(fabricated, [],
+    "these KPI badges are literal trends, not measurements:\n  " +
+    fabricated.map((f) => `line ${f.line}  d:"${f.delta}"`).join("\n  "));
+
+  /* And the pricing data the anchor protects must still be there. */
+  assert.equal((js.match(/weekend:\s*"[+−\-][\d.]+%"/g) || []).length, 3,
+    "the seasonal uplift rows were removed along with the fake deltas");
+});
