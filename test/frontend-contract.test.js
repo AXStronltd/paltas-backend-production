@@ -3634,3 +3634,33 @@ test("no KPI wears a trend nobody measured", { skip }, () => {
   assert.equal((js.match(/weekend:\s*"[+−\-][\d.]+%"/g) || []).length, 3,
     "the seasonal uplift rows were removed along with the fake deltas");
 });
+
+test("no screen is defined twice", { skip }, () => {
+  /*
+   * Four were: staff, modules, h_desk and s_command. In each case the second
+   * definition won every time and the first never ran — so somebody editing
+   * SCREENS.staff at the first one would change nothing and have no way to
+   * see why.
+   *
+   * Each replacement was deliberate, and the file said so where it bothered
+   * to: the surviving `modules` notes that the old screen "turned Security on
+   * the instant you clicked, which is a pleasant demo and a dishonest one".
+   * The dead originals were still being shipped — 138 lines of screen that
+   * could not be reached and could not be edited.
+   *
+   * s_command is the exception worth keeping straight: its surviving
+   * definition is a one-line alias to s_ops, so an old link still lands
+   * somewhere true. An alias is not a duplicate screen; two full bodies are.
+   */
+  const js = readFileSync(join(FE, "assets/console.js"), "utf8");
+
+  const counts = {};
+  for (const m of js.matchAll(/^SCREENS\.([A-Za-z_]\w*) = /gm)) {
+    counts[m[1]] = (counts[m[1]] || 0) + 1;
+  }
+  const twice = Object.entries(counts).filter(([, n]) => n > 1).map(([k, n]) => `${k} (${n}×)`);
+
+  assert.deepEqual(twice, [],
+    "these screens are defined more than once; the last definition wins and " +
+    "the others are unreachable:\n  " + twice.join("\n  "));
+});
