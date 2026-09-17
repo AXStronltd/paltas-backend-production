@@ -248,7 +248,20 @@ function gateRig({ page, system, products, openKeys, search }) {
       Data: { configured: () => true, Session: { read: () => Promise.resolve(session) } },
       Session: {
         blank, write: (s) => { win.__written = s; return s; }, read: () => win.__written,
-        openable: () => openKeys.map((k) => ({ key: k })),
+        /*
+         * SHAPED LIKE THE REAL PRODUCTS TABLE, because the first version of
+         * this rig returned { key: "agent" } and the gate compared that to
+         * PALTAS_BOOT.system. It matched, the test passed — and the real
+         * console returns key: "AGENT_HOST" with legacy: "agent", so the gate
+         * never matched in production and redirected companies away from
+         * their own dashboards. A rig that agrees with the assumption instead
+         * of the data is worse than no rig.
+         */
+        openable: () => openKeys.map((k) => ({
+          key: k.toUpperCase() === "AGENT" ? "AGENT_HOST" : k.toUpperCase() + "_MANAGEMENT",
+          legacy: k,
+          home: "dashboard/" + k + ".html",
+        })),
         destination: (_s, base) => (base || "") + "dashboard/" + openKeys[0] + ".html",
       },
     },
@@ -324,4 +337,49 @@ test("an ordinary visit explains nothing", { skip }, async () => {
   await new Promise((r) => setTimeout(r, 15));
   assert.equal(win.__toast, undefined,
     "every load of the console now raises a message about a redirect that did not happen");
+});
+
+test("the gate matches the console's own product table, not the boot name", { skip }, () => {
+  /*
+   * PALTAS_BOOT.system is "property". PRODUCTS keys are "PROPERTY_MANAGEMENT".
+   * Comparing those two is always false, which is what made the gate redirect
+   * a company away from the console it had just been given.
+   *
+   * Asserted against the source so the rig above cannot drift from it again.
+   */
+  const bridge = readFileSync(BRIDGE, "utf8");
+  assert.match(bridge, /p\.legacy === boot\.system/,
+    "the gate no longer matches on PRODUCTS.legacy, which is the field that " +
+    "carries the boot name");
+  assert.ok(!/p\.key === boot\.system/.test(bridge),
+    "the gate compares PRODUCTS.key to the boot system again; those never match");
+
+  const console_ = readFileSync(join(FE, "assets/console.js"), "utf8");
+  for (const [code, legacy] of [["PROPERTY_MANAGEMENT", "property"], ["AGENT_HOST", "agent"],
+                                ["HOTEL_MANAGEMENT", "hotel"], ["SECURITY_MANAGEMENT", "security"]]) {
+    const at = console_.indexOf(code + ": {");
+    assert.ok(at > 0, `${code} is not in PRODUCTS`);
+    assert.match(console_.slice(at, at + 200), new RegExp(`legacy: "${legacy}"`),
+      `${code} no longer carries legacy: "${legacy}", which the gate matches on`);
+  }
+});
+
+test("a real company's demo security estate is emptied", { skip }, () => {
+  /*
+   * console.js seeds EVENTS, GATES and DEVICES with a demonstration estate and
+   * decides whether to by reading its own sessionStorage copy — which, on the
+   * first load after signing in, this bridge has not written yet. The seed
+   * wins that race, so the security command centre reported a demonstration
+   * estate's people as inside the customer's property.
+   */
+  const bridge = readFileSync(BRIDGE, "utf8");
+  const console_ = readFileSync(join(FE, "assets/console.js"), "utf8");
+
+  assert.match(bridge, /dropDemoSecurity\(live\);/, "the bridge no longer clears the demo estate");
+  assert.match(bridge, /root\.PALTAS_DROP_DEMO_SECURITY\(\)/, "it does not call the hook");
+  assert.match(console_, /window\.PALTAS_DROP_DEMO_SECURITY = function/,
+    "console.js no longer exposes the hook — EVENTS, GATES and DEVICES are " +
+    "top-level consts and cannot be reached from the bridge without it");
+  assert.match(console_, /if \(!\(_live && _live\.signedIn && _live\.organization/,
+    "seedSecurity() runs unconditionally again");
 });

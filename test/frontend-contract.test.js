@@ -3739,3 +3739,59 @@ test("the footer links only to things that exist", { skip }, () => {
   /* Guest Portal is not a product and must not be sold as one here. */
   assert.ok(!/Guest Portal/i.test(foot), "Guest Portal is in the footer; it is not a product");
 });
+
+test("the command centre and the visitor register agree on who is inside", { skip }, () => {
+  /*
+   * presence() derived who is inside from EVENTS — entry and exit records
+   * seeded by seedSecurity() with a demonstration estate. For a real company
+   * those are emptied, so the security command centre said "0 people inside"
+   * while the visitor register two screens over listed somebody as Inside.
+   *
+   * Two screens disagreeing about who is on the property is worse than either
+   * number alone, and this is a security product.
+   */
+  const js = readFileSync(join(FE, "assets/console.js"), "utf8");
+  const at = js.indexOf("function presence()");
+  assert.ok(at > 0, "presence() is gone");
+  const body = js.slice(at, js.indexOf("\n}", at));
+
+  assert.match(body, /if \(!EVENTS\.length\)/,
+    "presence() no longer falls back to the visitor register when there are " +
+    "no access events");
+  assert.match(body, /VISITORS\.filter\(inM\)/, "the fallback does not read VISITORS");
+  assert.match(body, /v\.st === "Inside"/,
+    "the fallback does not filter on the Inside status the gate sets");
+});
+
+test("the rentals figures are counted, not assumed", { skip }, () => {
+  /*
+   * Every KPI on this screen was built on `sum(PROPS, x => x.let)`. PROPS
+   * hydrates from LISTINGS, which carries no `let`, no `units` and no `rent` —
+   * so "Active tenancies" read 0 for a company with live leases, and beside it
+   * collections was rent * 0.864, arrears was rent * 0.031, and the renewal
+   * rate was the string "78%".
+   */
+  const js = readFileSync(join(FE, "assets/console.js"), "utf8");
+  const at = js.indexOf("SCREENS.rentals = () => {");
+  /*
+   * COMMENTS STRIPPED FIRST. The comment above this screen explains the bug it
+   * replaced — "collections was rent * 0.864" — and a test looking for that
+   * string finds the explanation and reports the bug it documents. That has
+   * caught me more than once in this file; prose is not code.
+   */
+  const body = js.slice(at, js.indexOf("</div>", js.indexOf('<div class="kpis">', at)))
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  assert.ok(!/x\s*=>\s*x\.let/.test(body), "tenancies are counted off PROPS.let again");
+  assert.ok(!/\*\s*0\.864|\*\s*0\.031|"78%"/.test(body),
+    "a collection, arrears or renewal figure is a multiplier again");
+  assert.match(body, /const lets = t\.length/, "tenancies are not the lease count");
+  assert.match(body, /TXNS\.filter\(inM\)/, "collections do not read real payments");
+  assert.match(body, /x\.ends \? new Date\(x\.ends\)/, "renewals are not counted off lease end dates");
+
+  /* and the hydrator must carry the two raw fields those counts need */
+  const hyd = readFileSync(join(FE, "assets/paltas-hydrate.js"), "utf8");
+  assert.match(hyd, /ends: r\.endsOn \|\| null/, "the lease end date is no longer hydrated");
+  assert.match(hyd, /at: r\.receivedAt \|\| null/, "the raw payment date is no longer hydrated");
+});
