@@ -2120,13 +2120,32 @@ test("no discovery slide invents an opportunity, a return or an asset", { skip }
     invented.push("fake urgency or scarcity appears");
   assert.deepEqual(invented, [], invented.join("; "));
 
-  /* Every CTA must land on a page that exists — there are four. */
+  /*
+   * Every CTA must land on a page that exists.
+   *
+   * "Exists" is not the same as "is a .html filename" any more. The homepage is
+   * addressed as "/" — index.html 301s to it and nothing links to that name —
+   * so a CTA pointing at the root is correct and one pointing at "index.html"
+   * is the regression. The root is resolved to the file that serves it rather
+   * than waved through, so a CTA aimed at a path that serves nothing still
+   * fails here.
+   */
   const hrefs = out(promos.match(/ctaHref: "([^"]*)"/g) || [])
     .map((m) => m.replace(/ctaHref: "/, "").replace(/"$/, "").split(/[?#]/)[0])
     .filter(Boolean);
   const pages = new Set(readdirSync(FE).filter((f) => f.endsWith(".html")));
-  const dead = hrefs.filter((h) => !pages.has(h));
+  const serves = (h) => {
+    const clean = h.replace(/^\.?\//, "");
+    if (clean === "") return pages.has("index.html");     /* "/" is the homepage */
+    if (clean.endsWith("/")) return existsSync(join(FE, clean, "index.html"));
+    return pages.has(clean);
+  };
+  const dead = hrefs.filter((h) => !serves(h));
   assert.deepEqual(dead, [], "a promotion points at a page that does not exist: " + dead.join(" | "));
+
+  /* And the name this whole change removed must not come back through a CTA. */
+  const byName = hrefs.filter((h) => /index\.html$/.test(h));
+  assert.deepEqual(byName, [], "a promotion addresses the homepage as index.html: " + byName.join(" | "));
 });
 
 test("the promotional tile is the control, and still says what it does", { skip }, () => {
