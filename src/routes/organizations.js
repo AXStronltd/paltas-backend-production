@@ -94,7 +94,15 @@ organizationRoutes.post("/", requireSession(), async (req, res, next) => {
       );
     }
 
-    const preferred = PRODUCTS.has(String(body.preferred)) ? String(body.preferred) : products[0];
+    /*
+     * Through the same resolver. It used to accept only the exact key, so the
+     * form's "property" was dropped and the preference fell back to whatever
+     * happened to be first — which decides the console that opens at the end
+     * of signup.
+     */
+    let preferred;
+    try { preferred = asProduct(body.preferred); } catch (e) { preferred = null; }
+    if (!preferred || !products.includes(preferred)) preferred = products[0];
 
     const org = await db.$transaction(async (tx) => {
       const created = await tx.organization.create({
@@ -164,24 +172,59 @@ organizationRoutes.post("/", requireSession(), async (req, res, next) => {
  * loudly rather than silently dropped, so a mistake in an integration is
  * visible instead of mysterious.
  */
-function resolveProducts(body) {
-  const out = new Set();
+/*
+ * THE SHORT NAME A PRODUCT HAS ALWAYS HAD.
+ *
+ * The signup form asks which product the company is buying and sends the
+ * answer as the product's short name — "property", "agent", "hotel",
+ * "security". Those are the same names the consoles, the workspace gate and
+ * every old session link have used throughout.
+ *
+ * WORK_LINES above answers a different and finer question — what the company
+ * actually does, where three different answers all lead to PROPERTY_MANAGEMENT
+ * — and it does not contain the product names. Two of the four coincided
+ * ("hotel", "security") and appeared to work; the other two did not, so
+ * choosing Property Management or Agent & Host produced "Say what the company
+ * does" and the company was never created. Only the two that happened to
+ * collide got through, which is why it read as working.
+ *
+ * Accepted here rather than only fixed in the form, because a browser holding
+ * a cached copy of the old script would otherwise keep failing after the fix
+ * shipped — and the person hitting that is a customer halfway through signing
+ * up.
+ *
+ * GUEST_PORTAL and PLATFORM are deliberately absent: one is never sold, and
+ * the other is PALTAS's own staff console, refused explicitly below.
+ */
+const PRODUCT_NAMES = {
+  property: "PROPERTY_MANAGEMENT",
+  agent: "AGENT_HOST",
+  host: "AGENT_HOST",
+  hotel: "HOTEL_MANAGEMENT",
+  security: "SECURITY_MANAGEMENT",
+};
 
-  for (const line of toArray(body.work)) {
-    const p = WORK_LINES[String(line).trim()];
+/** A product, however it was named: key, short name, or work line. */
+function asProduct(raw) {
+  const v = String(raw || "").trim();
+  if (!v) return null;
+  const upper = v.toUpperCase();
+  if (upper === "PLATFORM") {
+    throw forbidden(
+      "PLATFORM is PALTAS's own staff console. It is granted by PALTAS and cannot be requested at signup."
+    );
+  }
+  if (PRODUCTS.has(upper)) return upper;
+  const lower = v.toLowerCase();
+  return WORK_LINES[lower] || PRODUCT_NAMES[lower] || null;
+}
+
+export function resolveProducts(body) {
+  const out = new Set();
+  for (const raw of [...toArray(body.work), ...toArray(body.products)]) {
+    const p = asProduct(raw);
     if (p) out.add(p);
   }
-
-  for (const raw of toArray(body.products)) {
-    const p = String(raw).trim().toUpperCase();
-    if (p === "PLATFORM") {
-      throw forbidden(
-        "PLATFORM is PALTAS's own staff console. It is granted by PALTAS and cannot be requested at signup."
-      );
-    }
-    if (PRODUCTS.has(p)) out.add(p);
-  }
-
   return [...out];
 }
 

@@ -25,6 +25,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -248,4 +250,86 @@ test("registering needs a session", { skip }, async () => {
     method: "POST", body: { name: "Anonymous Ltd", work: ["act_for"] },
   });
   assert.equal(r.status, 401, "anyone could create a company without signing in");
+});
+
+/* ================================================================ *
+ * WHAT THE FORM ACTUALLY SENDS.
+ * ================================================================ */
+
+test("every product the signup form offers can actually be registered", { skip }, async () => {
+  /*
+   * THE BUG THIS EXISTS TO PREVENT, WHICH SHIPPED AND BLOCKED REAL SIGNUPS.
+   *
+   * The form asks which product the company is buying and posts the answer as
+   * the product's short name: "property", "agent", "hotel", "security". The
+   * server resolved those against WORK_LINES, which answers a finer and
+   * different question — what the company DOES (develop, own_let, manage,
+   * act_for...) — and does not contain the product names at all.
+   *
+   * Two of the four collided by accident. "hotel" and "security" are work
+   * lines as well as product names, so those signups worked. "property" and
+   * "agent" are not, so choosing Property Management or Agent & Host answered
+   * "Say what the company does" and created nothing — while the other half of
+   * the form worked perfectly, which is why nobody noticed.
+   *
+   * Every test in this file missed it for one reason: they all posted the
+   * SERVER's vocabulary. The journey test above sends work: ["act_for"], which
+   * no form has ever produced. So this one reads the products out of the form
+   * itself and posts what a customer's browser posts.
+   */
+  const FE = process.env.PALTAS_FRONTEND
+    || resolve(process.cwd(), "..", "paltas-frontend 2");
+  const marketJs = join(FE, "assets", "market.js");
+  if (!existsSync(marketJs)) return; /* frontend not checked out beside us */
+
+  const js = readFileSync(marketJs, "utf8");
+  const block = js.slice(js.indexOf("const BIZ_PRODUCTS = ["));
+  const offered = [...block.slice(0, block.indexOf("\n];")).matchAll(/^\s*\["([a-z_]+)",/gm)]
+    .map((m) => m[1]);
+
+  assert.ok(offered.length >= 4,
+    `only ${offered.length} products parsed out of the signup form — its shape changed`);
+
+  const failures = [];
+  for (const picked of offered) {
+    const who = await arriveFromGoogle();
+    /* The exact body paltas-auth.js createOrganization() builds. */
+    const r = await call("/organizations", {
+      method: "POST", cookie: who.cookie,
+      body: {
+        name: `Form Test ${picked}`, work: [picked], preferred: picked,
+        country: "ke", city: "Nairobi", size: "11-50", plan: "Pro", planKey: "pro",
+      },
+    });
+    if (r.status !== 201 && r.status !== 200) {
+      failures.push(`${picked}: ${r.status} ${(r.json?.message || r.text).slice(0, 70)}`);
+      continue;
+    }
+    /* Registered is not enough — it must grant ONE product, and the one the
+       customer chose decides which console opens at the end of signup. */
+    const org = await db.organization.findFirst({
+      where: { name: `Form Test ${picked}` },
+      include: { entitlements: true, workspace: true },
+    });
+    if (!org) { failures.push(`${picked}: 201 but no company was written`); continue; }
+    if (org.entitlements.length !== 1) {
+      failures.push(`${picked}: granted ${org.entitlements.length} products ` +
+        `(${org.entitlements.map((e) => e.product).join(",")})`);
+    }
+    if (org.workspace?.preferred !== org.entitlements[0]?.product) {
+      failures.push(`${picked}: opens ${org.workspace?.preferred}, bought ` +
+        `${org.entitlements[0]?.product}`);
+    }
+  }
+
+  assert.deepEqual(failures, [],
+    "a product on the signup form cannot be registered:\n   - " + failures.join("\n   - "));
+
+  /* Non-vacuous: a word that is not a product is still refused. */
+  const who = await arriveFromGoogle();
+  const no = await call("/organizations", {
+    method: "POST", cookie: who.cookie,
+    body: { name: "Nonsense Ltd", work: ["not_a_product"] },
+  });
+  assert.equal(no.status, 400, "the server accepts any word as a product");
 });
