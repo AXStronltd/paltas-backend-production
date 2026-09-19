@@ -4424,7 +4424,7 @@ test("the four product cards carry the locked palette, and each its own subject"
    *   Property Management   #12B8A6 on #E7FAF6
    *   Hotel Management      #E99A3D on #FFF1DF
    *   Agent & Host          #8064C7 on #F1EDFF
-   *   Security Management   #1C7A5B on #D8E6F0   green on navy
+   *   Security Management   #1C7A5B on #E4EFF0   green on navy
    *
    * The arrow is PALTAS cyan on all four and is the one thing that is the
    * same on every card — without it, four identities stop being one family.
@@ -4442,11 +4442,14 @@ test("the four product cards carry the locked palette, and each its own subject"
   const cards = markup.match(/<a class="p4"[\s\S]*?<\/a>/g) || [];
   assert.equal(cards.length, 4, "the homepage no longer shows exactly four product cards");
 
+  /* The agreed background is the FIRST stop, and the gradient runs from it to
+     a deeper version of the same hue. Asserted on --c1, because that is the
+     colour that was specified; --c2 is derived and may be re-tuned. */
   const WANT = [
     ["Property Management",  "#12B8A6", "#E7FAF6", ["Units", "Tenants", "Leases"]],
     ["Hotel Management",     "#E99A3D", "#FFF1DF", ["Reservations", "Guests", "Operations"]],
     ["Agent &amp; Host",     "#8064C7", "#F1EDFF", ["Listings", "Clients", "Deals"]],
-    ["Security Management",  "#1C7A5B", "#D8E6F0", ["Guards", "Patrols", "Incidents"]],
+    ["Security Management",  "#1C7A5B", "#E4EFF0", ["Guards", "Patrols", "Incidents"]],
   ];
 
   WANT.forEach(([name, acc, bg, pills]) => {
@@ -4454,8 +4457,13 @@ test("the four product cards carry the locked palette, and each its own subject"
     assert.ok(card, `${name.replace("&amp;", "&")} is not one of the four product cards`);
     assert.ok(card.includes("--acc:" + acc),
       `${name.replace("&amp;", "&")} lost its primary colour ${acc}`);
-    assert.ok(card.includes("--c2:" + bg),
+    assert.ok(card.includes("--c1:" + bg),
       `${name.replace("&amp;", "&")} lost its background ${bg}`);
+    /* And the gradient must actually GO somewhere: a run from near-white to
+       the tint made the colour visible on a swatch and invisible on a card. */
+    const c2 = (card.match(/--c2:(#[0-9A-Fa-f]{6})/) || [])[1];
+    assert.ok(c2 && c2.toUpperCase() !== bg.toUpperCase(),
+      `${name.replace("&amp;", "&")}'s gradient has nowhere to travel`);
 
     /* Exactly three pills, and the ones agreed. */
     const got = (card.match(/<span class="p4-pills">([\s\S]*?)<\/span>\s*<span class="p4-go">/) || [, ""])[1];
@@ -4472,6 +4480,7 @@ test("the four product cards carry the locked palette, and each its own subject"
 
     /* The rest of the anatomy. */
     assert.match(card, /<span class="p4-ic"/, `${name.replace("&amp;", "&")} has no icon`);
+    assert.match(card, /<svg class="p4-mark"/, `${name.replace("&amp;", "&")} does not carry the PALTAS mark`);
     assert.match(card, /Learn more <i class="p4-arrow"/, `${name.replace("&amp;", "&")} has no Learn more or arrow`);
     assert.match(card, /href="partner\.html"/, `${name.replace("&amp;", "&")} links nowhere`);
   });
