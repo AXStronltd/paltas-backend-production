@@ -4691,3 +4691,29 @@ test("the homepage stays the one canonical address", { skip }, () => {
   const block = toml.slice(toml.indexOf("MARKET PATHS"), toml.indexOf("END MARKET PATHS"));
   assert.equal(/status = 301/.test(block), false, "a market path redirects instead of rewriting");
 });
+
+test("a mistyped market is recovered without the 404 page keeping its own list", { skip }, () => {
+  const html = readFileSync(join(FE, "404.html"), "utf8");
+
+  /* It must ask the catalogue. A list of countries written into this page
+     would be a third place they are enumerated, and the one nobody updates. */
+  assert.match(html, /assets\/market-config\.js/, "the 404 page cannot recover a market without the catalogue");
+  assert.match(html, /M\.pathSlugs\(\)/, "the 404 page is not consulting the catalogue's slug list");
+
+  const { M } = marketIn("/");
+  const script = html.slice(html.indexOf("RECOVERING A MISTYPED MARKET"));
+  const named = [...M.pathSlugs()].filter((s) => new RegExp(`["']${s}["']`).test(script));
+  assert.deepEqual(named, [], "the 404 page hard-codes country slugs: " + named.join(" "));
+
+  /* The original address has to be captured before market-config.js boots and
+     rewrites it, or the URL is corrected while the 404 stays on screen. */
+  assert.match(html, /PALTAS_ARRIVED_AT\s*=\s*location\.pathname/,
+    "the arrival path is not captured before the catalogue boots");
+  assert.ok(
+    html.indexOf("PALTAS_ARRIVED_AT = location.pathname") < html.indexOf("assets/market-config.js"),
+    "the capture runs after market-config.js, which is too late to see the typed address"
+  );
+
+  /* And it stays out of search results. */
+  assert.match(html, /name="robots" content="noindex"/, "the 404 page became indexable");
+});
