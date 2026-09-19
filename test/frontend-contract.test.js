@@ -29,6 +29,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { createContext, runInContext } from "node:vm";
 import { makeWindow } from "./dom-shim.js";
 import { RESOURCES } from "../src/domain/registry.js";
 
@@ -4519,4 +4520,174 @@ test("the login modal is one door, and it is the one that exists", { skip }, () 
   /* The legal line points at pages that exist. */
   assert.match(modal, /openInfo\('Terms of use'\)/, "the Terms link goes nowhere");
   assert.match(modal, /openInfo\('Privacy'\)/, "the Privacy link goes nowhere");
+});
+
+/* ======================================================================== *
+ * THE MARKET IN THE URL
+ *
+ * PALTAS serves fifty markets and each has its own address — paltas.io/kenya,
+ * paltas.io/sweden. Two lists therefore describe the same fifty countries: the
+ * catalogue in market-config.js and the rewrite rules in netlify.toml.
+ *
+ * Two lists that must agree is the whole risk. A country present in one and
+ * missing from the other fails in the least visible way possible: the slug
+ * works in the browser for everyone testing it and 404s for visitors in that
+ * one country. These tests exist to make that drift impossible to commit.
+ * ======================================================================== */
+
+/* market-config.js is a browser file. This gives it the smallest window that
+   lets it load, with the time zone injected so detection can be steered. */
+function marketIn(pathname, { tz = "Africa/Nairobi", search = "", session = null } = {}) {
+  const loc = { pathname, search, hash: "", href: "https://paltas.io" + pathname + search };
+  const store = session ? { v: JSON.stringify(session) } : {};
+  const root = {
+    location: loc,
+    history: {
+      state: null,
+      replaceState(_s, _t, url) {
+        const u = String(url);
+        loc.pathname = u.split("?")[0].split("#")[0];
+        loc.search = (u.match(/\?[^#]*/) || [""])[0];
+        loc.hash = (u.match(/#.*/) || [""])[0];
+      },
+    },
+    navigator: { language: "en", languages: ["en"] },
+    sessionStorage: {
+      getItem: () => store.v || null,
+      setItem: (_k, v) => { store.v = v; },
+      removeItem: () => { delete store.v; },
+    },
+    addEventListener() {}, dispatchEvent() {}, CustomEvent: function () {},
+  };
+  const ctx = createContext({
+    window: root, self: root, globalThis: root, navigator: root.navigator,
+    Intl: { DateTimeFormat: () => ({ resolvedOptions: () => ({ timeZone: tz }) }) },
+    console, setTimeout,
+    fetch: () => Promise.reject(new Error("offline in tests")),
+    document: { addEventListener() {} },
+  });
+  runInContext(readFileSync(join(FE, "assets", "market-config.js"), "utf8"), ctx);
+  const M = root.PALTAS.Market;
+  M.boot();
+  return { M, loc };
+}
+
+test("every market in the catalogue is a route Netlify will actually serve", { skip }, () => {
+  const { M } = marketIn("/");
+  const toml = readFileSync(join(FE, "netlify.toml"), "utf8");
+  const routed = new Set(
+    (toml.match(/from = "\/([a-z-]+)"\s*\n\s*to = "\/index\.html"\s*\n\s*status = 200/g) || [])
+      .map((m) => m.match(/from = "\/([a-z-]+)"/)[1])
+  );
+
+  /*
+   * Spread, and not because it reads nicer.
+   *
+   * pathSlugs() builds its array inside the vm realm, so it carries THAT
+   * realm's Array.prototype. assert/strict compares prototypes, which makes
+   * an empty array from in there unequal to an empty array out here — the
+   * assertion fails while printing "actual: [], expected: []". Copying into
+   * a host array is what makes the comparison mean what it looks like.
+   */
+  const slugs = [...M.pathSlugs()];
+  assert.ok(slugs.length >= 50, `only ${slugs.length} markets in the catalogue`);
+
+  const unrouted = slugs.filter((s) => !routed.has(s));
+  assert.deepEqual(unrouted, [],
+    "these markets would 404 for the visitors who live in them — run node tools/market-paths.mjs: " + unrouted.join(" "));
+
+  /* And nothing routed that is not a market, which would be a stray 200. */
+  const stray = [...routed].filter((s) => !slugs.includes(s) && s !== M.neutralPath().slice(1));
+  assert.deepEqual(stray, [], "netlify.toml serves the homepage at a path that is not a market: " + stray.join(" "));
+});
+
+test("no market slug collides with a page or directory that already exists", { skip }, () => {
+  const { M } = marketIn("/");
+  const taken = new Set([
+    ...readdirSync(FE).filter((f) => !f.startsWith(".")).map((f) => f.replace(/\.html$/, "")),
+    "api", "index", "smart-living",
+  ]);
+  const clash = [...M.pathSlugs()].filter((s) => taken.has(s));
+  assert.deepEqual(clash, [],
+    "a market slug would shadow something already served at that path: " + clash.join(" "));
+});
+
+test("the detected market is what appears in the address bar", { skip }, () => {
+  for (const [tz, path, code] of [
+    ["Africa/Nairobi", "/kenya", "KE"],
+    ["Europe/Stockholm", "/sweden", "SE"],
+    ["Asia/Dubai", "/united-arab-emirates", "AE"],
+  ]) {
+    const { M, loc } = marketIn("/", { tz });
+    assert.equal(loc.pathname, path, `a visitor in ${tz} should land on ${path}`);
+    assert.equal(M.get().selectedCountry, code);
+  }
+
+  /* Unknown time zone: the branded path, and NO market guessed. Guessing here
+     is how every visitor silently becomes American. */
+  const { M, loc } = marketIn("/", { tz: "Antarctica/Troll" });
+  assert.equal(loc.pathname, "/smart-living");
+  assert.equal(M.get().selectedCountry, null, "an unmappable time zone picked a country anyway");
+});
+
+test("a shared market link beats both the guess and a stale session", { skip }, () => {
+  /* Somebody in Nairobi opens a link to Sweden. The link is the explicit
+     signal and the time zone is an inference, so the link wins. */
+  const a = marketIn("/sweden", { tz: "Africa/Nairobi" });
+  assert.equal(a.M.get().selectedCountry, "SE");
+  assert.equal(a.loc.pathname, "/sweden");
+
+  /* And it wins over a market chosen earlier in the same session, otherwise a
+     link sent to somebody opens the wrong country for them. */
+  const b = marketIn("/sweden", { tz: "Africa/Nairobi", session: { selectedCountry: "KE" } });
+  assert.equal(b.M.get().selectedCountry, "SE", "a stale session overrode an explicit link");
+});
+
+test("the market path changes the market, not just the address", { skip }, () => {
+  const ke = marketIn("/kenya", { tz: "Europe/Stockholm" }).M.get();
+  const se = marketIn("/sweden", { tz: "Africa/Nairobi" }).M.get();
+  assert.equal(ke.currency, "KES", "/kenya did not price in shillings");
+  assert.equal(se.currency, "SEK", "/sweden did not price in krona");
+  assert.notEqual(ke.locale, se.locale, "both markets formatted identically — the path is decoration");
+});
+
+test("a page that is not the homepage is never rewritten to a market", { skip }, () => {
+  /* The rewrite replaces the path. Doing that to a real page would take the
+     visitor's page away from them mid-read. */
+  for (const p of ["/partner.html", "/owners.html", "/auth/join.html", "/dashboard/index.html"]) {
+    const { loc } = marketIn(p, { tz: "Africa/Nairobi" });
+    assert.equal(loc.pathname, p, `${p} was rewritten to a market path`);
+  }
+});
+
+test("routing a market keeps the query string that does the routing", { skip }, () => {
+  /* The homepage routes on ?go=. If the market rewrite dropped it, choosing a
+     country would silently navigate the visitor back to the front page. */
+  for (const q of ["?go=stay", "?go=stay&city=Makkah&adults=2", "?go=rent"]) {
+    const { loc } = marketIn("/", { tz: "Africa/Nairobi", search: q });
+    assert.equal(loc.pathname, "/kenya");
+    assert.equal(loc.search, q, `the market rewrite dropped ${q}`);
+  }
+
+  /* Including when the market is changed by hand afterwards. */
+  const { M, loc } = marketIn("/", { tz: "Africa/Nairobi", search: "?go=stay" });
+  M.setCountry("Sweden", "chosen");
+  assert.equal(loc.pathname, "/sweden");
+  assert.equal(loc.search, "?go=stay");
+});
+
+test("the homepage stays the one canonical address", { skip }, () => {
+  /* Fifty market paths serve the same page. Without a canonical pointing at
+     the root they compete with each other in a search index and the homepage
+     loses to one of its own variants. */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const canon = html.match(/<link rel="canonical" href="([^"]+)"/);
+  assert.ok(canon, "index.html has no canonical, and now serves fifty addresses");
+  assert.equal(canon[1], "https://paltas.io/");
+
+  /* And no market path may be a 301 — that would bounce the visitor to / and
+     take the country back out of the address bar. */
+  const toml = readFileSync(join(FE, "netlify.toml"), "utf8");
+  const block = toml.slice(toml.indexOf("MARKET PATHS"), toml.indexOf("END MARKET PATHS"));
+  assert.equal(/status = 301/.test(block), false, "a market path redirects instead of rewriting");
 });
