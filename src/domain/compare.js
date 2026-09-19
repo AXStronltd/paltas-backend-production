@@ -84,6 +84,30 @@ export function compareStatus() {
   };
 }
 
+/**
+ * THE COMPARISON PROVIDER, AS A VISITOR MAY SEE IT.
+ *
+ * Same reasoning as publicStatus() in supply.js, and the same distinction.
+ * A visitor's question is "are other sellers listing this room, and for how
+ * much" — the answer is the SELLERS, and those are named in full because
+ * naming them is the entire point of a price comparison.
+ *
+ * Which data provider PALTAS buys that comparison from is not part of the
+ * answer. It is a commercial relationship, a guest cannot act on it, and it
+ * was appearing in a public response for nobody's benefit.
+ *
+ * The operator view keeps the name, on /platform/suppliers.
+ */
+export function publicCompareStatus() {
+  const d = compareStatus();
+  return {
+    connected: d.connected,
+    sandbox: Boolean(d.sandbox),
+    /* Whether other sellers can be shown, without saying who supplies that. */
+    why: d.connected ? "" : "Prices from other sellers are not available right now.",
+  };
+}
+
 /*
  * A SMALL, BOUNDED, EXPIRING CACHE.
  *
@@ -130,7 +154,9 @@ export async function comparePrices({
     hotelId: String(hotelId || ""),
     checkIn, checkOut, guests,
     offers: [], min: null, median: null, dropped: 0,
-    provider: compareStatus(),
+    /* A public result: the SELLERS are named in full, the provider PALTAS
+       buys the comparison from is not. */
+    provider: publicCompareStatus(),
     /*
      * THE SENTENCE THE PAGE MUST PRINT.
      *
@@ -145,7 +171,7 @@ export async function comparePrices({
            "priced here.",
   };
 
-  if (!provider) return { ...base, why: compareStatus().why };
+  if (!provider) return { ...base, why: publicCompareStatus().why };
   if (!hotelId || !checkIn || !checkOut) {
     return { ...base, why: "A comparison needs a hotel and the nights it covers." };
   }
@@ -232,7 +258,9 @@ export function forgetHomes() { HOMES.clear(); }
 export async function findHomes({ city, checkIn, checkOut, guests = 2, currency = "", limit = 8 } = {}) {
   const base = {
     homes: [], city: city || "", checkIn, checkOut,
-    provider: compareStatus(),
+    /* A public result: the SELLERS are named in full, the provider PALTAS
+       buys the comparison from is not. */
+    provider: publicCompareStatus(),
     /*
      * The sentence the page prints. These are not PALTAS's, they are not
      * bookable here, and a visitor deserves to know that before they click
@@ -243,7 +271,7 @@ export async function findHomes({ city, checkIn, checkOut, guests = 2, currency 
   };
 
   if (!provider || typeof provider.search !== "function") {
-    return { ...base, why: compareStatus().why };
+    return { ...base, why: publicCompareStatus().why };
   }
   /*
    * NO DESTINATION, NO SEARCH, NO CREDIT. This is the whole cost control, and

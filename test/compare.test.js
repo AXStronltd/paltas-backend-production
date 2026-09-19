@@ -43,7 +43,20 @@ test("with no provider it says so and takes nothing off the page", async () => {
   const out = await comparePrices({ supplier: supplierThatSells, ...STAY });
   assert.deepEqual(out.offers, []);
   assert.equal(out.provider.connected, false);
-  assert.match(out.why, /No price-comparison provider is connected/);
+
+  /*
+   * A public result, so the reason is in words a guest can act on. "No
+   * price-comparison provider is connected" names a commercial arrangement
+   * they have nothing to do with; the operator wording is asserted below so
+   * it is clear it was moved rather than lost.
+   */
+  assert.match(out.why, /not available right now/);
+  assert.match(compareStatus().why, /No price-comparison provider is connected/,
+    "the operator lost the reason no comparison is running");
+
+  /* And the provider PALTAS buys from is not named to a visitor. */
+  assert.equal(out.provider.name, undefined, "the comparison provider was named publicly");
+  assert.equal(out.provider.label, undefined, "the comparison provider was named publicly");
   /* The important half: it RESOLVED rather than threw. A comparison is an
      extra, and a failing extra must not remove a bookable room. */
   assert.ok(out.basis, "the caveat is missing even when there is nothing to caveat");
