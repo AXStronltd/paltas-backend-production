@@ -1202,10 +1202,32 @@ test("a default date window is allowed, but never undisclosed", { skip }, () => 
     "nothing tracks whether the dates are the visitor's own, so a default " +
     "cannot be labelled as one");
 
-  /* And the line that actually tells them. */
-  assert.ok(/not a search you made/.test(js),
-    "the default window is never disclosed to the visitor");
+  /*
+   * And the line that actually tells them.
+   *
+   * Asserted as the GUARANTEE rather than as one sentence: this used to match
+   * the literal words "not a search you made", so rewording the disclosure —
+   * which is a thing worth doing, because that phrasing buried the admission
+   * in a clause after the dates — failed a test about honesty for a reason
+   * that had nothing to do with honesty.
+   *
+   * What has to hold is that the defaulted case renders DIFFERENTLY from a
+   * real search, and that the difference says so in words a visitor reads.
+   */
   assert.ok(/function stayLine\(/.test(js), "there is no disclosure line");
+  assert.ok(/if \(STATE\.stayDefaulted\)/.test(js),
+    "the default and a real search render the same line, so a default cannot be disclosed");
+  assert.ok(/mk-stay-sample/.test(js),
+    "the defaulted line is not marked out from a priced search");
+  assert.ok(/Sample dates/.test(js),
+    "the default window is never named as a default");
+  assert.ok(/nobody searched for these/.test(js),
+    "the default window is never disclosed to the visitor");
+  /* And it offers the way out, rather than only apologising. */
+  assert.ok(/data-mk-setdates/.test(js),
+    "the disclosure names no way for the visitor to set their own dates");
+  assert.ok(/closest\("\[data-mk-setdates\]"\)/.test(js),
+    "the choose-your-dates control is a dead button");
 
   /* Choosing dates must clear the flag, or the page keeps apologising for a
      search the visitor did make. */
@@ -4389,4 +4411,97 @@ test("the hero search is a bar on a phone, not a full-height card", { skip }, ()
   const pick = js.slice(js.indexOf("window.pickDest=function"));
   assert.match(pick.slice(0, 700), /syncHeroBar\(\)/,
     "picking a destination assigns .value and no longer updates the bar");
+});
+
+test("the four products on the homepage are the four an account can hold", { skip }, () => {
+  /*
+   * The homepage used to show SEVEN "products". Four of them are products —
+   * they are the Product enum, and they are what the signup sells. The other
+   * three are capabilities inside those four: the schema says so of
+   * development in as many words ("Not a separate Product value,
+   * deliberately"), and promoting one to a card that links to a price page
+   * where it cannot be bought is a promise the account cannot keep.
+   *
+   * So the four are cards and the three are named underneath as what they
+   * are. Nothing was removed.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const markup = html.replace(/<style[\s\S]*?<\/style>/g, "");
+
+  const cards = markup.match(/<a class="p4"[\s\S]*?<\/a>/g) || [];
+  assert.equal(cards.length, 4, "the homepage no longer shows exactly four products");
+
+  /* Exactly the enum, by name. */
+  const { RESOURCES } = { RESOURCES: null };   /* not needed; the names are the contract */
+  const want = ["Property Management", "Hotel Management", "Agent &amp; Host", "Security Management"];
+  want.forEach((n, i) => {
+    assert.ok(cards.some((c) => c.includes("<h3>" + n + "</h3>")),
+      `${n.replace("&amp;", "&")} is not one of the four product cards`);
+  });
+  /* And nothing that is not a product is dressed as one. */
+  for (const notAProduct of ["Property Development", "Community", "Investments"]) {
+    assert.ok(!cards.some((c) => c.includes("<h3>" + notAProduct)),
+      `${notAProduct} is shown as a product, and it is a capability inside one`);
+  }
+  /* But they are still on the page. */
+  for (const kept of ["Property Development", "Community &amp; Estate", "Investments"]) {
+    assert.ok(markup.includes("<b>" + kept + "</b>"),
+      `${kept.replace("&amp;", "&")} was dropped from the homepage rather than moved`);
+  }
+
+  /* Every card carries its colour, its pills and its arrow. */
+  cards.forEach((c, i) => {
+    assert.match(c, /--c1:#[0-9A-Fa-f]{6};--c2:#[0-9A-Fa-f]{6};--ink4:#[0-9A-Fa-f]{6};--acc:#[0-9A-Fa-f]{6}/,
+      `product card ${i + 1} has no colour of its own`);
+    assert.match(c, /<span class="p4-pills">[\s\S]*?<span>/, `product card ${i + 1} has no feature pills`);
+    assert.match(c, /class="p4-go"[\s\S]*?&rarr;/, `product card ${i + 1} has no arrow`);
+    assert.match(c, /href="partner\.html"/, `product card ${i + 1} links nowhere`);
+  });
+
+  /* 2x2 on a desktop, a swipe rail on a phone. */
+  assert.match(html, /\.pl-4 \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/,
+    "the four are no longer a 2x2 on a desktop");
+  assert.match(html, /@media \(max-width: 860px\) \{[\s\S]*?\.pl-4 \{ grid-auto-flow: column/,
+    "the four no longer swipe on a phone");
+});
+
+test("a promotion's badge is its own colour, taken from its own art", { skip }, () => {
+  /*
+   * Eleven campaigns shared one translucent white badge, which made a shelf of
+   * quite different offers read as one thing. Each promotion already carries
+   * the gradient it was designed with, so the accent is READ from that rather
+   * than added to the data — a new campaign gets its colour from the gradient
+   * its author wrote, with nothing else to remember.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  assert.match(html, /function accentOf\(p\) \{[\s\S]*?String\(p\.art \|\| ""\)\.match\(\/#\[0-9a-fA-F\]\{6\}\/g\)/,
+    "nothing derives a promotion's accent from the art it already has");
+  assert.equal((html.match(/' style="--pa:' \+ accentOf\(p\)/g) || []).length, 2,
+    "the accent does not reach both the shelf card and the one in the all-promotions sheet");
+  assert.match(html, /\.pdisc-card\[style\*="--pa"\] \.pdisc-badge/,
+    "the badge does not use the campaign's colour");
+  /* The plain white pill must still be declared first, so a browser that
+     cannot resolve the property keeps the badge it had. */
+  const badge = html.slice(html.indexOf(".pdisc-badge{"), html.indexOf(".pdisc-badge{") + 420);
+  assert.match(badge, /background:rgba\(255,255,255,\.16\)/,
+    "the badge has no unconditional fallback fill");
+});
+
+test("the footer says who makes PALTAS without inventing a second brand", { skip }, () => {
+  /*
+   * PALTAS is what a customer buys; Axstron is who builds it. There is no
+   * Axstron mark or palette in this repository, so the attribution is
+   * typographic — a wordmark invented on a footer is a corporate identity
+   * made up, and the request was for the EXISTING brand.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  assert.match(html, /<p class="fb-axs">A product of <b>Axstron<\/b><\/p>/,
+    "the footer no longer says who makes PALTAS");
+  assert.match(html, /a product of Axstron Ltd\. All rights reserved\./,
+    "the copyright line no longer carries the company");
+  /* PALTAS stays the customer-facing name: the brand block, the wordmark and
+     the CTA are all still PALTAS. */
+  assert.match(html, /<p class="fb-word">PALTAS<\/p>/, "the footer wordmark is no longer PALTAS");
+  assert.ok(!/class="fb-axs"[^>]*>[\s\S]{0,200}?<img/.test(html),
+    "an Axstron logo was invented; there is no such asset in this repository");
 });
