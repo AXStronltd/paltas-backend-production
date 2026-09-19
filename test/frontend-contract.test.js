@@ -4328,3 +4328,65 @@ test("the business door sends a company to its console, not the marketplace", { 
   assert.ok(existsSync(join(FE, "auth", "workspace.html")),
     "business sign-in points at a page that is not in the build");
 });
+
+test("the hero search is a bar on a phone, not a full-height card", { skip }, () => {
+  /*
+   * Stacked, the five hero fields and their button measured 411px — 51% of a
+   * 375x812 screen — and the card sits at z-index 3 over the hero content at
+   * z-index 2, so it covered both the photograph and the headline it belongs
+   * under.
+   *
+   * Below 700px the card is hidden and a 62px bar takes its place; tapping it
+   * shows THE SAME element as a bottom sheet. Same inputs, same ids, same
+   * handlers — so what is checked here is that it stayed that way, and that
+   * nothing grew a second search alongside the first.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const markup = html.replace(/<style[\s\S]*?<\/style>/g, "");
+
+  /* One search, not two. The fields must still be the originals. */
+  assert.equal((markup.match(/class="hero-search"/g) || []).length, 1,
+    "there is more than one hero search in the markup");
+  for (const id of ["heroWhere", "heroIn", "heroOut", "heroGuestLabel", "heroType"]) {
+    assert.equal((markup.match(new RegExp(`id="${id}"`, "g")) || []).length, 1,
+      `${id} is duplicated, so the bar and the sheet are two different searches`);
+  }
+  assert.equal((markup.match(/class="hs-field"/g) || []).length, 5,
+    "the hero lost or gained a search field");
+
+  /* The bar, and the chrome that makes the card a sheet. */
+  assert.match(markup, /class="hs-bar" id="hsBar" onclick="openHeroSheet\(\)"/,
+    "the compact bar is gone, so the full card is back on a phone");
+  assert.match(markup, /id="hsBarWhere"/, "the bar shows no destination");
+  assert.match(markup, /id="hsBarWhen"/, "the bar shows no dates or guests");
+  assert.match(markup, /class="hs-sheetbg" id="hsSheetBg" onclick="closeHeroSheet\(\)"/,
+    "the sheet has no backdrop to dismiss it");
+
+  /* Mobile-only: none of this may appear on desktop or tablet. */
+  assert.match(html, /\.hs-bar,\.hs-sheetbg,\.hs-sheet-head\{display:none\}/,
+    "the bar is not hidden by default, so it would show on desktop too");
+
+  const phone = (html.match(/@media\(max-width:700px\)\{[\s\S]*?\n\}/) || [""])[0];
+  assert.ok(phone, "the phone block is gone");
+  assert.match(phone, /\.hero-search\{[^}]*display:none\}/,
+    "the full card is shown on a phone again");
+  assert.match(phone, /\.hs-bar\{[\s\S]{0,300}?min-height:62px/,
+    "the compact bar is not a reliable tap target");
+  /* Above the tab bar (z-index 120), or the bottom navigation sits on the
+     open search. */
+  assert.match(phone, /body\.hs-open \.hero-search\{[\s\S]*?z-index:130/,
+    "the open sheet is no longer above the bottom navigation");
+  assert.match(phone, /body\.hs-open \.hero-search\{[\s\S]*?position:fixed/,
+    "the sheet is not anchored to the viewport");
+
+  /* Every path that changes a field has to reach the bar: two of them write
+     to the DOM directly and fire no event at all. */
+  const js = html;
+  assert.match(js, /window\.syncHeroBar=function/, "nothing keeps the bar in step with the fields");
+  const guest = js.slice(js.indexOf("window.heroGuest=function"));
+  assert.match(guest.slice(0, 900), /syncHeroBar\(\)/,
+    "the guest stepper writes the label directly and no longer updates the bar");
+  const pick = js.slice(js.indexOf("window.pickDest=function"));
+  assert.match(pick.slice(0, 700), /syncHeroBar\(\)/,
+    "picking a destination assigns .value and no longer updates the bar");
+});
