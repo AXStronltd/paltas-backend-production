@@ -361,12 +361,32 @@ export function liteApi({
   return {
     name: "liteapi",
     label: sandbox ? "LiteAPI (sandbox)" : "LiteAPI",
+
+    /*
+     * WHAT A GUEST READS, WHICH IS NOT WHO PALTAS BUYS FROM.
+     *
+     * LiteAPI is a wholesaler. It is not a consumer brand, a guest has no
+     * relationship with it and no use for its name — what naming it does is
+     * hand the guest the company to go and book with instead of PALTAS.
+     * Booking.com and Expedia are the opposite case: consumer brands whose
+     * licences require the name on the inventory, and those adapters
+     * deliberately set no publicLabel so their own brand is what shows.
+     *
+     * This changes the NAME only. The attribution line still says these are
+     * not PALTAS listings, because that is about who the guest's contract is
+     * with, and it is true whoever supplies the room.
+     */
+    publicLabel: sandbox ? "our hotel partners (sandbox)" : "our hotel partners",
+    /* The machine token a public row carries, in place of "liteapi". */
+    publicName: "partner",
     sandbox,
 
     describe() {
       return {
         name: "liteapi",
         label: sandbox ? "LiteAPI (sandbox)" : "LiteAPI",
+        publicLabel: sandbox ? "our hotel partners (sandbox)" : "our hotel partners",
+        publicName: "partner",
         connected: true,
         sandbox,
         capabilities: ["search", "rates", "content", "prebook", "book", "cancel"],

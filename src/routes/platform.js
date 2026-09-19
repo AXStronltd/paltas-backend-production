@@ -46,6 +46,8 @@ import { db } from "../db.js";
 import { badRequest, conflict, forbidden, notFound } from "../http/errors.js";
 import { requireSession } from "../http/session.js";
 import { actorFor } from "../domain/session-view.js";
+import { status as supplyStatus } from "../domain/supply.js";
+import { compareStatus } from "../domain/compare.js";
 
 export const platformRoutes = Router();
 
@@ -134,6 +136,26 @@ function paging(req) {
  * What the console's company screens read: who they are, what they bought,
  * what state they are in, and how big they are. Not their data.
  * ---------------------------------------------------------------- */
+/**
+ * THE ACCOMMODATION SUPPLIER, AS AN OPERATOR NEEDS TO SEE IT.
+ *
+ * /marketplace/suppliers is public, and answers the visitor's question: whose
+ * room is this and can I book it. It deliberately does not name the adapter,
+ * the wholesaler, or the environment variable behind a failure — a visitor
+ * cannot act on any of that, and it describes how the integration is built to
+ * anyone who asks.
+ *
+ * An operator's question is the opposite one: WHICH supplier is connected, and
+ * exactly WHY can it not take a payment. That answer names names, so it lives
+ * behind the staff door instead of being deleted.
+ *
+ * No customer data is read here, so there is nothing to audit — this says
+ * which third party PALTAS is connected to, which is PALTAS's own business.
+ */
+platformRoutes.get("/platform/suppliers", (_req, res) => {
+  res.json({ suppliers: [supplyStatus()], comparison: compareStatus() });
+});
+
 platformRoutes.get("/platform/organizations", async (req, res, next) => {
   try {
     const { take, cursor } = paging(req);

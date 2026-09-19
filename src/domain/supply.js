@@ -71,11 +71,24 @@ export class SupplyUnavailable extends Error {
  *   name        string, e.g. "expedia-rapid". The machine identifier: it keys
  *               every offer and appears in the envelope. Never a display name
  *               pretending to be PALTAS.
- *   label       what a VISITOR reads in the attribution line, e.g.
- *               "Expedia". Optional; falls back to `name`. It exists because
- *               "Supplied by expedia-rapid" is an internal string leaking onto
- *               a public page, and because a supplier's licence usually
+ *   label       what an OPERATOR reads. e.g. "Expedia". Optional; falls back
+ *               to `name`. It exists because "Supplied by expedia-rapid" is an
+ *               internal string, and because a supplier's licence usually
  *               specifies the brand name to attribute.
+ *   publicLabel what a VISITOR reads in the attribution line, when that is
+ *               not the same thing. Optional; falls back to `label`.
+ *
+ *               The two differ for a WHOLESALER. Booking.com and Expedia are
+ *               consumer brands whose licences require their name on the
+ *               inventory, so for them the labels are the same string. An
+ *               aggregator PALTAS buys through is a commercial relationship
+ *               and not a brand a guest has any use for — naming it tells the
+ *               guest who to book with instead of PALTAS.
+ *
+ *               What it must NOT do is stop disclosing that the room is not a
+ *               PALTAS listing. That disclosure is about who the guest's
+ *               contract is with, which is a different question from which
+ *               company PALTAS buys through, and it stays either way.
  *   sandbox     boolean. True for a test environment, and then every offer it
  *               returns must be marked so a person cannot mistake one.
  *   describe()  -> { name, connected, sandbox, capabilities[], why }
@@ -204,6 +217,11 @@ export function status() {
          blank, because an attribution line with nothing in it is worse than an
          ugly one. */
       label: d.label || current.label || name,
+      /* Falls back to the operator label: a supplier that does not draw the
+         distinction is one whose brand a visitor is meant to read. */
+      publicLabel: d.publicLabel || current.publicLabel || d.label || current.label || name,
+      /* Absent for every supplier whose own name is the one to show. */
+      publicName: d.publicName || current.publicName || "",
       sandbox: Boolean(d.sandbox ?? current.sandbox),
       capabilities: d.capabilities || [],
       why: d.why || "",
@@ -240,7 +258,8 @@ export function status() {
     };
   } catch (e) {
     return {
-      connected: false, name: "", label: "", sandbox: false, capabilities: [],
+      connected: false, name: "", label: "", publicLabel: "", publicName: "",
+      sandbox: false, capabilities: [],
       disclosure: "", canTakePayment: false, paymentEnvironment: "",
       paymentWhy: "The supplier could not describe itself, so whether it can " +
                   "take a payment is unknown.",
@@ -248,6 +267,67 @@ export function status() {
            String(e && e.message).slice(0, 160),
     };
   }
+}
+
+/**
+ * THE SAME SUPPLIER, AS A VISITOR MAY SEE IT.
+ *
+ * status() is written for an operator: it names the adapter, says which
+ * environment it is in and which environment variable is missing. All of that
+ * is correct and none of it belongs in a public response.
+ *
+ * Two different things were being answered by one object:
+ *
+ *   an operator asks   "which supplier is connected, and why can it not take
+ *                       a payment?"
+ *   a visitor asks     "whose room is this, and can I book it?"
+ *
+ * The visitor's answer is this. It carries no adapter name, no environment
+ * variable, no sentence naming the company PALTAS buys through — and it still
+ * carries the disclosure that the room is not a PALTAS listing, because that
+ * is about who the guest's contract is with rather than who supplies it.
+ *
+ * `name` is deliberately a neutral token and NOT the adapter's. The adapter
+ * name is a database key: bookings are stored under supplier_prebookId, and
+ * changing what status().name returns would orphan every existing booking.
+ * So the internal identity is left exactly alone and this is a separate view
+ * over it.
+ */
+export function publicStatus() {
+  const d = status();
+  return {
+    connected: d.connected,
+    /*
+     * The adapter's own name unless it asked to be anonymous.
+     *
+     * It was briefly a constant for every supplier, which broke two things
+     * that had nothing to do with wholesalers: Booking.com and Expedia stopped
+     * being identifiable, and the frontend detects the sample catalogue by
+     * this exact field to mark it unbookable — so sample inventory would have
+     * rendered as if it were real. Only a supplier that sets publicName is
+     * anonymised, and only LiteAPI does.
+     */
+    name: d.publicName || d.name,
+    label: d.publicLabel || d.label,
+    sandbox: d.sandbox,
+    disclosure: d.disclosure,
+    canTakePayment: d.canTakePayment,
+    /*
+     * Whether checkout will work, without saying which key is missing. A
+     * visitor cannot act on the name of an environment variable, and it tells
+     * anyone reading the response how the integration is put together.
+     */
+    bookable: Boolean(d.connected && d.canTakePayment),
+    /*
+     * The same three states status() distinguishes, said in words a guest can
+     * act on. "No accommodation supplier is connected" is true and useless to
+     * them; it stays on the operator envelope, which is where it can be acted
+     * on.
+     */
+    why: !d.connected ? "Hotel rooms are not available right now."
+       : !d.canTakePayment ? "These rooms can be browsed but not booked at the moment."
+       : "",
+  };
 }
 
 /* ---------------------------------------------------------------- *
@@ -367,15 +447,29 @@ export function normaliseOffer(offer, { name, sandbox, label, disclosure }) {
  */
 export async function searchSupply(query = {}) {
   const s = current;
-  const name = s.name || "";
   const sandbox = Boolean(s.sandbox);
   const st0 = status();
-  const label = st0.label || name;
   const disclosure = st0.disclosure || "";
 
+  /*
+   * THE IDENTITY STAMPED ON EVERY ROW IS THE PUBLIC ONE.
+   *
+   * These offers go straight into a public response, and every row carries
+   * its own provenance so a client that never read the envelope still gets
+   * it right. That makes the per-row stamp a public surface, which means it
+   * must not be the adapter's internal name — it is the visitor's view, not
+   * the operator's.
+   *
+   * The adapter's real name stays available through status() for the places
+   * that genuinely need it: the log line at boot, and the supplier key that
+   * bookings are stored under.
+   */
+  const pub = publicStatus();
+  const name = pub.name || "";
+  const label = pub.label || name;
+
   if (!isConnected()) {
-    const st = status();
-    return { offers: [], supplier: st, failed: false, why: st.why, dropped: 0 };
+    return { offers: [], supplier: pub, failed: false, why: st0.why, dropped: 0 };
   }
 
   try {
@@ -391,7 +485,7 @@ export async function searchSupply(query = {}) {
 
     return {
       offers,
-      supplier: status(),
+      supplier: pub,
       failed: false,
       /*
        * ONE explanation, already chosen.
@@ -409,7 +503,7 @@ export async function searchSupply(query = {}) {
   } catch (e) {
     return {
       offers: [],
-      supplier: status(),
+      supplier: pub,
       failed: true,
       /*
        * The supplier's message, truncated, and nothing else. No stack, no

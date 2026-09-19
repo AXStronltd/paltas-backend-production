@@ -973,8 +973,14 @@ test("the supplier envelope says whether a guest could actually pay", { skip }, 
   supply.register({
     name: "liteapi",
     search: async () => ({ offers: [] }),
+    /* Faithful to the real adapter: it declares a public identity, which is
+       what keeps its own name out of a visitor's response. A stub without one
+       leaks, and SHOULD — that is how Booking.com stays named. */
+    publicName: "partner",
+    publicLabel: "our hotel partners",
     describe: () => ({
       name: "liteapi", connected: true, sandbox: false,
+      publicName: "partner", publicLabel: "our hotel partners",
       capabilities: ["search", "book"],
       canTakePayment: false, paymentEnvironment: "live",
     }),
@@ -984,13 +990,25 @@ test("the supplier envelope says whether a guest could actually pay", { skip }, 
   const body = await r.json();
   const s = body.suppliers[0];
 
-  assert.equal(s.canTakePayment, false, "the envelope does not report whether a guest can pay");
-  assert.equal(s.paymentEnvironment, "live");
-  assert.match(s.paymentWhy, /LITEAPI_STRIPE_PK_LIVE is not set/,
-    "a false boolean explains nothing on its own");
+  /*
+   * THE PUBLIC ROUTE ANSWERS THE GUEST'S QUESTION AND STOPS THERE.
+   *
+   * "Can this be booked" is the guest's question and it is answered. WHICH
+   * environment variable is missing is not: a guest cannot act on the name of
+   * one, and printing it tells anybody who asks how the integration is wired
+   * and who PALTAS buys through. That detail moved to /platform/suppliers,
+   * asserted below, rather than being thrown away.
+   */
+  assert.equal(s.bookable, false, "the envelope does not report whether a guest can pay");
+  assert.equal(s.canTakePayment, false);
+  assert.match(s.why, /browsed but not booked/, "a false boolean explains nothing on its own");
+  assert.equal(s.paymentWhy, undefined, "an environment variable reached a public response");
+  assert.equal(s.paymentEnvironment, undefined, "the deployment environment reached a public response");
 
-  /* And it names the variable without carrying a key, or a piece of one. */
+  /* And the supplier is not named to a visitor at all. */
   const raw = JSON.stringify(body);
+  assert.ok(!/liteapi|LiteAPI|LITEAPI/.test(raw),
+    "the wholesaler PALTAS buys through was named in a public response");
   assert.ok(!/pk_(live|test)_[A-Za-z0-9]/.test(raw), "a publishable key reached the envelope");
   assert.ok(!/sk_|sand_|prod_/.test(raw), "a secret-shaped string reached the envelope");
 
@@ -1006,5 +1024,90 @@ test("the supplier envelope says whether a guest could actually pay", { skip }, 
   });
   const ok = await (await fetch(`${base}/marketplace/suppliers`)).json();
   assert.equal(ok.suppliers[0].canTakePayment, true);
-  assert.equal(ok.suppliers[0].paymentWhy, "", "a working checkout still carries a complaint");
+  assert.equal(ok.suppliers[0].bookable, true);
+  assert.equal(ok.suppliers[0].why, "", "a working checkout still carries a complaint");
+});
+
+test("the detail a visitor must not see is kept, behind the staff door", { skip }, async () => {
+  /*
+   * Removing the wholesaler's name from public responses must not cost an
+   * operator the ability to find out why a checkout is refusing. The sentence
+   * that names LITEAPI_STRIPE_PK_LIVE still exists — it is now somewhere only
+   * PALTAS staff can read it.
+   */
+  supply.register({
+    name: "liteapi",
+    search: async () => ({ offers: [] }),
+    describe: () => ({
+      name: "liteapi", label: "LiteAPI", connected: true, sandbox: false,
+      capabilities: ["search", "book"],
+      canTakePayment: false, paymentEnvironment: "live",
+    }),
+  });
+
+  /* Shut to the public, which is the point of moving it. */
+  const anon = await fetch(`${base}/platform/suppliers`);
+  assert.ok(anon.status === 401 || anon.status === 403,
+    `the operator supplier detail answered an unauthenticated caller with ${anon.status}`);
+
+  /* And the operator envelope itself still names names. */
+  const op = supply.status();
+  assert.equal(op.name, "liteapi", "the operator lost which supplier is connected");
+  assert.equal(op.label, "LiteAPI");
+  assert.match(op.paymentWhy, /LITEAPI_STRIPE_PK_LIVE is not set/,
+    "the operator lost the reason a booking cannot be paid for");
+});
+
+test("the page a visitor actually loads never names the wholesaler", { skip }, async () => {
+  /*
+   * THE ROUTE THAT MATTERS, CHECKED WHOLE.
+   *
+   * The supplier envelope is asserted elsewhere, but a visitor does not load
+   * the supplier envelope — they load the listings. Every row on that page
+   * carries its own provenance, so the wholesaler's name could come back
+   * through any one of `source`, `supplier.name`, `supplier.label`, the
+   * namespaced `id`, or the envelope stitched in beside them.
+   *
+   * So this asserts the property over the ENTIRE response body rather than
+   * field by field: a string that names who PALTAS buys through does not
+   * appear anywhere in what a browser receives.
+   */
+  supply.register({
+    name: "liteapi",
+    label: "LiteAPI",
+    publicName: "partner",
+    publicLabel: "our hotel partners",
+    describe: () => ({
+      name: "liteapi", label: "LiteAPI",
+      publicName: "partner", publicLabel: "our hotel partners",
+      connected: true, sandbox: false, capabilities: ["search", "book"],
+      canTakePayment: true, paymentEnvironment: "live",
+    }),
+    async search() {
+      return { offers: [{
+        supplierRef: "lp1897", title: "Diani Reef Beach Resort",
+        city: "Diani", country: "KE", price: 64000, currency: "KES",
+        nights: 7, offerId: "off_1", refundable: true, rating: 8.7, ratingCount: 1204,
+      }] };
+    },
+  });
+
+  const r = await get("/marketplace/listings?stayCity=Diani&stayCountry=KE" +
+                      "&checkIn=2026-11-01&checkOut=2026-11-08");
+  assert.equal(r.status, 200, r.text.slice(0, 200));
+  const raw = r.text;
+
+  assert.ok(!/liteapi/i.test(raw),
+    "the wholesaler is named somewhere in the listings a visitor loads");
+
+  /* Non-vacuous: the supplier row really is in the body being searched. */
+  const rows = r.json.supply || [];
+  assert.equal(rows.length, 1, "no supplier row reached the response, so the check proved nothing");
+  assert.equal(rows[0].source, "partner");
+  assert.equal(rows[0].supplier.label, "our hotel partners");
+  assert.equal(rows[0].id, "partner:lp1897");
+
+  /* And the disclosure that is NOT about the wholesaler survives. */
+  assert.equal(rows[0].paltasOwned, false,
+    "a supplier room stopped being marked as not a PALTAS listing");
 });

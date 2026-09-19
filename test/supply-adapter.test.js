@@ -60,7 +60,16 @@ test("with no supplier connected, a search returns nothing and does not throw", 
   assert.deepEqual(r.offers, []);
   assert.equal(r.failed, false);
   assert.equal(r.supplier.connected, false);
-  assert.match(r.supplier.why, /No accommodation supplier is connected/);
+
+  /*
+   * The envelope on a search is the VISITOR's one, so the reason is in words a
+   * guest can act on. "No accommodation supplier is connected" is true, and
+   * useless to somebody looking for a room — it stays on the operator
+   * envelope, asserted just below, where it can actually be acted on.
+   */
+  assert.match(r.supplier.why, /not available right now/);
+  assert.match(status().why, /No accommodation supplier is connected/,
+    "the operator lost the reason a supplier is missing");
 });
 
 test("a supplier must be named, because every offer is attributed to it", () => {
@@ -941,8 +950,18 @@ test("a LiteAPI search prices by city NAME and needs no id map", async () => {
   assert.equal(o.rating, 8.7);
   assert.equal(o.ratingCount, 1204);
   assert.equal(o.image, "https://static.liteapi.travel/lp1897.jpg");
-  assert.equal(o.source, "liteapi");
-  assert.equal(o.id, "liteapi:lp1897");
+  /*
+   * A PUBLIC ROW CARRIES THE PUBLIC IDENTITY.
+   *
+   * These two fields go straight into a response every visitor's browser
+   * receives, so they say "partner" rather than naming the wholesaler PALTAS
+   * buys through. The adapter's real name is unchanged and still reachable
+   * through status() — it is the key bookings are stored under, and renaming
+   * it would orphan every booking already taken.
+   */
+  assert.equal(o.source, "partner");
+  assert.equal(o.id, "partner:lp1897", "the id namespace still separates supplier rows from PALTAS ones");
+  assert.equal(status().name, "liteapi", "the adapter's own identity must not change");
 
   /* The request itself: a name, not an opaque id — the whole reason this
      adapter has no id map where the other two need one. */
@@ -1426,4 +1445,33 @@ test("PALTAS creates no Stripe object of its own, anywhere", () => {
      is a different thing and belongs in a browser. */
   assert.ok(!/sk_live_|sk_test_|STRIPE_SECRET/.test(src),
     "a Stripe secret key appears in the adapter");
+});
+
+test("the real LiteAPI adapter declares a public identity of its own", () => {
+  /*
+   * ANCHORED TO THE REAL ADAPTER, NOT A STUB.
+   *
+   * Everything that keeps the wholesaler's name out of public responses hangs
+   * off these two fields. A stub can be written to declare them; what matters
+   * is that the adapter actually shipped does, so this asks the real one.
+   *
+   * The opposite case is asserted alongside: Booking.com and Expedia are
+   * consumer brands whose licences require their name on the inventory, and
+   * they must NOT declare a public identity — otherwise this change would
+   * quietly strip an attribution somebody is contractually owed.
+   */
+  const a = liteApi({ apiKey: "prod_test_key_not_real", baseUrl: "https://example.invalid" });
+  assert.equal(a.publicName, "partner", "the wholesaler would be named on every public row");
+  assert.match(a.publicLabel, /hotel partners/, "the attribution line would name the wholesaler");
+  assert.equal(a.name, "liteapi", "the adapter's internal identity must not change");
+  assert.equal(a.label, "LiteAPI", "an operator must still be told which supplier is connected");
+
+  register(a);
+  assert.equal(status().name, "liteapi", "the booking key changed, which orphans stored bookings");
+  assert.equal(status().publicName, "partner");
+
+  /* A brand that must stay named declares neither. */
+  const b = bookingDemand({ token: "t", affiliateId: "a", baseUrl: "https://example.invalid" });
+  assert.ok(!b.publicName, "Booking.com was anonymised, which strips a required attribution");
+  assert.ok(!b.publicLabel, "Booking.com's attribution label was replaced");
 });

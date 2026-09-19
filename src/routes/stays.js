@@ -44,7 +44,7 @@ import { db } from "../db.js";
 import { badRequest, unavailable, notFound } from "../http/errors.js";
 import { rateLimit } from "../http/rate-limit.js";
 import { requireSession } from "../http/session.js";
-import { supplier, isConnected, status as supplyStatus } from "../domain/supply.js";
+import { supplier, isConnected, status as supplyStatus, publicStatus } from "../domain/supply.js";
 import { comparePrices, compareStatus, findHomes } from "../domain/compare.js";
 
 export const stayRoutes = Router();
@@ -117,7 +117,7 @@ stayRoutes.get("/marketplace/hotels/:hotelId/rooms",
     try {
       const s = live();
       if (typeof s.rooms !== "function") {
-        throw unavailable(`${supplyStatus().label} cannot list rooms for a hotel.`);
+        throw unavailable("Rooms for this hotel cannot be listed right now.");
       }
       const stay = stayOf(req.query);
       const out = await s.rooms({ hotelId: String(req.params.hotelId), ...stay });
@@ -129,7 +129,7 @@ stayRoutes.get("/marketplace/hotels/:hotelId/rooms",
         nights: out.nights,
         offers: out.offers,
         count: out.offers.length,
-        supplier: supplyStatus(),
+        supplier: publicStatus(),
       });
     } catch (e) { next(e); }
   });
@@ -243,7 +243,7 @@ stayRoutes.post("/marketplace/stays/hold",
     try {
       const s = live();
       if (typeof s.prebook !== "function") {
-        throw unavailable(`${supplyStatus().label} cannot hold a rate.`);
+        throw unavailable("This rate cannot be held right now.");
       }
       const offerId = String((req.body && req.body.offerId) || "").trim();
       if (!offerId) throw badRequest("offerId is required — take it from a room offer.");
@@ -323,7 +323,7 @@ stayRoutes.post("/marketplace/stays/hold",
         priceChanged: held.priceDifferencePercent !== 0,
         /* Whether the guest now has to pay before this can be booked. */
         paymentRequired: Boolean(held.payment),
-        supplier: supplyStatus(),
+        supplier: publicStatus(),
       });
     } catch (e) { next(e); }
   });
@@ -341,7 +341,7 @@ stayRoutes.post("/marketplace/stays/book",
     try {
       const s = live();
       if (typeof s.book !== "function") {
-        throw unavailable(`${supplyStatus().label} cannot complete a booking.`);
+        throw unavailable("This booking cannot be completed right now.");
       }
       const b = req.body || {};
       const prebookId = String(b.prebookId || "").trim();
@@ -382,7 +382,7 @@ stayRoutes.post("/marketplace/stays/book",
           idempotent: true,
           sandbox: held.sandbox,
           notice: "This rate was already booked. You have not been charged again.",
-          supplier: supplyStatus(),
+          supplier: publicStatus(),
         });
       }
 
@@ -484,7 +484,7 @@ stayRoutes.post("/marketplace/stays/book",
             "Keep your booking reference and confirmation code. PALTAS does not " +
             "yet store supplier bookings, so this reference is how you or the " +
             "hotel find this reservation.",
-        supplier: supplyStatus(),
+        supplier: publicStatus(),
       });
     } catch (e) { next(e); }
   });
@@ -499,7 +499,7 @@ stayRoutes.get("/marketplace/stays/:bookingId",
     try {
       const s = live();
       if (typeof s.booking !== "function") {
-        throw unavailable(`${supplyStatus().label} cannot retrieve a booking.`);
+        throw unavailable("This booking cannot be looked up right now.");
       }
       /* Theirs, or it does not exist. Checked BEFORE the supplier is asked, so a
          stranger's id cannot even be used to probe whether it is real. */
@@ -518,7 +518,7 @@ stayRoutes.get("/marketplace/stays/:bookingId",
       /* The supplier is authoritative on status and money; PALTAS's row is
          authoritative on whose it is and what was shown at the time. */
       res.json({ booking, sandbox: own.sandbox, bookedAt: own.createdAt,
-                 supplier: supplyStatus() });
+                 supplier: publicStatus() });
     } catch (e) { next(e); }
   });
 
@@ -536,7 +536,7 @@ stayRoutes.delete("/marketplace/stays/:bookingId",
     try {
       const s = live();
       if (typeof s.cancel !== "function") {
-        throw unavailable(`${supplyStatus().label} cannot cancel a booking.`);
+        throw unavailable("This booking cannot be cancelled right now.");
       }
       /* Cancelling somebody else's holiday is the worst thing these routes could
          allow, so ownership is established before anything is sent. */
@@ -571,7 +571,7 @@ stayRoutes.delete("/marketplace/stays/:bookingId",
         /* The distinction, named. */
         charged: result.charged,
         sandbox: result.sandbox,
-        supplier: supplyStatus(),
+        supplier: publicStatus(),
       });
     } catch (e) { next(e); }
   });

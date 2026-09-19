@@ -2227,7 +2227,22 @@ test("nothing on the discovery rail can block a finger", { skip }, () => {
 test("a rival's price is never dressed up as a PALTAS booking", { skip }, () => {
   const js = readFileSync(join(FE, "assets/paltas-checkout.js"), "utf8");
   const html = readFileSync(join(FE, "index.html"), "utf8");
-  const fn = js.slice(js.indexOf("function compare(offers)"), js.indexOf("/** Whose inventory this is"));
+  /*
+   * Sliced on CODE, not on a comment.
+   *
+   * This used to end at the text "/** Whose inventory this is" — a sentence in
+   * a comment. Rewording that comment made indexOf return -1, and
+   * slice(start, -1) does not fail: it quietly returns the rest of the file,
+   * so a test about one function started reading every function after it and
+   * failed on something it was never about. A function signature is a fixed
+   * point in a way that prose is not, and a missing marker now fails here
+   * rather than 40 lines later.
+   */
+  const from = js.indexOf("function compare(offers)");
+  const to = js.indexOf("function attribution(");
+  assert.ok(from >= 0, "compare() was renamed — this test is reading nothing");
+  assert.ok(to > from, "attribution() moved above compare(), so the slice is inside-out");
+  const fn = js.slice(from, to);
   assert.ok(fn, "the rooms view does not compare anything");
 
   /*
