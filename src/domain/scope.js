@@ -112,4 +112,15 @@ export const SITE_BEARING = new Set([
      must see only their own. scope-api.test.js compares this against the
      schema, which is how `offering` came to be here. */
   "offering",
+  /*
+   * Property DNA. The identity record hangs off one site, so a person whose
+   * remit is two buildings must not read the third one's.
+   *
+   * Only propertyDna is here because only propertyDna carries a siteId: the
+   * timeline, ownership, heritage, succession and scan rows reach their site
+   * THROUGH it, and the routes load them by dnaId after the site has already
+   * been checked. Adding them here would be a filter on a column they do not
+   * have.
+   */
+  "propertyDna",
 ]);

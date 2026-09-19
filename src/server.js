@@ -30,6 +30,7 @@ import { register as registerProcessor, fromEnv as stripeFromEnv, status as payS
 import { guestRoutes } from "./routes/guest.js";
 import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
+import { dnaRoutes } from "./routes/dna.js";
 import { register as registerSupplier, status as supplierStatus } from "./domain/supply.js";
 import { fromEnv as liteApiFromEnv } from "./suppliers/liteapi.js";
 import { fromEnv as stayingApiFromEnv, KEY_NAMES as STAYING_KEYS } from "./suppliers/stayingapi.js";
@@ -218,6 +219,17 @@ export function createApp() {
    * ordering the market, guest and platform routers depend on.
    */
   app.use(investmentRoutes);
+
+  /*
+   * PROPERTY DNA — before productRoutes, for the same reason investments is.
+   *
+   * productRoutes mounts at "/" and builds a CRUD router for every declared
+   * resource, so anything registered after it competes with those paths.
+   * These are /properties/:siteId/... and there is no `properties` resource,
+   * but the ordering rule is the one that keeps that true if one is ever
+   * added.
+   */
+  app.use(dnaRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

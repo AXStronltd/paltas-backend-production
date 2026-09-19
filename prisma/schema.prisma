@@ -153,6 +153,16 @@ model User {
   invitationsSent     Invitation[] @relation("InvitationsSent")
   invitationsAccepted Invitation[] @relation("InvitationsAccepted")
 
+  /**
+   * ---- Property DNA. A person's standing on a property is not their job. ----
+   */
+  propertyEvents    PropertyTimelineEvent[]
+  propertyRelations PropertyRelationship[]
+  successionOpened  SuccessionCase[]        @relation("SuccessionOpener")
+  successionShares  SuccessionBeneficiary[]
+  successionSteps   SuccessionStep[]
+  propertyScans     PropertyScan[]
+
   @@index([googleSub])
 }
 
@@ -299,6 +309,20 @@ model Organization {
   moderationItems ModerationItem[]
   complianceCases ComplianceCase[]
   invitations     Invitation[]
+
+  /**
+   * ---- Property DNA. The identity layer the products share. ----
+   */
+  propertyDna       PropertyDna[]
+  propertyTimeline  PropertyTimelineEvent[]
+  propertyRelations PropertyRelationship[]
+  propertyOwnership PropertyOwnershipRecord[]
+  propertyHeritage  PropertyHeritageRecord[]
+  successionCases   SuccessionCase[]
+  successionParties SuccessionBeneficiary[]
+  successionSteps   SuccessionStep[]
+  propertyScans     PropertyScan[]
+  propertyFindings  PropertyScanFinding[]
 }
 
 model Subscription {
@@ -676,6 +700,9 @@ model Site {
   EmergencyPlan EmergencyPlan[]
   offerings     Offering[]
 
+  /// Property DNA — one per site, created on demand.
+  dna PropertyDna?
+
   @@index([orgId])
   @@index([orgId, kind])
 }
@@ -837,6 +864,9 @@ model Party {
   GuestRequest GuestRequest[]
   GroupBooking GroupBooking[]
   Conversation Conversation[]
+
+  /// A named heir or family member on a property, before they are a user.
+  propertyRelations PropertyRelationship[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -3196,4 +3226,470 @@ enum TokenEventKind {
   UNLOCK
   DISTRIBUTION_PAID
   PROVIDER_MESSAGE
+}
+
+/**
+ * ====================================================================== *
+ * PALTAS PROPERTY DNA
+ * "Every property has a memory."
+ * NOT a seventh product. There is no PROPERTY_DNA in the Product enum and
+ * nothing here is sold — it is the identity layer the six products already
+ * share, made explicit.
+ * ── WHY IT HANGS OFF Site AND NOT A NEW MODEL ───────────────────────────
+ * Site already IS the property. Buildings, units, rooms, zones, assets,
+ * visits, passes, vehicles, incidents, patrols, guard shifts, deliveries and
+ * work orders — every one of them carries a siteId today. Property
+ * management, security and hotel are already joined through it; what was
+ * missing was a durable identifier, a memory, and a way to say that some of
+ * what is known about a property is nobody else's business.
+ * A second "Property" model would have split that in half and left two
+ * answers to "which property is this?". So Property DNA is a 1:1 record ON
+ * Site, and every model below points at Site through it.
+ * ── THE ONE RULE THAT MATTERS ───────────────────────────────────────────
+ * Every row that can carry private information carries a `class`, and is read
+ * through src/domain/classification.js. Being able to see a property is not
+ * the same as being able to see what a family paid for it.
+ * ======================================================================
+ */
+
+/// How private a piece of information is. Ordered least to most restricted;
+/// that order is the authority — see CLASS_RANK in domain/classification.js.
+enum DataClass {
+  PUBLIC
+  INTERNAL
+  RESTRICTED
+  CONFIDENTIAL
+  OWNER_ONLY
+  LEGAL_RESTRICTED
+  SECURITY_RESTRICTED
+}
+
+/// What a person IS to a property, which is not the same as their job at the
+/// company. A MANAGER has no ownership standing; a person with no company
+/// role at all may be the owner.
+enum PropertyRelation {
+  OWNER
+  CO_OWNER
+  EXECUTOR
+  ADMINISTRATOR
+  TRUSTEE
+  LEGAL_REPRESENTATIVE
+  FAMILY_REPRESENTATIVE
+  BENEFICIARY
+  MANAGER
+  DEVELOPER
+  OPERATOR
+}
+
+/// Where a fact came from. Nothing here is "true"; it is sourced.
+enum Provenance {
+  OWNER_SUPPLIED
+  MANAGER_SUPPLIED
+  VERIFIED
+  AI_SCAN
+  IMPORTED_PMS
+  PENDING
+}
+
+enum VerificationState {
+  UNVERIFIED
+  SUBMITTED
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum SuccessionStatus {
+  DRAFT
+  INITIATED
+  DOCUMENTS_REQUIRED
+  UNDER_REVIEW
+  VERIFICATION_PENDING
+  APPROVED
+  COMPLETED
+  REJECTED
+  CANCELLED
+  DISPUTED
+}
+
+/// The kinds of thing a property remembers. Open-ended on purpose: a new kind
+/// is a new value, never a new table.
+enum TimelineKind {
+  PROPERTY_CREATED
+  DEVELOPER_ADDED
+  CONSTRUCTION_STARTED
+  CONSTRUCTION_COMPLETED
+  INSPECTION_COMPLETED
+  PROPERTY_VERIFIED
+  UNIT_CREATED
+  UNIT_LISTED
+  LEASE_STARTED
+  LEASE_ENDED
+  MAINTENANCE_COMPLETED
+  ASSET_INSTALLED
+  ASSET_REPLACED
+  RENOVATION_COMPLETED
+  MANAGER_CHANGED
+  OPERATOR_CHANGED
+  OWNERSHIP_RECORDED
+  SUCCESSION_INITIATED
+  SUCCESSION_COMPLETED
+  PROPERTY_SOLD
+  REDEVELOPMENT_STARTED
+  SCAN_RECORDED
+  DOCUMENT_ADDED
+  NOTE
+}
+
+/**
+ * The property's identity. One per Site, created on demand.
+ * `ref` is the human-facing identifier — PALTAS-PROP-KE-NAI-00001234 — and it
+ * is NOT the primary key. The cuid stays internal; the ref is what goes on a
+ * QR code, a report or an email, and it is unique per organization so two
+ * customers can never collide.
+ */
+model PropertyDna {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// One property, one DNA record.
+  siteId String @unique
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  /// PALTAS-PROP-<country>-<city>-<sequence>
+  ref String
+
+  verification VerificationState @default(UNVERIFIED)
+  verifiedAt   DateTime?
+  verifiedBy   String            @default("")
+  verifiedNote String            @default("")
+
+  /// What a public profile may say. Nothing leaves this record for the
+  /// marketplace unless it is switched on deliberately.
+  publicProfile Boolean @default(false)
+  publicSummary String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  timeline   PropertyTimelineEvent[]
+  ownership  PropertyOwnershipRecord[]
+  relations  PropertyRelationship[]
+  heritage   PropertyHeritageRecord[]
+  succession SuccessionCase[]
+  scans      PropertyScan[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, verification])
+}
+
+/**
+ * The memory. Append-only by contract: there is no update route and no delete
+ * route for these, and the test suite asserts it. A correction is a NEW event
+ * saying what changed — the same rule the work-order history already follows,
+ * for the same reason.
+ */
+model PropertyTimelineEvent {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  dnaId String
+  dna   PropertyDna @relation(fields: [dnaId], references: [id], onDelete: Cascade)
+
+  kind   TimelineKind
+  at     DateTime     @default(now())
+  title  String
+  detail String       @default("")
+
+  /// What this event is about, when it is about something: a unit, a lease, a
+  /// work order. A loose pair rather than nine nullable foreign keys.
+  entity   String @default("")
+  entityId String @default("")
+
+  actorId   String?
+  actor     User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorName String  @default("")
+
+  source       Provenance        @default(MANAGER_SUPPLIED)
+  verification VerificationState @default(UNVERIFIED)
+  class        DataClass         @default(INTERNAL)
+
+  createdAt DateTime @default(now())
+
+  @@index([orgId, dnaId, at])
+  @@index([orgId, kind])
+}
+
+/**
+ * Who a person is TO a property. Separate from Membership, which says what
+ * their job is at the company.
+ * `clearance` is the ceiling this relationship grants on THIS property. An
+ * executor gets LEGAL_RESTRICTED and nothing beyond it; a manager gets
+ * RESTRICTED however senior they are at the company.
+ */
+model PropertyRelationship {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  dnaId String
+  dna   PropertyDna @relation(fields: [dnaId], references: [id], onDelete: Cascade)
+
+  userId  String?
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  /// A party who is not a PALTAS user yet — a named heir, a family member.
+  partyId String?
+  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+
+  name     String           @default("")
+  relation PropertyRelation
+
+  /// The highest classification this relationship may read on this property.
+  clearance DataClass @default(RESTRICTED)
+
+  startedOn DateTime  @default(now())
+  endedOn   DateTime?
+  active    Boolean   @default(true)
+
+  note String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, dnaId, active])
+  @@index([orgId, userId])
+}
+
+/**
+ * An ownership RECORD, not a determination of ownership.
+ * PALTAS records what it was shown and who showed it. It does not decide who
+ * owns anything — see the note on SuccessionCase.
+ */
+model PropertyOwnershipRecord {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  dnaId String
+  dna   PropertyDna @relation(fields: [dnaId], references: [id], onDelete: Cascade)
+
+  holder     String
+  holderKind String @default("INDIVIDUAL")
+  /// Basis points, so a third is 3333 rather than 33.33. Nullable because a
+  /// share is often simply not recorded.
+  shareBp    Int?
+
+  fromOn DateTime?
+  toOn   DateTime?
+  active Boolean   @default(true)
+
+  basis        String            @default("")
+  source       Provenance        @default(OWNER_SUPPLIED)
+  verification VerificationState @default(UNVERIFIED)
+  class        DataClass         @default(OWNER_ONLY)
+
+  supersededById String?
+  note           String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, dnaId, active])
+}
+
+/**
+ * The family's own account of the property. Optional, owner-controlled, and
+ * OWNER_ONLY until an owner decides otherwise — `publicOk` is the only thing
+ * that lets a line of it reach a public profile.
+ */
+model PropertyHeritageRecord {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  dnaId String
+  dna   PropertyDna @relation(fields: [dnaId], references: [id], onDelete: Cascade)
+
+  year   Int?
+  on     DateTime?
+  title  String
+  story  String    @default("")
+  family String    @default("")
+
+  class    DataClass  @default(OWNER_ONLY)
+  publicOk Boolean    @default(false)
+  source   Provenance @default(OWNER_SUPPLIED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, dnaId])
+}
+
+/**
+ * SUCCESSION.
+ * ── WHAT THIS IS NOT ────────────────────────────────────────────────────
+ * It is not a determination of inheritance and it must never become one.
+ * PALTAS is a place to assemble and track documentation; who inherits what is
+ * decided by people and by law, in a jurisdiction, with an authority PALTAS
+ * does not have and must not claim.
+ * Concretely: reaching COMPLETED does not move a property to anybody. It
+ * records that a documented process concluded. Changing who holds the
+ * property is a separate, deliberate, audited act — and the previous holder
+ * stays in the record either way.
+ */
+model SuccessionCase {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  dnaId String
+  dna   PropertyDna @relation(fields: [dnaId], references: [id], onDelete: Cascade)
+
+  ref          String
+  status       SuccessionStatus @default(DRAFT)
+  /// Free text on purpose: succession is not the same process in two
+  /// countries, and PALTAS models no one of them.
+  jurisdiction String           @default("")
+
+  openedById String?
+  openedBy   User?   @relation("SuccessionOpener", fields: [openedById], references: [id], onDelete: SetNull)
+  openedName String  @default("")
+
+  representative String @default("")
+  reason         String @default("")
+  note           String @default("")
+
+  class DataClass @default(LEGAL_RESTRICTED)
+
+  openedAt  DateTime  @default(now())
+  decidedAt DateTime?
+  closedAt  DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  beneficiaries SuccessionBeneficiary[]
+  steps         SuccessionStep[]
+
+  @@unique([orgId, ref])
+  @@index([orgId, dnaId, status])
+}
+
+model SuccessionBeneficiary {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  caseId String
+  case   SuccessionCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  name     String
+  relation PropertyRelation @default(BENEFICIARY)
+  /// Basis points. RECORDED, not adjudicated — a share here is what the
+  /// documentation says, not what PALTAS has decided anybody is owed.
+  shareBp  Int?
+  contact  String           @default("")
+
+  userId String?
+  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  verification VerificationState @default(UNVERIFIED)
+  note         String            @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, caseId])
+}
+
+/// Every move a case makes, and who made it. A case's status is the latest
+/// step rather than only an overwritten column, so a disputed case can be
+/// read backwards.
+model SuccessionStep {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  caseId String
+  case   SuccessionCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+
+  from SuccessionStatus?
+  to   SuccessionStatus
+  why  String            @default("")
+
+  actorId   String?
+  actor     User?   @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  actorName String  @default("")
+
+  at DateTime @default(now())
+
+  @@index([orgId, caseId, at])
+}
+
+/**
+ * A scan is EVIDENCE, and what is read out of it is a SUGGESTION.
+ * Nothing a scan produces is treated as fact. Each finding carries its
+ * source, a confidence and `verified=false` until a person says otherwise —
+ * and the routes refuse to let an unconfirmed finding into the property's
+ * structure.
+ */
+model PropertyScan {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  dnaId String
+  dna   PropertyDna @relation(fields: [dnaId], references: [id], onDelete: Cascade)
+
+  kind       String @default("PHOTO")
+  storageKey String @default("")
+  note       String @default("")
+
+  uploadedById String?
+  uploadedBy   User?   @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedName String  @default("")
+
+  /// PENDING until an extraction provider has actually run. There is no
+  /// provider configured today, and the route says so rather than inventing
+  /// findings.
+  state String    @default("PENDING")
+  class DataClass @default(RESTRICTED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  findings PropertyScanFinding[]
+
+  @@index([orgId, dnaId])
+}
+
+model PropertyScanFinding {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  scanId String
+  scan   PropertyScan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  kind   String
+  label  String
+  detail String @default("")
+
+  /// 0..100. Null when the provider gave none.
+  confidence Int?
+  source     Provenance @default(AI_SCAN)
+
+  verified   Boolean   @default(false)
+  verifiedBy String    @default("")
+  verifiedAt DateTime?
+  rejected   Boolean   @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, scanId, verified])
 }

@@ -268,6 +268,18 @@ test("every model has an id and timestamps, or says why not", () => {
        the provider later contradicts itself that is a NEW row, so the
        disagreement stays visible instead of being overwritten. */
     "TokenEvent",
+    /*
+     * A PROPERTY'S MEMORY, AND THE MOVES A SUCCESSION CASE MADE.
+     *
+     * Neither is ever updated, and that is the guarantee rather than an
+     * omission: a correction to the timeline is a NEW event saying what
+     * changed, and a case that goes back to UNDER_REVIEW gets another step
+     * rather than an edited one. Both are records somebody may later be
+     * asked to rely on, and a record that can be quietly tidied is worth
+     * less than one that cannot. The routes offer no PATCH and no DELETE
+     * for either, and dna.test.js asserts it.
+     */
+    "PropertyTimelineEvent", "SuccessionStep",
   ]);
   for (const [model, fs] of PARSED) {
     const names = new Set(fs.map((f) => f.name));

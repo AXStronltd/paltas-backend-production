@@ -55,6 +55,25 @@ export function makeWindow({ href = "https://paltas.io/" } = {}) {
       scrollTo(){}, scrollBy(){}, animate: () => ({ cancel(){}, finished: Promise.resolve() }),
       get scrollWidth(){ return 0; }, get clientWidth(){ return 0; },
       get offsetWidth(){ return 0; }, get offsetHeight(){ return 0; },
+      /*
+       * A real element can have markup put beside or inside it, and pages do
+       * it constantly — paintShell() prepends a switcher to its own bar. The
+       * shim had appendChild and not this, so a page that works in a browser
+       * threw here and the failure read as a product bug.
+       *
+       * There is no HTML parser in this file by design (see the header), so
+       * the markup is kept as text at the right end rather than parsed into
+       * nodes. That is enough for what these tests ask: did the page run, and
+       * what did it produce.
+       */
+      insertAdjacentHTML(where, html){
+        const w = String(where || "").toLowerCase();
+        if (w === "afterbegin") this.innerHTML = String(html) + this.innerHTML;
+        else if (w === "beforeend") this.innerHTML = this.innerHTML + String(html);
+        else if (w === "beforebegin" || w === "afterend") { /* a sibling; nothing reads it */ }
+        return undefined;
+      },
+      insertAdjacentElement(where, el){ this.appendChild(el); return el; },
       remove(){}, cloneNode(){ return node(tag); },
     };
     return el;
