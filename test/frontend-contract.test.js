@@ -4232,3 +4232,99 @@ test("no property screen names a building the company does not own", { skip }, (
   assert.ok(!/have nobody there at night/.test(issues),
     "Security Management is sold on a fabricated risk again");
 });
+
+/* ---------------------------------------------------------------------- *
+ * A CSS RULE THAT MATCHES NOTHING IS A BUG THAT SURVIVES EVERY FIX.
+ * ---------------------------------------------------------------------- */
+
+test("every class the mobile header hides actually exists in the markup", { skip }, () => {
+  /*
+   * `@media(max-width:920px){ .host-link .lbl{display:none} }` had been in
+   * this file since the header was written, and it had never matched
+   * anything: the markup said `<svg/> For business` with the words as a bare
+   * text node, so there was no `.lbl` to hide.
+   *
+   * The consequences were not cosmetic. The 126px "For business" pill never
+   * collapsed, `.top-right` ran to 500px on a 375px screen, and two things
+   * followed — the marketplace scrolled sideways on every phone, and the link
+   * into the business product sat off the right-hand edge. It was reported
+   * repeatedly and "fixed" repeatedly on the business pages, which measure
+   * clean at every width and were never the ones broken.
+   *
+   * A rule that hides something is the one kind that fails silently: if the
+   * selector is wrong, nothing hides and nothing errors. So each one is
+   * checked against the markup here.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+
+  /* The markup only — a class named inside a <style> block is a selector, not
+     an element, and would match itself. */
+  const markup = html.replace(/<style[\s\S]*?<\/style>/g, "");
+  const has = (cls) => new RegExp(`class="[^"]*\\b${cls}\\b`).test(markup);
+
+  /* The header controls that collapse to icons on a phone. Each pair is
+     "the rule that hides it" and "the class it must find". */
+  for (const [what, cls] of [
+    ["the business link's label", "lbl"],
+    ["the business link itself", "host-link"],
+    ["the currency button", "ccy-btn"],
+    ["the account button", "acct"],
+    ["the account avatar", "pfp"],
+    ["the header cluster", "top-right"],
+  ]) {
+    assert.ok(has(cls), `${what} (.${cls}) is named in the stylesheet and is not in the markup`);
+  }
+
+  /* And the label has to be INSIDE the link, or the descendant selector still
+     misses even though both classes exist. */
+  const link = (markup.match(/<a[^>]*class="host-link[^"]*"[\s\S]*?<\/a>/) || [""])[0];
+  assert.ok(link, "the business link is gone from the marketplace header");
+  assert.match(link, /class="lbl"/,
+    "the business link's words are a bare text node again, so nothing collapses them on a phone");
+  assert.match(link, /href="partner\.html"/, "the business link no longer points at the business page");
+  /* Icon-only on a phone has to say what it is. */
+  assert.match(link, /aria-label="[^"]+"/, "the icon-only business link is unlabelled for a screen reader");
+
+  /* The rule itself must still be there and still be scoped to small screens. */
+  assert.match(html, /@media\(max-width:920px\)\{[\s\S]{0,400}?\.host-link \.lbl\{display:none\}/,
+    "the rule that collapses the business link on a phone is gone");
+
+  /* The account button may not end up with nothing in it: a rule used to hide
+     the avatar below 520px, which left an empty button once the word went. */
+  const phone = (html.match(/@media\(max-width:480px\)\{[\s\S]*?\n\}/) || [""])[0];
+  assert.ok(phone, "the phone header rule is gone");
+  assert.ok(!/\.acct \.pfp\{display:none\}/.test(html),
+    "the account avatar is hidden again, which leaves the account button empty on a phone");
+  assert.match(phone, /\.acct \.pfp\{[^}]*width:32px/,
+    "the avatar can shrink, and it is the whole account button at this width");
+  assert.match(phone, /min-height:44px/, "the header controls are below a reliable tap target");
+});
+
+test("the business door sends a company to its console, not the marketplace", { skip }, () => {
+  /*
+   * Both sign-in doors passed next="/", so a company signing in at the
+   * BUSINESS door was returned to the marketplace — the one place somebody
+   * who came to open their console did not ask for.
+   *
+   * workspace.html already answers this from the live session: one console
+   * and it opens it, two and it asks which, none and it says so. Nothing new
+   * was added; the business door had simply been bypassing it.
+   */
+  const js = readFileSync(join(FE, "assets", "market.js"), "utf8");
+
+  assert.match(js, /const PALTAS_WORK_NEXT = "\/auth\/workspace\.html";/,
+    "the business door has no destination of its own again");
+  assert.match(js, /const PALTAS_SIGNIN_NEXT = "\/";/,
+    "the personal door should still land on the marketplace");
+
+  /* The business door uses the business destination, the personal one does not. */
+  const work = js.slice(js.indexOf("PAGE.worklogin ="), js.indexOf("PAGE.workspace ="));
+  assert.match(work, /googleBtn\(PALTAS_WORK_NEXT\)/, "business sign-in still returns to the marketplace");
+
+  const login = js.slice(js.indexOf("PAGE.login ="), js.indexOf("PAGE.worklogin ="));
+  assert.match(login, /googleBtn\(PALTAS_SIGNIN_NEXT\)/, "the personal door changed too, and should not have");
+
+  /* The page it now points at has to exist, or sign-in lands on a 404. */
+  assert.ok(existsSync(join(FE, "auth", "workspace.html")),
+    "business sign-in points at a page that is not in the build");
+});
