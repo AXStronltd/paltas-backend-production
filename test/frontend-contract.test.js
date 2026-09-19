@@ -4347,11 +4347,32 @@ test("the four product cards carry the locked palette, and each its own subject"
       `${kept.replace("&amp;", "&")} was dropped from the homepage rather than moved`);
   }
 
-  /* 2x2 on a desktop, a swipe rail on a phone. */
-  assert.match(html, /\.pl-4 \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/,
-    "the four are no longer a 2x2 on a desktop");
-  assert.match(html, /@media \(max-width: 860px\) \{[\s\S]*?\.pl-4 \{ grid-auto-flow: column/,
+  /*
+   * THREE SHAPES, AND THE ORDER THEY FALL BACK IN.
+   *
+   * Four across is the desktop shape. It was a 2x2 and read as four dashboard
+   * panels rather than a product shelf. 2x2 is now the TABLET fallback, and a
+   * phone gets a swipe rail — never four squeezed into 375px.
+   *
+   * minmax(0, 1fr) and not 1fr: a grid track's default minimum is its
+   * content, so a long product name would push a track past its share and
+   * wrap the fourth card onto a second row.
+   */
+  assert.match(html, /\.pl-4 \{ display: grid; grid-template-columns: repeat\(4, minmax\(0, 1fr\)\)/,
+    "the four are no longer one row on a desktop");
+  assert.match(html, /@media \(max-width: 999px\) \{[\s\S]{0,400}?\.pl-4 \{ grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/,
+    "the tablet fallback to 2x2 is gone");
+  assert.match(html, /@media \(max-width: 719px\) \{[\s\S]{0,900}?grid-auto-flow: column/,
     "the four no longer swipe on a phone");
+  /*
+   * The two rules that keep the row even. The body must fill the card or
+   * margin-top:auto has nothing to push the CTA against; the description must
+   * reserve three lines or a short one lifts its chips above its neighbours'.
+   */
+  assert.match(html, /\.p4-body \{[\s\S]{0,200}?flex: 1 1 auto/,
+    "the card body no longer fills the card, so the CTAs will not line up");
+  assert.match(html, /\.p4 p  \{[\s\S]{0,260}?min-height: 4\.5em/,
+    "the description no longer reserves three lines, so the chips will be ragged");
 });
 
 test("a promotion's badge is its own colour, taken from its own art", { skip }, () => {
