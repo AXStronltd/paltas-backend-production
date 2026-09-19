@@ -31,6 +31,7 @@ import { guestRoutes } from "./routes/guest.js";
 import { platformRoutes } from "./routes/platform.js";
 import { investmentRoutes } from "./routes/investments.js";
 import { dnaRoutes } from "./routes/dna.js";
+import { authorityRoutes } from "./modules/authority/api/routes.js";
 import { register as registerSupplier, status as supplierStatus } from "./domain/supply.js";
 import { fromEnv as liteApiFromEnv } from "./suppliers/liteapi.js";
 import { fromEnv as stayingApiFromEnv, KEY_NAMES as STAYING_KEYS } from "./suppliers/stayingapi.js";
@@ -230,6 +231,15 @@ export function createApp() {
    * added.
    */
   app.use(dnaRoutes);
+
+  /*
+   * THE AUTHORITY LAYER, after Property DNA and before productRoutes.
+   *
+   * It does NOT sit behind requireOpenSubscription: a public authority is not
+   * a paying customer and has no subscription to lapse. Putting that guard on
+   * it would make a land registry's access depend on somebody's card.
+   */
+  app.use(authorityRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

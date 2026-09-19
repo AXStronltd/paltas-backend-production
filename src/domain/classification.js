@@ -54,10 +54,28 @@ export const CLASS_RANK = {
   LEGAL_RESTRICTED: 5,
 };
 
-/** Off the ladder, granted on its own terms. */
+/**
+ * OFF THE LADDER, EACH GRANTED ON ITS OWN TERMS.
+ *
+ * Two rooms, not two more floors.
+ *
+ * SECURITY_RESTRICTED — the gate layout, the camera map, the unwatched
+ * hours. On a ladder the top sees everything below, so an owner would inherit
+ * the document a thief wants most and has no operational need for.
+ *
+ * AUTHORITY_RESTRICTED — what the state records: the parcel, the zoning, the
+ * permits. It is not "more secret" than an owner's private valuation, it is
+ * secret to DIFFERENT PEOPLE. A planning authority reads it and never reaches
+ * OWNER_ONLY; an owner may be shown it and never reaches it by climbing.
+ *
+ * Both are therefore tested by a separate right rather than by rank, and
+ * neither appears in CLASS_RANK.
+ */
 export const SECURITY_CLASS = "SECURITY_RESTRICTED";
+export const AUTHORITY_CLASS = "AUTHORITY_RESTRICTED";
+export const OFF_LADDER = [SECURITY_CLASS, AUTHORITY_CLASS];
 
-export const ALL_CLASSES = [...Object.keys(CLASS_RANK), SECURITY_CLASS];
+export const ALL_CLASSES = [...Object.keys(CLASS_RANK), ...OFF_LADDER];
 
 /**
  * What each PROPERTY RELATIONSHIP is worth, as a ceiling.
@@ -137,8 +155,31 @@ const SECURITY_RELATIONS = new Set(["OWNER", "CO_OWNER"]);
  * Returns { rank, label, security, via } — `via` names what granted it, which
  * is what the permissions endpoint shows a person about themselves.
  */
-export function clearanceFor(actor, relations) {
-  if (!actor) return { rank: -1, label: "NONE", security: false, via: "not signed in" };
+export function clearanceFor(actor, relations, authority) {
+  if (!actor) return { rank: -1, label: "NONE", security: false, authority: false, via: "not signed in" };
+
+  /*
+   * A PUBLIC AUTHORITY IS NOT A SENIOR CUSTOMER.
+   *
+   * It arrives with a mandate rather than a role, and what it gets is the
+   * authority room plus the public floor — NOT a rank that climbs toward a
+   * family's papers. This is the single most important line in the file: it
+   * is what stops "government = see everything" from being true.
+   */
+  if (authority && authority.within) {
+    return {
+      rank: CLASS_RANK.PUBLIC,
+      label: "AUTHORITY",
+      security: false,
+      authority: true,
+      datasets: authority.datasets || [],
+      via: `mandate over ${authority.jurisdiction?.path || "a jurisdiction"}`,
+    };
+  }
+  /* An authority whose mandate does not reach here gets nothing at all. */
+  if (authority) {
+    return { rank: -1, label: "NONE", security: false, authority: false, via: authority.why || "no mandate here" };
+  }
 
   const roleLabel = ROLE_CEILING[actor.role] || "PUBLIC";
   let best = CLASS_RANK[roleLabel];
@@ -162,13 +203,35 @@ export function clearanceFor(actor, relations) {
     live.some((r) => SECURITY_RELATIONS.has(r.relation));
 
   const label = Object.keys(CLASS_RANK).find((k) => CLASS_RANK[k] === best) || "PUBLIC";
-  return { rank: best, label, security, via };
+  /* A customer never reads the authority room, however senior. What the state
+     holds about a property is shown to the property's own people through the
+     records they are given, not by climbing. */
+  return { rank: best, label, security, authority: false, via };
 }
 
 /** May this clearance read a record of this classification? */
 export function mayRead(clearance, cls) {
   if (!clearance || clearance.rank < 0) return false;
   if (cls === SECURITY_CLASS) return !!clearance.security;
+  /*
+   * AUTHORITY_RESTRICTED IS ASYMMETRIC, AND THAT IS THE POINT.
+   *
+   * Two different people may read an official record about a building:
+   *
+   *   the authority whose mandate covers it — its own register; and
+   *   the building's own people, from RESTRICTED up — it is their permit,
+   *   and a landlord who cannot see the permit on their own block is being
+   *   protected from nothing.
+   *
+   * The asymmetry runs ONE WAY. A customer reading up into the authority
+   * room does not let an authority read down into OWNER_ONLY: an authority
+   * clearance sits at rank PUBLIC and climbs nowhere. So "an owner sees
+   * their permits" and "a planning officer never sees a will" are both true,
+   * which is exactly the pair this model exists to hold.
+   */
+  if (cls === AUTHORITY_CLASS) {
+    return !!clearance.authority || clearance.rank >= CLASS_RANK.RESTRICTED;
+  }
   const need = CLASS_RANK[cls];
   if (need === undefined) return false;          /* an unknown class is refused */
   return clearance.rank >= need;
@@ -236,6 +299,10 @@ export function whyNotClass(clearance, cls, what) {
     return `${what} is security-restricted. It is shown to the people who run ` +
            `this property's security, and holding another role here does not ` +
            `include it.`;
+  }
+  if (cls === AUTHORITY_CLASS) {
+    return `${what} is an official record, shown to the public authority whose ` +
+           `mandate covers this property. It is not reached by seniority.`;
   }
   return `${what} is classified ${cls}. Your access to this property is ` +
          `${clearance.label}, through your ${clearance.via}.`;

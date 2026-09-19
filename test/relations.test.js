@@ -143,7 +143,17 @@ test("every relation has both halves", () => {
   for (const [model, fs] of PARSED) {
     for (const f of relationsOf(model)) {
       const other = PARSED.get(f.type);
-      const back = other.filter((g) => g.type === model);
+      /*
+       * A SELF-RELATION IS A RELATION TO A DIFFERENT FIELD, NOT TO ITSELF.
+       *
+       * Jurisdiction.parent points at Jurisdiction and so does
+       * Jurisdiction.children — the tree a jurisdiction forms. With model ===
+       * f.type the naive filter below finds BOTH of them plus the field it
+       * started from, and reports two halves where Prisma requires exactly
+       * the pair. Excluding the field itself is what makes the count right
+       * for a self-relation and changes nothing for every other one.
+       */
+      const back = other.filter((g) => g.type === model && g.name !== f.name);
       if (back.length === 0) {
         missing.push(
           `${model}.${f.name} points at ${f.type}, but ${f.type} has no field ` +
@@ -177,7 +187,8 @@ test("exactly one side of each relation holds the foreign key", () => {
         continue;
       }
       const back = PARSED.get(f.type).filter(
-        (g) => g.type === model && (!f.relationName || g.relationName === f.relationName));
+        (g) => g.type === model && g.name !== f.name &&
+               (!f.relationName || g.relationName === f.relationName));
       const other = back[0];
       if (!other) continue;               // reported by the test above
       const both = Boolean(f.relFields) && Boolean(other.relFields);
@@ -280,6 +291,13 @@ test("every model has an id and timestamps, or says why not", () => {
      * for either, and dna.test.js asserts it.
      */
     "PropertyTimelineEvent", "SuccessionStep",
+    /*
+     * A JOIN ROW between land and what is built on it. It records that this
+     * parcel carries this property; if that stops being true the row is
+     * removed, never edited into meaning something else. There is no field on
+     * it that an update could change.
+     */
+    "PropertyParcel",
   ]);
   for (const [model, fs] of PARSED) {
     const names = new Set(fs.map((f) => f.name));

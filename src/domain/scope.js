@@ -123,4 +123,11 @@ export const SITE_BEARING = new Set([
    * have.
    */
   "propertyDna",
+  /*
+   * The link between a parcel and a property. It carries a siteId, so a
+   * person whose remit is two buildings must not learn which parcel the
+   * third one stands on — that is the authority layer's join and it is how a
+   * property is found from a land reference.
+   */
+  "propertyParcel",
 ]);

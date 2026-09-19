@@ -31,6 +31,9 @@ const HERE = fileURLToPath(new URL("..", import.meta.url));
 const schema = readFileSync(join(HERE, "prisma/schema.prisma"), "utf8");
 const routes = readFileSync(join(HERE, "src/routes/dna.js"), "utf8");
 const domain = readFileSync(join(HERE, "src/domain/dna.js"), "utf8");
+/* Identity moved into the module when Property DNA was split up; the rule it
+   has to keep did not move. */
+const identity = readFileSync(join(HERE, "src/modules/property-dna/domain/identity.js"), "utf8");
 const classification = readFileSync(join(HERE, "src/domain/classification.js"), "utf8");
 
 const FE = process.env.PALTAS_FRONTEND || resolve(HERE, "..", "paltas-frontend 2");
@@ -371,7 +374,7 @@ test("the property identifier is readable, and its sequence is per company", () 
    * Per organization, not global. A global counter would tell every customer
    * how many properties every other customer has.
    */
-  assert.match(domain, /db\.propertyDna\.count\(\{ where: \{ orgId \} \}\)/,
+  assert.match(identity, /db\.propertyDna\.count\(\{ where: \{ orgId \} \}\)/,
     "the identifier sequence is no longer counted per organization");
   assert.match(schema, /@@unique\(\[orgId, ref\]\)/,
     "two properties in one company could take the same identifier");

@@ -9,77 +9,15 @@
 
 import { db } from "../db.js";
 
-/* ---------------------------------------------------------------- *
- * 1. THE IDENTIFIER
- * ---------------------------------------------------------------- */
-
-/**
- * PALTAS-PROP-KE-NAI-00001234
+/*
+ * THE IDENTIFIER AND THE RECORD MOVED to modules/property-dna/domain/identity.js
+ * and are re-exported here so nothing that imported them had to change.
  *
- * Country and city are there so a person can read one aloud and know roughly
- * what it is. The sequence is per ORGANIZATION, not global: a global counter
- * would tell every customer how many properties every other customer has,
- * which is a business fact PALTAS has no right to publish.
+ * They moved because context.js depends on them and everything else depends
+ * on context.js — leaving them in this file would have made every service
+ * pull in the succession machine and the AI boundary to open a property.
  */
-function slug(v, n, fallback) {
-  const s = String(v || "").toUpperCase().replace(/[^A-Z]/g, "");
-  return (s || fallback).slice(0, n).padEnd(n, "X");
-}
-
-export function refFor(site, sequence) {
-  return [
-    "PALTAS-PROP",
-    slug(site?.country, 2, "XX"),
-    slug(site?.city, 3, "XXX"),
-    String(sequence).padStart(8, "0"),
-  ].join("-");
-}
-
-/**
- * Get the DNA record for a site, creating it the first time it is asked for.
- *
- * Created on demand rather than by a migration backfill: a migration that
- * writes a row for every existing site is a migration that can half-finish,
- * and there is no moment where a site NEEDS one before somebody opens it.
- */
-export async function dnaFor(orgId, siteId) {
-  const existing = await db.propertyDna.findFirst({
-    where: { orgId, siteId },
-    include: { site: true },
-  });
-  if (existing) return existing;
-
-  const site = await db.site.findFirst({ where: { id: siteId, orgId } });
-  if (!site) return null;
-
-  /* The sequence is "how many this company already has", which is stable
-     enough for an identifier and needs no extra table. A collision can only
-     happen if two are created in the same millisecond for one org; the unique
-     index catches it and the retry below takes the next number. */
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const n = await db.propertyDna.count({ where: { orgId } });
-    try {
-      const made = await db.propertyDna.create({
-        data: { orgId, siteId, ref: refFor(site, n + 1 + attempt) },
-        include: { site: true },
-      });
-      await db.propertyTimelineEvent.create({
-        data: {
-          orgId, dnaId: made.id, kind: "PROPERTY_CREATED",
-          title: `${site.name} entered PALTAS`,
-          detail: "Property DNA opened for this property.",
-          entity: "site", entityId: site.id,
-          source: "MANAGER_SUPPLIED", class: "INTERNAL",
-        },
-      });
-      return made;
-    } catch (e) {
-      if (e && e.code === "P2002") continue;      /* ref taken — take the next */
-      throw e;
-    }
-  }
-  return db.propertyDna.findFirst({ where: { orgId, siteId }, include: { site: true } });
-}
+export { refFor, dnaFor } from "../modules/property-dna/domain/identity.js";
 
 /* ---------------------------------------------------------------- *
  * 2. THE MEMORY

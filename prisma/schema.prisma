@@ -217,6 +217,10 @@ model Session {
 model Organization {
   id        String    @id @default(cuid())
   name      String
+  /// Every organization that exists today is a CUSTOMER and the default keeps
+  /// it that way, so the migration has nothing to guess. A public authority
+  /// is made one through AuthorityProfile, which carries its own verification.
+  kind      OrgKind   @default(CUSTOMER)
   country   String    @default("ke")
   city      String    @default("")
   size      String    @default("")
@@ -323,6 +327,16 @@ model Organization {
   successionSteps   SuccessionStep[]
   propertyScans     PropertyScan[]
   propertyFindings  PropertyScanFinding[]
+
+  /**
+   * ---- The authority layer. What the state records about a property. ----
+   */
+  authorityProfile  AuthorityProfile?
+  jurisdictions     Jurisdiction[]
+  parcels           Parcel[]
+  propertyParcels   PropertyParcel[]
+  authorityRecords  PropertyAuthorityRecord[]
+  authorityRequests AuthorityRequest[]
 }
 
 model Subscription {
@@ -703,6 +717,10 @@ model Site {
   /// Property DNA — one per site, created on demand.
   dna PropertyDna?
 
+  /// The land this property stands on. Many-to-many, because one parcel can
+  /// carry several properties and one development can span several parcels.
+  parcels PropertyParcel[]
+
   @@index([orgId])
   @@index([orgId, kind])
 }
@@ -910,6 +928,9 @@ model Document {
   createdAt         DateTime           @default(now())
   updatedAt         DateTime           @updatedAt
   offeringDocuments OfferingDocument[]
+
+  /// An official record this document evidences, when it is one.
+  authorityRecords PropertyAuthorityRecord[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -3254,6 +3275,15 @@ enum TokenEventKind {
 
 /// How private a piece of information is. Ordered least to most restricted;
 /// that order is the authority — see CLASS_RANK in domain/classification.js.
+/**
+ * ── WHY THE NEW VALUES ARE AT THE BOTTOM ────────────────────────────────
+ * Postgres ALTER TYPE ... ADD VALUE APPENDS. Prisma compares the enum's
+ * ORDER as well as its membership, so declaring a new value in the middle —
+ * where it reads better — leaves the schema and the database disagreeing
+ * forever, and schema.test.js says so.
+ * Reading order is worth less than a schema that matches its database, so
+ * the additions sit at the end in the order the migration adds them.
+ */
 enum DataClass {
   PUBLIC
   INTERNAL
@@ -3262,6 +3292,7 @@ enum DataClass {
   OWNER_ONLY
   LEGAL_RESTRICTED
   SECURITY_RESTRICTED
+  AUTHORITY_RESTRICTED
 }
 
 /// What a person IS to a property, which is not the same as their job at the
@@ -3289,6 +3320,13 @@ enum Provenance {
   AI_SCAN
   IMPORTED_PMS
   PENDING
+  DEVELOPER_SUPPLIED
+  HOTEL_SUPPLIED
+  AGENT_SUPPLIED
+  IMPORTED_DOCUMENT
+  GOVERNMENT
+  LAND_REGISTRY
+  PLANNING_AUTHORITY
 }
 
 enum VerificationState {
@@ -3297,6 +3335,11 @@ enum VerificationState {
   UNDER_REVIEW
   VERIFIED
   REJECTED
+  USER_PROVIDED
+  IMPORTED
+  AUTHORITY_VERIFIED
+  DISPUTED
+  EXPIRED
 }
 
 enum SuccessionStatus {
@@ -3339,6 +3382,14 @@ enum TimelineKind {
   SCAN_RECORDED
   DOCUMENT_ADDED
   NOTE
+  PLANNING_APPROVED
+  PERMIT_ISSUED
+  INSPECTION_PASSED
+  OCCUPANCY_APPROVED
+  ZONING_CHANGED
+  OFFICIAL_NOTICE
+  PARCEL_REGISTERED
+  AUTHORITY_VERIFIED_RECORD
 }
 
 /**
@@ -3379,6 +3430,9 @@ model PropertyDna {
   heritage   PropertyHeritageRecord[]
   succession SuccessionCase[]
   scans      PropertyScan[]
+
+  authorityRecords  PropertyAuthorityRecord[]
+  authorityRequests AuthorityRequest[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -3692,4 +3746,403 @@ model PropertyScanFinding {
   updatedAt DateTime @updatedAt
 
   @@index([orgId, scanId, verified])
+}
+
+/**
+ * ====================================================================== *
+ * THE AUTHORITY LAYER
+ * A property has three kinds of information about it, and they do not merge:
+ * OWNER      what the family knows — heritage, succession, what was paid
+ * BUSINESS   what the operator knows — tenants, rooms, guards, work orders
+ * AUTHORITY  what the state knows — the parcel, the zoning, the permits
+ * ── THE RULE THIS WHOLE SECTION EXISTS TO ENFORCE ───────────────────────
+ * "Government = see everything" is not built here and must never be. An
+ * authority reaches a property through a MANDATE: an authority, over a
+ * jurisdiction, for a dataset, for a purpose. A planning authority that may
+ * read a zoning decision has no route to a will, a private valuation or a
+ * camera map — not because the UI hides them, but because the mandate does
+ * not name them and the classification refuses them.
+ * AUTHORITY_RESTRICTED is a CLASS, not a rung. An owner does not inherit it
+ * by being senior, and an authority does not climb from it to OWNER_ONLY.
+ * The two are different rooms, not different floors.
+ * ── WHAT IS DELIBERATELY GENERIC ────────────────────────────────────────
+ * No country's administrative structure is modelled. A jurisdiction is a
+ * self-referencing tree with a level NAME rather than fixed columns for
+ * county and municipality, because "county" means different things in three
+ * countries and nothing at all in a fourth.
+ * ======================================================================
+ */
+
+/// What kind of body an organization is. Every existing organization is a
+/// CUSTOMER and stays one — the column defaults to it, so no migration has
+/// to guess.
+enum OrgKind {
+  CUSTOMER
+  GOVERNMENT
+  MUNICIPALITY
+  CITY_AUTHORITY
+  COUNTY
+  LAND_AUTHORITY
+  PLANNING_AUTHORITY
+  PROPERTY_REGISTRY
+  TAX_AUTHORITY
+  BUILDING_AUTHORITY
+  OTHER_PUBLIC_AUTHORITY
+}
+
+/// The datasets a mandate can name. A mandate grants some of these and never
+/// "all" — there is no wildcard value, deliberately.
+enum AuthorityDataset {
+  PROPERTY_IDENTITY
+  LOCATION
+  PARCEL
+  ZONING
+  PLANNING
+  PERMITS
+  INSPECTIONS
+  COMPLIANCE
+  OFFICIAL_DOCUMENTS
+  REGISTRATION
+  TRANSFER_RECORDS
+  TAX_RELEVANT
+  BUILDING_FOOTPRINT
+}
+
+/// Why information may lawfully be reached. Consent is ONE basis and not the
+/// only one — a registry does not ask an owner's permission to hold a title,
+/// and modelling everything as consent would make the record dishonest.
+enum DataAccessBasis {
+  OWNER_CONSENT
+  LEGAL_AUTHORITY
+  REGULATORY_REQUIREMENT
+  PUBLIC_RECORD
+  CONTRACTUAL
+  AUTHORIZED_OPERATIONAL_ACCESS
+  OTHER_CONFIGURED_BASIS
+}
+
+enum AuthorityRequestStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  PARTIALLY_APPROVED
+  REFUSED
+  WITHDRAWN
+  EXPIRED
+}
+
+/// What an authority record is about. Open-ended; a new kind is a value.
+enum AuthorityRecordKind {
+  PARCEL_REGISTRATION
+  ZONING_DECISION
+  PLANNING_APPROVAL
+  BUILDING_PERMIT
+  OCCUPANCY_APPROVAL
+  INSPECTION
+  COMPLIANCE_NOTICE
+  OFFICIAL_NOTICE
+  RESTRICTION
+  TRANSFER_RECORD
+  VALUATION_ROLL
+  OTHER
+}
+
+/**
+ * A JURISDICTION, as a tree.
+ * Country → region → county → municipality → district → zone, or three of
+ * those, or six, depending on the country. `level` is a NAME rather than an
+ * enum so a country that has no counties does not have to pretend.
+ * `path` is the materialised ancestry ("KE/NAIROBI/WESTLANDS") and it is what
+ * containment is decided by: a mandate over KE/NAIROBI covers a property in
+ * KE/NAIROBI/WESTLANDS because the second starts with the first. A recursive
+ * query per property read would be the alternative, and this is the one that
+ * stays fast when an authority lists a thousand parcels.
+ */
+model Jurisdiction {
+  id String @id @default(cuid())
+
+  /// Which authority organization maintains this node. Jurisdictions are not
+  /// global reference data: two authorities may describe the same ground
+  /// differently, and PALTAS is not the arbiter of who is right.
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  parentId String?
+  parent   Jurisdiction?  @relation("JurisdictionTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children Jurisdiction[] @relation("JurisdictionTree")
+
+  code    String
+  name    String
+  /// "country", "county", "municipality", "planning zone" — a word, not an enum.
+  level   String @default("")
+  country String @default("")
+
+  /// Materialised ancestry, uppercase, slash-separated. Containment is a
+  /// prefix test against this.
+  path String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mandates AuthorityMandate[]
+  parcels  Parcel[]
+  records  PropertyAuthorityRecord[]
+
+  @@unique([orgId, path])
+  @@index([orgId, parentId])
+  @@index([path])
+}
+
+/**
+ * The profile that makes an organization a public authority.
+ * Separate from Organization so that the authority columns do not sit on
+ * every customer's row, and so that becoming an authority is a deliberate
+ * act with its own verification rather than a flag somebody can set.
+ * `verified` is PALTAS's own check that this body is what it says it is.
+ * An unverified authority profile grants nothing: every mandate is refused
+ * until it is true.
+ */
+model AuthorityProfile {
+  id    String       @id @default(cuid())
+  orgId String       @unique
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  kind        OrgKind
+  legalName   String  @default("")
+  country     String  @default("")
+  /// How this body is identified officially, where it has such an identifier.
+  officialRef String  @default("")
+
+  verified   Boolean   @default(false)
+  verifiedAt DateTime?
+  verifiedBy String    @default("")
+  note       String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  mandates AuthorityMandate[]
+  requests AuthorityRequest[]
+
+  @@index([kind])
+}
+
+/**
+ * A MANDATE: this authority, over this jurisdiction, for these datasets, on
+ * this basis, for this long.
+ * This is the whole access model for an authority, and it is deliberately
+ * narrow. There is no "all datasets" value and no "all jurisdictions" value,
+ * so the widest possible mandate is still an enumerated list somebody wrote
+ * down and somebody else can read back.
+ */
+model AuthorityMandate {
+  id String @id @default(cuid())
+
+  profileId String
+  profile   AuthorityProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  jurisdictionId String
+  jurisdiction   Jurisdiction @relation(fields: [jurisdictionId], references: [id], onDelete: Cascade)
+
+  /// Enumerated. No wildcard.
+  datasets AuthorityDataset[]
+  basis    DataAccessBasis    @default(LEGAL_AUTHORITY)
+
+  /// What this mandate is FOR, in words, on the record. A mandate with no
+  /// stated purpose is one nobody can review.
+  purpose String @default("")
+
+  /// A mandate may read. Writing an official record is a separate grant,
+  /// because an authority correcting its own register and an authority
+  /// browsing are not the same act.
+  mayWrite Boolean @default(false)
+
+  startsOn DateTime  @default(now())
+  endsOn   DateTime?
+  active   Boolean   @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId, active])
+  @@index([jurisdictionId])
+}
+
+/**
+ * A LAND PARCEL.
+ * Land exists before buildings and outlives them, so a parcel is not a
+ * property and must not be modelled as one. One parcel can carry several
+ * properties; one development can span several parcels; parcels are
+ * subdivided and consolidated. That is why the link to Site is a join table
+ * rather than a column on either side.
+ */
+model Parcel {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// The official parcel number, as the authority writes it.
+  ref   String
+  label String @default("")
+
+  jurisdictionId String?
+  jurisdiction   Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
+
+  /// Enough geography to place it, and no more. Boundaries and polygons are
+  /// deliberately absent: a half-built GIS is worse than none, and the
+  /// columns it would need can be added without changing anything here.
+  lat     Float?
+  lng     Float?
+  areaSqm Int?
+  tenure  String @default("")
+  zoning  String @default("")
+
+  source       Provenance        @default(GOVERNMENT)
+  verification VerificationState @default(UNVERIFIED)
+  class        DataClass         @default(AUTHORITY_RESTRICTED)
+
+  /// Subdivision and consolidation, recorded rather than resolved: the
+  /// parcels a parcel came from, and whether it is still current.
+  fromParcelIds String  @default("")
+  active        Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  properties PropertyParcel[]
+  records    PropertyAuthorityRecord[]
+
+  @@unique([orgId, ref])
+  @@index([orgId, jurisdictionId])
+  @@index([orgId, active])
+}
+
+/// The many-to-many between land and what is built on it, because neither
+/// direction is single.
+model PropertyParcel {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  parcelId String
+  parcel   Parcel @relation(fields: [parcelId], references: [id], onDelete: Cascade)
+
+  siteId String
+  site   Site   @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  note String @default("")
+
+  createdAt DateTime @default(now())
+
+  @@unique([parcelId, siteId])
+  @@index([orgId, siteId])
+}
+
+/**
+ * AN OFFICIAL RECORD about a property: a permit, a zoning decision, an
+ * inspection, a notice.
+ * It carries the authority that issued it, the jurisdiction it was issued
+ * under, its own reference, and its provenance — so a reader can always tell
+ * "the planning authority approved this" from "the owner says the planning
+ * authority approved this".
+ */
+model PropertyAuthorityRecord {
+  id    String       @id @default(cuid())
+  /// The organization whose property this is — the customer, not the
+  /// authority. Tenant isolation follows the property, always.
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  dnaId String
+  dna   PropertyDna @relation(fields: [dnaId], references: [id], onDelete: Cascade)
+
+  parcelId String?
+  parcel   Parcel? @relation(fields: [parcelId], references: [id], onDelete: SetNull)
+
+  jurisdictionId String?
+  jurisdiction   Jurisdiction? @relation(fields: [jurisdictionId], references: [id], onDelete: SetNull)
+
+  kind    AuthorityRecordKind
+  dataset AuthorityDataset
+  ref     String              @default("")
+  title   String
+  detail  String              @default("")
+
+  /// Who issued it, by name, because the issuing body may not be a PALTAS
+  /// organization at all.
+  issuedByOrgId String?
+  issuedByName  String  @default("")
+
+  issuedOn  DateTime?
+  expiresOn DateTime?
+  status    String    @default("")
+
+  documentId String?
+  document   Document? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  source       Provenance        @default(GOVERNMENT)
+  verification VerificationState @default(UNVERIFIED)
+  class        DataClass         @default(AUTHORITY_RESTRICTED)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, dnaId, kind])
+  @@index([orgId, dataset])
+  @@index([jurisdictionId])
+}
+
+/**
+ * AN AUTHORITY ASKING FOR SOMETHING IT DOES NOT ALREADY HOLD.
+ * Asking is not receiving. A request names the property, the datasets and the
+ * basis; somebody authorised decides; the decision and its scope are
+ * recorded; and the access that follows is the access that was granted, not
+ * the access that was asked for.
+ * Nothing in this model gives an authority data when it is created.
+ */
+model AuthorityRequest {
+  id String @id @default(cuid())
+
+  /// The authority asking.
+  profileId String
+  profile   AuthorityProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  /// The company whose property it is. Both sides are named because the
+  /// request is a record of a relationship between two organizations.
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  dnaId String?
+  dna   PropertyDna? @relation(fields: [dnaId], references: [id], onDelete: SetNull)
+
+  datasets  AuthorityDataset[]
+  basis     DataAccessBasis
+  purpose   String
+  /// The legal instrument relied on, where there is one.
+  reference String             @default("")
+
+  status AuthorityRequestStatus @default(DRAFT)
+
+  /// What was actually granted, which may be less than what was asked for.
+  grantedDatasets AuthorityDataset[]
+  decidedById     String?
+  decidedByName   String             @default("")
+  decidedAt       DateTime?
+  decisionNote    String             @default("")
+
+  /// Access does not last forever by default.
+  expiresOn DateTime?
+
+  /// Whether the property's owner was told. Configurable because whether
+  /// notice is required is a question of law in a jurisdiction, and PALTAS
+  /// does not answer those.
+  ownerNotified   Boolean   @default(false)
+  ownerNotifiedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, status])
+  @@index([profileId, status])
 }

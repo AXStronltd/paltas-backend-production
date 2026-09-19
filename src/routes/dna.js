@@ -34,61 +34,18 @@ import {
   dnaFor, remember, derivedEvents, advanceCase, successionRef, aiContext,
   SUCCESSION_NEXT,
 } from "../domain/dna.js";
+import { context, gate, audit } from "../modules/property-dna/domain/context.js";
 
 export const dnaRoutes = Router();
 dnaRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription());
 
-/* ---------------------------------------------------------------- *
- * PLUMBING
- * ---------------------------------------------------------------- */
-
-async function audit(req, action, entity, entityId, detail) {
-  try {
-    await db.auditEvent.create({
-      data: {
-        orgId: req.actor.orgId,
-        actorId: req.session.userId,
-        actorName: req.view?.user?.name || req.view?.user?.email || "",
-        action, entity, entityId, detail: detail || undefined, ip: req.ip || "",
-      },
-    });
-  } catch (e) { console.error("audit write failed", action, entity, e.message); }
-}
-
-/**
- * Load the property, the caller's standing on it, and their clearance.
+/*
+ * PLUMBING MOVED to modules/property-dna/domain/context.js.
  *
- * Throws hidden() — a 404 — when the property is not this company's. A 403
- * would confirm that a property with that id exists somewhere, which is the
- * insecure-direct-object-reference this codebase already avoids everywhere
- * else through own().
+ * context(), gate() and audit() are shared with the authority module, and two
+ * copies of "how a property is opened" is exactly how one of them ends up
+ * missing a check.
  */
-async function context(req) {
-  const orgId = req.actor.orgId;
-  const siteId = req.params.siteId;
-
-  const dna = await dnaFor(orgId, siteId);
-  if (!dna) throw hidden();
-
-  const relations = await db.propertyRelationship.findMany({
-    where: { orgId, dnaId: dna.id, active: true, userId: req.session.userId },
-  });
-
-  if (!reachesProperty(req.actor, relations)) {
-    throw forbidden(
-      whyNotArea(req.actor, "property", "get", "this property") ||
-      "You have no relationship to this property."
-    );
-  }
-
-  return { orgId, dna, site: dna.site, relations, clearance: clearanceFor(req.actor, relations) };
-}
-
-/** Refuse a whole section, in words that say where the person stands. */
-function gate(clearance, cls, what) {
-  const why = whyNotClass(clearance, cls, what);
-  if (why) throw forbidden(why);
-}
 
 /* ---------------------------------------------------------------- *
  * 1. THE RECORD
