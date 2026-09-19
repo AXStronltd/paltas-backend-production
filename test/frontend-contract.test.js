@@ -1478,7 +1478,7 @@ test("a category decides which real inventory is shown", { skip }, () => {
   }
 });
 
-test("the products on the homepage are ones PALTAS can actually deliver", { skip }, async () => {
+test("the products on the homepage are ones PALTAS can actually deliver", { skip }, () => {
   /*
    * A product card is a promise a visitor can click. A product that does not
    * exist is the same fabrication as an invented listing — told about the
@@ -1494,7 +1494,18 @@ test("the products on the homepage are ones PALTAS can actually deliver", { skip
     .split("\n").map((l) => l.trim())
     .filter((l) => /^[A-Z_]+$/.test(l));
 
-  const html = await rendered(marketplaceHome(SAMPLE));
+  /*
+   * READ FROM index.html, NOT FROM THE MARKETPLACE RENDER.
+   *
+   * This checked the marketplace module's output, because that is where the
+   * product row lived. The homepage was showing the same four products twice
+   * — that row and the coloured section below it — and the row is gone. The
+   * guarantee is unchanged and matters more than where it is measured:
+   * nothing advertised that is not built, nothing built left off.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const cards = html.match(/<a class="p4"[\s\S]*?<\/a>/g) || [];
+  assert.equal(cards.length, 4, "the homepage no longer has exactly four product cards");
 
   /*
    * TWO ENTRIES IN THE ENUM ARE NOT THINGS A VISITOR CHOOSES.
@@ -1520,7 +1531,7 @@ test("the products on the homepage are ones PALTAS can actually deliver", { skip
     SECURITY_MANAGEMENT: "Security Management",
   };
 
-  const missing = forSale.filter((p) => !html.includes(shown[p]));
+  const missing = forSale.filter((p) => !cards.some((c) => c.includes("<h3>" + shown[p] + "</h3>")));
   assert.deepEqual(missing, [],
     "these products exist in the schema but are not offered on the homepage: " +
     missing.join(", "));
@@ -1529,11 +1540,11 @@ test("the products on the homepage are ones PALTAS can actually deliver", { skip
     "a flights product is advertised. PALTAS has no flights code, no flights " +
     "data, and LiteAPI returns 404 for flights on this account — so the card " +
     "would lead a visitor nowhere.");
-  assert.ok(!html.includes("PALTAS Platform</h3>"),
+  assert.ok(!cards.some((c) => c.includes("PALTAS Platform")),
     "the internal staff console is being offered to customers");
 
   /* And the guest experience must still EXIST, just not as a card here. */
-  assert.ok(!/>Guest Portal</.test(html),
+  assert.ok(!cards.some((c) => /Guest Portal/.test(c)),
     "Guest Portal is still offered as a product to choose");
   const guestRoutes = readFileSync(new URL("../src/routes/guest.js", import.meta.url), "utf8");
   assert.ok(/guest\/stay|guest\/services/.test(guestRoutes),
@@ -3062,112 +3073,6 @@ test("the timezone map is big enough to actually detect somebody", { skip }, () 
   }
 });
 
-test("the product section is four cards, one illustration family", { skip }, async () => {
-  const html = await rendered(marketplaceHome(SAMPLE));
-  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
-  const css = readFileSync(join(FE, "index.html"), "utf8");
-
-  /* Exactly four, in the order the section argues for. */
-  const cards = (html.match(/class="mk-card mk-prod mk-prod-/g) || []).length;
-  assert.equal(cards, 4, `the section shows ${cards} product cards, not four`);
-  for (const t of ["Property Management", "Hotel Management", "Agent &amp; Host",
-                   "Security Management"]) {
-    assert.ok(html.includes(t), `${t} is missing from the product section`);
-  }
-  assert.ok(!/Guest Portal/.test(html), "Guest Portal is still a card");
-
-  /* The copy the section was given, not a paraphrase of it. */
-  assert.ok(html.includes("One platform. Every property journey."), "the heading changed");
-  assert.ok(html.includes("The software behind the listings"), "the supporting line changed");
-  assert.ok(html.includes("Explore PALTAS"), "the section CTA changed");
-
-  /* Every card carries the same five parts. */
-  for (const part of ["mk-prod-brand", "mk-prod-art", "mk-prod-go", "mk-prod-feats"]) {
-    assert.equal((html.match(new RegExp(part, "g")) || []).length >= 4, true,
-      `${part} is missing from at least one card`);
-  }
-  assert.equal((html.match(/class="mk-iso"/g) || []).length, 4,
-    "not every card has an illustration");
-  /* Three features each, twelve in all. */
-  const feats = [...html.matchAll(/class="mk-prod-feats">([\s\S]*?)<\/span><\/span>/g)];
-  assert.equal(feats.length, 4, "a card is missing its feature row");
-  for (const f of feats) {
-    assert.equal((f[1].match(/<span>/g) || []).length, 3,
-      "a card does not carry exactly three features");
-  }
-
-  /*
-   * ONE FAMILY, NOT FOUR CLIP-ART CHOICES.
-   *
-   * All four illustrations come from one generated isometric projection: the
-   * same axes, the same light from the top left, the same shadow at the same
-   * scale. That is the difference between a set and four pictures — so the
-   * test pins the shared geometry rather than the drawings.
-   */
-  /* They are stored as JS string literals, so every quote inside them is
-     backslash-escaped. Unescaping once is clearer than writing a regex that
-     has to survive two layers of it. */
-  const flat = mod.replace(/\\"/g, '"');
-  const isos = [...flat.matchAll(/<svg class="mk-iso" viewBox="([^"]+)"/g)].map((m) => m[1]);
-  assert.equal(isos.length, 4, `there are ${isos.length} illustrations, not four`);
-  assert.equal(new Set(isos).size, 1, `the illustrations use different viewBoxes: ${isos.join(" | ")}`);
-  const shadows = [...flat.matchAll(/<ellipse cx="60" cy="92" rx="42" ry="13"/g)];
-  assert.equal(shadows.length, 4, "the illustrations do not share one ground shadow");
-  assert.ok(!/<image |\.jpg|\.png/.test(mod.slice(mod.indexOf("var ISO"), mod.indexOf("var PRODUCTS"))),
-    "an illustration is a photograph rather than a drawing");
-
-  /* A pastel behind the art only — a whole tinted card makes four of them
-     shout at each other. */
-  for (const tone of ["blue", "peach", "lilac", "sea"]) {
-    /* A plain string, not a constructed regex — the escaping needed to survive
-       a template literal AND RegExp was what made the first version fail. */
-    assert.ok(css.includes(`.mk-prod-${tone}{--tone:#`),
-      `the ${tone} tone is not defined`);
-  }
-  /* Four tones, four different pastels — no two cards may share one. */
-  const tones = [...css.matchAll(/\.mk-prod-(?:blue|peach|lilac|sea)\{--tone:(#[0-9A-Fa-f]{6})\}/g)]
-    .map((m) => m[1].toUpperCase());
-  assert.equal(tones.length, 4, `found ${tones.length} tone definitions, expected four`);
-  assert.equal(new Set(tones).size, 4, `two products share a pastel: ${tones.join(" ")}`);
-  assert.match(css, /\.mk-prod-art\{[^}]*background:var\(--tone\)/,
-    "the pastel is applied somewhere other than behind the illustration");
-
-  /* Four across, two across, then a rail — and the illustration must survive. */
-  assert.match(css, /\.mk-grid\{ grid-template-columns:repeat\(4,minmax\(0,1fr\)\) \}/, "not four across");
-  assert.match(css, /@media \(max-width:1180px\)\{ \.mk-grid\{grid-template-columns:repeat\(2,/, "no 2x2");
-  assert.match(css, /@media \(max-width:620px\)\{[\s\S]{0,400}?\.mk-card\.mk-prod\{flex:0 0 7\d%/,
-    "a phone does not get a swipe rail with the cards kept large");
-
-  /* Motion is a lift and an arrow, and neither happens for somebody who asked
-     for less of it. */
-  assert.match(css, /\.mk-card\.mk-prod:hover\{[\s\S]{0,120}transform:translateY\(-4px\)/, "no hover lift");
-  assert.match(css, /:hover \.mk-prod-go\{[\s\S]{0,140}transform:translateX\(3px\)/, "the arrow does not move");
-  const rm = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce){\n  .mk-card.mk-prod"));
-  assert.match(rm.slice(0, 220), /transform:none/, "reduced motion still gets the lift");
-
-  /* The existing route, not a new one. */
-  assert.ok(!/href="\/products|href="\/platform/.test(html), "a new product route was invented");
-  for (const m of html.matchAll(/class="mk-card mk-prod[^"]*" href="([^"]+)"/g)) {
-    assert.match(m[1], /^partner\.html\?p=/, `a card points at ${m[1]}, not the existing product page`);
-  }
-});
-
-/* ====================================================================== *
- * THE HOTEL CARD, AFTER THE TRIM.
- *
- * The card carried nine things: a "Hotel" chip, a star row that also spelled
- * "5-star" in words beside the glyphs, a title, a location, a guest score, a
- * refundable line either way, a total, a button, a derived per-night figure,
- * and an attribution. On a beige #fdf8ef card with a #ecd9b5 border, a
- * #8f6100 score and #8f6100 stars — every element in the same sepia, which
- * read as faded rather than warm.
- *
- * What is tested here is what must NOT come back, and what must never have
- * left: the SAMPLE chip, the supplier attribution, and the nights the price
- * covers. Those three are the difference between a tidier card and a
- * dishonest one.
- * ====================================================================== */
-
 test("the hotel card no longer labels a hotel as a hotel", { skip }, async () => {
   const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
   const card = (html.match(/<article class="mk-card mk-supply"[\s\S]*?<\/article>/) || [])[0] || "";
@@ -3394,47 +3299,6 @@ test("the dead-link check runs after the file it is checking", { skip }, () => {
  * THE PALTAS MARK, AND THE PRODUCT ROW.
  * ====================================================================== */
 
-test("the product cards carry a mark, not the word PALTAS four times", { skip }, async () => {
-  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
-
-  assert.ok(!/<span class="mk-prod-brand">PALTAS<\/span>/.test(mod),
-    'the wordmark is back. Six letters repeated on four cards is not branding — ' +
-    "the heading directly above already says whose platform this is.");
-  assert.match(mod, /var MARK =\s*\n?\s*'<svg class="mk-mark"/,
-    "the product cards have no mark at all");
-  assert.match(mod, /fill="currentColor"/,
-    "the mark must inherit its colour — four full-colour marks fight the four " +
-    "pastel illustrations they sit beside");
-
-  const html = await rendered(marketplaceWithSupply(SAMPLE, SUPPLY));
-  const marks = (html.match(/class="mk-mark"/g) || []).length;
-  assert.equal(marks, 4, `expected one mark per product card, found ${marks}`);
-});
-
-test("four products are never laid out three across", { skip }, () => {
-  /*
-   * .mk-grid is shared with the marketplace shelves and steps 4 -> 3 -> 2 -> 1,
-   * which is right when the card count varies. This section always holds
-   * exactly four, so the three-column step stranded Security Management alone
-   * on a row of its own and read as a layout fault.
-   */
-  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
-  const html = readFileSync(join(FE, "index.html"), "utf8");
-
-  assert.match(mod, /class="mk-grid mk-grid-prod"/,
-    "the product row uses the shared grid, so it will go three across again");
-
-  for (const [q, cols] of [["min-width:621px", 2], ["min-width:1181px", 4]]) {
-    const at = html.indexOf(`@media (${q}){`);
-    assert.ok(at > 0, `the ${q} rule for the product grid is gone`);
-    const block = html.slice(at, html.indexOf("}", html.indexOf(".mk-grid-prod", at)));
-    assert.match(block, new RegExp(`repeat\\(${cols},minmax\\(0,1fr\\)\\)`),
-      `at ${q} the product row should be ${cols} across`);
-  }
-  assert.ok(!/\.mk-grid-prod\{grid-template-columns:repeat\(3/.test(html),
-    "a three-column product row is back, which orphans the fourth card");
-});
-
 test("every icon PALTAS ships is the same mark", { skip }, () => {
   /*
    * There were three. The auth pages used a blue gradient P-as-key with a wifi
@@ -3463,54 +3327,6 @@ test("every icon PALTAS ships is the same mark", { skip }, () => {
     assert.ok(grad.toUpperCase().includes(stop.toUpperCase()),
       `the mark uses ${stop}, which is not a stop in the site's --grad (${grad})`);
   }
-});
-
-test("each product scene shows its own product, not a recoloured building", { skip }, () => {
-  /*
-   * They used to be four buildings in four hues, which told a reader nothing
-   * about which product they were looking at. Each scene now carries a detail
-   * only its own product would have.
-   */
-  const mod = readFileSync(join(FE, "assets/paltas-market.js"), "utf8");
-  /* Anchor the end AFTER the start — "PRODUCTS" also appears earlier in the
-     file, which made this slice empty and every lookup below fail. */
-  const isoAt = mod.indexOf("var ISO = {");
-  const iso = mod.slice(isoAt, mod.indexOf("PRODUCTS", isoAt));
-
-  const scene = (k) => {
-    const at = iso.indexOf(`    ${k}: "`);
-    assert.ok(at > 0, `no scene for ${k}`);
-    return iso.slice(at, iso.indexOf('",\n', at));
-  };
-
-  /* Distinct silhouettes: no two scenes may be the same drawing. */
-  const keys = ["property", "hotel", "agent", "security"];
-  const seen = new Set();
-  for (const k of keys) {
-    const s = scene(k);
-    assert.ok(s.length > 400, `${k}'s scene is too small to be a drawing`);
-    assert.ok(!seen.has(s), `${k} reuses another product's illustration`);
-    seen.add(s);
-  }
-
-  /* Security is the sea colour that was asked for, not the green it was. */
-  assert.match(scene("security"), /#0FB5B0|#0A8F8B|#8FE9E4/,
-    "the security scene is not in sea");
-  const css = readFileSync(join(FE, "index.html"), "utf8");
-  assert.match(css, /\.mk-prod-sea\{--tone:#E4FAF7\}/,
-    "the security panel is not the sea tint");
-  assert.ok(!/\.mk-prod-mint\{/.test(css), "the old mint panel is back behind a teal scene");
-  assert.match(mod, /key: "security", tone: "sea"/, "security no longer asks for the sea tone");
-
-  /*
-   * Agent & Host is a screen, because an agent's day is spent in one — and it
-   * has thickness. Drawn as a single flat polygon it read as a sticker rather
-   * than an object, which is the opposite of what a 3D scene is for.
-   */
-  const a = scene("agent");
-  assert.ok((a.match(/polygon/g) || []).length >= 10,
-    "the agent scene lost its screen detail");
-  assert.match(a, /#7566D4|#8E7BE0/, "the agent scene is not in the lilac family");
 });
 
 test("nothing served publicly can reach a real inbox", { skip }, () => {
@@ -4482,7 +4298,10 @@ test("the four product cards carry the locked palette, and each its own subject"
     assert.match(card, /<span class="p4-ic"/, `${name.replace("&amp;", "&")} has no icon`);
     assert.match(card, /<svg class="p4-mark"/, `${name.replace("&amp;", "&")} does not carry the PALTAS mark`);
     assert.match(card, /Learn more <i class="p4-arrow"/, `${name.replace("&amp;", "&")} has no Learn more or arrow`);
-    assert.match(card, /href="partner\.html"/, `${name.replace("&amp;", "&")} links nowhere`);
+    /* The deep link was carried across from the row that was removed: it
+       pre-selects this product at signup. */
+    assert.match(card, /href="partner\.html\?p=(property|hotel|agent|security)"/,
+      `${name.replace("&amp;", "&")} lost the deep link that pre-selects it at signup`);
   });
 
   /* Four different photographs, not one repeated. */
