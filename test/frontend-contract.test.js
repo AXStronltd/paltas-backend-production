@@ -4394,3 +4394,89 @@ test("the footer says who makes PALTAS without inventing a second brand", { skip
   assert.ok(!/class="fb-axs"[^>]*>[\s\S]{0,200}?<img/.test(html),
     "an Axstron logo was invented; there is no such asset in this repository");
 });
+
+test("the login modal is one door, and it is the one that exists", { skip }, () => {
+  /*
+   * The modal had turned back into a raw form, and only one of the three
+   * causes was visible:
+   *
+   *   1. `.modal-body` was closed by a stray </div> immediately after a
+   *      comment, so everything below it — heading, lede, fields, button —
+   *      sat OUTSIDE the padded card. That is why it looked unstyled.
+   *   2. It still carried a role picker and a full-name field, both held at
+   *      display:none, and an EMAIL INPUT that submitted nowhere.
+   *   3. Two headings competed: "Welcome to PALTAS" and "Log in".
+   *
+   * And the rule that decides what may be in it: src/auth/google.js is the
+   * only identity provider in the backend, and it says in as many words that
+   * it never touches a password. So an Apple button or an email button would
+   * open nothing.
+   */
+  const html = readFileSync(join(FE, "index.html"), "utf8");
+  const at = html.indexOf('<div class="modal-scrim au-scrim" id="authScrim"');
+  assert.ok(at > 0, "the login modal is gone");
+  const modal = html.slice(at, html.indexOf("<!-- ============ EMBEDDED PORTAL", at));
+
+  /* ONE login UI. Not two markups of the same thing. */
+  assert.equal((html.match(/id="authScrim"/g) || []).length, 1,
+    "there is more than one login modal in the page");
+
+  /* No door that opens nothing. */
+  assert.ok(!/Continue with Apple/i.test(modal),
+    "an Apple button is offered and there is no Apple provider in the backend");
+  assert.ok(!/Continue with email/i.test(modal),
+    "an email button is offered and google.js is the only provider");
+  assert.equal((modal.match(/<input/g) || []).length, 0,
+    "the login modal has an input again; there is no password and no email door");
+
+  /* The wreckage of the old login must not come back. */
+  for (const dead of ['id="rolePick"', 'id="nameField"', "setAuthRole"]) {
+    assert.ok(!modal.includes(dead), `${dead} is back in the login modal`);
+  }
+  /* setAuthRole queried '#rolePick button' unguarded — a function that throws
+     the moment anything calls it. */
+  assert.ok(!/window\.setAuthRole\s*=/.test(html),
+    "setAuthRole is back, and its only callers were the picker that is gone");
+
+  /* One heading. */
+  assert.equal((modal.match(/<h[1-4]/g) || []).length, 1,
+    "the login modal has competing headings again");
+  assert.match(modal, /<h3 id="authHeading">Welcome to PALTAS<\/h3>/,
+    "the modal heading changed; setAuthMode and aria-labelledby both point at it");
+  assert.match(modal, /id="authLede"/,
+    "the lede lost its id, so setAuthMode can no longer tell sign-in from sign-up");
+
+  /*
+   * THE DOOR ITSELF. The markup href must stay the page that has always
+   * worked, because that is the fallback if the upgrade below never runs.
+   */
+  assert.match(modal, /<a class="au-google" id="authGoogle" href="\/auth\/login\.html"/,
+    "the Google link no longer falls back to the sign-in page");
+  const up = html.slice(html.indexOf("var a = document.getElementById('authGoogle');"));
+  assert.match(up.slice(0, 600), /D\.Session\.signInUrl\(\)/,
+    "nothing upgrades the link to the OAuth start, so signing in costs two taps");
+  assert.match(up.slice(0, 600), /D\.configured\(\)/,
+    "the upgrade does not check the API is configured, so it can produce a broken href");
+
+  /* Google's mark on a light surface, inside the PALTAS gradient button. */
+  assert.match(modal, /<span class="au-g"[\s\S]*?#EA4335/,
+    "the official Google mark is gone from the button");
+  assert.match(html, /\.au-g\{[^}]*background:#fff/,
+    "Google's mark no longer sits on a light surface, which their brand guidance asks for");
+  assert.match(html, /\.au-google\{[\s\S]*?linear-gradient\(135deg,#12C6D4 0%,#2EA6FF 100%\)/,
+    "the primary button lost the PALTAS gradient");
+
+  /* Reachable with a thumb, and on a short screen the button is the last
+     thing to give way — not the first. */
+  assert.match(html, /\.au-x\{[\s\S]*?width:44px;height:44px/,
+    "the close control is below a reliable tap target");
+  assert.match(html, /\.au-google\{[\s\S]*?min-height:54px/, "the primary button is too small to tap");
+  assert.match(html, /@media \(max-height:620px\)\{[\s\S]*?\.au-why\{display:none\}/,
+    "on a short screen the benefits row no longer yields, so the door can be pushed off");
+  assert.match(html, /\.au-modal\{[\s\S]*?max-height:calc\(100dvh - 32px\)/,
+    "the card is not capped to the viewport, so it can clip");
+
+  /* The legal line points at pages that exist. */
+  assert.match(modal, /openInfo\('Terms of use'\)/, "the Terms link goes nowhere");
+  assert.match(modal, /openInfo\('Privacy'\)/, "the Privacy link goes nowhere");
+});
