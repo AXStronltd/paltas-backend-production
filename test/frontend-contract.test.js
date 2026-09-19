@@ -4424,17 +4424,17 @@ test("the four product cards carry the locked palette, and each its own subject"
    *   Property Management   #12B8A6 on #E7FAF6
    *   Hotel Management      #E99A3D on #FFF1DF
    *   Agent & Host          #8064C7 on #F1EDFF
-   *   Property Development  #2689C9 on #E7F4FC
+   *   Security Management   #1C7A5B on #D8E6F0   green on navy
    *
    * The arrow is PALTAS cyan on all four and is the one thing that is the
    * same on every card — without it, four identities stop being one family.
    *
-   * NOTE ON THE FOURTH. Property Development is not a value in the Product
-   * enum; the schema says so deliberately, and the signup sells Security
-   * Management as the fourth product instead. Showing Development here is a
-   * marketing decision taken knowingly, which is why Security is asserted to
-   * still be on the page and described as a product of its own rather than
-   * as something included in the other four.
+   * The four cards are now exactly the four values in the Product enum, which
+   * is also exactly what the signup sells. Property Development is back in
+   * the row beneath: it is not a Product value — "Not a separate Product
+   * value, deliberately", says the schema — and that row's heading can say
+   * "Included in those products" again, because it is true of all three in
+   * it. It could not say that while Security was there.
    */
   const html = readFileSync(join(FE, "index.html"), "utf8");
   const markup = html.replace(/<style[\s\S]*?<\/style>/g, "");
@@ -4446,7 +4446,7 @@ test("the four product cards carry the locked palette, and each its own subject"
     ["Property Management",  "#12B8A6", "#E7FAF6", ["Units", "Tenants", "Leases"]],
     ["Hotel Management",     "#E99A3D", "#FFF1DF", ["Reservations", "Guests", "Operations"]],
     ["Agent &amp; Host",     "#8064C7", "#F1EDFF", ["Listings", "Clients", "Deals"]],
-    ["Property Development", "#2689C9", "#E7F4FC", ["Projects", "Finance", "Sales"]],
+    ["Security Management",  "#1C7A5B", "#D8E6F0", ["Guards", "Patrols", "Incidents"]],
   ];
 
   WANT.forEach(([name, acc, bg, pills]) => {
@@ -4480,9 +4480,21 @@ test("the four product cards carry the locked palette, and each its own subject"
   const shots = (markup.match(/p4-shot">\s*<img src="[^"]*photo-([0-9a-f-]+)/g) || []);
   assert.equal(new Set(shots).size, 4, "two product cards share a photograph");
 
-  /* The arrow is the same on all four, and it is PALTAS cyan. */
-  assert.match(html, /\.p4-arrow \{[\s\S]*?background: #12C6D4;/,
-    "the arrow is no longer PALTAS cyan, so the four stop reading as one family");
+  /*
+   * The arrow is the same on all four, and its colour is declared ONCE.
+   *
+   * It is meant to carry Axstron's colour — the company behind the product —
+   * and is PALTAS cyan until that palette exists here to be used. The point
+   * of the token is that swapping it is one line, so the test guards the
+   * token rather than the value: four hard-coded arrows would be four places
+   * to miss.
+   */
+  assert.match(html, /\.pl-4 \{ --cta: #[0-9A-Fa-f]{6}; --cta-ink: #[0-9A-Fa-f]{6}; --cta-glow: /,
+    "the call-to-action colour is no longer declared once on the grid");
+  assert.match(html, /\.p4-arrow \{[\s\S]*?background: var\(--cta\);/,
+    "an arrow hard-codes its colour again, so the corporate colour is four edits");
+  assert.equal((html.match(/#12C6D4/g) || []).length >= 1, true,
+    "the interim PALTAS cyan is gone and nothing replaced it");
 
   /* The card must NOT become a solid block of its colour: the tint is a very
      light gradient and the text stays the page's own ink. */
@@ -4492,12 +4504,17 @@ test("the four product cards carry the locked palette, and each its own subject"
   assert.match(html, /\.p4-shot::after \{[\s\S]*?mix-blend-mode: soft-light/,
     "the wash over the photograph is not soft-light; multiply turned the blue card green");
 
-  /* Security Management is a product and stays named as one. */
-  assert.match(markup, /<p class="pl-more-h">Also on PALTAS<\/p>/,
-    "the row beside the four claims they are included in the four, and Security is not");
-  assert.match(markup, /<b>Security Management<\/b><span>[^<]*a product of its own/,
-    "Security Management is no longer described as the product it is");
-  for (const kept of ["Security Management", "Community &amp; Estate", "Investments"]) {
+  /*
+   * The row beneath holds capabilities, and its heading says so. This is only
+   * true while every row in it IS one — putting Security Management back
+   * would make the heading false, which is why it read "Also on PALTAS" when
+   * Security was there.
+   */
+  assert.match(markup, /<p class="pl-more-h">Included in those products<\/p>/,
+    "the row beside the four no longer says what its contents are");
+  assert.ok(!/<b>Security Management<\/b>/.test(markup.slice(markup.indexOf('class="pl-more"'))),
+    "Security Management is a Product value and is listed as something included in the others");
+  for (const kept of ["Property Development", "Community &amp; Estate", "Investments"]) {
     assert.ok(markup.includes("<b>" + kept + "</b>"),
       `${kept.replace("&amp;", "&")} was dropped from the homepage rather than moved`);
   }
