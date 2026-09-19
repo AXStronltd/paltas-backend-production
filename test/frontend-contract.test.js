@@ -4413,50 +4413,94 @@ test("the hero search is a bar on a phone, not a full-height card", { skip }, ()
     "picking a destination assigns .value and no longer updates the bar");
 });
 
-test("the four products on the homepage are the four an account can hold", { skip }, () => {
+test("the four product cards carry the locked palette, and each its own subject", { skip }, () => {
   /*
-   * The homepage used to show SEVEN "products". Four of them are products —
-   * they are the Product enum, and they are what the signup sells. The other
-   * three are capabilities inside those four: the schema says so of
-   * development in as many words ("Not a separate Product value,
-   * deliberately"), and promoting one to a card that links to a price page
-   * where it cannot be bought is a promise the account cannot keep.
+   * The colour direction is fixed, and it is fixed as a PAIR per product —
+   * a primary that appears on the icon, the pills and the wash over the
+   * photograph, and a background tint the card is built from. Written down
+   * here because a palette that lives only in a style attribute is one
+   * careless edit from four cards that no longer tell each other apart.
    *
-   * So the four are cards and the three are named underneath as what they
-   * are. Nothing was removed.
+   *   Property Management   #12B8A6 on #E7FAF6
+   *   Hotel Management      #E99A3D on #FFF1DF
+   *   Agent & Host          #8064C7 on #F1EDFF
+   *   Property Development  #2689C9 on #E7F4FC
+   *
+   * The arrow is PALTAS cyan on all four and is the one thing that is the
+   * same on every card — without it, four identities stop being one family.
+   *
+   * NOTE ON THE FOURTH. Property Development is not a value in the Product
+   * enum; the schema says so deliberately, and the signup sells Security
+   * Management as the fourth product instead. Showing Development here is a
+   * marketing decision taken knowingly, which is why Security is asserted to
+   * still be on the page and described as a product of its own rather than
+   * as something included in the other four.
    */
   const html = readFileSync(join(FE, "index.html"), "utf8");
   const markup = html.replace(/<style[\s\S]*?<\/style>/g, "");
 
   const cards = markup.match(/<a class="p4"[\s\S]*?<\/a>/g) || [];
-  assert.equal(cards.length, 4, "the homepage no longer shows exactly four products");
+  assert.equal(cards.length, 4, "the homepage no longer shows exactly four product cards");
 
-  /* Exactly the enum, by name. */
-  const { RESOURCES } = { RESOURCES: null };   /* not needed; the names are the contract */
-  const want = ["Property Management", "Hotel Management", "Agent &amp; Host", "Security Management"];
-  want.forEach((n, i) => {
-    assert.ok(cards.some((c) => c.includes("<h3>" + n + "</h3>")),
-      `${n.replace("&amp;", "&")} is not one of the four product cards`);
+  const WANT = [
+    ["Property Management",  "#12B8A6", "#E7FAF6", ["Units", "Tenants", "Leases"]],
+    ["Hotel Management",     "#E99A3D", "#FFF1DF", ["Reservations", "Guests", "Operations"]],
+    ["Agent &amp; Host",     "#8064C7", "#F1EDFF", ["Listings", "Clients", "Deals"]],
+    ["Property Development", "#2689C9", "#E7F4FC", ["Projects", "Finance", "Sales"]],
+  ];
+
+  WANT.forEach(([name, acc, bg, pills]) => {
+    const card = cards.find((c) => c.includes("<h3>" + name + "</h3>"));
+    assert.ok(card, `${name.replace("&amp;", "&")} is not one of the four product cards`);
+    assert.ok(card.includes("--acc:" + acc),
+      `${name.replace("&amp;", "&")} lost its primary colour ${acc}`);
+    assert.ok(card.includes("--c2:" + bg),
+      `${name.replace("&amp;", "&")} lost its background ${bg}`);
+
+    /* Exactly three pills, and the ones agreed. */
+    const got = (card.match(/<span class="p4-pills">([\s\S]*?)<\/span>\s*<span class="p4-go">/) || [, ""])[1];
+    const names = (got.match(/<span>([^<]+)<\/span>/g) || []).map((x) => x.replace(/<\/?span>/g, ""));
+    assert.deepEqual(names, pills, `${name.replace("&amp;", "&")} has the wrong feature pills`);
+
+    /* A photograph of its own subject, sized and lazy. */
+    assert.match(card, /<span class="p4-shot">\s*<img src="https:\/\/images\.unsplash\.com\/photo-[0-9a-f-]+\?w=760/,
+      `${name.replace("&amp;", "&")} has no photograph`);
+    assert.match(card, /loading="lazy"/, `${name.replace("&amp;", "&")}'s photograph is not lazy-loaded`);
+    assert.match(card, /alt="[A-Z][^"]{10,}"/, `${name.replace("&amp;", "&")}'s photograph has no useful alt text`);
+    assert.match(card, /width="760" height="470"/,
+      `${name.replace("&amp;", "&")}'s photograph has no intrinsic size, so the card reflows as it loads`);
+
+    /* The rest of the anatomy. */
+    assert.match(card, /<span class="p4-ic"/, `${name.replace("&amp;", "&")} has no icon`);
+    assert.match(card, /Learn more <i class="p4-arrow"/, `${name.replace("&amp;", "&")} has no Learn more or arrow`);
+    assert.match(card, /href="partner\.html"/, `${name.replace("&amp;", "&")} links nowhere`);
   });
-  /* And nothing that is not a product is dressed as one. */
-  for (const notAProduct of ["Property Development", "Community", "Investments"]) {
-    assert.ok(!cards.some((c) => c.includes("<h3>" + notAProduct)),
-      `${notAProduct} is shown as a product, and it is a capability inside one`);
-  }
-  /* But they are still on the page. */
-  for (const kept of ["Property Development", "Community &amp; Estate", "Investments"]) {
+
+  /* Four different photographs, not one repeated. */
+  const shots = (markup.match(/p4-shot">\s*<img src="[^"]*photo-([0-9a-f-]+)/g) || []);
+  assert.equal(new Set(shots).size, 4, "two product cards share a photograph");
+
+  /* The arrow is the same on all four, and it is PALTAS cyan. */
+  assert.match(html, /\.p4-arrow \{[\s\S]*?background: #12C6D4;/,
+    "the arrow is no longer PALTAS cyan, so the four stop reading as one family");
+
+  /* The card must NOT become a solid block of its colour: the tint is a very
+     light gradient and the text stays the page's own ink. */
+  assert.match(html, /\.p4 \{[\s\S]*?background: linear-gradient\(160deg, var\(--c1\) 0%, var\(--c2\) 100%\)/,
+    "the card background is no longer a light two-stop tint");
+  assert.match(html, /\.p4 \{[\s\S]*?color: var\(--ink\)/, "the card text is no longer the page's ink");
+  assert.match(html, /\.p4-shot::after \{[\s\S]*?mix-blend-mode: soft-light/,
+    "the wash over the photograph is not soft-light; multiply turned the blue card green");
+
+  /* Security Management is a product and stays named as one. */
+  assert.match(markup, /<p class="pl-more-h">Also on PALTAS<\/p>/,
+    "the row beside the four claims they are included in the four, and Security is not");
+  assert.match(markup, /<b>Security Management<\/b><span>[^<]*a product of its own/,
+    "Security Management is no longer described as the product it is");
+  for (const kept of ["Security Management", "Community &amp; Estate", "Investments"]) {
     assert.ok(markup.includes("<b>" + kept + "</b>"),
       `${kept.replace("&amp;", "&")} was dropped from the homepage rather than moved`);
   }
-
-  /* Every card carries its colour, its pills and its arrow. */
-  cards.forEach((c, i) => {
-    assert.match(c, /--c1:#[0-9A-Fa-f]{6};--c2:#[0-9A-Fa-f]{6};--ink4:#[0-9A-Fa-f]{6};--acc:#[0-9A-Fa-f]{6}/,
-      `product card ${i + 1} has no colour of its own`);
-    assert.match(c, /<span class="p4-pills">[\s\S]*?<span>/, `product card ${i + 1} has no feature pills`);
-    assert.match(c, /class="p4-go"[\s\S]*?&rarr;/, `product card ${i + 1} has no arrow`);
-    assert.match(c, /href="partner\.html"/, `product card ${i + 1} links nowhere`);
-  });
 
   /* 2x2 on a desktop, a swipe rail on a phone. */
   assert.match(html, /\.pl-4 \{ display: grid; grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/,
