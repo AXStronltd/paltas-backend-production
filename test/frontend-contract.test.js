@@ -4732,3 +4732,42 @@ test("a mistyped market is recovered without the 404 page keeping its own list",
   /* And it stays out of search results. */
   assert.match(html, /name="robots" content="noindex"/, "the 404 page became indexable");
 });
+
+test("a button with no argument does not carry the word undefined", { skip }, () => {
+  /*
+   * act() interpolated its argument unconditionally, so the two call sites that
+   * pass none rendered data-act="arrClear::undefined" — the literal word — into
+   * the page, and the handler was then called with the STRING "undefined"
+   * rather than with nothing. It happened to be harmless for those two
+   * handlers, which both ignore their argument. The next one to read it would
+   * not have been so lucky.
+   *
+   * The dispatcher splits data-act on "::" and a name with no "::" yields an
+   * undefined argument, which is what hand-written buttons like
+   * data-act="gClockOut" have always relied on. So the fix was to honour the
+   * convention already in the file.
+   */
+  const js = readFileSync(join(FE, "assets", "console.js"), "utf8");
+
+  const helper = js.slice(js.indexOf("const act = (label, name, arg, tone)"));
+  const body = helper.slice(0, helper.indexOf("`;") + 2);
+  assert.ok(body.length > 40, "act() was renamed or reshaped — this test reads nothing");
+  assert.match(body, /arg === undefined \|\| arg === null/,
+    "act() stringifies its argument unconditionally, so an absent one becomes \"undefined\"");
+
+  /*
+   * Comments stripped FIRST.
+   *
+   * The comment above act() quotes data-act="arrClear::undefined" in order to
+   * record the bug, so a search over the raw file matches the explanation of
+   * the defect and reports it as the defect. Only shipped code counts.
+   */
+  const code = js.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  const literal = [...code.matchAll(/data-act="[^"]*::(?:undefined|null|NaN)[^"]*"/g)].map((m) => m[0]);
+  assert.deepEqual(literal, [],
+    "a button ships an absent argument as text: " + literal.join(" | "));
+
+  /* Non-vacuous: the file really does contain buttons of both forms. */
+  assert.ok(/data-act="[a-zA-Z]+::/.test(code), "no argument-carrying buttons found at all");
+  assert.ok(/data-act="[a-zA-Z]+"/.test(code), "no argument-free buttons found at all");
+});
