@@ -292,6 +292,18 @@ test("every model has an id and timestamps, or says why not", () => {
      */
     "PropertyTimelineEvent", "SuccessionStep",
     /*
+     * ONE SIDE OF ONE POSTED JOURNAL ENTRY.
+     *
+     * It has no updatedAt because it is never updated, and that is the whole
+     * guarantee the ledger rests on: a posted entry is immutable, and a
+     * correction is a REVERSING entry that says what it reverses and why.
+     * A line that could be edited after posting would make every report
+     * derived from it unprovable, which is exactly what an auditor is
+     * checking for. ledger.test.js asserts the original's lines still read
+     * as posted after a reversal.
+     */
+    "JournalLine",
+    /*
      * A JOIN ROW between land and what is built on it. It records that this
      * parcel carries this property; if that stops being true the row is
      * removed, never edited into meaning something else. There is no field on

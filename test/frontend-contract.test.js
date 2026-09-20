@@ -4239,10 +4239,24 @@ test("the hero search is a bar on a phone, not a full-height card", { skip }, ()
   assert.match(html, /\.hs-bar,\.hs-sheetbg,\.hs-sheet-head\{display:none\}/,
     "the bar is not hidden by default, so it would show on desktop too");
 
-  const phone = (html.match(/@media\(max-width:700px\)\{[\s\S]*?\n\}/) || [""])[0];
+  /*
+   * 767.98px, not 700. The compact bar used to start at 700, and then the
+   * mobile marketplace started at 768 — which left 68px of widths showing a
+   * search button whose sheet had no mobile positioning behind it. The query
+   * was widened to match the layout it belongs to, so this reads the block
+   * that actually carries the bar rather than a number that used to be true.
+   */
+  const phone = (html.match(/@media\(max-width:767\.98px\)\{[\s\S]*?\n\}/) || [""])[0];
   assert.ok(phone, "the phone block is gone");
-  assert.match(phone, /\.hero-search\{[^}]*display:none\}/,
-    "the full card is shown on a phone again");
+  /* `body:not(.hs-open)` matters: .hero-search IS the sheet #hsBar opens.
+     Hiding it unconditionally stopped the sheet appearing at all, which is
+     how the search button came to do nothing. */
+  /* Asserted against the whole stylesheet, not the block above: there is more
+     than one mobile block now (the compact search, and the marketplace layout
+     that hides the hero), and the rule lives in whichever one owns it. What
+     the contract cares about is that the rule EXISTS and is conditional. */
+  assert.match(html, /body:not\(\.hs-open\) \.hero-search\{[^}]*display:none[^}]*\}/,
+    "the full card is shown on a phone again, or the sheet can no longer open");
   assert.match(phone, /\.hs-bar\{[\s\S]{0,300}?min-height:62px/,
     "the compact bar is not a reliable tap target");
   /* Above the tab bar (z-index 120), or the bottom navigation sits on the

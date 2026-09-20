@@ -124,6 +124,15 @@ export const SITE_BEARING = new Set([
    */
   "propertyDna",
   /*
+   * A journal line names the site its money belongs to, so a person whose
+   * remit is two buildings must not read the third one's figures. The entry
+   * ABOVE it is deliberately absent: an entry can carry lines for several
+   * sites — a bank fee split across a portfolio — and narrowing the entry by
+   * one site would hide the other half of a balanced transaction. The line is
+   * the row that has a site; the line is what gets narrowed.
+   */
+  "journalLine",
+  /*
    * The link between a parcel and a property. It carries a siteId, so a
    * person whose remit is two buildings must not learn which parcel the
    * third one stands on — that is the authority layer's join and it is how a

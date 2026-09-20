@@ -249,11 +249,15 @@ model Organization {
   auditEvents AuditEvent[]
 
   /// ---- property & development ----
-  leases        Lease[]
-  projects      Project[]
-  investors     Investor[]
-  distributions Distribution[]
-  capitalCalls  CapitalCall[]
+  leases           Lease[]
+  projects         Project[]
+  ledgerAccounts   LedgerAccount[]
+  journalEntries   JournalEntry[]
+  journalLines     JournalLine[]
+  financialPeriods FinancialPeriod[]
+  investors        Investor[]
+  distributions    Distribution[]
+  capitalCalls     CapitalCall[]
 
   /**
    * Tokenised investment. Additive: see the INVESTMENTS block at the end.
@@ -4145,4 +4149,218 @@ model AuthorityRequest {
 
   @@index([orgId, status])
   @@index([profileId, status])
+}
+
+/// ══════════════════════════════════════════════════════════════════════
+/// THE LEDGER
+///
+/// Everything financial this platform reports has to be derivable from
+/// here. Totals kept on other tables are a convenience at best and a
+/// second opinion at worst: when a figure on a dashboard and a figure in
+/// a statement disagree, the only way to settle it is a place where every
+/// movement was written once, in balance, and never quietly changed.
+///
+/// Three rules are enforced in code, not convention, and they are the
+/// reason this exists:
+///   1. a posted entry balances — total debits equal total credits
+///   2. a posted entry is immutable — corrections are new reversing entries
+///   3. nothing crosses an organization boundary
+///
+/// Amounts are BigInt MINOR UNITS, matching Payment and Expense already in
+/// this schema. Cents, not fractions of a cent: floating point has no place
+/// in a column somebody reconciles against a bank.
+/// ══════════════════════════════════════════════════════════════════════
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  INCOME
+  EXPENSE
+  EQUITY
+}
+
+/// Which side increases the balance. Stored rather than derived so a report
+/// never has to re-guess the sign convention.
+enum NormalBalance {
+  DEBIT
+  CREDIT
+}
+
+enum JournalStatus {
+  /// Being built. Does not appear in any report and need not balance yet.
+  DRAFT
+  /// Final. Balanced, in an open period, and from here on immutable.
+  POSTED
+  /// Cancelled by a reversing entry. The original rows stay exactly as posted.
+  REVERSED
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSING
+  CLOSED
+}
+
+/// One line of the chart of accounts, per organization.
+model LedgerAccount {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Stable within the organization: "1000", "4010". What an accountant asks for.
+  code   String
+  name   String
+  type   AccountType
+  /// Which side increases it. ASSET/EXPENSE debit; LIABILITY/INCOME/EQUITY credit.
+  normal NormalBalance
+
+  /// Sub-accounts, so "Utilities" can hold "Water" and "Electricity" without
+  /// a second table.
+  parentId String?
+  parent   LedgerAccount?  @relation("AccountTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children LedgerAccount[] @relation("AccountTree")
+
+  /// Only leaves take postings; a parent is a heading.
+  postable Boolean @default(true)
+  /// Withdrawn accounts stop accepting new lines and keep their history.
+  active   Boolean @default(true)
+
+  /// Where this account's money physically sits, when it is a bank account.
+  /// Nullable because most accounts are not bank accounts.
+  bankRef String?
+
+  lines JournalLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, code])
+  @@index([orgId, type])
+  @@index([orgId, active])
+}
+
+/// A month (or any range) that can be closed against further posting.
+model FinancialPeriod {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// "2026-09". Unique per organization.
+  label    String
+  opensAt  DateTime
+  closesAt DateTime
+  status   PeriodStatus @default(OPEN)
+
+  /// Who closed it and when — and, if it was reopened, who did that.
+  closedAt     DateTime?
+  closedById   String?
+  reopenedAt   DateTime?
+  reopenedById String?
+  reopenReason String?
+
+  entries JournalEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, label])
+  @@index([orgId, status])
+  @@index([orgId, opensAt, closesAt])
+}
+
+/// One balanced financial event.
+model JournalEntry {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Human reference, unique per organization: "JE-2026-000123".
+  ref  String
+  /// The date the event belongs to in the books, which is not always the day
+  /// somebody typed it in.
+  date DateTime
+
+  periodId String?
+  period   FinancialPeriod? @relation(fields: [periodId], references: [id], onDelete: SetNull)
+
+  status JournalStatus @default(DRAFT)
+  memo   String        @default("")
+
+  /// What caused this. `sourceType` names a table ("Invoice", "Payment",
+  /// "Expense", "Payout"); `sourceId` is the row. Not a foreign key for the
+  /// same reason AuditEvent's is not: one column cannot reference nine tables.
+  sourceType String?
+  sourceId   String?
+
+  /// The currency the event happened in, and what it was worth in the
+  /// organization's reporting currency. The original is never overwritten.
+  currency     String
+  baseCurrency String
+  /// Rate as a string to avoid binary-float drift; "1" when they match.
+  fxRate       String    @default("1")
+  fxSource     String?
+  fxAt         DateTime?
+
+  /// Set once posted. Nothing may change after this is written.
+  postedAt   DateTime?
+  postedById String?
+
+  /// A reversal points at what it cancels; the original points back.
+  reversesId     String?       @unique
+  reverses       JournalEntry? @relation("Reversal", fields: [reversesId], references: [id], onDelete: SetNull)
+  reversedBy     JournalEntry? @relation("Reversal")
+  reversalReason String?
+
+  lines JournalLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId, status, date])
+  @@index([orgId, sourceType, sourceId])
+  @@index([periodId])
+}
+
+/// One side of one entry. Exactly one of debit/credit is non-zero.
+model JournalLine {
+  id    String       @id @default(cuid())
+  /// The organization owns the line as well as the entry. A real foreign key,
+  /// not a loose column: isolation that lives only in application code is a
+  /// convention, and a hand-written query is all it takes to ignore one.
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  entryId String
+  entry   JournalEntry @relation(fields: [entryId], references: [id], onDelete: Cascade)
+
+  accountId String
+  account   LedgerAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  /// Minor units, never negative. Direction is which column is filled, so a
+  /// report never has to interpret a sign.
+  debit  BigInt @default(0)
+  credit BigInt @default(0)
+
+  /// The same amount in the organization's reporting currency.
+  baseDebit  BigInt @default(0)
+  baseCredit BigInt @default(0)
+
+  memo String @default("")
+
+  /// What this line is ABOUT, for per-property and per-tenant reporting.
+  /// Nullable throughout: a bank fee belongs to no unit.
+  siteId     String?
+  buildingId String?
+  unitId     String?
+  leaseId    String?
+  partyId    String?
+
+  createdAt DateTime @default(now())
+
+  @@index([orgId, accountId])
+  @@index([entryId])
+  @@index([orgId, siteId])
+  @@index([orgId, unitId])
+  @@index([orgId, partyId])
 }
