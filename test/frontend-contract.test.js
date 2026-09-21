@@ -5177,3 +5177,42 @@ test("a failed sign-in says why, on the page the person lands on", { skip }, () 
   assert.match(claimed, /again/,
     "the message does not tell the person what to do about it");
 });
+
+test("no onboarding step claims a completion the server never receives", { skip }, () => {
+  /*
+   * THE DEFECT THIS EXISTS TO PREVENT.
+   *
+   * The verification step carried a button — "I have these ready →" — that
+   * set BIZ.docs. That boolean lived in sessionStorage and went nowhere:
+   * POST /organizations does not accept it, the server writes verification
+   * NOT_STARTED with an empty document list regardless, and a refresh cleared
+   * it. The screen showed a completed step that did not exist a moment later,
+   * and nothing had been sent to anybody.
+   *
+   * A completion state has to come from the server or not be shown. That is
+   * the whole rule, and it is the one that separates a product from a
+   * picture of a product.
+   */
+  const mk = readFileSync(join(FE, "assets", "market.js"), "utf8");
+  const code = mk.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  assert.doesNotMatch(code, /BIZ\.docs/,
+    "the verification step tracks a completion flag again; check it reaches the server");
+  assert.doesNotMatch(code, /data-biz="docs"/,
+    "the 'I have these ready' toggle is back, and it records nothing anywhere");
+
+  /* Whatever the last step sends, the server must be willing to receive.
+     A field the API drops is a field the person filled in for nothing. */
+  const call = code.slice(code.indexOf("A2.createOrganization({"));
+  const sent = [...call.slice(0, call.indexOf("})")).matchAll(/^\s*([a-zA-Z]+):/gm)].map((m) => m[1]);
+  assert.ok(sent.length >= 4, "the signup submit could not be read");
+
+  const accepted = new Set([
+    "company", "name", "work", "products", "caps", "preferred",
+    "country", "city", "size", "plan", "planKey",
+  ]);
+  const dropped = sent.filter((f) => !accepted.has(f));
+  assert.deepEqual(dropped, [],
+    "signup sends fields POST /organizations does not accept, so they are " +
+    "silently discarded: " + dropped.join(", "));
+});

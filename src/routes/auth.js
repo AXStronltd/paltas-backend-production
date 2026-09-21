@@ -120,11 +120,23 @@ authRoutes.get("/google/callback", signInLimit, async (req, res, next) => {
     const reason =
       e && e.status === 403 ? "email_claimed"
       : e && e.status === 400 ? "incomplete"
-      : e && e.status === 401 ? (/redirect URI/i.test(String(e.message || ""))
-          ? "redirect_uri_mismatch"
-          : /expired or was already used/i.test(String(e.message || ""))
-            ? "expired"
-            : "failed")
+      /*
+       * Google's own word first, when it gave one. "invalid_client" is a
+       * wrong client id or secret IN THIS DEPLOYMENT, and it is not going to
+       * start working on the third attempt — telling somebody to try again
+       * is the one answer that guarantees they waste their afternoon.
+       */
+      : e && e.status === 401 ? (
+          e.googleError === "invalid_client" ? "bad_credentials"
+          : e.googleError === "redirect_uri_mismatch" ? "redirect_uri_mismatch"
+          : e.googleError === "unauthorized_client" ? "bad_credentials"
+          : e.googleError === "invalid_grant" ? "expired"
+          : /redirect URI/i.test(String(e.message || "")) ? "redirect_uri_mismatch"
+          : /expired or was already used/i.test(String(e.message || "")) ? "expired"
+          : /could not be verified|no account identifier/i.test(String(e.message || "")) ? "identity_unverified"
+          : /no email address/i.test(String(e.message || "")) ? "no_email"
+          : /has not verified that address/i.test(String(e.message || "")) ? "email_unverified"
+          : "failed")
       : null;
 
     if (reason) {

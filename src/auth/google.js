@@ -236,14 +236,47 @@ export async function completeSignIn({ code, state, cookie }, deps = {}) {
   });
 
   if (!res.ok) {
-    /* Google's error body names the misconfiguration — redirect_uri_mismatch
-       is far and away the most common, and it is worth saying so rather than
-       making somebody read a generic failure. */
+    /*
+     * GOOGLE ALREADY SAID WHAT IS WRONG. CARRY IT.
+     *
+     * The body is `{"error":"invalid_client", ...}` and every value means
+     * something different and is fixed somewhere different:
+     *
+     *   invalid_client       the client id or SECRET is wrong in this
+     *                        deployment's environment
+     *   invalid_grant        the code was already used, or expired
+     *   redirect_uri_mismatch  the URI is not the one registered
+     *   unauthorized_client  this client may not use this grant type
+     *
+     * All four were collapsed into one sentence — "sign-in did not complete,
+     * try again" — which is true of all of them and useful for none. Somebody
+     * whose client secret is wrong would retry forever.
+     *
+     * An ALLOW-LIST of Google's own codes, never the raw body: the body is
+     * Google's to change, and echoing an unknown string from an upstream
+     * service into a redirect is how something that should not be public
+     * becomes public.
+     */
     const detail = await res.text().catch(() => "");
-    const hint = /redirect_uri_mismatch/.test(detail)
+    let code = "";
+    try { code = String(JSON.parse(detail).error || ""); } catch { code = ""; }
+
+    const KNOWN = new Set([
+      "invalid_client", "invalid_grant", "invalid_request",
+      "redirect_uri_mismatch", "unauthorized_client", "unsupported_grant_type",
+    ]);
+    const named = KNOWN.has(code) ? code : "";
+
+    const hint = named === "redirect_uri_mismatch"
       ? ` The redirect URI registered in Google Cloud must be exactly: ${config.google.redirectUri}`
-      : "";
-    throw unauthorized("Google would not complete the sign-in." + hint);
+      : named === "invalid_client"
+        ? " Google did not accept this application's credentials."
+        : "";
+
+    const err = unauthorized("Google would not complete the sign-in." + hint);
+    /* Read by the route to name the failure on the page the person lands on. */
+    err.googleError = named;
+    throw err;
   }
 
   const tokens = await res.json();
