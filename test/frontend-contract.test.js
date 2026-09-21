@@ -4785,3 +4785,45 @@ test("a button with no argument does not carry the word undefined", { skip }, ()
   assert.ok(/data-act="[a-zA-Z]+::/.test(code), "no argument-carrying buttons found at all");
   assert.ok(/data-act="[a-zA-Z]+"/.test(code), "no argument-free buttons found at all");
 });
+
+test("a signed-in person is not left on the sign-in screen", { skip }, () => {
+  /*
+   * THE BUG THIS GUARDS, WHICH A BOOKMARK WAS ENOUGH TO CAUSE.
+   *
+   * console.js runs gate() while it parses, and the gate reads the session
+   * from sessionStorage — which is PER TAB. Someone who signed in yesterday,
+   * or who opened their console in a second tab, has a valid cookie and an
+   * empty sessionStorage. The gate saw NO_SESSION and replaced the whole
+   * document with "Sign in to continue".
+   *
+   * The bridge then fetched the real session, wrote it, and called render() —
+   * which threw on a missing `.side`, because the shell it paints into had
+   * been destroyed. The throw was caught and logged as "session repaint
+   * failed", and the person sat looking at a sign-in screen while signed in.
+   *
+   * The fix is one reload, once: the session is in sessionStorage by then, so
+   * the gate passes. "Once" is the part that matters — a console the account
+   * genuinely may not open must stay locked rather than reload forever.
+   */
+  const bridge = readFileSync(join(FE, "assets", "paltas-session-bridge.js"), "utf8");
+
+  assert.match(bridge, /querySelector\("\.side"\)/,
+    "the bridge no longer checks whether the shell survived the gate");
+  assert.match(bridge, /location\.reload\(\)/,
+    "nothing recovers a page the gate locked before the session arrived");
+
+  /* The loop guard, and that it is READ before reloading. */
+  const flag = bridge.indexOf("GATE_RELOADED");
+  const reload = bridge.indexOf("location.reload()");
+  assert.ok(flag >= 0, "the reload has no once-only guard, so a locked console can loop");
+  assert.ok(flag < reload, "the guard is set after the reload, which is too late to stop a loop");
+  assert.match(bridge, /getItem\(GATE_RELOADED\)/, "the guard is written but never read");
+  assert.match(bridge, /removeItem\(GATE_RELOADED\)/,
+    "the guard is never cleared, so a later legitimate recovery cannot happen");
+
+  /* And render() is still the thing that needs the shell — if it ever stops
+     touching .side, this guard is protecting nothing and should be revisited. */
+  const console_ = readFileSync(join(FE, "assets", "console.js"), "utf8");
+  assert.match(console_, /function render\(\)\s*\{[\s\S]{0,200}querySelector\("\.side"\)/,
+    "render() no longer depends on .side — re-check what the bridge is guarding");
+});
