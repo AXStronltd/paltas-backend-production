@@ -394,3 +394,63 @@ test("a site-scoped member's summary counts match their own lists", { skip }, as
   assert.ok(/north/i.test(list) && !/south/i.test(list),
     "the list and the count disagree — list was: " + list);
 });
+
+test("a scoped member's request for one site cannot land on a different one", { skip }, async () => {
+  /*
+   * THE BUG THIS EXISTS TO PREVENT, WHICH SHIPPED.
+   *
+   * `sites` is the one resource that narrows on its OWN id: scopeWhere()
+   * returns { id: { in: allowed } }. The three by-id handlers built their
+   * where clause as
+   *
+   *     { id: req.params.id, orgId, ...scopeWhere(...) }
+   *
+   * and a spread puts its keys LAST — so the scope's `id` replaced the id
+   * being asked for. The request stopped meaning "site B" and started
+   * meaning "any site in my remit", which Prisma answered with the first one.
+   *
+   * Nothing crossed a tenant wall: orgId held, and the row returned was one
+   * this person may see. It was worse than a refusal in a quieter way —
+   *
+   *     GET    /sites/B  returned 200 with A's data
+   *     PATCH  /sites/B  renamed A
+   *     DELETE /sites/B  deleted A, and its buildings and units with it
+   *
+   * — and all three looked like they had worked. A manager with two
+   * buildings could archive the wrong one and be told it succeeded.
+   */
+  const c = await company({ scope: { sites: [] } });
+  await db.membership.updateMany({
+    where: { orgId: c.org.id }, data: { scope: { sites: [c.north.id] } } });
+
+  /* Reading the site they may NOT see must refuse — not quietly hand back
+     the one they may. */
+  const read = await call(`/sites/${c.south.id}`, { cookie: c.cookie });
+  assert.equal(read.status, 404,
+    `reading an out-of-scope site answered ${read.status}` +
+    (read.json && read.json.site ? ` with "${read.json.site.name}"` : ""));
+
+  /* Writing to it must not land on the one they may. */
+  const before = await db.site.findUnique({ where: { id: c.north.id } });
+  const edit = await call(`/sites/${c.south.id}`, {
+    method: "PATCH", cookie: c.cookie, body: { name: "Renamed by an outsider" } });
+  assert.equal(edit.status, 404, "an out-of-scope site was editable");
+  assert.equal((await db.site.findUnique({ where: { id: c.north.id } })).name, before.name,
+    "*** editing one site renamed a different one ***");
+  assert.equal((await db.site.findUnique({ where: { id: c.south.id } })).name, c.south.name,
+    "an out-of-scope site was renamed");
+
+  /* And deleting it must not delete the one they may. */
+  const gone = await call(`/sites/${c.south.id}`, { method: "DELETE", cookie: c.cookie });
+  assert.equal(gone.status, 404, "an out-of-scope site was deletable");
+  assert.ok(await db.site.findUnique({ where: { id: c.north.id } }),
+    "*** deleting one site deleted a different one ***");
+  assert.ok(await db.site.findUnique({ where: { id: c.south.id } }),
+    "an out-of-scope site was deleted");
+
+  /* Non-vacuous: the site they MAY reach still answers, by its own id. */
+  const mine = await call(`/sites/${c.north.id}`, { cookie: c.cookie });
+  assert.equal(mine.status, 200, "the scope now refuses a site the member may see");
+  assert.equal(mine.json.site.id, c.north.id,
+    "the id asked for is not the id returned, which is the whole bug");
+});

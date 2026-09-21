@@ -234,8 +234,25 @@ export function resourceRouter(slug) {
   router.get("/:id", may("get"), async (req, res, next) => {
     try {
       const row = await model().findFirst({
-        where: { id: req.params.id, orgId: req.actor.orgId,
-                 ...(scopeWhere(req.actor, resource, slug) || {}) },
+        where: {
+          id: req.params.id, orgId: req.actor.orgId,
+          /*
+           * AND, NOT SPREAD. The `sites` resource narrows on its OWN id —
+           * scopeWhere returns { id: { in: allowed } } — and a spread puts
+           * that key last, so it REPLACED the id being asked for. The
+           * request became "any site in my remit", which Prisma answered
+           * with the first one.
+           *
+           * GET /sites/B returned 200 with A's data. PATCH /sites/B renamed
+           * A. DELETE /sites/B deleted A, and its buildings and units with
+           * it. All three looked like they had worked.
+           *
+           * Every other resource narrows on `siteId`, which does not collide,
+           * so this only ever bit sites — the one resource where being wrong
+           * about WHICH row means being wrong about a whole property.
+           */
+          AND: [scopeWhere(req.actor, resource, slug) || {}],
+        },
         include: withHistory(resource),
       });
       if (!row) throw hidden();
@@ -310,8 +327,25 @@ export function resourceRouter(slug) {
   router.patch("/:id", may("update"), async (req, res, next) => {
     try {
       const before = await model().findFirst({
-        where: { id: req.params.id, orgId: req.actor.orgId,
-                 ...(scopeWhere(req.actor, resource, slug) || {}) },
+        where: {
+          id: req.params.id, orgId: req.actor.orgId,
+          /*
+           * AND, NOT SPREAD. The `sites` resource narrows on its OWN id —
+           * scopeWhere returns { id: { in: allowed } } — and a spread puts
+           * that key last, so it REPLACED the id being asked for. The
+           * request became "any site in my remit", which Prisma answered
+           * with the first one.
+           *
+           * GET /sites/B returned 200 with A's data. PATCH /sites/B renamed
+           * A. DELETE /sites/B deleted A, and its buildings and units with
+           * it. All three looked like they had worked.
+           *
+           * Every other resource narrows on `siteId`, which does not collide,
+           * so this only ever bit sites — the one resource where being wrong
+           * about WHICH row means being wrong about a whole property.
+           */
+          AND: [scopeWhere(req.actor, resource, slug) || {}],
+        },
       });
       if (!before) throw hidden();
 
@@ -353,8 +387,25 @@ export function resourceRouter(slug) {
       if (resource.noDelete) throw forbidden(resource.noDelete);
 
       const { count } = await model().deleteMany({
-        where: { id: req.params.id, orgId: req.actor.orgId,
-                 ...(scopeWhere(req.actor, resource, slug) || {}) },
+        where: {
+          id: req.params.id, orgId: req.actor.orgId,
+          /*
+           * AND, NOT SPREAD. The `sites` resource narrows on its OWN id —
+           * scopeWhere returns { id: { in: allowed } } — and a spread puts
+           * that key last, so it REPLACED the id being asked for. The
+           * request became "any site in my remit", which Prisma answered
+           * with the first one.
+           *
+           * GET /sites/B returned 200 with A's data. PATCH /sites/B renamed
+           * A. DELETE /sites/B deleted A, and its buildings and units with
+           * it. All three looked like they had worked.
+           *
+           * Every other resource narrows on `siteId`, which does not collide,
+           * so this only ever bit sites — the one resource where being wrong
+           * about WHICH row means being wrong about a whole property.
+           */
+          AND: [scopeWhere(req.actor, resource, slug) || {}],
+        },
       });
       if (!count) throw hidden();
 
