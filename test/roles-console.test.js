@@ -1,0 +1,195 @@
+/* ====================================================================== *
+ * EVERY ROLE, IN EVERY PRODUCT, THROUGH THE DOOR IT ACTUALLY MEETS.
+ *
+ * A company does not sign up one person. It signs up an owner, who then
+ * invites a manager, a finance lead, a caretaker, a front desk and a guard —
+ * and each of them must land somewhere that works. The failure this file
+ * exists to catch is the quiet one: a role that signs in successfully and
+ * arrives at an empty console, or at a screen that throws.
+ *
+ * ── THE THREE RULES, IN ORDER ──────────────────────────────────────────
+ *
+ *   `only`   pins a role to ONE product. A security administrator has no
+ *            business inside a hotel's console even as an employee of the
+ *            hotel, and openable() is where that is enforced.
+ *   `sees`   null means the whole product; otherwise an allow-list per
+ *            product. What is not named is not reachable.
+ *   navFor() turns those into the menu this person gets.
+ *
+ * Testing navFor() alone walks straight past the first rule. An earlier
+ * version of this did exactly that and reported a security administrator
+ * holding 27 screens inside a property company he cannot enter at all.
+ * So the door is asked first, and the menu only after it opens.
+ * ====================================================================== */
+
+import test from "node:test";
+import assert from "node:assert/strict";
+import { existsSync, readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { makeWindow } from "./dom-shim.js";
+
+const FE = process.env.PALTAS_FRONTEND
+  || resolve(process.cwd(), "..", "paltas-frontend 2");
+const skip = existsSync(join(FE, "assets", "console.js"))
+  ? false
+  : `no frontend at ${FE} — set PALTAS_FRONTEND to run these`;
+
+const PRODUCTS = {
+  PROPERTY_MANAGEMENT: "property",
+  AGENT_HOST: "agent",
+  HOTEL_MANAGEMENT: "hotel",
+  SECURITY_MANAGEMENT: "security",
+};
+
+/* PALTAS's own staff and the guest portal are not company roles. */
+const NOT_COMPANY_ROLES = new Set(["MARKETING", "COMPLIANCE", "PUBLISHER", "GUEST"]);
+
+/**
+ * The products this session may open, as a HOST array.
+ *
+ * openable() builds its array inside the vm realm, so it carries that realm's
+ * Array.prototype. assert/strict compares prototypes, which makes an empty
+ * array from in there unequal to an empty array out here — the assertion fails
+ * while printing "actual: [], expected: []". Copying across is what makes the
+ * comparison mean what it looks like.
+ */
+function opensFor(G) {
+  return [...(G.openable() || [])].map((p) => p.key || p);
+}
+
+/** One console, signed in as one role of one product. */
+function open(product, role) {
+  const w = makeWindow({ href: `https://paltas.io/dashboard/${PRODUCTS[product]}.html` });
+  w.win.PALTAS_BOOT = { system: PRODUCTS[product] };
+  w.loadCode(readFileSync(join(FE, "assets", "console.js"), "utf8") +
+    "\n;window.__navFor=navFor;window.__first=firstScreenOf;window.__S=SCREENS;",
+    "console.js");
+
+  const G = w.win.PALTAS.Session;
+  G.create({
+    email: "person@example.com", name: "A Person", company: "A Company",
+    products: [product], role, preferred: product,
+  });
+  return { w, G };
+}
+
+test("the door agrees with the role table for every role and product", { skip }, () => {
+  const { G } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const ROLES = G.ROLES;
+  const disagreements = [];
+
+  for (const product of Object.keys(PRODUCTS)) {
+    for (const key of Object.keys(ROLES)) {
+      if (NOT_COMPANY_ROLES.has(key)) continue;
+      const role = ROLES[key];
+
+      /* What the table says: pinned elsewhere, or not named for this product. */
+      const pinnedElsewhere = Boolean(role.only && role.only !== product);
+      const expected = !pinnedElsewhere &&
+        (role.sees === null || Boolean(role.sees && role.sees[product]));
+
+      const { G: g } = open(product, key);
+      const opens = opensFor(g);
+      const got = opens.includes(product);
+
+      if (got !== expected) {
+        disagreements.push(
+          `${product}/${key}: the door says ${got ? "open" : "closed"}, ` +
+          `the role table says ${expected ? "open" : "closed"}`);
+      }
+    }
+  }
+  assert.deepEqual(disagreements, [], disagreements.join("\n   "));
+});
+
+test("a role pinned to one product cannot enter another", { skip }, () => {
+  /*
+   * The rule with teeth. SECURITY_MANAGER is `only: SECURITY_MANAGEMENT`, so
+   * being an employee of a hotel does not put them inside the hotel console —
+   * where the whole of finance lives, because that role's `sees` is null.
+   */
+  for (const product of ["PROPERTY_MANAGEMENT", "AGENT_HOST", "HOTEL_MANAGEMENT"]) {
+    const { G } = open(product, "SECURITY_MANAGER");
+    const opens = opensFor(G);
+    assert.deepEqual(opens, [],
+      `a security administrator was let into ${product}, where "sees: null" ` +
+      `would hand them the entire console`);
+  }
+
+  /* And is let into its own. */
+  const { G } = open("SECURITY_MANAGEMENT", "SECURITY_MANAGER");
+  assert.deepEqual(opensFor(G), ["SECURITY_MANAGEMENT"]);
+});
+
+test("nobody is let in to an empty console", { skip }, () => {
+  /*
+   * Signing in successfully and arriving at a blank page is worse than being
+   * refused: the refusal says something, the blank page looks broken.
+   */
+  const empty = [];
+  const { G: table } = open("PROPERTY_MANAGEMENT", "OWNER");
+
+  for (const product of Object.keys(PRODUCTS)) {
+    for (const key of Object.keys(table.ROLES)) {
+      if (NOT_COMPANY_ROLES.has(key)) continue;
+      const { w, G } = open(product, key);
+      const opens = opensFor(G);
+      if (!opens.includes(product)) continue;
+
+      const groups = w.win.__navFor(PRODUCTS[product]) || [];
+      const items = groups.flatMap((g) => (g.items || []).map((i) => i[0]));
+      if (!items.length) { empty.push(`${product}/${key}`); continue; }
+
+      /* And they land on their OWN first screen — a guard on his shift, not
+         on the company's command centre. */
+      const landing = w.win.__first(PRODUCTS[product]);
+      if (!landing || !items.includes(landing)) {
+        empty.push(`${product}/${key}: lands on ${landing}, which is not in its own menu`);
+      }
+    }
+  }
+  assert.deepEqual(empty, [], "roles let in with nowhere to go:\n   " + empty.join("\n   "));
+});
+
+test("every screen a role is given actually renders", { skip }, () => {
+  /* A menu item that throws when clicked is worse than one that is absent. */
+  const broken = [];
+  const { G: table } = open("PROPERTY_MANAGEMENT", "OWNER");
+
+  for (const product of Object.keys(PRODUCTS)) {
+    for (const key of Object.keys(table.ROLES)) {
+      if (NOT_COMPANY_ROLES.has(key)) continue;
+      const { w, G } = open(product, key);
+      const opens = opensFor(G);
+      if (!opens.includes(product)) continue;
+
+      const groups = w.win.__navFor(PRODUCTS[product]) || [];
+      for (const g of groups) {
+        for (const [screen] of g.items || []) {
+          const fn = w.win.__S[screen];
+          if (typeof fn !== "function") { broken.push(`${product}/${key}: ${screen} is not a screen`); continue; }
+          try {
+            const html = String(fn() ?? "");
+            if (html.trim().length < 20) broken.push(`${product}/${key}: ${screen} rendered empty`);
+          } catch (e) {
+            broken.push(`${product}/${key}: ${screen} threw ${String(e && e.message || e).slice(0, 60)}`);
+          }
+        }
+      }
+    }
+  }
+  assert.deepEqual(broken, [], "screens a role can open but cannot use:\n   " + broken.join("\n   "));
+});
+
+test("the role table is not quietly empty", { skip }, () => {
+  /* Every assertion above iterates the role table. If it ever stops loading,
+     they would all pass by iterating nothing. */
+  const { G } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const company = Object.keys(G.ROLES).filter((k) => !NOT_COMPANY_ROLES.has(k));
+  assert.ok(company.length >= 12, `only ${company.length} company roles found`);
+  for (const k of ["OWNER", "MANAGER", "FINANCE", "GUARD", "FRONT_DESK", "HOUSEKEEPING"]) {
+    assert.ok(G.ROLES[k], `${k} is missing from the role table`);
+  }
+  assert.equal(G.ROLES.OWNER.sees, null, "an owner stopped seeing the whole product");
+  assert.equal(G.ROLES.SECURITY_MANAGER.only, "SECURITY_MANAGEMENT");
+});
