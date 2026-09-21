@@ -5279,3 +5279,54 @@ test("a property's occupancy and rent roll are read, not assumed zero", { skip }
   assert.match(adapter, /rent: major\(r\.rent\)/,
     "the rent roll the server computed is not being read");
 });
+
+test("a company sees its own currency, whichever of the fifty markets it is in", { skip }, () => {
+  /*
+   * THE BUG THIS EXISTS TO PREVENT, AND IT WOULD HAVE HIT EVERY CLIENT
+   * OUTSIDE KENYA.
+   *
+   * money() assumed every figure was Kenyan shillings and converted from KES
+   * with a rate table of three countries. True of the sample data, which is
+   * denominated in KES "for comparability", and false of every real customer:
+   * a Stockholm landlord's rent is stored in SEK, a New York manager's in USD.
+   *
+   * Both were labelled KES. Touch the market switcher and they were CONVERTED
+   * from a currency they had never used — so a Swedish rent roll of 1.2M SEK
+   * read "USD 9.2K", a number that is wrong in both directions at once.
+   *
+   * PALTAS sells in fifty markets. The currency now comes from the country on
+   * the company's registration, and nothing is converted, because the figure
+   * arrived from the API already denominated in it.
+   */
+  function consoleFor(country) {
+    const w = makeWindow({ href: "https://paltas.io/dashboard/property.html" });
+    w.win.PALTAS_BOOT = { system: "property" };
+    for (const f of ["assets/market-config.js", "assets/paltas-data.js", "assets/paltas-hydrate.js"]) {
+      w.loadCode(readFileSync(join(FE, f), "utf8"), f);
+    }
+    w.loadCode(readFileSync(join(FE, "assets", "console.js"), "utf8") +
+      "\n;window.__money = money; window.__orgCur = orgCurrency;", "console.js");
+    if (country) {
+      w.win.PALTAS.Session.create({
+        email: "a@b.co", name: "A", company: "A Company",
+        products: ["PROPERTY_MANAGEMENT"], role: "OWNER", country,
+      });
+    }
+    return w.win;
+  }
+
+  /* One figure, six markets. Same number, each company's own currency. */
+  for (const [cc, cur] of [["KE", "KES"], ["SE", "SEK"], ["US", "USD"],
+                           ["AE", "AED"], ["NG", "NGN"], ["GB", "GBP"]]) {
+    const w = consoleFor(cc);
+    assert.equal(w.__orgCur(), cur, `a company registered in ${cc} does not trade in ${cur}`);
+    assert.match(w.__money(1200000), new RegExp("^" + cur + " 1\\.2M$"),
+      `a ${cur} company reads ${w.__money(1200000)} for its own 1,200,000`);
+  }
+
+  /* Signed out, the sample data behaves exactly as it always did — this is a
+     fix for real companies, not a change to the demo. */
+  const anon = consoleFor(null);
+  assert.equal(anon.__orgCur(), "", "a signed-out visitor has no company currency");
+  assert.match(anon.__money(1200000), /^KES /, "the sample data stopped reading in KES");
+});
