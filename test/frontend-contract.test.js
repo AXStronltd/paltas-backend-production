@@ -5216,3 +5216,66 @@ test("no onboarding step claims a completion the server never receives", { skip 
     "signup sends fields POST /organizations does not accept, so they are " +
     "silently discarded: " + dropped.join(", "));
 });
+
+test("the console's vocabulary matches the database's for a unit's status", { skip }, () => {
+  /*
+   * THE BUG THIS EXISTS TO PREVENT.
+   *
+   * UnitStatus is VACANT OCCUPIED NOTICE RESERVED OFF_MARKET. The adapter
+   * passed the enum through as "Occupied"; the units screen counts
+   * `x.st === "Let"` — what a letting agent calls it. The two never met, so
+   * Let read 0% however many units were occupied.
+   *
+   * Vacant matched by luck. That is what made it dangerous: one half of the
+   * tile was right, so the wrong half looked like real data rather than a
+   * bug, and an owner would have read 0% occupancy off a full building.
+   */
+  const hyd = readFileSync(join(FE, "assets", "paltas-hydrate.js"), "utf8");
+  const con = readFileSync(join(FE, "assets", "console.js"), "utf8");
+
+  /* What the units SCREEN looks for. */
+  const screen = con.slice(con.indexOf("SCREENS.units ="));
+  const body = screen.slice(0, screen.indexOf("\nSCREENS."));
+  const wanted = [...new Set([...body.matchAll(/\.st === "([A-Za-z ]+)"/g)].map((m) => m[1]))];
+  assert.ok(wanted.includes("Let"), "the units screen no longer counts \"Let\" — re-check this test");
+
+  /* What the ADAPTER produces for each enum value. */
+  /*
+   * Anchored on the line start. "UNITS: { slug:" is a SUBSTRING of
+   * "HOST_UNITS: { slug:", so searching for the short form finds the host
+   * adapter first — which is how the first version of this test read the
+   * wrong one and reported a fix that had been applied somewhere else.
+   */
+  const i = hyd.search(/\n {4}UNITS: \{ slug: "units"/);
+  assert.ok(i > 0, "the UNITS adapter could not be found");
+  const adapter = hyd.slice(i, i + 1600);
+  assert.ok(!/HOST_UNITS/.test(adapter.slice(0, 60)), "this is the host adapter, not the units one");
+  assert.match(adapter, /r\.status === "OCCUPIED" \? "Let"/,
+    "an occupied unit does not reach the screen as \"Let\", so occupancy reads 0%");
+
+  /* Every word the screen counts must be one the adapter can produce. */
+  const produced = new Set(["Let"]);
+  for (const v of ["VACANT", "NOTICE", "RESERVED", "OFF_MARKET"]) {
+    produced.add(v.charAt(0) + v.slice(1).toLowerCase().replace(/_/g, " "));
+  }
+  const unreachable = wanted.filter((w) => !produced.has(w));
+  assert.deepEqual(unreachable, [],
+    "the units screen counts statuses the adapter never produces, so those " +
+    "tiles can only ever read zero: " + unreachable.join(", "));
+});
+
+test("a property's occupancy and rent roll are read, not assumed zero", { skip }, () => {
+  /* The adapter hard-coded `let: 0, rent: 0` because nothing computed them.
+     GET /sites does now, so discarding them would put the old zero back. */
+  const hyd = readFileSync(join(FE, "assets", "paltas-hydrate.js"), "utf8");
+  const i = hyd.indexOf('PROPS: { slug: "sites"');
+  assert.ok(i > 0, "the sites adapter could not be found");
+  const adapter = hyd.slice(i, i + 1400);
+
+  assert.doesNotMatch(adapter, /\blet: 0\b/,
+    "a property's occupancy is hard-coded to zero again");
+  assert.match(adapter, /let: Number\(r\.let\)/,
+    "the occupancy the server computed is not being read");
+  assert.match(adapter, /rent: major\(r\.rent\)/,
+    "the rent roll the server computed is not being read");
+});

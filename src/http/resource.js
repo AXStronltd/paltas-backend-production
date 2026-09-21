@@ -221,8 +221,27 @@ export function resourceRouter(slug) {
       });
 
       const more = rows.length > take;
+      const page = more ? rows.slice(0, take) : rows;
+
+      /*
+       * ROLL-UPS THE ROW CANNOT ANSWER FOR ITSELF.
+       *
+       * A property's occupancy and its rent roll live in OTHER tables — how
+       * many of its units are occupied, and what the active leases on them
+       * come to. The console showed 0 for both and said so honestly in a
+       * comment: "no endpoint computes them, and a plausible-looking number
+       * on a portfolio screen is the kind of figure that gets reported
+       * upwards."
+       *
+       * That was the right refusal and the wrong end state. They are the two
+       * headline numbers of a property business, so they are counted here —
+       * from the units and leases the caller can already see, in one grouped
+       * query each rather than one per row.
+       */
+      const rolled = resource.rollup ? await resource.rollup(page, req.actor.orgId) : page;
+
       res.json({
-        [slug]: more ? rows.slice(0, take) : rows,
+        [slug]: rolled,
         nextCursor: more ? rows[take - 1].id : null,
       });
     } catch (e) { next(e); }

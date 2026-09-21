@@ -12,8 +12,21 @@
  * not in the declaration, so there is no branch here that reaches them.
  * ====================================================================== */
 
+import pkg from "@prisma/client";
 import { badRequest } from "../http/errors.js";
 import { ENUM_WORDS } from "./console-map.js";
+
+/*
+ * THE VALUES EACH ENUM ACTUALLY ALLOWS.
+ *
+ * Prisma exports every enum it generated, so the list is the schema's own
+ * rather than a second copy kept by hand — which would drift the first time
+ * somebody added a status.
+ */
+function enumValues(name) {
+  const e = pkg[name] || (pkg.Prisma && pkg.Prisma[name]);
+  return e && typeof e === "object" ? Object.keys(e) : null;
+}
 
 /* ====================================================================== *
  * DATES THE WAY A PERSON WRITES THEM.
@@ -183,9 +196,32 @@ export function clean(resource, body, { partial }) {
        * identifier and not what the enum is called.
        */
       const spelled = String(v).trim().toUpperCase();
-      out[key] = ENUM_WORDS[spelled] ||
-                 ENUM_WORDS[spelled.replace(/[\s-]+/g, "_")] ||
-                 spelled.replace(/[\s-]+/g, "_");
+      const named = ENUM_WORDS[spelled] ||
+                    ENUM_WORDS[spelled.replace(/[\s-]+/g, "_")] ||
+                    spelled.replace(/[\s-]+/g, "_");
+
+      /*
+       * AND IT HAS TO BE ONE THE ENUM ACTUALLY HAS.
+       *
+       * This normalised the spelling and then passed ANYTHING through.
+       * A value the enum does not hold reached Prisma, which threw, and the
+       * caller was told "Something went wrong at our end" — a 500, for a
+       * value they had typed. POST /payouts with status "PAID" did exactly
+       * that: the enum has SENT, not PAID.
+       *
+       * It is their input, so it is a 400, and it names what is allowed
+       * rather than making somebody guess. An enum this cannot resolve is
+       * left alone rather than refused — a missing generated client should
+       * not start rejecting valid values.
+       */
+      const allowed = enumValues(kind.slice(5));
+      if (allowed && !allowed.includes(named)) {
+        problems.push(
+          `${key} cannot be "${String(v).trim()}". It has to be one of: ` +
+          allowed.join(", ") + ".");
+        continue;
+      }
+      out[key] = named;
 
     } else if (kind === "json") {
       out[key] = v;

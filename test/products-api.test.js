@@ -803,3 +803,73 @@ test("without storage configured, uploading says so instead of half working", { 
   assert.ok(status.json.storage.maxBytes > 0, "the limit is not published");
   assert.ok(status.json.storage.accepts.includes("application/pdf"));
 });
+
+test("a property carries its own occupancy and rent roll", { skip }, async () => {
+  /*
+   * THE TWO HEADLINE NUMBERS OF A PROPERTY BUSINESS, WHICH READ ZERO.
+   *
+   * Occupancy and rent roll live in OTHER tables — units carry the status,
+   * leases carry the rent — so a site row could not answer either. The
+   * console showed 0 for both and said so honestly: "no endpoint computes
+   * them, and a plausible-looking number on a portfolio screen is the kind of
+   * figure that gets reported upwards."
+   *
+   * That was the right refusal and the wrong end state: an owner opened their
+   * portfolio and saw 0% occupancy across a full building. GET /sites counts
+   * both now, from the rows the caller can already see.
+   */
+  const c = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+
+  const site = (await call("/sites", { method: "POST", cookie: c.cookie,
+    body: { name: "Riverside Court", city: "Nairobi", country: "ke", kind: "RESIDENTIAL" } })).json.site;
+
+  /* Three units: two occupied, one empty. */
+  const units = [];
+  for (const [ref, status] of [["A1", "OCCUPIED"], ["A2", "OCCUPIED"], ["A3", "VACANT"]]) {
+    units.push((await call("/units", { method: "POST", cookie: c.cookie,
+      body: { siteId: site.id, ref, status } })).json.unit);
+  }
+  const tenant = (await call("/parties", { method: "POST", cookie: c.cookie,
+    body: { name: "A Tenant" } })).json.party;
+
+  /* Two active leases, and one that has ended — which is not income. */
+  for (const u of units.slice(0, 2)) {
+    await call("/leases", { method: "POST", cookie: c.cookie,
+      body: { unitId: u.id, tenantId: tenant.id, rent: 50000, currency: "KES",
+              startsOn: "2026-01-01", status: "ACTIVE" } });
+  }
+  await call("/leases", { method: "POST", cookie: c.cookie,
+    body: { unitId: units[2].id, tenantId: tenant.id, rent: 99000, currency: "KES",
+            startsOn: "2020-01-01", status: "ENDED" } });
+
+  const listed = (await call("/sites", { cookie: c.cookie })).json.sites;
+  const mine = listed.find((s) => s.id === site.id);
+  assert.ok(mine, "the property did not come back from /sites");
+
+  assert.equal(mine.let, 2,
+    `occupancy says ${mine.let} of the property's units are let; two are`);
+  assert.equal(String(mine.rent), "100000",
+    `the rent roll says ${mine.rent}; two active leases at 50000 are 100000 — ` +
+    `an ENDED lease is not income and must not be counted`);
+});
+
+test("the roll-up does not leak another company's units", { skip }, async () => {
+  /* It joins through units and leases, so it has to be scoped like everything
+     else. A roll-up is a query, and a query that forgets its company is the
+     one bug this service exists to not have. */
+  const a = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+  const b = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+
+  const theirs = (await call("/sites", { method: "POST", cookie: b.cookie,
+    body: { name: "Not Yours", city: "Mombasa", country: "ke", kind: "RESIDENTIAL" } })).json.site;
+  await call("/units", { method: "POST", cookie: b.cookie,
+    body: { siteId: theirs.id, ref: "B1", status: "OCCUPIED" } });
+
+  const mine = (await call("/sites", { method: "POST", cookie: a.cookie,
+    body: { name: "Mine", city: "Nairobi", country: "ke", kind: "RESIDENTIAL" } })).json.site;
+
+  const listed = (await call("/sites", { cookie: a.cookie })).json.sites;
+  assert.equal(listed.length, 1, "one company saw another's properties");
+  assert.equal(listed[0].id, mine.id);
+  assert.equal(listed[0].let, 0, "an empty property counted another company's occupied unit");
+});

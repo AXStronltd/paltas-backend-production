@@ -36,6 +36,7 @@
  *             expose it in.
  * ====================================================================== */
 
+import { db } from "../db.js";
 import { aliasesFor } from "./console-map.js";
 
 /* Field kinds:
@@ -64,6 +65,52 @@ export const RESOURCES = {
     required: ["name"],
     search: ["name", "city", "address"],
     order: [{ name: "asc" }],
+
+    /*
+     * HOW MANY OF THIS PROPERTY'S UNITS ARE LET, AND WHAT THEY BRING IN.
+     *
+     * Both live in other tables — units carry the status, leases carry the
+     * rent — so a site row cannot answer either on its own. The console
+     * showed 0 for both and said plainly why: nothing counted them, and it
+     * would not invent a number for a portfolio screen.
+     *
+     * Two grouped queries for the whole page, not two per property: a
+     * portfolio of forty buildings must not become eighty round trips.
+     *
+     * `rent` is the rent roll of ACTIVE leases only. A lease that ended is
+     * not income, and counting it would overstate the one figure an owner
+     * checks first.
+     */
+    async rollup(rows, orgId) {
+      if (!rows.length) return rows;
+      const ids = rows.map((r) => r.id);
+
+      const let_ = await db.unit.groupBy({
+        by: ["siteId"],
+        where: { orgId, siteId: { in: ids }, status: "OCCUPIED" },
+        _count: { _all: true },
+      });
+      const occupied = new Map(let_.map((g) => [g.siteId, g._count._all]));
+
+      /* Rent hangs off the LEASE, which hangs off the unit, which carries the
+         site — so the join has to go through units. */
+      const leases = await db.lease.findMany({
+        where: { orgId, status: "ACTIVE", unit: { siteId: { in: ids } } },
+        select: { rent: true, unit: { select: { siteId: true } } },
+      });
+      const rent = new Map();
+      for (const l of leases) {
+        const sid = l.unit && l.unit.siteId;
+        if (!sid) continue;
+        rent.set(sid, (rent.get(sid) || 0n) + BigInt(l.rent || 0));
+      }
+
+      return rows.map((r) => ({
+        ...r,
+        let: occupied.get(r.id) || 0,
+        rent: rent.get(r.id) || 0n,
+      }));
+    },
   },
 
   buildings: {

@@ -162,3 +162,42 @@ test("every resource can be created from its own required fields alone", () => {
     }
   }
 });
+
+test("an enum value the schema does not have is refused, not a 500", () => {
+  /*
+   * THE BUG THIS EXISTS TO PREVENT, FOUND DURING THE PRE-CLIENT AUDIT.
+   *
+   * clean() normalised the spelling of an enum — "Needs work" to NEEDS_WORK —
+   * and then passed ANYTHING through. A value the enum does not hold reached
+   * Prisma, Prisma threw, and the caller was told "Something went wrong at
+   * our end. Quote reference …" — a 500, for a word they had typed.
+   *
+   * POST /payouts with status "PAID" did exactly that: PayoutStatus has SENT,
+   * not PAID. The person who typed it is told the system is broken, and the
+   * error log fills with faults that are not faults.
+   *
+   * It is their input, so it is a 400, and it names what is allowed.
+   */
+  const r = { fields: { status: "enum:PayoutStatus" }, required: [] };
+
+  assert.throws(
+    () => clean(r, { status: "PAID" }, { partial: true }),
+    (e) => e.status === 400 && /has to be one of/.test(e.message) && /SENT/.test(e.message),
+    "an invented enum value was accepted, and will 500 at the database"
+  );
+
+  /* The spellings a console sends must still work — this is a guard, not a
+     new rule about how people write things. */
+  assert.deepEqual(clean(r, { status: "Sent" }, { partial: true }), { status: "SENT" });
+  assert.deepEqual(clean(r, { status: "SENT" }, { partial: true }), { status: "SENT" });
+
+  /* And a document kind, because the same branch serves every enum. */
+  const d = { fields: { kind: "enum:DocumentKind" }, required: [] };
+  assert.deepEqual(clean(d, { kind: "Ownership" }, { partial: true }), { kind: "OWNERSHIP" });
+  assert.throws(() => clean(d, { kind: "MAGIC" }, { partial: true }), /has to be one of/);
+
+  /* An enum this cannot resolve is left alone rather than refused: a missing
+     generated client must not start rejecting values that are in fact valid. */
+  const unknown = { fields: { state: "enum:NotAnEnumAnywhere" }, required: [] };
+  assert.deepEqual(clean(unknown, { state: "anything" }, { partial: true }), { state: "ANYTHING" });
+});
