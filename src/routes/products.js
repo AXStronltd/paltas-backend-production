@@ -35,6 +35,10 @@ import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.js";
 import { sync as syncChannel, status as channelStatus } from "../domain/channels.js";
+import {
+  presignUpload, presignDownload, head as storageHead,
+  publicDescribe as storagePublicDescribe,
+} from "../domain/storage.js";
 
 export const productRoutes = Router();
 
@@ -817,5 +821,121 @@ guarded.get("/connect/rollup", async (req, res, next) => {
       unattributed: loose,
       basis: "Reservations booked in the window, excluding cancellations and no-shows, grouped by the channel recorded against each one.",
     });
+  } catch (e) { next(e); }
+});
+
+/* ====================================================================== *
+ * DOCUMENTS — ATTACHING THE ACTUAL FILE.
+ *
+ * The Document row has always described a file. These three endpoints are how
+ * the file gets there, and they exist because a company being asked to supply
+ * a certificate of incorporation could previously only type its name.
+ *
+ * The bytes never pass through PALTAS. The browser is given a short-lived,
+ * single-purpose URL and uploads straight to storage:
+ *
+ *   1. POST /documents/:id/upload-url   permission to write ONE object
+ *   2. the browser PUTs the file to that URL
+ *   3. POST /documents/:id/attached     confirm, and record what is really there
+ *   4. GET  /documents/:id/download-url a short-lived link to read it back
+ *
+ * Step 3 is not a formality. It asks STORAGE what was stored rather than
+ * believing the browser that said it finished, because a client reporting a
+ * size and type it did not upload is the easiest possible thing to do.
+ * ====================================================================== */
+
+guarded.get("/storage/status", (req, res, next) => {
+  try {
+    /* Behind the same permission as documents themselves. Someone who cannot
+       see this company's documents has no business knowing how they are
+       stored — and routing.test.js is right to insist every hand-written
+       endpoint answers the question rather than assuming it is harmless. */
+    need(req, "documents", "read", "documents");
+    /* Whether uploads work, without naming a missing environment variable to a
+       customer — they cannot act on one. An operator reads describe(). */
+    res.json({ storage: storagePublicDescribe() });
+  } catch (e) { next(e); }
+});
+
+guarded.post("/documents/:id/upload-url", async (req, res, next) => {
+  try {
+    need(req, "documents", "write", "documents");
+    const orgId = req.actor.orgId;
+    const doc = await own("document", String(req.params.id), orgId);
+
+    const out = presignUpload({
+      orgId, documentId: doc.id,
+      filename: String(req.body?.filename || doc.name || "file"),
+      contentType: req.body?.contentType,
+      bytes: req.body?.bytes,
+    });
+    if (!out.ok) throw badRequest(out.why);
+
+    /*
+     * The key is recorded NOW, before the upload, so a file that lands in
+     * storage always has a row pointing at it. The other order leaves an
+     * orphan whenever a browser uploads and then closes.
+     *
+     * bytes/mimeType stay at zero until confirmed — the row says "a file was
+     * started here", not "a file is here".
+     */
+    await db.document.updateMany({
+      where: { id: doc.id, orgId },
+      data: { storageKey: out.storageKey, bytes: 0, checksum: "", mimeType: "" },
+    });
+    await audit(req, "document.upload.begin", "document", doc.id,
+      { filename: out.headers["Content-Type"] });
+
+    res.json({
+      upload: {
+        url: out.url, method: out.method, headers: out.headers,
+        expiresIn: out.expiresIn,
+      },
+      note: "PUT the file to this URL with exactly these headers, then call " +
+            "/documents/" + doc.id + "/attached.",
+    });
+  } catch (e) { next(e); }
+});
+
+guarded.post("/documents/:id/attached", async (req, res, next) => {
+  try {
+    need(req, "documents", "write", "documents");
+    const orgId = req.actor.orgId;
+    const doc = await own("document", String(req.params.id), orgId);
+    if (!doc.storageKey) throw badRequest("No upload was started for this document.");
+
+    const found = await storageHead({ storageKey: doc.storageKey, orgId });
+    if (!found.ok) throw badRequest(found.why);
+
+    const row = await db.document.update({
+      where: { id: doc.id },
+      data: { bytes: found.bytes, mimeType: found.mimeType, checksum: found.checksum },
+    });
+    await audit(req, "document.upload.finish", "document", doc.id,
+      { bytes: found.bytes, mimeType: found.mimeType });
+    res.json({ document: row });
+  } catch (e) { next(e); }
+});
+
+guarded.get("/documents/:id/download-url", async (req, res, next) => {
+  try {
+    need(req, "documents", "read", "documents");
+    const orgId = req.actor.orgId;
+    const doc = await own("document", String(req.params.id), orgId);
+
+    /*
+     * own() has already established the row is this company's. The key is
+     * checked AGAIN inside presignDownload, against the same organization.
+     * Two independent guards on the same question, because a storage key that
+     * escaped its tenant is the failure that would be silent.
+     */
+    const out = presignDownload({ storageKey: doc.storageKey, orgId, filename: doc.name });
+    if (!out.ok) throw badRequest(out.why);
+
+    /* Reading somebody's title deed is a thing that should be answerable
+       later, so it is recorded at the time. */
+    await audit(req, "document.download", "document", doc.id, { name: doc.name });
+    res.set("Cache-Control", "no-store, private");
+    res.json({ download: { url: out.url, expiresIn: out.expiresIn } });
   } catch (e) { next(e); }
 });

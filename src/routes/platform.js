@@ -47,6 +47,7 @@ import { badRequest, conflict, forbidden, notFound } from "../http/errors.js";
 import { requireSession } from "../http/session.js";
 import { actorFor } from "../domain/session-view.js";
 import { status as supplyStatus } from "../domain/supply.js";
+import { describe as storageDescribe } from "../domain/storage.js";
 import { compareStatus } from "../domain/compare.js";
 
 export const platformRoutes = Router();
@@ -152,6 +153,18 @@ function paging(req) {
  * No customer data is read here, so there is nothing to audit — this says
  * which third party PALTAS is connected to, which is PALTAS's own business.
  */
+/**
+ * DOCUMENT STORAGE, AS AN OPERATOR NEEDS TO SEE IT.
+ *
+ * The customer-facing answer is "uploads are not available at the moment",
+ * because a customer cannot act on the name of an environment variable. The
+ * operator's answer is WHICH one is missing, so it lives behind the staff
+ * door rather than being deleted — the same split as the supplier above.
+ */
+platformRoutes.get("/platform/storage", (_req, res) => {
+  res.json({ storage: storageDescribe() });
+});
+
 platformRoutes.get("/platform/suppliers", (_req, res) => {
   res.json({ suppliers: [supplyStatus()], comparison: compareStatus() });
 });

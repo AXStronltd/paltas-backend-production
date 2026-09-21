@@ -111,10 +111,26 @@ export const RESOURCES = {
   documents: {
     model: "document", area: "documents", product: null,
     label: "documents",
+    /*
+     * THE FOUR STORAGE COLUMNS ARE NOT HERE, AND THAT IS THE POINT.
+     *
+     * `fields` is what a CALLER may write — clean() walks exactly this list.
+     * storageKey, checksum, bytes and mimeType used to be in it, so any
+     * client could PATCH a document to claim any key, any size and any type.
+     *
+     * While nothing could download a file that was harmless. The moment a
+     * download exists it is not: a caller could point their own document row
+     * at another company's key and ask PALTAS to sign a link to it. The
+     * download route checks the key's owner as well — two independent guards,
+     * because this is the one that would be silent if it failed.
+     *
+     * The server writes all four, from what storage actually reports. Same
+     * reasoning as `net` on payouts just below: a value a caller can name is
+     * a value that need not follow from anything.
+     */
     fields: {
       name: "string", kind: "enum:DocumentKind", about: "string",
-      expiresAt: "date", storageKey: "string", checksum: "string",
-      bytes: "int", mimeType: "string",
+      expiresAt: "date",
     },
     required: ["name"],
     search: ["name", "about"],

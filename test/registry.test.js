@@ -96,6 +96,28 @@ const NEVER_WRITABLE = {
  * to find.
  */
 const NOT_WRITABLE_HERE = {
+  /*
+   * A DOCUMENT'S FILE IS DESCRIBED BY STORAGE, NOT BY THE UPLOADER.
+   *
+   * All four were writable, so any caller could PATCH a document to claim any
+   * key, any size and any type. Harmless while nothing could download a file;
+   * the moment a download exists it is not, because a caller could point their
+   * own row at another company's key and ask PALTAS to sign a link to it.
+   *
+   * The server writes them from what the storage provider actually reports
+   * when the upload is confirmed — see src/domain/storage.js head().
+   */
+  documents: {
+    storageKey: "built by the server from the owning organization, at " +
+                "POST /documents/:id/upload-url — a caller that can name the " +
+                "key can name another company's key",
+    bytes: "read back from storage after the upload, never claimed by the uploader",
+    mimeType: "read back from storage after the upload, never claimed by the uploader",
+    checksum: "read back from storage after the upload — its whole purpose is " +
+              "detecting a file that is not what was sent, which it cannot do " +
+              "if the sender supplies it",
+  },
+
   "guest-requests": {
     reservationId: "the guest's own stay, resolved from their session at POST /guest/requests",
     partyId: "which guest they are, resolved from Party.userId — never sent",

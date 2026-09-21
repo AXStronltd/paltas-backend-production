@@ -721,3 +721,85 @@ test("folio lines are scoped through their folio, and need the hotel product",
   const denied = await call("/folio-lines", { cookie: noHotel.cookie });
   assert.equal(denied.status, 403, "a company with no hotel product read folio lines");
 });
+
+/* ====================================================================== *
+ * DOCUMENTS — THE FILE, AND WHO MAY REACH IT.
+ * ====================================================================== */
+
+test("a document's storage columns cannot be written by a caller", { skip }, async () => {
+  /*
+   * These four describe the FILE, and the server writes them from what storage
+   * actually reports. A caller that can set storageKey can point its own row
+   * at another company's object and then ask PALTAS to sign a link to it.
+   */
+  const a = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+  const made = await call("/documents", { method: "POST", cookie: a.cookie,
+    body: { name: "Certificate of Incorporation", kind: "OTHER" } });
+  assert.equal(made.status, 201, made.text.slice(0, 200));
+  const id = made.json.document.id;
+
+  const tried = await call(`/documents/${id}`, { method: "PATCH", cookie: a.cookie,
+    body: {
+      name: "Renamed",
+      storageKey: "org/somebody-else/documents/x/secret.pdf",
+      bytes: 999, mimeType: "application/pdf", checksum: "forged",
+    } });
+  assert.equal(tried.status, 200);
+
+  const row = await db.document.findUnique({ where: { id } });
+  assert.equal(row.name, "Renamed", "an ordinary field stopped being writable");
+  assert.equal(row.storageKey, "", "*** a caller set its own storage key ***");
+  assert.equal(row.bytes, 0, "a caller claimed a file size");
+  assert.equal(row.checksum, "", "a caller supplied the checksum meant to detect tampering");
+  assert.equal(row.mimeType, "", "a caller claimed a file type");
+});
+
+test("one company cannot reach another's document, by id or by key", { skip }, async () => {
+  const a = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+  const b = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+
+  const mine = await call("/documents", { method: "POST", cookie: a.cookie,
+    body: { name: "Title Deed", kind: "OTHER" } });
+  const id = mine.json.document.id;
+
+  /* Straight at it, with a valid session of the wrong company. */
+  for (const path of [`/documents/${id}`, `/documents/${id}/download-url`]) {
+    const r = await call(path, { cookie: b.cookie });
+    assert.equal(r.status, 404,
+      `${path} answered ${r.status} to another company — 404 is the only answer that ` +
+      `does not confirm the document exists`);
+  }
+  const post = await call(`/documents/${id}/upload-url`, { method: "POST", cookie: b.cookie,
+    body: { filename: "x.pdf", contentType: "application/pdf", bytes: 10 } });
+  assert.equal(post.status, 404, "another company could start an upload onto this document");
+});
+
+test("without storage configured, uploading says so instead of half working", { skip }, async () => {
+  /* The test environment sets no R2 credentials, which is the same state
+     production is in until they are added — so this is the real behaviour
+     today, not a hypothetical one. */
+  const a = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+  const made = await call("/documents", { method: "POST", cookie: a.cookie,
+    body: { name: "KRA PIN certificate", kind: "OTHER" } });
+  const id = made.json.document.id;
+
+  const up = await call(`/documents/${id}/upload-url`, { method: "POST", cookie: a.cookie,
+    body: { filename: "pin.pdf", contentType: "application/pdf", bytes: 1024 } });
+  assert.equal(up.status, 400, "an upload URL was issued with no storage behind it");
+  assert.match(up.json.message, /not available/i);
+  assert.ok(!/R2_|SECRET|KEY/.test(up.json.message),
+    "an environment variable name was returned to a customer: " + up.json.message);
+
+  /* The document itself is unharmed — recording it still works, which is what
+     the product could already do. */
+  const still = await call(`/documents/${id}`, { cookie: a.cookie });
+  assert.equal(still.status, 200);
+  assert.equal(still.json.document.name, "KRA PIN certificate");
+
+  /* And the console can ask, rather than discovering it at the upload. */
+  const status = await call("/storage/status", { cookie: a.cookie });
+  assert.equal(status.status, 200);
+  assert.equal(status.json.storage.connected, false);
+  assert.ok(status.json.storage.maxBytes > 0, "the limit is not published");
+  assert.ok(status.json.storage.accepts.includes("application/pdf"));
+});
