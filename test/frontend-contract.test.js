@@ -5091,3 +5091,42 @@ test("listing a place is not blocked by a code nothing sends", { skip }, () => {
   assert.doesNotMatch(block, /registerCompany\(/,
     "finishing a listing signup still writes to browser storage");
 });
+
+test("the signup form survives the trip through Google", { skip }, () => {
+  /*
+   * THE HANDOFF, AND THE BUG THAT SHIPPED IN IT.
+   *
+   * Creating a company needs a session, and the only way to one is Google. So
+   * the answers are written to sessionStorage, the person leaves for Google,
+   * and auth/business.html reads them back and finishes the job.
+   *
+   * It read "paltas.onb.v1". onbSave() has always written "paltas.onboarding".
+   * Nothing matched, so the draft was invisible on return: a person filled in
+   * every step, went to Google, came back, and was told "Finish the steps" —
+   * with all their answers sitting in storage under a name that page never
+   * looked at.
+   *
+   * Two files, one key. This asserts they are the same string, because
+   * nothing else in the build makes them agree.
+   */
+  const mk = readFileSync(join(FE, "assets", "market.js"), "utf8");
+  const biz = readFileSync(join(FE, "auth", "business.html"), "utf8");
+
+  const writes = (mk.match(/const ONB_KEY = "([^"]+)"/) || [])[1];
+  const reads = (biz.match(/var KEY = "([^"]+)"/) || [])[1];
+
+  assert.ok(writes, "market.js no longer declares ONB_KEY — find where the draft is written");
+  assert.ok(reads, "business.html no longer declares KEY — find where the draft is read");
+  assert.equal(reads, writes,
+    `business.html reads "${reads}" and market.js writes "${writes}". The draft is ` +
+    `invisible on the way back from Google, so a finished form asks to be filled in again.`);
+
+  /* And the shape agrees: it reads d.biz, so that is what must be written. */
+  assert.match(mk, /biz: \{ \.\.\.BIZ/, "the draft no longer carries a `biz` object");
+  assert.match(biz, /d\.biz \|\| \{\}/, "business.html no longer reads `biz` from the draft");
+
+  /* The plan's display NAME has to cross too — business.html cannot reach
+     BIZ_PLANS to look it up. */
+  assert.match(mk, /planName:/,
+    "the plan's display name is not carried across, so the subscription is labelled with its key");
+});
