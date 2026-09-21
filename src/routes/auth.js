@@ -103,11 +103,39 @@ authRoutes.get("/google/callback", signInLimit, async (req, res, next) => {
 
     res.redirect(config.appUrl + where);
   } catch (e) {
-    /* A sign-in failure the person can act on, in words, on a page — not a
-       500 with a stack trace. */
-    if (e && e.status === 401) {
-      return res.redirect(`${config.appUrl}/auth/login.html?signin=failed`);
+    /*
+     * EVERY SIGN-IN FAILURE LANDS ON A PAGE, AND SAYS WHICH ONE.
+     *
+     * This caught only 401 and let everything else fall through to next(e).
+     * The one that matters is the 403 from upsertUser — "that email address
+     * is already attached to a different Google account" — which is a real
+     * outcome of a real person choosing the wrong account from Google's
+     * chooser, and it arrived as a raw error page rather than a sentence on
+     * the sign-in screen.
+     *
+     * The reason travels in the URL so the page can say it. Codes, not
+     * sentences: the wording belongs to the frontend, and a message in a
+     * query string is one somebody can edit before sending the link on.
+     */
+    const reason =
+      e && e.status === 403 ? "email_claimed"
+      : e && e.status === 400 ? "incomplete"
+      : e && e.status === 401 ? (/redirect URI/i.test(String(e.message || ""))
+          ? "redirect_uri_mismatch"
+          : /expired or was already used/i.test(String(e.message || ""))
+            ? "expired"
+            : "failed")
+      : null;
+
+    if (reason) {
+      return res.redirect(`${config.appUrl}/auth/login.html?signin=${reason}`);
     }
+
+    /*
+     * Anything else is a fault rather than an outcome — a database that is
+     * down, a bug. It goes to the error handler, which logs it. Dressing an
+     * unknown fault up as "try again" would hide the thing that needs fixing.
+     */
     next(e);
   }
 });

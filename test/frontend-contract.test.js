@@ -5130,3 +5130,50 @@ test("the signup form survives the trip through Google", { skip }, () => {
   assert.match(mk, /planName:/,
     "the plan's display name is not carried across, so the subscription is labelled with its key");
 });
+
+test("a failed sign-in says why, on the page the person lands on", { skip }, () => {
+  /*
+   * THE DEFECT THIS EXISTS TO PREVENT, WHICH MADE EVERY OTHER SIGN-IN
+   * PROBLEM INVISIBLE.
+   *
+   * src/routes/auth.js has always redirected a failed sign-in to
+   * /auth/login.html?signin=<reason>. paltas-auth.js has always carried a
+   * table of sentences for those reasons and a failureFromUrl() to read them.
+   *
+   * Nothing ever called it.
+   *
+   * So every failure landed on a sign-in page identical to the one the person
+   * had just left, saying nothing. That is what makes a failed sign-in read as
+   * a loop from the outside: press the button, go to Google, choose an
+   * account, come back to the same screen, with no indication that anything
+   * happened at all. The reason was always being computed; it was being
+   * computed for nobody.
+   */
+  const mk = readFileSync(join(FE, "assets", "market.js"), "utf8");
+  const auth = readFileSync(join(FE, "assets", "paltas-auth.js"), "utf8");
+
+  assert.match(mk, /A2\.failureFromUrl\(\)/,
+    "nothing reads the sign-in failure, so a failed sign-in says nothing at all");
+
+  /* Both doors must show it — a company hitting this at the business door
+     needs the sentence as much as a customer at the personal one. */
+  assert.equal((mk.match(/\$\{signInTrouble\(\)\}/g) || []).length, 2,
+    "only one door reports a failed sign-in");
+
+  /* Every reason the backend can send must have a sentence. Codes come from
+     src/routes/auth.js; a code with no sentence falls back to something
+     vague, which is how a specific problem becomes "please try again". */
+  for (const code of ["cancelled", "failed", "email_claimed", "expired",
+                      "incomplete", "redirect_uri_mismatch"]) {
+    assert.ok(auth.includes(`${code}:`),
+      `the backend can send signin=${code} and there is no sentence for it`);
+  }
+
+  /* The one that is a real person's mistake rather than a fault: two Google
+     accounts, one email. It must name the fix. */
+  const claimed = (auth.match(/email_claimed: "([\s\S]*?)",\n/) || [])[1] || "";
+  assert.match(claimed, /different Google account/,
+    "the message does not say what actually happened");
+  assert.match(claimed, /again/,
+    "the message does not tell the person what to do about it");
+});
