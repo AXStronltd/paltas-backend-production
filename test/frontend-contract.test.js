@@ -573,11 +573,31 @@ test("no production path can authenticate through a bypass", { skip }, () => {
   assert.match(doors, /localhost/,
     "DEMO_DOORS no longer restricts itself to a development machine");
 
-  /* The password-free sign-in must route to the real door. */
-  const signin = (mk.match(/if \(a === "signin"\) \{[\s\S]*?\n  \}/) || [])[0] || "";
-  assert.ok(signin, "the signin handler could not be read");
-  assert.match(signin, /login\.html/,
-    "the signin handler does not send people to the real sign-in page");
+  /*
+   * THERE IS NO EMAIL SIGN-IN, SO THERE IS NO FORM FOR ONE.
+   *
+   * This used to assert that the handler routed people to the real door. It
+   * did — after they had filled in an email, pressed "Sign in", and been told
+   * that was not how it works. The backend has no password column, no hashing,
+   * no verification table and no mail provider; /auth/google and its callback
+   * are the only ways a session is ever minted.
+   *
+   * A form that cannot succeed is the first thing a new customer reaches for,
+   * and being refused by it reads as a broken account rather than a wrong
+   * method. So the assertion is now the stronger one: the fields are gone, and
+   * so is the handler that read them.
+   */
+  const code2 = code(mk);
+  for (const gone of ['id="li-email"', 'id="li-pw"', 'data-act="signin"', 'data-act="signinWork"']) {
+    assert.ok(!code2.includes(gone),
+      `${gone} is still rendered, under a line saying there is no PALTAS password`);
+  }
+  assert.doesNotMatch(code2, /if \(a === "signin(Work)?"\)/,
+    "a handler for the removed email sign-in is still wired up");
+
+  /* Google remains the one way in, on both doors. */
+  assert.match(code2, /googleBtn\(PALTAS_SIGNIN_NEXT\)/, "the personal door lost its Google button");
+  assert.match(code2, /googleBtn\(PALTAS_WORK_NEXT\)/, "the business door lost its Google button");
 
   /* And no user-visible copy may still promise a demo. */
   const noComments = mk.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
@@ -4826,4 +4846,107 @@ test("a signed-in person is not left on the sign-in screen", { skip }, () => {
   const console_ = readFileSync(join(FE, "assets", "console.js"), "utf8");
   assert.match(console_, /function render\(\)\s*\{[\s\S]{0,200}querySelector\("\.side"\)/,
     "render() no longer depends on .side — re-check what the bridge is guarding");
+});
+
+/* ======================================================================== *
+ * THE SIGN-IN DOORS.
+ *
+ * PALTAS authenticates with Google and nothing else — there is no password
+ * column, no hashing, no verification table and no mail provider anywhere in
+ * the service. Both doors used to say so in a sentence and then render an
+ * email field and a "Sign in" button underneath it, which could only ever
+ * fail. These tests keep the doors honest about what they can do.
+ * ======================================================================== */
+
+/** One door, rendered, optionally with somebody signed in. */
+function signInDoor(page, session) {
+  const w = makeWindow({ href: `https://paltas.io/auth/${page}` });
+  w.win.PALTAS_BASE = "../";
+  w.win.PALTAS_PAGE = page === "login.html" ? "login" : "worklogin";
+  w.loadCode(readFileSync(join(FE, "assets", "market.js"), "utf8") +
+    "\n;window.__PAGE = PAGE;", "market.js");
+  if (session) w.win.PALTAS.Session.create(session);
+  return { html: String(w.win.__PAGE[w.win.PALTAS_PAGE]()), win: w.win };
+}
+
+test("each door offers exactly one way in, and it is the one that works", { skip }, () => {
+  for (const page of ["login.html", "work.html"]) {
+    const { html } = signInDoor(page, null);
+
+    assert.equal((html.match(/<input/g) || []).length, 0,
+      `${page} renders a field. There is no email or password authentication to use it.`);
+    assert.equal((html.match(/class="g-btn"/g) || []).length, 1,
+      `${page} does not offer exactly one Continue with Google`);
+
+    /* The old copy promised something the new copy states plainly. */
+    assert.doesNotMatch(html, /There is no separate PALTAS\s+password, and nothing to reset/,
+      `${page} still carries the line that sat above an email field`);
+    assert.match(html, /No separate PALTAS password/,
+      `${page} no longer says how sign-in works`);
+  }
+});
+
+test("a signed-in person is offered where they were going, not a form", { skip }, () => {
+  /*
+   * A session is a cookie, so it outlives the tab that made it. Somebody who
+   * signed in yesterday and clicks "Sign in" out of habit was shown a sign-in
+   * screen, as though their account did not exist.
+   */
+  const CASES = [
+    ["a customer", { email: "b@x.com", name: "A Buyer", products: [] }, "../"],
+    ["a property company", { email: "o@c.com", name: "An Owner", company: "Client Ltd",
+                             products: ["PROPERTY_MANAGEMENT"], role: "OWNER" },
+                            "../dashboard/property.html"],
+  ];
+
+  for (const page of ["login.html", "work.html"]) {
+    /* Signed out: no greeting at all, which is the ordinary case. */
+    assert.doesNotMatch(signInDoor(page, null).html, /au-already/,
+      `${page} greets a visitor who is not signed in`);
+
+    for (const [who, session, want] of CASES) {
+      const { html } = signInDoor(page, session);
+      assert.match(html, /au-already/, `${page} asks ${who} to sign in again`);
+      const to = (html.match(/au-already[\s\S]*?class="au-cta"[^>]*href="([^"]+)"/) || [])[1];
+      assert.equal(to, want, `${page} sends ${who} to ${to}`);
+      assert.ok(!/login|sign-?in/i.test(String(to)),
+        `${page} sends an authenticated person back to a sign-in page`);
+    }
+  }
+});
+
+test("sign out ends the session on the server, not just on the screen", { skip }, () => {
+  const mk = readFileSync(join(FE, "assets", "market.js"), "utf8");
+  const code = mk.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  assert.match(code, /if \(a === "signout"\)/, "there is no sign-out action");
+  const handler = (code.match(/if \(a === "signout"\) \{[\s\S]*?\n  \}/) || [])[0] || "";
+  assert.match(handler, /A2\.signOut\(\)/,
+    "sign-out does not call the endpoint that deletes the session row");
+
+  /* And the old links that pretended to sign people out are gone. */
+  assert.doesNotMatch(code, /work\.html\?out=1/,
+    "a link still claims to sign out by navigating to the business door");
+});
+
+test("an unfinished business signup is offered the step it is missing", { skip }, () => {
+  /*
+   * Only the business door and a console's gate send anybody to the workspace
+   * page. Somebody standing there with no console is, almost always, a company
+   * part-way through signing up — they authenticated and their organization
+   * does not exist yet. They used to be handed the marketplace and no way to
+   * finish.
+   */
+  const w = makeWindow({ href: "https://paltas.io/auth/workspace.html" });
+  w.win.PALTAS_BASE = "../";
+  w.win.PALTAS_PAGE = "workspace";
+  w.loadCode(readFileSync(join(FE, "assets", "market.js"), "utf8") +
+    "\n;window.__PAGE = PAGE;", "market.js");
+  w.win.PALTAS.Session.create({ email: "o@c.com", name: "An Owner", products: [] });
+
+  const html = String(w.win.__PAGE.workspace());
+  assert.match(html, /business\.html/,
+    "a signed-in account with no console is not offered the setup that would give it one");
+  assert.doesNotMatch(html, /Nothing here is missing/,
+    "the page still tells a half-finished signup that nothing is missing");
 });
