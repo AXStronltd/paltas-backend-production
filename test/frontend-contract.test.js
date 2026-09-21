@@ -4950,3 +4950,144 @@ test("an unfinished business signup is offered the step it is missing", { skip }
   assert.doesNotMatch(html, /Nothing here is missing/,
     "the page still tells a half-finished signup that nothing is missing");
 });
+
+test("every step of business signup can actually be passed", { skip }, () => {
+  /*
+   * THE BUG THIS EXISTS TO PREVENT, WHICH BLOCKED EVERY NEW COMPANY.
+   *
+   * A step called "Confirm your email" sat fifth of seven, asking for a
+   * six-digit code. There was never a code: no generator, no verification
+   * table, no mail provider anywhere in the service. The check that accepted
+   * ANY six digits was correctly removed — and the gate in front of it was
+   * left standing. bizValidate() refused to advance without BIZ.emailOk, and
+   * the one line that sets it was left unreachable behind a return.
+   *
+   * So the form could be filled in perfectly and never finished. Nobody could
+   * register.
+   *
+   * This fills every field the way a person would and walks the whole order.
+   * A step that cannot be passed with a complete form fails here.
+   */
+  const w = makeWindow({ href: "https://paltas.io/auth/business.html" });
+  w.win.PALTAS_BASE = "../";
+  w.win.PALTAS_PAGE = "business";
+  w.loadCode(readFileSync(join(FE, "assets", "market.js"), "utf8") +
+    "\n;window.__BIZ=()=>BIZ;window.__ORDER=BIZ_ORDER;window.__V=bizValidate;window.__ERRS=()=>ERRS;",
+    "market.js");
+
+  const BIZ = w.win.__BIZ();
+  Object.assign(BIZ, {
+    product: "property", picked: ["property"],
+    company: "A Company Ltd", city: "Nairobi", size: "11-50", plan: "pro",
+    name: "An Owner", email: "owner@company.example", phone: "+254700000000",
+    country: "ke", pay: "card",
+  });
+
+  const order = [...w.win.__ORDER];
+  assert.ok(order.length >= 5, `only ${order.length} steps — the flow changed shape`);
+
+  const blocked = [];
+  for (const step of order) {
+    BIZ.step = step;
+    if (!w.win.__V()) {
+      blocked.push(`${step}: ${Object.values(w.win.__ERRS() || {}).join("; ").slice(0, 70)}`);
+    }
+  }
+  assert.deepEqual(blocked, [],
+    "a completed form cannot get past these steps, so nobody can register:\n   " + blocked.join("\n   "));
+
+  /* The dead step, and the flag only it could set, are both gone. */
+  assert.ok(!order.includes("email"),
+    "the confirm-email step is back, and there is still no code to confirm");
+
+  const code = readFileSync(join(FE, "assets", "market.js"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /BIZ\.emailOk = true/,
+    "the email gate is back; check it can actually be opened");
+  assert.doesNotMatch(code, /data-biz="echeck"/,
+    "the confirm-the-code button is back, and nothing sends a code");
+
+  /* Non-vacuous: an INCOMPLETE form must still be stopped. */
+  BIZ.company = "";
+  BIZ.step = "company";
+  assert.equal(w.win.__V(), false,
+    "validation accepts a company with no name, so this test proves nothing");
+});
+
+test("finishing signup creates a company on the server, not in the browser", { skip }, () => {
+  /*
+   * The last step used to call registerCompany() — sessionStorage — and write
+   * the browser's own session object. No request was ever made. A person could
+   * complete every step, see a console, close the tab, and find that nothing
+   * had ever existed. It was the pre-backend demo, left in place after the API
+   * arrived.
+   */
+  const mk = readFileSync(join(FE, "assets", "market.js"), "utf8");
+  const code = mk.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+
+  const submit = code.slice(code.indexOf('const bz = e.target.closest("[data-biz]")'));
+  const block = submit.slice(0, submit.indexOf("\n  const ow"));
+  assert.ok(block.length > 200, "the business submit handler could not be read");
+
+  assert.match(block, /createOrganization\(/,
+    "finishing signup does not call the endpoint that creates a company");
+  assert.doesNotMatch(block, /registerCompany\(/,
+    "finishing signup still writes the company to browser storage");
+  assert.match(block, /signInUrl\(/,
+    "a visitor who is not signed in is not sent to Google, so the POST would 401");
+
+  /* And the password that no column exists for is gone from EVERY form —
+     business signup, listing a place, and the personal account. */
+  assert.doesNotMatch(code, /fieldOf\("pw"/,
+    "a signup form asks for a password; there is no password column, hashing or reset");
+  assert.doesNotMatch(code, /type="password"/,
+    "a password input is still rendered somewhere a visitor can reach");
+});
+
+test("listing a place is not blocked by a code nothing sends", { skip }, () => {
+  /*
+   * The same defect as the business flow, in the flow a private landlord uses.
+   * OWN_ORDER ended with "confirm", gated on OWNER.verified, and the only line
+   * that sets it sat behind data-ow="__never_verify" — a value no button in
+   * the file emits. Nobody could list a property either.
+   */
+  const w = makeWindow({ href: "https://paltas.io/auth/list.html" });
+  w.win.PALTAS_BASE = "../";
+  w.win.PALTAS_PAGE = "ownerjoin";
+  w.loadCode(readFileSync(join(FE, "assets", "market.js"), "utf8") +
+    "\n;window.__O=()=>OWNER;window.__OO=OWN_ORDER;window.__OV=ownValidate;window.__E=()=>ERRS;",
+    "market.js");
+
+  const O = w.win.__O();
+  Object.assign(O, {
+    kind: "apartment", use: "rent", city: "Nairobi", country: "ke",
+    address: "12 Riverside", beds: 2, baths: 1, size: "90", price: "85000",
+    name: "Grace Wanjiru", email: "g@example.com", phone: "+254700000000",
+  });
+
+  const blocked = [];
+  for (const step of [...w.win.__OO]) {
+    O.step = step;
+    if (!w.win.__OV()) {
+      blocked.push(`${step}: ${Object.values(w.win.__E() || {}).join("; ").slice(0, 70)}`);
+    }
+  }
+  assert.deepEqual(blocked, [],
+    "a completed listing form cannot be finished:\n   " + blocked.join("\n   "));
+
+  const code = readFileSync(join(FE, "assets", "market.js"), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(code, /__never_verify/,
+    "a handler is wired to a value no button emits, so the step it guards cannot be passed");
+  assert.doesNotMatch(code, /OWNER\.verified = true/,
+    "the listing email gate is back; check it can actually be opened");
+
+  /* And finishing creates a company rather than a sessionStorage entry. */
+  const own = code.slice(code.indexOf('const ow = e.target.closest("[data-own]")'));
+  const block = own.slice(0, own.indexOf('const bz = e.target.closest'));
+  assert.ok(block.length > 200, "the listing submit handler could not be read");
+  assert.match(block, /createOrganization\(/,
+    "finishing a listing signup does not create a company on the server");
+  assert.doesNotMatch(block, /registerCompany\(/,
+    "finishing a listing signup still writes to browser storage");
+});
