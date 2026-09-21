@@ -873,3 +873,67 @@ test("the roll-up does not leak another company's units", { skip }, async () => 
   assert.equal(listed[0].id, mine.id);
   assert.equal(listed[0].let, 0, "an empty property counted another company's occupied unit");
 });
+
+test("a unit says who lives in it and when they leave", { skip }, async () => {
+  /*
+   * Both belong to the LEASE, not the unit, so the row could not answer
+   * either and every unit showed "—" in both columns. On a letting screen
+   * that is the whole point missing: a unit list that cannot say who lives
+   * there is a spreadsheet of door numbers.
+   */
+  const c = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+  const site = (await call("/sites", { method: "POST", cookie: c.cookie,
+    body: { name: "Riverside", city: "Nairobi", country: "ke", kind: "RESIDENTIAL" } })).json.site;
+  const u1 = (await call("/units", { method: "POST", cookie: c.cookie,
+    body: { siteId: site.id, ref: "A1", status: "OCCUPIED" } })).json.unit;
+  const u2 = (await call("/units", { method: "POST", cookie: c.cookie,
+    body: { siteId: site.id, ref: "A2", status: "VACANT" } })).json.unit;
+  const tenant = (await call("/parties", { method: "POST", cookie: c.cookie,
+    body: { name: "Grace Wanjiru" } })).json.party;
+
+  await call("/leases", { method: "POST", cookie: c.cookie,
+    body: { unitId: u1.id, tenantId: tenant.id, rent: 50000, currency: "KES",
+            startsOn: "2026-01-01", endsOn: "2027-01-01", status: "ACTIVE" } });
+  /* An ENDED lease on the empty unit — who USED to live there is a different
+     and much worse answer to put in a column headed "Tenant". */
+  await call("/leases", { method: "POST", cookie: c.cookie,
+    body: { unitId: u2.id, tenantId: tenant.id, rent: 40000, currency: "KES",
+            startsOn: "2020-01-01", endsOn: "2021-01-01", status: "ENDED" } });
+
+  const units = (await call("/units", { cookie: c.cookie })).json.units;
+  const a1 = units.find((u) => u.ref === "A1");
+  const a2 = units.find((u) => u.ref === "A2");
+
+  assert.equal(a1.tenantName, "Grace Wanjiru", "an occupied unit does not name its tenant");
+  assert.ok(a1.leaseEndsOn, "an occupied unit does not say when the lease ends");
+  assert.equal(a2.tenantName, "", "an empty unit named a tenant whose lease has ended");
+});
+
+test("a building counts its own units instead of waiting to be told", { skip }, async () => {
+  /* `unitCount` is a column somebody types in, and nobody does — so a
+     building with forty units read 0 on its own screen. */
+  const c = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+  const site = (await call("/sites", { method: "POST", cookie: c.cookie,
+    body: { name: "Riverside", city: "Nairobi", country: "ke", kind: "RESIDENTIAL" } })).json.site;
+  const b = (await call("/buildings", { method: "POST", cookie: c.cookie,
+    body: { siteId: site.id, name: "Block A" } })).json.building;
+
+  assert.equal(
+    (await call("/buildings", { cookie: c.cookie })).json.buildings.find((x) => x.id === b.id).unitCount,
+    0, "an empty building should count nothing yet");
+
+  for (const [ref, status] of [["A1", "OCCUPIED"], ["A2", "OCCUPIED"], ["A3", "VACANT"]]) {
+    await call("/units", { method: "POST", cookie: c.cookie,
+      body: { siteId: site.id, buildingId: b.id, ref, status } });
+  }
+
+  const back = (await call("/buildings", { cookie: c.cookie })).json.buildings.find((x) => x.id === b.id);
+  assert.equal(back.unitCount, 3, "the building did not count the units it holds");
+  assert.equal(back.let, 2, "the building did not count how many are let");
+
+  /* And the property agrees — the portfolio said "10 units" beside a units
+     screen counting 3, which is the first thing a client notices. */
+  const s = (await call("/sites", { cookie: c.cookie })).json.sites.find((x) => x.id === site.id);
+  assert.equal(s.unitCount, 3, "the property and its buildings disagree about how many units exist");
+  assert.equal(s.let, 2);
+});

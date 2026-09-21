@@ -105,8 +105,29 @@ export const RESOURCES = {
         rent.set(sid, (rent.get(sid) || 0n) + BigInt(l.rent || 0));
       }
 
+      /*
+       * AND THE UNIT COUNT, COUNTED.
+       *
+       * `unitCount` is a number the owner types when they register a
+       * property. Once units exist it is a second opinion, and the portfolio
+       * screen was showing it beside a units screen counting the real ones —
+       * "10 units" on one tab and "3" on the next. A client notices that
+       * before they notice anything else.
+       *
+       * The stored figure still stands where nothing has been entered yet:
+       * somebody who told us their block has 48 units and has not itemised
+       * them should not watch it drop to zero.
+       */
+      const counted = await db.unit.groupBy({
+        by: ["siteId"],
+        where: { orgId, siteId: { in: ids } },
+        _count: { _all: true },
+      });
+      const units = new Map(counted.map((g) => [g.siteId, g._count._all]));
+
       return rows.map((r) => ({
         ...r,
+        unitCount: units.get(r.id) ?? r.unitCount ?? 0,
         let: occupied.get(r.id) || 0,
         rent: rent.get(r.id) || 0n,
       }));
@@ -125,6 +146,37 @@ export const RESOURCES = {
     search: ["name"],
     order: [{ name: "asc" }],
     include: { site: { select: { id: true, name: true } } },
+
+    /*
+     * HOW MANY UNITS IT ACTUALLY HAS.
+     *
+     * `unitCount` is a column somebody types in, and nobody does — so a
+     * building with forty units read 0 on its own screen until a person
+     * remembered to fill in a number that the units table already knows.
+     *
+     * Counted instead, with the let ones alongside, because "38 of 40" is
+     * the sentence a building manager is actually after. The stored column
+     * is left alone and used as the fallback: a building whose units have
+     * not been entered yet still shows what its owner told us.
+     */
+    async rollup(rows, orgId) {
+      if (!rows.length) return rows;
+      const ids = rows.map((r) => r.id);
+      const [all, let_] = await Promise.all([
+        db.unit.groupBy({ by: ["buildingId"],
+          where: { orgId, buildingId: { in: ids } }, _count: { _all: true } }),
+        db.unit.groupBy({ by: ["buildingId"],
+          where: { orgId, buildingId: { in: ids }, status: "OCCUPIED" }, _count: { _all: true } }),
+      ]);
+      const total = new Map(all.map((g) => [g.buildingId, g._count._all]));
+      const occupied = new Map(let_.map((g) => [g.buildingId, g._count._all]));
+
+      return rows.map((r) => ({
+        ...r,
+        unitCount: total.get(r.id) ?? r.unitCount ?? 0,
+        let: occupied.get(r.id) || 0,
+      }));
+    },
   },
 
   units: {
@@ -140,6 +192,42 @@ export const RESOURCES = {
     search: ["ref"],
     order: [{ ref: "asc" }],
     include: { building: { select: { id: true, name: true } } },
+
+    /*
+     * WHO IS IN IT, AND WHEN THEY LEAVE.
+     *
+     * Both belong to the LEASE, not the unit, so the row could not answer
+     * either and the console showed "—" in both columns for every unit. For a
+     * letting business those two columns ARE the screen: a unit list that
+     * cannot say who lives there is a spreadsheet of door numbers.
+     *
+     * One query for the page. ACTIVE leases only — a lease that ended tells
+     * you who USED to live there, which is a different and much worse answer
+     * to put in a column headed "Tenant".
+     */
+    async rollup(rows, orgId) {
+      if (!rows.length) return rows;
+      const leases = await db.lease.findMany({
+        where: { orgId, status: "ACTIVE", unitId: { in: rows.map((r) => r.id) } },
+        select: {
+          unitId: true, endsOn: true, tenantName: true,
+          tenant: { select: { name: true } },
+        },
+        orderBy: { startsOn: "desc" },
+      });
+      /* The newest active lease wins if a unit somehow has two. */
+      const by = new Map();
+      for (const l of leases) if (!by.has(l.unitId)) by.set(l.unitId, l);
+
+      return rows.map((r) => {
+        const l = by.get(r.id);
+        return {
+          ...r,
+          tenantName: l ? ((l.tenant && l.tenant.name) || l.tenantName || "") : "",
+          leaseEndsOn: l ? l.endsOn : null,
+        };
+      });
+    },
   },
 
   parties: {
