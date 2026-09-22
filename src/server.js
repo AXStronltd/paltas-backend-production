@@ -21,6 +21,7 @@ import { invitationRoutes } from "./routes/invitations.js";
 import { provisioningRoutes } from "./routes/provisioning.js";
 import { promotionRoutes } from "./routes/promotions.js";
 import { productRoutes } from "./routes/products.js";
+import { formRoutes } from "./routes/forms.js";
 import { marketRoutes } from "./routes/market.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
@@ -244,6 +245,10 @@ export function createApp() {
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */
   app.use("/", productRoutes);
+  /* What a "＋ Add" button should ask for — assembled from console-map,
+     the registry and Prisma's enums, so the console does not keep a copy
+     of any of them. */
+  app.use("/", formRoutes);
 
   app.use((req, _res, next) => next(notFound(`No endpoint at ${req.method} ${req.path}.`)));
   app.use(errorHandler(log));

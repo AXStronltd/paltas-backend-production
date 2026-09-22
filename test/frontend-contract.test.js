@@ -5330,3 +5330,97 @@ test("a company sees its own currency, whichever of the fifty markets it is in",
   assert.equal(anon.__orgCur(), "", "a signed-out visitor has no company currency");
   assert.match(anon.__money(1200000), /^KES /, "the sample data stopped reading in KES");
 });
+
+test("every button in the property console does something", { skip }, () => {
+  /*
+   * THIRTY BUTTONS THAT WERE INERT MARKUP.
+   *
+   * "＋ Add property", "＋ Add a unit", "＋ Raise request" — a customer could
+   * see every kind of record the API can create and had no way to create one.
+   * The only way a property ever reached PALTAS was signing up.
+   *
+   * A button that does nothing is worse than a missing one: the person
+   * presses it, nothing happens, and they conclude the product is broken
+   * rather than that the feature is absent.
+   */
+  const con = readFileSync(join(FE, "assets", "console.js"), "utf8");
+  const screens = [...con.matchAll(/SCREENS\.([a-z_0-9]+) = /g)].map((m) => [m.index, m[1]]);
+  const PM = new Set(["command", "portfolio", "dna", "buildings", "units", "rentals",
+    "development", "pm_market", "shortstay", "sales", "fin_overview", "fin_txns",
+    "fin_collect", "fin_invoices", "fin_expenses", "payments", "fin_payouts", "fin_cash",
+    "fin_reports", "investments", "mk_promos", "pm_issues", "maintenance", "staff",
+    "documents", "pm_reports", "analytics", "products", "modules"]);
+
+  /* Anything that makes a button DO something: an action, a destination, a
+     filter, a form field, or being deliberately disabled. */
+  const handled = /data-(act|go|sys|tab|ptab|demo|biz|own|m|plan|pay|step|nav|pick|filter|sort|hy-retry|nf|v|id|k|q)\b|onclick|disabled/;
+
+  const dead = [];
+  let total = 0;
+  for (let i = 0; i < screens.length; i++) {
+    const [pos, name] = screens[i];
+    if (!PM.has(name)) continue;
+    const end = i + 1 < screens.length ? screens[i + 1][0] : con.length;
+    for (const m of con.slice(pos, end).matchAll(/<button\b([^>]*)>([\s\S]*?)<\/button>/g)) {
+      total++;
+      if (!handled.test(m[1])) {
+        const label = m[2].replace(/<[^>]*>/g, "").replace(/\$\{[^}]*\}/g, "").trim();
+        dead.push(`${name}: "${label.slice(0, 34)}"`);
+      }
+    }
+  }
+
+  assert.ok(total >= 50, `only ${total} buttons found — the console's shape changed`);
+  assert.deepEqual(dead, [],
+    "buttons a customer can press that do nothing:\n   " + dead.join("\n   "));
+});
+
+test("the create form asks only for fields the resource will accept", { skip }, () => {
+  /*
+   * A form that saves and silently drops a value is worse than a button that
+   * does nothing, because the customer believes it worked. The fields come
+   * from the server, which assembles them from console-map, the registry and
+   * Prisma's enums — so the console holds no copy of any of them.
+   */
+  const con = readFileSync(join(FE, "assets", "console.js"), "utf8");
+
+  assert.match(con, /D\.request\("\/console\/forms"\)/,
+    "the console no longer asks the server what a form should contain");
+  assert.match(con, /ACTIONS\.newSave/, "there is no save action for the create form");
+  assert.match(con, /D\.create\(spec\.resource, body\)/,
+    "the form does not POST to the resource the server named");
+
+  /* No hard-coded field list anywhere near the form — that is the drift this
+     design exists to prevent. */
+  const i = con.indexOf("function newPanel(");
+  const panel = con.slice(i, i + 2000);
+  assert.doesNotMatch(panel, /\bfields\s*=\s*\[/,
+    "the form keeps its own field list, which will drift from the schema");
+
+  /* Every screen with a ＋ button must have somewhere to render the form. */
+  const opens = [...con.matchAll(/data-act="newOpen::([a-z_0-9]+)"/g)].map((m) => m[1]);
+  const panels = [...con.matchAll(/newPanel\("([a-z_0-9]+)"\)/g)].map((m) => m[1]);
+  const orphans = [...new Set(opens)].filter((s) => !panels.includes(s));
+  assert.deepEqual(orphans, [],
+    "these screens open a form that has nowhere to appear: " + orphans.join(", "));
+});
+
+test("signing out of the console ends the session on the server", { skip }, () => {
+  /*
+   * The console's sign-out set `system = null` and repainted. The session row
+   * was untouched and the cookie was still in the browser, so returning to
+   * the dashboard signed the person straight back in — and the next person at
+   * that machine was still them.
+   */
+  const con = readFileSync(join(FE, "assets", "console.js"), "utf8");
+  const i = con.indexOf('b.dataset.sys === "__out"');
+  assert.ok(i > 0, "the console has no sign-out");
+  const handler = con.slice(i, i + 1200);
+
+  assert.match(handler, /A2\.signOut\(\)/,
+    "sign-out does not call the endpoint that deletes the session row");
+  assert.match(handler, /Session\.clear\(\)/, "the local session is not cleared");
+
+  /* And it must be findable: people look for it under their own name. */
+  assert.match(con, /side-out/, "there is no sign-out in the sidebar under the user");
+});
