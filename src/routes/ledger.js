@@ -203,7 +203,10 @@ ledgerRoutes.get("/ledger/accounts", route(async (req, res) => {
   }
 
   const accounts = await db.ledgerAccount.findMany({ where, orderBy: { code: "asc" } });
-  res.json({ accounts, count: accounts.length });
+  res.json({
+    accounts,
+    count: accounts.length,
+  });
 }));
 
 /**
@@ -456,7 +459,13 @@ ledgerRoutes.get("/ledger/entries", route(async (req, res) => {
     db.journalEntry.count({ where }),
   ]);
 
-  res.json({ entries, count: entries.length, total, limit: take, offset: skip });
+  res.json({
+    entries,
+    count: entries.length,
+    total,
+    limit: take,
+    offset: skip,
+  });
 }));
 
 /** GET /ledger/entries/:id — one entry, with its lines and what it reversed. */
