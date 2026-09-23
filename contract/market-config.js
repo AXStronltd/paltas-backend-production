@@ -205,11 +205,15 @@
      than this needs to be. Codes are canonical; names resolve to them. */
   var BY_NAME = {};
   COUNTRIES.forEach(function (c) { BY_NAME[c.name.toLowerCase()] = c; });
-  /* Names PALTAS has used elsewhere for the same place. */
-  [["uae","AE"], ["united arab emirates","AE"], ["uk","GB"], ["britain","GB"],
+  /* Names PALTAS has used elsewhere for the same place. Held in a variable
+     rather than written inline, because reindex() has to apply the very same
+     list — an alias table that exists only on the load path disappears the
+     first time the catalogue is replaced from the server. */
+  var NAME_ALIASES = [["uae","AE"], ["united arab emirates","AE"], ["uk","GB"], ["britain","GB"],
    ["great britain","GB"], ["usa","US"], ["united states of america","US"],
    ["america","US"], ["turkey","TR"], ["holland","NL"], ["ksa","SA"],
-   ["saudi","SA"]].forEach(function (p) { BY_NAME[p[0]] = BY_CODE[p[1]]; });
+   ["saudi","SA"]];
+  NAME_ALIASES.forEach(function (p) { BY_NAME[p[0]] = BY_CODE[p[1]]; });
 
   /* ===================================================================== 2
    * THE PAYMENT METHOD CATALOGUE
@@ -665,6 +669,142 @@
     "Asia/Jakarta":"ID", "Asia/Makassar":"ID", "Asia/Manila":"PH",
     "Australia/Sydney":"AU", "Australia/Melbourne":"AU", "Australia/Brisbane":"AU",
     "Australia/Perth":"AU", "Australia/Adelaide":"AU", "Pacific/Auckland":"NZ",
+  
+
+    /*
+     * THE ZONES A VISITOR ACTUALLY REPORTS.
+     *
+     * Sixty-nine zones covered fifty countries — roughly one apiece, when the
+     * United States alone has thirty. Somebody in Detroit, Indianapolis, St
+     * John's, Recife, Tijuana, Hobart or the Azores resolved to NO country,
+     * and no country meant no market, which meant the marketplace asked a
+     * wholesaler about nowhere and showed them an empty page.
+     *
+     * These are IANA zone-to-country facts, not guesses, and they add no new
+     * markets: every code below was already in the catalogue. The legacy
+     * aliases ("US/Eastern", "GB", "Turkey") are here because browsers still
+     * report them.
+     */
+    "Africa/Ceuta": "ES",
+    "Africa/Mombasa": "KE",
+    "America/Adak": "US",
+    "America/Araguaina": "BR",
+    "America/Atikokan": "CA",
+    "America/Bahia_Banderas": "MX",
+    "America/Belem": "BR",
+    "America/Blanc-Sablon": "CA",
+    "America/Boa_Vista": "BR",
+    "America/Boise": "US",
+    "America/Cambridge_Bay": "CA",
+    "America/Campo_Grande": "BR",
+    "America/Chihuahua": "MX",
+    "America/Ciudad_Juarez": "MX",
+    "America/Creston": "CA",
+    "America/Cuiaba": "BR",
+    "America/Dawson": "CA",
+    "America/Dawson_Creek": "CA",
+    "America/Detroit": "US",
+    "America/Eirunepe": "BR",
+    "America/Fort_Nelson": "CA",
+    "America/Glace_Bay": "CA",
+    "America/Goose_Bay": "CA",
+    "America/Hermosillo": "MX",
+    "America/Indiana/Indianapolis": "US",
+    "America/Indiana/Knox": "US",
+    "America/Indiana/Marengo": "US",
+    "America/Indiana/Petersburg": "US",
+    "America/Indiana/Tell_City": "US",
+    "America/Indiana/Vevay": "US",
+    "America/Indiana/Vincennes": "US",
+    "America/Indiana/Winamac": "US",
+    "America/Indianapolis": "US",
+    "America/Inuvik": "CA",
+    "America/Iqaluit": "CA",
+    "America/Juneau": "US",
+    "America/Kentucky/Louisville": "US",
+    "America/Kentucky/Monticello": "US",
+    "America/Louisville": "US",
+    "America/Maceio": "BR",
+    "America/Manaus": "BR",
+    "America/Matamoros": "MX",
+    "America/Mazatlan": "MX",
+    "America/Menominee": "US",
+    "America/Merida": "MX",
+    "America/Metlakatla": "US",
+    "America/Moncton": "CA",
+    "America/Monterrey": "MX",
+    "America/Nipigon": "CA",
+    "America/Nome": "US",
+    "America/Noronha": "BR",
+    "America/North_Dakota/Beulah": "US",
+    "America/North_Dakota/Center": "US",
+    "America/North_Dakota/New_Salem": "US",
+    "America/Ojinaga": "MX",
+    "America/Porto_Velho": "BR",
+    "America/Rainy_River": "CA",
+    "America/Rankin_Inlet": "CA",
+    "America/Recife": "BR",
+    "America/Regina": "CA",
+    "America/Resolute": "CA",
+    "America/Rio_Branco": "BR",
+    "America/Santarem": "BR",
+    "America/Sitka": "US",
+    "America/St_Johns": "CA",
+    "America/Swift_Current": "CA",
+    "America/Thunder_Bay": "CA",
+    "America/Tijuana": "MX",
+    "America/Whitehorse": "CA",
+    "America/Yakutat": "US",
+    "America/Yellowknife": "CA",
+    "Asia/Istanbul": "TR",
+    "Asia/Jayapura": "ID",
+    "Asia/Kuching": "MY",
+    "Asia/Pontianak": "ID",
+    "Atlantic/Azores": "PT",
+    "Atlantic/Canary": "ES",
+    "Atlantic/Madeira": "PT",
+    "Australia/ACT": "AU",
+    "Australia/Broken_Hill": "AU",
+    "Australia/Canberra": "AU",
+    "Australia/Currie": "AU",
+    "Australia/Darwin": "AU",
+    "Australia/Eucla": "AU",
+    "Australia/Hobart": "AU",
+    "Australia/Lindeman": "AU",
+    "Australia/Lord_Howe": "AU",
+    "Australia/NSW": "AU",
+    "Australia/Queensland": "AU",
+    "Australia/South": "AU",
+    "Australia/Tasmania": "AU",
+    "Australia/Victoria": "AU",
+    "Australia/West": "AU",
+    "Brazil/East": "BR",
+    "Brazil/West": "BR",
+    "Canada/Atlantic": "CA",
+    "Canada/Central": "CA",
+    "Canada/Eastern": "CA",
+    "Canada/Mountain": "CA",
+    "Canada/Newfoundland": "CA",
+    "Canada/Pacific": "CA",
+    "Eire": "IE",
+    "Europe/Belfast": "GB",
+    "Europe/Busingen": "DE",
+    "Europe/Guernsey": "GB",
+    "Europe/Isle_of_Man": "GB",
+    "Europe/Jersey": "GB",
+    "GB": "GB",
+    "GB-Eire": "GB",
+    "Mexico/General": "MX",
+    "NZ": "NZ",
+    "NZ-CHAT": "NZ",
+    "Pacific/Chatham": "NZ",
+    "Turkey": "TR",
+    "US/Alaska": "US",
+    "US/Central": "US",
+    "US/Eastern": "US",
+    "US/Hawaii": "US",
+    "US/Mountain": "US",
+    "US/Pacific": "US",
   };
 
   function detect() {
@@ -1172,20 +1312,21 @@
 
   var Api = {
     /*
-     * GET /health — THE ONLY CALL IN THIS FILE THAT REACHES A ROUTE THAT
-     * ACTUALLY EXISTS TODAY.
+     * GET /health — the cheapest proof that the base URL and the proxy work.
      *
-     * The four resolvers below are written against /market/config,
-     * /payment-methods/available, /localization/config and
-     * /services/available. None of those is built on the backend yet; all
-     * four answer 401 today, because an unmatched path falls into the
-     * product router's session guard. So none of them can demonstrate that
-     * the proxy and the base URL are right.
+     * THIS COMMENT USED TO SAY that the four resolvers below reached nothing:
+     * that /market/config, /payment-methods/available, /localization/config
+     * and /services/available were unbuilt and all answered 401, because an
+     * unmatched path fell into the product router's session guard.
      *
-     * /health can. It is a real route (src/server.js in paltas-backend), it
-     * is public, it returns 200, and it touches the database on the way — so
-     * a 200 here means the browser reached Render AND Render reached
-     * Postgres. Verified against production before this was written.
+     * THAT IS NO LONGER TRUE. All four are served — src/routes/market.js in
+     * paltas-backend — all four are public, and all four answer 200 to an
+     * anonymous caller. The last of them moved to /market/services, for the
+     * reason given on availableServices below.
+     *
+     * /health stays, because it is still the only call that proves the
+     * TRANSPORT rather than the answer: it touches the database on the way, so
+     * a 200 here means the browser reached Render AND Render reached Postgres.
      *
      * It is NOT a health indicator for the UI and nothing renders it.
      */
@@ -1201,8 +1342,7 @@
       return get("/market/config").then(function (r) {
         if (r && Array.isArray(r.countries) && r.countries.length) {
           COUNTRIES = r.countries;
-          BY_CODE = {}; BY_NAME = {};
-          COUNTRIES.forEach(function (c) { BY_CODE[c.code] = c; BY_NAME[c.name.toLowerCase()] = c; });
+          reindex();
           emit("config");
         }
         return r;
@@ -1249,37 +1389,76 @@
       });
     },
 
-    /* GET /services/available — what a customer can actually do here. */
+    /*
+     * GET /market/services — what a customer can actually do here.
+     *
+     * WAS /services/available, WHICH COULD NEVER HAVE WORKED. `/services` is
+     * a tenant RESOURCE on the API — model HotelService, one hotel's
+     * restaurants, spas and airport transfer, behind a session. Express bound
+     * `:id = "available"` and the request got a 401 from a router that had no
+     * idea it had been asked a different question.
+     *
+     * Two unrelated things wanted one path. The tenant's outlets keep
+     * /services, because twenty-seven console forms already post there; the
+     * platform's market capabilities moved to /market/services. Same shape,
+     * same caller, one word different.
+     */
     availableServices: function (code) {
       code = code || STATE.selectedCountry;
       if (!apiBase()) {
         var caps = capabilitiesOf(code);
         return Promise.resolve({ country: code, services: caps ? caps.services : [], capabilities: caps, source: "local" });
       }
-      return get("/services/available", { country: code });
+      return get("/market/services", { country: code });
     },
   };
 
   /*
-   * ONE REAL CALL, FIRED ONCE, AFFECTING NOTHING ON SCREEN.
+   * THE SEAM, ACTUALLY CROSSED.
    *
-   * Without this the base URL and the proxy are configuration nobody has
-   * exercised, and "configured" is not the same as "working". This asks the
-   * one endpoint that exists and records the answer on
-   * `PALTAS.Market.apiReachable`, for a person in devtools to read.
+   * This used to be a single call to /health whose only purpose was to prove
+   * the base URL and the proxy worked — because at the time none of the four
+   * catalogue endpoints existed, so there was nothing else to ask. The
+   * resolvers above were written, exported, and never called by anything.
+   * The backend now serves all four, and this is where that starts to matter.
    *
-   * Deliberately: no await, no render, no throw, and SILENT on failure. A
-   * backend that is asleep must not put an error in a visitor's console on
-   * the marketplace, and nothing above this line waits for it. Skipped
-   * entirely when no base is configured, so the offline demo makes no
-   * network request at all.
+   * WHAT IS FETCHED AND WHAT IS NOT. Only /market/config, the catalogue
+   * itself — the fifty markets, their currencies, their conversion rates and
+   * their cities. It is the table every other answer in this file is computed
+   * FROM, so refreshing it moves opening a market, closing one, or correcting
+   * a rate to the backend, with no frontend deploy. That is precisely what
+   * `Api.marketConfig()`'s own comment has always promised.
+   *
+   * The other three are left to their callers on purpose. Payment methods
+   * depend on a country, a currency AND an amount, so there is no single
+   * answer to prefetch; localisation returns no strings yet; services is
+   * per-market. Each is a live call at the point of use, which is what those
+   * screens already do.
+   *
+   * IT IS STILL SILENT AND STILL BLOCKS NOTHING. No await, no throw, and no
+   * console noise when the backend is asleep — the local table is already
+   * loaded and correct, so a failed refresh costs nothing and a visitor sees
+   * the marketplace either way. Skipped entirely when no base is configured,
+   * so the offline demo makes no network request at all.
+   *
+   * ON SUCCESS IT REPAINTS. marketConfig() calls reindex() and emit("config"),
+   * and every screen that listens re-renders with the server's catalogue.
    */
   var apiReachable = null;
   if (apiBase()) {
     try {
-      Api.health()
-        .then(function (r) { apiReachable = !!(r && r.ok); })
-        .catch(function () { apiReachable = false; });
+      Api.marketConfig()
+        .then(function () { apiReachable = true; })
+        .catch(function () {
+          apiReachable = false;
+          /* The catalogue call failed. /health is asked ONLY now, and only to
+             tell the two failures apart for whoever opens devtools: a backend
+             that is down, versus one that is up and answering /market/config
+             wrongly. Nothing on screen depends on which. */
+          return Api.health()
+            .then(function (r) { apiReachable = !!(r && r.ok) ? "catalogue" : false; })
+            .catch(function () { apiReachable = false; });
+        });
     } catch (e) { apiReachable = false; }
   }
 
@@ -1288,6 +1467,128 @@
    */
 
   function country(code) { return BY_CODE[code || STATE.selectedCountry] || null; }
+
+  /* ==================================================================== 11b
+   * THE MARKET, IN THE ADDRESS BAR
+   *
+   * The market was already resolved correctly and kept in sessionStorage,
+   * where nobody could see it. A visitor in Nairobi and a visitor in
+   * Stockholm were both looking at paltas.io — the same bare address,
+   * saying nothing about which of the fifty markets they were actually in,
+   * and impossible to send to somebody else.
+   *
+   * So the resolved market is written into the path: /kenya, /sweden. When
+   * no market resolves, the path says /smart-living rather than nothing.
+   *
+   * THREE THINGS THIS DELIBERATELY IS NOT:
+   *
+   *   Not a redirect. The server never sends anybody anywhere — the page is
+   *   served at whatever address was asked for and the path is corrected in
+   *   place with replaceState. paltas.io/ stays the canonical homepage, one
+   *   entry in a search index, and the link nobody has to be bounced from.
+   *
+   *   Not a second country system. The slug is derived from the catalogue
+   *   above, so a country cannot exist in one and be missing from the other.
+   *
+   *   Not applied to real pages. It only ever rewrites the homepage. A
+   *   country slug replacing /partner.html would take a visitor's page away
+   *   from them, so isHomePath() has to be true before anything is written.
+   * ==================================================================== */
+
+  /* "United Arab Emirates" -> "united-arab-emirates", "Türkiye" -> "turkiye".
+     The diacritic is folded rather than dropped: a slug has to be typeable
+     on a keyboard that has no ü on it. */
+  function slugOf(c) {
+    var name = String((c && c.name) || "");
+    try { name = name.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); } catch (e) {}
+    return name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  }
+
+  var BY_SLUG = {};
+
+  /*
+   * EVERY INDEX INTO THE CATALOGUE, REBUILT TOGETHER.
+   *
+   * There are three — by code, by name, by URL slug — plus the alias table,
+   * and until this existed they were built in three different places and only
+   * two of them were ever rebuilt.
+   *
+   * That was a real defect waiting on a feature. `Api.marketConfig()` replaces
+   * COUNTRIES with the server's list, and it rebuilt BY_CODE and BY_NAME and
+   * forgot BY_SLUG entirely — so the moment the backend actually answered,
+   * /kenya would stop resolving and isHomePath() would stop recognising a
+   * country path, while every code lookup carried on working perfectly. It
+   * also rebuilt BY_NAME from names alone, which dropped "uae", "uk", "usa"
+   * and the rest of NAME_ALIASES on the floor.
+   *
+   * Nobody had seen either, because nothing had ever called marketConfig().
+   * One function now owns all of it, so a fourth index cannot be added and
+   * half-wired.
+   */
+  function reindex() {
+    BY_CODE = {};
+    COUNTRIES.forEach(function (c) { BY_CODE[c.code] = c; });
+
+    BY_NAME = {};
+    COUNTRIES.forEach(function (c) { BY_NAME[c.name.toLowerCase()] = c; });
+    NAME_ALIASES.forEach(function (p) { if (BY_CODE[p[1]]) BY_NAME[p[0]] = BY_CODE[p[1]]; });
+
+    BY_SLUG = {};
+    COUNTRIES.forEach(function (c) { BY_SLUG[slugOf(c)] = c; });
+  }
+
+  reindex();
+
+  /* The branded path for a visitor whose market could not be worked out. */
+  var NEUTRAL_PATH = "/smart-living";
+
+  /*
+   * Only the homepage may carry a market in its path. Anything else — a real
+   * file, a directory, a page with its own identity — is left exactly alone.
+   */
+  function isHomePath(pathname) {
+    var s = String(pathname || "/").replace(/\/+$/, "") || "/";
+    if (s === "/" || s === "/index.html" || s === NEUTRAL_PATH) return true;
+    return Object.prototype.hasOwnProperty.call(BY_SLUG, s.slice(1).toLowerCase());
+  }
+
+  /*
+   * A market named in the URL. This is the strongest signal there is: a bare
+   * paltas.io is a guess about where somebody is, and paltas.io/sweden is a
+   * link somebody deliberately followed or was deliberately sent.
+   *
+   * Only a single top-level segment counts, so /auth/join.html and
+   * /partner.html can never be read as a country.
+   */
+  function countryFromPath() {
+    try {
+      var p = String((root.location && root.location.pathname) || "");
+      var seg = p.replace(/^\/+/, "").replace(/\/+$/, "").toLowerCase();
+      if (!seg || seg.indexOf("/") >= 0) return null;
+      return BY_SLUG[seg] || null;
+    } catch (e) { return null; }
+  }
+
+  /*
+   * Put the resolved market in the address bar. Query and fragment are
+   * carried across untouched — ?go=stay is how the homepage routes, and
+   * dropping it here would turn a market change into a navigation.
+   */
+  function reflectUrl() {
+    try {
+      var loc = root.location, hist = root.history;
+      if (!loc || !hist || typeof hist.replaceState !== "function") return false;
+      if (!isHomePath(loc.pathname)) return false;
+
+      var c = BY_CODE[STATE.selectedCountry];
+      var want = c ? "/" + slugOf(c) : NEUTRAL_PATH;
+      if (loc.pathname === want) return false;
+
+      hist.replaceState(hist.state, "", want + (loc.search || "") + (loc.hash || ""));
+      return true;
+    } catch (e) { return false; }
+  }
+
 
   /* Name or code, either way in — the marketplace speaks names and the
      business half speaks codes, and neither has to learn the other's. */
@@ -1334,6 +1635,10 @@
     STATE.source = how || "chosen";
     STATE.suggestion = null;
     persist();
+    /* The address bar is part of "everything country-specific repaints".
+       Switching Kenya to Sweden and leaving /kenya in the URL would leave a
+       link that reopens the market the visitor just left. */
+    reflectUrl();
     emit("country");
     return true;
   }
@@ -1371,6 +1676,26 @@
     var det = detect();
     STATE.currentLocation = det.code;
 
+    /*
+     * A market named in the URL wins over everything, including a market
+     * chosen earlier this session. Somebody opening paltas.io/sweden has
+     * asked for Sweden in the most explicit way available, and honouring a
+     * stale sessionStorage entry instead would make a shared link open the
+     * wrong country for the person it was sent to.
+     */
+    var urlCountry = countryFromPath();
+    if (urlCountry) {
+      STATE.selectedCountry = urlCountry.code;
+      STATE.source = "url";
+      var priorLang = restore();
+      STATE.countryOfResidence = (priorLang && priorLang.countryOfResidence) || null;
+      STATE.language = (priorLang && priorLang.language) || null;
+      persist();
+      reflectUrl();
+      emit("boot");
+      return summary();
+    }
+
     var saved = restore();
     if (saved) {
       STATE.selectedCountry = saved.selectedCountry;
@@ -1385,6 +1710,8 @@
       STATE.suggestion = det.code;
       STATE.source = "none";
     }
+    /* Detected, remembered, or not known at all — the path says which. */
+    reflectUrl();
     emit("boot");
     return summary();
   }
@@ -1393,6 +1720,14 @@
   root.PALTAS.Market = {
     /* data */
     countries: function () { return COUNTRIES.slice(); },
+
+    /* The URL layer, exposed so the rest of the platform and the tests can
+       ask the same questions this module answers internally. */
+    slugFor: function (value) { var c = lookup(value); return c ? slugOf(c) : null; },
+    countryFromPath: countryFromPath,
+    isHomePath: isHomePath,
+    pathSlugs: function () { return Object.keys(BY_SLUG).slice(); },
+    neutralPath: function () { return NEUTRAL_PATH; },
     paymentCatalogue: function () { return PAYMENT_METHODS.slice(); },
     languages: function () { return LANGUAGES; },
     lookup: lookup,
@@ -1458,8 +1793,18 @@
 
     /* the seam */
     Api: Api,
-    /* What the one real call above found. null = not attempted (no base
-       configured, i.e. local development). */
+    /*
+     * What the boot-time catalogue refresh found. Four values, because "it
+     * did not work" has more than one cause and they need different fixes:
+     *
+     *   null          not attempted — no base configured, i.e. local development
+     *   true          the server's catalogue was fetched and is now in use
+     *   "catalogue"   the backend is up (/health answered) but /market/config
+     *                 did not — a routing or proxy fault, not an outage
+     *   false         nothing answered; the local table is in use
+     *
+     * Nothing renders this. It is for whoever opens devtools.
+     */
     apiReachable: function () { return apiReachable; },
     on: on, off: off,
   };

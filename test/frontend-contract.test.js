@@ -135,9 +135,28 @@ test("every page's scripts load without throwing", { skip }, () => {
 });
 
 /*
- * Two calls are allowed at load, and only two.
+ * Four calls are allowed at load, and only four.
  *
- *   /health                 the market service's one silent reachability probe
+ *   /market/config          which markets exist, and what money they use
+ *
+ * This one replaced /health, and it is the market service's seam finally
+ * being crossed. The catalogue is not screen data — it is the SHELL's data,
+ * in the same sense the session below is. Every price on the homepage is
+ * formatted with a currency and a conversion rate that come from it, so a
+ * page that defers it either paints nothing or paints a number it has to
+ * correct a moment later, in front of the visitor. It also costs nothing to
+ * allow: it replaces the probe one-for-one rather than adding a request, and
+ * the backend serves it public and cacheable (ten minutes, an hour of
+ * stale-while-revalidate), so it is usually answered at the edge.
+ *
+ *   /health                 the reachability probe, now a FALLBACK only
+ *
+ * It used to be the only call this file made, fired to prove the base URL
+ * and the proxy worked when there was no catalogue endpoint to ask. Now it
+ * is asked ONLY when /market/config fails, and only to tell "the backend is
+ * down" apart from "the backend is up and this route is wrong" for whoever
+ * opens devtools. On a healthy load it is never called at all.
+ *
  *   /marketplace/listings   the public marketplace read
  *
  * The second one is the exception that proves the rule. The homepage's nine
@@ -160,9 +179,10 @@ test("every page's scripts load without throwing", { skip }, () => {
  *
  * Everything else still has to wait until a screen needs it.
  */
-const ALLOWED_AT_LOAD = /\/health$|\/marketplace\/listings(\?|$)|\/auth\/session$/;
+const ALLOWED_AT_LOAD =
+  /\/market\/config$|\/health$|\/marketplace\/listings(\?|$)|\/auth\/session$/;
 
-test("no page reaches the network at load beyond the health probe", { skip }, () => {
+test("no page reaches the network at load beyond the catalogue and the shell", { skip }, () => {
   for (const page of PAGES) {
     const w = openPage(page);
     const unexpected = w.calls.fetch.filter((u) => !ALLOWED_AT_LOAD.test(u));
@@ -351,7 +371,7 @@ test("the homepage's own inline scripts run without throwing", { skip }, () => {
 
   const unexpected = w.calls.fetch.filter((u) => !ALLOWED_AT_LOAD.test(u));
   assert.deepEqual(unexpected, [],
-    "the homepage called out at load beyond the health probe: " + unexpected.join(", "));
+    "the homepage called out at load beyond the catalogue and the shell: " + unexpected.join(", "));
 
   /*
    * And it MUST make that one call. If the marketplace read is missing, the
