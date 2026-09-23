@@ -435,3 +435,94 @@ test("every entry the bridge posts says which row it came from", { skip }, async
   const inv = json.entries.find((e) => e.sourceType === "invoice");
   assert.equal(inv.sourceId, id);
 });
+
+/* ====================================================================== *
+ * THE ADOPTION STEP — a company arrives with books
+ * ====================================================================== */
+
+/** Somebody signed in who does not belong to a company yet. */
+async function newcomer() {
+  const n = ++seq;
+  const email = `founder${n}@example.com`;
+  const user = await db.user.create({
+    data: { email, name: `Founder ${n}`, googleSub: "sub_" + email },
+  });
+  const token = crypto.randomBytes(32).toString("base64url");
+  await db.session.create({
+    data: {
+      tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
+      userId: user.id, orgId: null, expiresAt: new Date(Date.now() + 3600_000),
+    },
+  });
+  return { cookie: `paltas_session=${token}` };
+}
+
+test("a company created through signup already has a chart of accounts", { skip }, async () => {
+  const { cookie } = await newcomer();
+  const res = await call("/organizations", {
+    method: "POST", cookie,
+    body: { name: "Riverside Holdings", work: ["property"], country: "ke" },
+  });
+  assert.equal(res.status, 201, res.text.slice(0, 200));
+  assert.ok(res.json.chartOfAccounts > 20,
+    `only ${res.json.chartOfAccounts} accounts were seeded at signup`);
+
+  const chart = await call("/ledger/accounts", { cookie });
+  assert.equal(chart.status, 200);
+  const codes = chart.json.accounts.map((a) => a.code);
+  for (const needed of ["1000", "1100", "2000", "2300", "4000", "5000"]) {
+    assert.ok(codes.includes(needed), `the starting chart is missing ${needed}`);
+  }
+});
+
+test("a brand-new company's first invoice and payment book themselves", { skip }, async () => {
+  /*
+   * THE POINT OF SEEDING AT SIGNUP.
+   *
+   * No seeding call, no setup, nothing but the company being created: the
+   * first invoice it issues and the first payment it takes reach the ledger
+   * on their own. Before this, every company in production was in the other
+   * state — every posting skipped, with a reason nobody had read.
+   */
+  const { cookie } = await newcomer();
+  const made = await call("/organizations", {
+    method: "POST", cookie,
+    body: { name: "Kilimani Estates", work: ["property"], country: "ke" },
+  });
+  assert.equal(made.status, 201);
+
+  const { id, res } = await issuedInvoice(cookie, { amount: 8_500_000 });
+  assert.match(res.json.booking.booked || "", /^JE-\d{4}$/,
+    `the first invoice was not booked: ${res.json.booking.why}`);
+
+  const paid = await call("/payments", {
+    method: "POST", cookie,
+    body: { invoiceId: id, amount: 8_500_000, method: "MPESA", reference: "NEW-1" },
+  });
+  assert.equal(paid.status, 201);
+  assert.match(paid.json.booking.booked || "", /^JE-\d{4}$/,
+    `the first payment was not booked: ${paid.json.booking.why}`);
+
+  const { by, balanced } = await books(cookie);
+  assert.equal(balanced, true);
+  assert.equal(Number(by["1000"].debit), 8_500_000, "the money did not reach the bank account");
+  assert.equal(Number(by["1100"].balance), 0, "the receivable was raised and never cleared");
+});
+
+test("seeding at signup is idempotent — a second company is its own", { skip }, async () => {
+  /* Two companies, two charts, and neither one sees the other's accounts. */
+  const a = await newcomer();
+  const b = await newcomer();
+  await call("/organizations", { method: "POST", cookie: a.cookie,
+    body: { name: "Alpha Property", work: ["property"] } });
+  await call("/organizations", { method: "POST", cookie: b.cookie,
+    body: { name: "Beta Property", work: ["property"] } });
+
+  const ca = await call("/ledger/accounts", { cookie: a.cookie });
+  const cb = await call("/ledger/accounts", { cookie: b.cookie });
+  assert.equal(ca.json.count, cb.json.count);
+
+  const idsA = new Set(ca.json.accounts.map((x) => x.id));
+  const shared = cb.json.accounts.filter((x) => idsA.has(x.id));
+  assert.deepEqual(shared, [], "two companies were handed the same account rows");
+});

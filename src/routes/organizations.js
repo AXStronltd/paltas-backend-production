@@ -22,6 +22,7 @@ import {
   stateOf, toWire, whyNotInvite,
 } from "../domain/invitations.js";
 import { sessionView } from "../domain/session-view.js";
+import { seedChartOfAccounts } from "../domain/ledger.js";
 
 export const organizationRoutes = Router();
 
@@ -159,8 +160,43 @@ organizationRoutes.post("/", requireSession(), async (req, res, next) => {
       return created;
     });
 
+    /*
+     * AND IT STARTS WITH BOOKS.
+     *
+     * A new company gets the standard property chart of accounts — bank, rent
+     * receivable, tenant deposits, maintenance and the rest — so that from its
+     * first invoice, every business event posts a journal entry and the books
+     * are an account of the business rather than something to set up later.
+     *
+     * Without this the chart was a button somebody had to find. Nobody found
+     * it: every company in production has no chart, so nothing they do reaches
+     * the ledger and domain/posting.js skips every posting with a reason.
+     *
+     * ── WHY IT IS OUTSIDE THE TRANSACTION ABOVE ────────────────────────
+     *
+     * Signing up must not fail for a reason that has nothing to do with
+     * signing up. The chart is an accounting convenience, not part of what
+     * makes a company a company — and a company without one is exactly the
+     * state every existing company is already in, which the whole service
+     * handles: postings are skipped and say why, and the chart can be seeded
+     * afterwards from the console.
+     *
+     * So a failure here costs a click later. Inside the transaction it would
+     * cost the customer their signup, which is the one flow in this product
+     * that must never be traded against anything.
+     *
+     * It is idempotent, so a retry cannot produce a second chart.
+     */
+    let chart = 0;
+    try {
+      chart = (await seedChartOfAccounts(db, org.id)).length;
+    } catch (e) {
+      /* Loud in the log, invisible to the person signing up. */
+      console.error("chart of accounts not seeded for", org.id, e.message);
+    }
+
     const view = await sessionView({ ...req.session, orgId: org.id });
-    res.status(201).json(view);
+    res.status(201).json({ ...view, chartOfAccounts: chart });
   } catch (e) { next(e); }
 });
 
