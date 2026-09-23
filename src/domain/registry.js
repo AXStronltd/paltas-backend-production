@@ -38,6 +38,7 @@
 
 import { db } from "../db.js";
 import { aliasesFor } from "./console-map.js";
+import { postForExpense, postForInvoice } from "./posting.js";
 
 /* Field kinds:
      string · text · int · money · float · bool · date · json
@@ -719,6 +720,34 @@ export const RESOURCES = {
       party: { select: { id: true, name: true, email: true } },
       lines: true,
     },
+
+    /*
+     * AN INVOICE IS BOOKED WHEN IT IS ISSUED, NOT WHEN IT IS CREATED.
+     *
+     * It is created empty and its lines are added afterwards, so booking it
+     * on create would book a total of nothing. The moment that matters is
+     * DRAFT becoming anything else — the point a customer is actually being
+     * asked for money.
+     *
+     * Dr accounts receivable the gross, Cr income the net, Cr tax payable the
+     * tax. Tax is split out because it is not income: it is money held for a
+     * tax authority, and a P&L that counts it overstates what was earned.
+     */
+    async afterWrite({ row, before, action, req, db }) {
+      if (action !== "update") return {};
+      const was = before && before.status;
+      if (was !== "DRAFT" || row.status === "DRAFT" || row.status === "VOID") return {};
+
+      const full = await db.invoice.findFirst({
+        where: { id: row.id, orgId: req.actor.orgId }, include: { lines: true },
+      });
+      if (!full) return {};
+
+      const b = await postForInvoice(db, {
+        orgId: req.actor.orgId, invoice: full, userId: req.session.userId,
+      });
+      return { booking: { booked: b.posted ? b.posted.ref : null, why: b.skipped || null } };
+    },
   },
 
   payments: {
@@ -787,6 +816,24 @@ export const RESOURCES = {
      * contact's phone number ends up in a list nobody meant to expose it in.
      */
     include: { party: { select: { id: true, name: true } } },
+
+    /*
+     * A COST INCURRED IS A COST IN THE BOOKS.
+     *
+     * Dr the category's account, Cr accounts payable — payable rather than
+     * bank, because this row records that the cost happened, not that it has
+     * been paid. See domain/posting.js.
+     *
+     * It never refuses the expense. A company with no chart of accounts still
+     * records what it spent; it is simply told that nothing was booked.
+     */
+    async afterWrite({ row, action, req, db }) {
+      if (action !== "create") return {};
+      const b = await postForExpense(db, {
+        orgId: req.actor.orgId, expense: row, userId: req.session.userId,
+      });
+      return { booking: { booked: b.posted ? b.posted.ref : null, why: b.skipped || null } };
+    },
   },
 
   payouts: {

@@ -35,6 +35,7 @@ import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.js";
 import { sync as syncChannel, status as channelStatus } from "../domain/channels.js";
+import { postForPayment, reverseFor } from "../domain/posting.js";
 import {
   presignUpload, presignDownload, head as storageHead,
   publicDescribe as storagePublicDescribe,
@@ -138,6 +139,18 @@ const abs = (v) => (v < 0n ? -v : v);
  * ledger the books are reconciled from.
  */
 const auditable = (v) => (typeof v === "bigint" ? Number(v) : v);
+
+/**
+ * What the caller is told about the books.
+ *
+ * Deliberately small and always present: `booked` is the reference if there
+ * is one, and `why` is the sentence if there is not. A console that shows
+ * "recorded, not booked — no chart of accounts" is telling the truth; one
+ * that shows nothing leaves somebody to discover the gap at year end.
+ */
+const bookingOf = (b) => (b
+  ? { booked: b.posted ? b.posted.ref : null, why: b.skipped || null }
+  : { booked: null, why: null });
 
 /**
  * Sum the lines, sum the payments, work out the status, write all three.
@@ -288,7 +301,27 @@ guarded.post("/payments", async (req, res, next) => {
     await audit(req, "payment.receive", "payment", payment.id,
       { amount: auditable(payment.amount), currency: payment.currency, method: payment.method });
 
-    res.status(201).json({ payment, invoice: updated });
+    /*
+     * AND BOOK IT — after the payment is recorded, never before, and never in
+     * a way that can undo it.
+     *
+     * postForPayment does not throw: a company with no chart of accounts, a
+     * closed period or a withdrawn account all come back as a stated reason.
+     * Refusing money that has already arrived because the books are not set
+     * up would be the worse failure by a long way.
+     *
+     * The reason is not swallowed. It goes back in the response and into the
+     * audit log, so a gap between the payments list and the ledger is always
+     * visible and always explained.
+     */
+    const booking = await postForPayment(db, {
+      orgId: req.actor.orgId, payment, invoice, userId: req.session.userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "payment.not_booked", "payment", payment.id, { why: booking.skipped });
+    }
+
+    res.status(201).json({ payment, invoice: updated, booking: bookingOf(booking) });
   } catch (e) { next(e); }
 });
 
@@ -320,7 +353,21 @@ guarded.post("/payments/:id/void", async (req, res, next) => {
     await audit(req, "payment.void", "payment", payment.id,
       { reason: why, amount: auditable(payment.amount) });
 
-    res.json({ payment: await db.payment.findUnique({ where: { id: payment.id } }), invoice });
+    /* The books are corrected by a mirror entry, not by deleting the first
+       one — so the payment, the void and the reason all stay readable. */
+    const booking = await reverseFor(db, {
+      orgId: req.actor.orgId, sourceType: "payment", sourceId: payment.id,
+      reason: why, userId: req.session.userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "payment.void_not_booked", "payment", payment.id, { why: booking.skipped });
+    }
+
+    res.json({
+      payment: await db.payment.findUnique({ where: { id: payment.id } }),
+      invoice,
+      booking: bookingOf(booking),
+    });
   } catch (e) { next(e); }
 });
 

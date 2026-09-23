@@ -335,7 +335,9 @@ export function resourceRouter(slug) {
       if (resource.history) await appendHistory(resource, row, "created", req);
       await audit(req, "create", resource.model, row.id, { fields: Object.keys(data) });
 
-      res.status(201).json({ [singular(slug)]: row });
+      res.status(201).json({ [singular(slug)]: row, ...(await afterWrite(resource, {
+        row, before: null, action: "create", req,
+      })) });
     } catch (e) { next(e); }
   });
   }
@@ -394,7 +396,9 @@ export function resourceRouter(slug) {
       }
       await audit(req, "update", resource.model, row.id, { fields: Object.keys(data) });
 
-      res.json({ [singular(slug)]: row });
+      res.json({ [singular(slug)]: row, ...(await afterWrite(resource, {
+        row, before, action: "update", req,
+      })) });
     } catch (e) { next(e); }
   });
 
@@ -443,6 +447,38 @@ export function resourceRouter(slug) {
 function withHistory(resource) {
   if (!resource.history) return resource.include;
   return { ...(resource.include || {}), events: { orderBy: { at: "asc" } } };
+}
+
+/**
+ * WHAT HAPPENS AFTER A ROW IS WRITTEN.
+ *
+ * A resource may declare `afterWrite({ row, before, action, req, db })`. It
+ * runs once the write has succeeded and been audited, and whatever object it
+ * returns is merged into the response beside the row.
+ *
+ * IT EXISTS FOR THE BOOKS. An expense recorded and an invoice issued should
+ * post a journal entry, and there was nowhere in this framework for that to
+ * happen — those two are built from declarations rather than hand-written
+ * handlers, so there was no line to add it to.
+ *
+ * ── IT CANNOT UNDO THE WRITE, DELIBERATELY ─────────────────────────────
+ *
+ * A throw here is caught and logged rather than propagated. The rule the
+ * ledger bridge is built on is that bookkeeping never blocks the business
+ * record: an expense that was genuinely incurred must be recorded whether or
+ * not this company has set up a chart of accounts. A hook that could 500 the
+ * request would be exactly the coupling that rule exists to prevent.
+ *
+ * So it reports rather than refuses — the same way appendHistory below does.
+ */
+async function afterWrite(resource, ctx) {
+  if (!resource.afterWrite) return {};
+  try {
+    return (await resource.afterWrite({ ...ctx, db })) || {};
+  } catch (e) {
+    console.error("afterWrite failed", resource.model, ctx.row && ctx.row.id, e.message);
+    return {};
+  }
 }
 
 /**
