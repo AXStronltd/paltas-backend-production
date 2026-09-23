@@ -23,6 +23,7 @@ import { promotionRoutes } from "./routes/promotions.js";
 import { productRoutes } from "./routes/products.js";
 import { formRoutes } from "./routes/forms.js";
 import { marketRoutes } from "./routes/market.js";
+import { ledgerRoutes } from "./routes/ledger.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
 import { paymentRoutes } from "./routes/payments.js";
@@ -241,6 +242,20 @@ export function createApp() {
    * it would make a land registry's access depend on somebody's card.
    */
   app.use(authorityRoutes);
+
+  /*
+   * THE LEDGER, above productRoutes for the same reason as everything else
+   * here: productRoutes mounts at "/" behind requireSession(), so a path
+   * registered after it answers 401 rather than 404 and the failure reads as
+   * an auth fault. test/ledger-api.test.js fails if this order is reversed.
+   *
+   * The double-entry engine in domain/ledger.js predates this by some time
+   * and had no transport at all — no routes, and no caller anywhere in the
+   * service. These are that transport, and nothing more: every rule about
+   * balance, immutability, closed periods and organization isolation is
+   * still enforced in the domain.
+   */
+  app.use(ledgerRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

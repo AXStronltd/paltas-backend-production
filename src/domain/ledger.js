@@ -413,11 +413,32 @@ export async function accountBalance(db, { orgId, accountId, from = null, to = n
   const account = await db.ledgerAccount.findFirst({ where: { id: accountId, orgId } });
   if (!account) fail("ACCOUNT_UNKNOWN", "No such account in this organization.", { accountId });
 
+  /*
+   * POSTED **AND** REVERSED, and the distinction is the whole of rule 2.
+   *
+   * This read POSTED alone, which looks right and is not. Reversing an entry
+   * sets the ORIGINAL to REVERSED and posts a mirror that is POSTED — so a
+   * POSTED-only filter drops the original and keeps the mirror, and the
+   * account swings by the full amount in the opposite direction instead of
+   * netting to nothing. Reverse a 70,000 rent credit and the account reads
+   * MINUS 70,000 rather than zero.
+   *
+   * Worse, the trial balance still said `balanced: true` throughout, because
+   * the mirror's own debit and credit agree with each other. The aggregate
+   * check passed while every account figure it summarised was wrong.
+   *
+   * The schema settles it in the enum's own words: REVERSED is "cancelled by
+   * a reversing entry — the original rows stay exactly as posted." Staying as
+   * posted means still counted; the mirror is what cancels them. A reversal
+   * is a correction in the history, not an erasure of it.
+   *
+   * DRAFT stays out: it need not balance and appears in no report.
+   */
   const where = {
     orgId,
     accountId,
     entry: {
-      status: "POSTED",
+      status: { in: ["POSTED", "REVERSED"] },
       ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     },
   };
