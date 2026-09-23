@@ -183,8 +183,8 @@ export const RESOURCES = {
     model: "unit", area: "property", product: "PROPERTY_MANAGEMENT",
     label: "units",
     fields: {
-      siteId: "id:site", buildingId: "id:building", ref: "string",
-      buildingName: "string",
+      siteId: "id:site", buildingId: "id:building", projectId: "id:project",
+      ref: "string", buildingName: "string",
       kind: "enum:UnitKind", floor: "int", sqm: "int",
       status: "enum:UnitStatus", rent: "money", currency: "string",
     },
@@ -298,12 +298,99 @@ export const RESOURCES = {
     label: "development projects",
     fields: {
       siteId: "id:site", name: "string", city: "string", units: "int",
-      dueOn: "date", stage: "enum:ProjectStage", budget: "money",
+      dueOn: "date", stage: "enum:ProjectStage", built: "int", budget: "money",
       spent: "money", currency: "string",
     },
     required: ["name"],
     search: ["name", "city"],
     order: [{ dueOn: "asc" }],
+
+    /*
+     * HOW MUCH OF IT IS SOLD.
+     *
+     * The Development console has always shown "sold", "reserved" and
+     * "revenue banked" per project. Nothing computed them: the frontend
+     * adapter hard-coded `sold: 0, res: 0` with a note that the sales
+     * pipeline was "a pipeline this schema does not model", and sent the
+     * construction BUDGET as revenue banked. So a developer with a tower half
+     * sold saw 0 sold, 0 reserved, and a revenue figure that was really a
+     * cost — three wrong numbers on the screen that exists to show them.
+     *
+     * Contract models the sale now, so these are counted from it.
+     *
+     * ── WHY revenue IS SOLD-ONLY ───────────────────────────────────────
+     *
+     * The console labels the figure "Agreed prices on sold units only", and
+     * that is the honest reading: a RESERVED unit is a deposit and an
+     * intention, not an agreed price. Counting reservations into revenue
+     * would inflate it by exactly the units most likely to fall through.
+     *
+     * CANCELLED is excluded from all three. A reservation that collapsed is
+     * why a unit is back on the market; it is not stock committed.
+     *
+     * findMany rather than groupBy, deliberately: the fake Prisma the offline
+     * suite runs the real app against implements findMany and not groupBy, and
+     * a rollup that only works against real Postgres is a rollup that is
+     * untested everywhere it is cheap to test.
+     */
+    async rollup(rows, orgId) {
+      if (!rows.length) return rows;
+      const contracts = await db.contract.findMany({
+        where: {
+          orgId,
+          projectId: { in: rows.map((r) => r.id) },
+          status: { not: "CANCELLED" },
+        },
+        select: { projectId: true, status: true, price: true },
+      });
+
+      const by = new Map();
+      for (const c of contracts) {
+        const acc = by.get(c.projectId) || { sold: 0, reserved: 0, revenue: 0n };
+        if (c.status === "RESERVED") acc.reserved += 1;
+        else {
+          acc.sold += 1;
+          acc.revenue += BigInt(c.price || 0);
+        }
+        by.set(c.projectId, acc);
+      }
+
+      return rows.map((r) => {
+        const a = by.get(r.id) || { sold: 0, reserved: 0, revenue: 0n };
+        return { ...r, sold: a.sold, reserved: a.reserved, revenue: a.revenue };
+      });
+    },
+  },
+
+  /*
+   * THE SALE AGREEMENTS THEMSELVES.
+   *
+   * One contract, one unit — see the model. `required` is empty like `leases`
+   * beside it: a reservation is often taken on the phone with a deposit and a
+   * name, before the unit row for that floor exists, and refusing to record it
+   * until every reference is known is how a sale ends up in somebody's inbox
+   * instead of the system.
+   */
+  contracts: {
+    model: "contract", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "sale contracts",
+    fields: {
+      projectId: "id:project", unitId: "id:unit", buyerId: "id:party",
+      price: "money", deposit: "money", currency: "string",
+      status: "enum:ContractStatus", instalments: "int",
+      signedOn: "date", completedOn: "date", note: "text",
+    },
+    required: [], numbered: "ref",
+    search: ["ref", "note"],
+    order: [{ createdAt: "desc" }],
+    include: {
+      project: { select: { id: true, name: true } },
+      unit: { select: { id: true, ref: true } },
+      /* The buyer's name and phone, and nothing else. An include without a
+         select is how a buyer's email ends up in a list nobody meant to
+         expose it in. */
+      buyer: { select: { id: true, name: true, phone: true } },
+    },
   },
 
   "work-orders": {

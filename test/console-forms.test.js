@@ -32,6 +32,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESOURCES } from "../src/domain/registry.js";
 import { CONSOLE_FORMS } from "../src/domain/console-map.js";
+import prismaPkg from "@prisma/client";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -301,6 +302,145 @@ test("all 27 forms post successfully, and nothing is silently dropped", { skip }
   assert.deepEqual(failures, [],
     `${failures.length} of the product's 27 forms do not work against this API:\n  ` +
     failures.join("\n  "));
+});
+
+/* ====================================================================== *
+ * THE FORMS THIS SERVICE ADDS BEYOND THE CONTRACT'S 27.
+ *
+ * Every test above iterates FORMS, which is read out of §2 of backend.md. So
+ * a form added to console-map.js that §2 does not list is checked by NOTHING
+ * — not that its resource exists, not that its fields are writable, not that
+ * a post survives the round trip. It ships as a ＋ button nobody proved.
+ *
+ * That is exactly how `pm_assets` and `pm_vendors` arrived: the assets
+ * resource had been served since the registry was written with no screen
+ * reading it, and vendors are parties nobody had narrowed. Both are real
+ * additions to the product rather than contract drift, and the contract is
+ * the built frontend's record rather than a ceiling.
+ *
+ * So they are held to the same standard here, by the same means.
+ * ====================================================================== */
+
+/**
+ * A REAL id of a row this company owns, for an `id:` field.
+ *
+ * Made rather than invented, because the framework checks that a reference
+ * belongs to the caller's company before writing it — a made-up id is refused
+ * with "does not name anything this company has", which is the guard working.
+ * A test that fed it a string would be testing the guard and reporting it as a
+ * broken form.
+ *
+ * One row per model, reused: these exist to be pointed at.
+ */
+const madeRows = new Map();
+async function referenceTo(model) {
+  if (madeRows.has(model)) return madeRows.get(model);
+
+  const entry = Object.entries(RESOURCES).find(([, r]) => r.model === model);
+  assert.ok(entry, `no resource declares model "${model}" — the id: reference names nothing`);
+  const [slug, resource] = entry;
+
+  const body = {};
+  for (const name of resource.required || []) {
+    body[name] = valueForKind(resource.fields[name], name);
+  }
+  const res = await post(`/${slug}`, body);
+  assert.equal(res.status, 201,
+    `could not create a ${model} to point at: ${res.status} ${res.text.slice(0, 160)}`);
+
+  const id = Object.values(res.json)[0].id;
+  madeRows.set(model, id);
+  return id;
+}
+
+/** A value the console would send, chosen from the REGISTRY's field kind. */
+function valueForKind(kind, field) {
+  if (kind.startsWith("enum:")) {
+    const values = enumValues(kind.slice(5));
+    /* The wording the server will actually take. A form offering a value the
+       enum does not hold is the bug this file exists to catch, so a missing
+       enum is a failure rather than a skip. */
+    assert.ok(values && values.length, `${kind} has no values in the generated client`);
+    return values[0];
+  }
+  if (kind === "int" || kind === "money" || kind === "float") return 4;
+  if (kind === "bool") return true;
+  if (kind === "date") return "Mar 2024";
+  unique += 1;
+  return `Console ${field} ${unique}`;
+}
+
+/** The enum's values, from the generated client rather than a copy. */
+function enumValues(name) {
+  const e = prismaPkg[name] || (prismaPkg.Prisma && prismaPkg.Prisma[name]);
+  return e && typeof e === "object" ? Object.keys(e) : null;
+}
+
+const EXTRA_FORMS = Object.entries(CONSOLE_FORMS).filter(([screen]) => !(screen in FORMS));
+
+test("this service adds forms the contract does not list, and they are real", { skip }, () => {
+  /* If this ever reads zero, the two tests below are passing by iterating
+     nothing — the same trap "the role table is not quietly empty" guards. */
+  assert.ok(EXTRA_FORMS.length > 0,
+    "no forms beyond §2's 27 — if that is deliberate, delete these three tests");
+
+  const problems = [];
+  for (const [screen, form] of EXTRA_FORMS) {
+    const resource = RESOURCES[form.resource];
+    if (!resource) {
+      problems.push(`${screen} → "${form.resource}", which is not a resource`);
+      continue;
+    }
+    for (const [consoleField, column] of Object.entries(form.fields)) {
+      if (!resource.fields[column]) {
+        problems.push(
+          `${screen}.${consoleField} → "${column}", which "${form.resource}" does not ` +
+          `declare as a writable field — the server would drop it silently`);
+      }
+    }
+  }
+  assert.deepEqual(problems, [], "Forms added beyond the contract:\n  " + problems.join("\n  "));
+});
+
+test("every form beyond the 27 posts, and nothing is silently dropped", { skip }, async () => {
+  const failures = [];
+
+  for (const [screen, form] of EXTRA_FORMS) {
+    const resource = RESOURCES[form.resource];
+    if (!resource) continue;
+
+    const body = {};
+    for (const [consoleField, column] of Object.entries(form.fields)) {
+      const kind = resource.fields[column];
+      body[consoleField] = kind.startsWith("id:")
+        ? await referenceTo(kind.slice(3))
+        : valueForKind(kind, consoleField);
+    }
+
+    const res = await post(`/${form.resource}`, body);
+    if (res.status !== 201) {
+      failures.push(`${screen} → POST /${form.resource} answered ${res.status}: ${res.text.slice(0, 220)}`);
+      continue;
+    }
+
+    /* 201 only says it was accepted. */
+    const row = Object.values(res.json)[0];
+    for (const [consoleField, column] of Object.entries(form.fields)) {
+      const stored = row[column];
+      if (stored === undefined) {
+        failures.push(`${screen}.${consoleField} → ${column}: the response has no such field`);
+        continue;
+      }
+      if (stored === null || stored === "") {
+        failures.push(
+          `${screen}.${consoleField} → ${column}: sent ${JSON.stringify(body[consoleField])}, ` +
+          `stored ${JSON.stringify(stored)}. The form would look as though it saved.`);
+      }
+    }
+  }
+
+  assert.deepEqual(failures, [],
+    `forms added beyond the contract that do not work against this API:\n  ` + failures.join("\n  "));
 });
 
 test("the enum wording the console offers is wording the server accepts", { skip }, async () => {

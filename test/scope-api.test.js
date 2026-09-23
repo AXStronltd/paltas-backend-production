@@ -299,9 +299,21 @@ test("role and scope are two walls, and both stand", { skip }, async () => {
  * name appearing here means somebody looked at it and concluded a site-scoped
  * person should see all of them. The test below fails until they do.
  */
+/*
+ * `contracts` joined this list when unit sales were modelled, and it is the
+ * same shape as `leases` directly below it: both hang off a unit and a party
+ * rather than off a site. A contract's site is knowable — project → site —
+ * but reaching it means a join the scope filter does not do for any other
+ * resource, and giving Contract a siteId of its own would duplicate the
+ * project's and be free to drift from it.
+ *
+ * So a site-scoped member reads the company's whole sales book, exactly as
+ * they already read its whole lease book. That is the documented limitation
+ * named below, not a new one.
+ */
 const EXPECTED_UNNARROWABLE = [
-  "audit-tasks", "capital-calls", "channels", "conversations", "deals",
-  "distributions", "documents", "group-bookings", "guest-requests",
+  "audit-tasks", "capital-calls", "channels", "contracts", "conversations",
+  "deals", "distributions", "documents", "group-bookings", "guest-requests",
   "investment-orders", "investor-profiles", "investors", "invoices", "leads",
   "leases", "listings", "messages", "ops-tasks", "parties", "payments",
   "payouts", "pricing-rules", "rate-rules", "reservations",

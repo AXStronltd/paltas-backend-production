@@ -130,6 +130,75 @@ export const CONSOLE_FORMS = {
     fields: { t: "title", p: "place", pr: "priority", who: "assignee" },
   },
 
+  /*
+   * The plant a building runs on. The `assets` resource has been served since
+   * the registry was written and no screen has ever written to it, so the ＋
+   * button is the first way a company can put a lift or a generator on its own
+   * asset register.
+   *
+   * `st` is a free string on this model rather than an enum — a company's own
+   * words for the condition of its plant, not a list this service chose.
+   */
+  /*
+   * A unit sale. The three references are real pickers rather than typed
+   * names: the form spec carries `lookup` for an `id:` field and the console
+   * renders a <select> from what it has already loaded.
+   *
+   * That matters more here than on the lease form beside it, because the
+   * Development screen COUNTS these rows per project. A sale captured as the
+   * text "Golden Park Phase 2" would sit in the list looking correct and be
+   * counted against nothing.
+   */
+  pm_contracts: {
+    resource: "contracts",
+    label: "＋ New sale",
+    fields: {
+      project: "projectId", unit: "unitId", buyer: "buyerId",
+      price: "price", dep: "deposit", status: "status",
+      signed: "signedOn", inst: "instalments", note: "note",
+    },
+  },
+
+  /*
+   * A buyer is a Party of kind BUYER, exactly as a vendor is one of kind
+   * VENDOR. Same resource, same `n` → `name`, so aliasesFor() stays happy.
+   */
+  pm_buyers: {
+    resource: "parties",
+    label: "＋ Add a buyer",
+    fields: {
+      n: "name", kind: "kind", email: "email", phone: "phone",
+      since: "since", note: "note",
+    },
+  },
+
+  pm_assets: {
+    resource: "assets",
+    label: "＋ Add an asset",
+    fields: {
+      n: "name", kind: "kind", serial: "serial", place: "place",
+      installed: "installedOn", next: "nextServiceOn", st: "status",
+    },
+  },
+
+  /*
+   * A vendor is a PARTY, not a table of its own — PartyKind already carries
+   * VENDOR and CONTRACTOR, and Expense points at Party through ExpenseVendor.
+   * So this writes the same resource `ag_clients` and `s_residents` do.
+   *
+   * `n` means `name` on all three, which is what keeps aliasesFor() from
+   * throwing: two screens writing one resource may not disagree about what a
+   * short name means.
+   */
+  pm_vendors: {
+    resource: "parties",
+    label: "＋ Add a vendor",
+    fields: {
+      n: "name", kind: "kind", email: "email", phone: "phone",
+      since: "since", note: "note",
+    },
+  },
+
   pm_issues: {
     resource: "work-orders",
     label: "＋ Log a report",

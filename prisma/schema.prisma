@@ -341,6 +341,7 @@ model Organization {
   propertyParcels   PropertyParcel[]
   authorityRecords  PropertyAuthorityRecord[]
   authorityRequests AuthorityRequest[]
+  Contract          Contract[]
 }
 
 model Subscription {
@@ -788,6 +789,17 @@ model Unit {
   site       Site?        @relation(fields: [siteId], references: [id], onDelete: SetNull)
   buildingId String?
   building   Building?    @relation(fields: [buildingId], references: [id], onDelete: SetNull)
+  /// The development this unit is part of, where it is one.
+  ///
+  /// A let flat belongs to a building; an off-plan apartment belongs to a
+  /// PROJECT, and until this existed there was no way to say so — Project held
+  /// only a COUNT of its units, so "which units are in Golden Park Phase 2"
+  /// had no answer and "how many are sold" could not be asked.
+  ///
+  /// SetNull, like site and building: deleting a project must not take the
+  /// flats with it.
+  projectId  String?
+  project    Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   /// What the customer calls it — "A-204". Unique within a company only.
   ref          String
@@ -808,6 +820,7 @@ model Unit {
   leases      Lease[]
   listings    Listing[]
   OpsTask     OpsTask[]
+  contracts   Contract[]
   PricingRule PricingRule[]
   offerings   Offering[]
 
@@ -876,6 +889,8 @@ model Party {
   updatedAt DateTime @updatedAt
 
   leases       Lease[]        @relation("LeaseTenant")
+  /// The unit sales this person is the buyer on.
+  purchases    Contract[]     @relation("ContractBuyer")
   deals        Deal[]
   viewings     Viewing[]
   reservations Reservation[]
@@ -1044,9 +1059,22 @@ model Project {
 
   name     String
   city     String       @default("")
+  /// The unit count the project is PLANNED to deliver.
+  ///
+  /// Kept as a number even though `unitRows` now exists, because the two
+  /// answer different questions: a tower is sold off-plan as "180 units" long
+  /// before 180 Unit rows exist. Where rows exist they are the truth about
+  /// what is built; this stays the target.
   units    Int          @default(0)
   dueOn    DateTime?
   stage    ProjectStage @default(PLANNING)
+  /// How far the BUILDING has got, 0-100.
+  ///
+  /// The console has always drawn a construction-progress bar per project and
+  /// there was no column behind it, so the adapter sent 0 and every bar read
+  /// empty. `stage` is the nearest thing that existed and it is not the same
+  /// question: a project can be in STRUCTURE at 20% or at 80%.
+  built    Int          @default(0)
   /// Minor units.
   budget   BigInt       @default(0)
   spent    BigInt       @default(0)
@@ -1056,9 +1084,88 @@ model Project {
   updatedAt   DateTime      @updatedAt
   CapitalCall CapitalCall[]
   offerings   Offering[]
+  /// The units this project actually holds, as rows.
+  unitRows    Unit[]
+  /// The sale agreements written against it.
+  contracts   Contract[]
 
   @@index([orgId])
   @@index([orgId, stage])
+}
+
+/// A SALE AGREEMENT FOR ONE UNIT.
+///
+/// The gap this fills was visible on screen. The Development console renders
+/// "sold", "reserved" and "revenue banked" per project, and nothing in the
+/// schema modelled a sale — so the frontend adapter hard-coded `sold: 0,
+/// res: 0` with a comment saying the pipeline "this schema does not model",
+/// and passed the construction BUDGET off as revenue banked. Every developer
+/// saw 0 sold and a revenue figure that was really a cost.
+///
+/// It is deliberately NOT `Deal`. A Deal is an agency's commission pipeline —
+/// it belongs to AGENT_HOST, has no unit, no deposit and no instalments, and
+/// closing one earns a fee rather than selling a flat.
+///
+/// One contract, one unit. A buyer taking three apartments signs three, which
+/// is how the trade works and what makes "how many units are sold" countable.
+model Contract {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Per-company number — CON-2026-0041. Allocated by the framework; a caller
+  /// may not choose one.
+  ref String
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// The unit being sold. Nullable because an off-plan reservation is often
+  /// taken before the unit rows for a floor exist.
+  unitId    String?
+  unit      Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  /// The buyer, as a Party of kind BUYER. SetNull so deleting a contact does
+  /// not delete the company's record of a sale.
+  buyerId   String?
+  buyer     Party?   @relation("ContractBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+
+  /// Minor units, like every amount in this schema.
+  price    BigInt @default(0)
+  /// What has actually been received. This is the number a reservation is
+  /// real because of.
+  deposit  BigInt @default(0)
+  currency String @default("KES")
+
+  status      ContractStatus @default(RESERVED)
+  /// How many instalments the balance is spread over. 0 means paid outright.
+  instalments Int            @default(0)
+
+  signedOn    DateTime?
+  completedOn DateTime?
+  note        String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+}
+
+/// Where a unit sale has got to.
+///
+/// RESERVED is money down and the unit off the market; SOLD is a signed
+/// agreement; COMPLETED is handed over and paid. The three are kept apart
+/// because the console counts them apart — "stock committed" is reserved AND
+/// sold, while "revenue banked" is only what has actually been agreed.
+///
+/// CANCELLED rather than deleting the row: a reservation that fell through is
+/// the reason a unit came back to the market, and erasing it loses that.
+enum ContractStatus {
+  RESERVED
+  SOLD
+  COMPLETED
+  CANCELLED
 }
 
 enum ProjectStage {
