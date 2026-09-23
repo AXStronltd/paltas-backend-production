@@ -483,3 +483,227 @@ export async function trialBalance(db, { orgId, from = null, to = null }) {
 
   return { rows, debit, credit, balanced: debit === credit, difference: debit - credit };
 }
+
+/* ====================================================================== *
+ * THE STATEMENTS.
+ *
+ * Built from the journal and nothing else. Every figure below traces back
+ * through an account to an entry to a line to the invoice, payment or expense
+ * that caused it — which is the property the whole ledger exists to have, and
+ * the reason these cannot be derived from the payments list the console's
+ * other finance screens read.
+ * ====================================================================== */
+
+/** Which side of the balance sheet, and whether it belongs there at all. */
+const SHEET = { ASSET: "assets", LIABILITY: "liabilities", EQUITY: "equity" };
+
+/**
+ * WHAT THE COMPANY OWNS, OWES AND IS WORTH, AT A DATE.
+ *
+ * ── THE PART THAT IS EASY TO GET WRONG ─────────────────────────────────
+ *
+ * A balance sheet made only of asset, liability and equity accounts DOES NOT
+ * BALANCE, and it is not supposed to: the difference is the profit that has
+ * not yet been moved into equity. Income less expenses to the same date IS
+ * that difference, and it is reported here as `retained` rather than left for
+ * the reader to notice.
+ *
+ * So the identity this asserts is the real one:
+ *
+ *     assets  =  liabilities + equity + (income − expenses)
+ *
+ * `balanced` is returned as its own field for the same reason the trial
+ * balance does it: a caller who forgets to check reports a broken sheet as a
+ * fact.
+ */
+export async function balanceSheet(db, { orgId, asAt = null }) {
+  const tb = await trialBalance(db, { orgId, to: asAt });
+
+  const side = { assets: [], liabilities: [], equity: [] };
+  let income = 0n, expenses = 0n;
+
+  for (const row of tb.rows) {
+    const where = SHEET[row.type];
+    if (where) { side[where].push(row); continue; }
+    if (row.type === "INCOME") income += row.balance;
+    if (row.type === "EXPENSE") expenses += row.balance;
+  }
+
+  const total = (rows) => rows.reduce((t, r) => t + r.balance, 0n);
+  const assets = total(side.assets);
+  const liabilities = total(side.liabilities);
+  const equity = total(side.equity);
+  const retained = income - expenses;
+
+  return {
+    asAt: asAt || null,
+    assets: side.assets, liabilities: side.liabilities, equity: side.equity,
+    totals: { assets, liabilities, equity, retained },
+    /* What the two sides come to, and whether they agree. */
+    funding: liabilities + equity + retained,
+    balanced: assets === liabilities + equity + retained,
+    difference: assets - (liabilities + equity + retained),
+  };
+}
+
+/**
+ * WHAT WAS EARNED AND WHAT IT COST, OVER A PERIOD.
+ *
+ * Income and expense accounts only — a balance sheet account has no place in
+ * a P&L, and including one is how "profit" starts including the bank.
+ *
+ * Both sides read POSITIVE: income positive when it earned, expenses positive
+ * when they were spent, because each is in its own account's normal
+ * direction. `net` is the subtraction, done once, here.
+ */
+export async function incomeStatement(db, { orgId, from = null, to = null }) {
+  const tb = await trialBalance(db, { orgId, from, to });
+
+  const income = tb.rows.filter((r) => r.type === "INCOME");
+  const expenses = tb.rows.filter((r) => r.type === "EXPENSE");
+  const total = (rows) => rows.reduce((t, r) => t + r.balance, 0n);
+
+  const earned = total(income);
+  const spent = total(expenses);
+
+  return {
+    from: from || null, to: to || null,
+    income, expenses,
+    totals: { income: earned, expenses: spent, net: earned - spent },
+  };
+}
+
+/**
+ * WHERE THE MONEY ACTUALLY WENT — and what this deliberately is not.
+ *
+ * THIS IS NOT AN IAS 7 CASH FLOW STATEMENT, and calling it one would be the
+ * dishonest thing to do. That statement splits movement into operating,
+ * investing and financing activities, and nothing in this schema says which
+ * of the three a payment was. Inventing that classification from an account
+ * code would be a guess presented as a filing.
+ *
+ * What this is: the movement on the cash and bank accounts over a period —
+ * what they opened at, what came in, what went out, what they closed at. It
+ * is the question somebody actually asks of a property business, it is
+ * answerable from the journal without inventing anything, and `basis` says
+ * so in the response.
+ */
+export async function cashMovement(db, { orgId, from = null, to = null }) {
+  /* Cash is an asset account that money physically moves through. The chart
+     marks them by code; a company that adds another bank account under the
+     same parent is included by being an ASSET with a bankRef, which is what
+     that column is for. */
+  const cashAccounts = await db.ledgerAccount.findMany({
+    where: {
+      orgId, type: "ASSET",
+      OR: [{ code: { in: ["1000", "1010"] } }, { NOT: { bankRef: null } }],
+    },
+    orderBy: { code: "asc" },
+  });
+
+  const rows = [];
+  let opening = 0n, received = 0n, spent = 0n, closing = 0n;
+
+  for (const a of cashAccounts) {
+    /* Opening is everything before the window; the window itself is the
+       movement. Asking for both separately is two queries and no arithmetic
+       anybody has to trust. */
+    const before = from
+      ? await accountBalance(db, { orgId, accountId: a.id, to: new Date(from.getTime() - 1) })
+      : { balance: 0n };
+    const during = await accountBalance(db, { orgId, accountId: a.id, from, to });
+
+    const row = {
+      accountId: a.id, code: a.code, name: a.name,
+      opening: before.balance,
+      received: during.debit,
+      spent: during.credit,
+      closing: before.balance + during.balance,
+    };
+    if (row.opening === 0n && row.received === 0n && row.spent === 0n) continue;
+    rows.push(row);
+
+    opening += row.opening;
+    received += row.received;
+    spent += row.spent;
+    closing += row.closing;
+  }
+
+  return {
+    from: from || null, to: to || null,
+    basis: "movement on cash and bank accounts — not an IAS 7 cash flow statement",
+    rows,
+    totals: { opening, received, spent, closing },
+    /* Opening plus what came in less what went out IS the closing balance.
+       Where it is not, the books are wrong. */
+    reconciles: opening + received - spent === closing,
+  };
+}
+
+/**
+ * ONE TENANT, ONE OWNER, ONE PROPERTY — the same statement three times.
+ *
+ * All three are the journal lines carrying that dimension, in date order,
+ * with a running balance. They are one function because they are one
+ * question: what has this entity been charged, what have they paid, and
+ * where does that leave them.
+ *
+ * It is only answerable because the posting bridge stamps siteId, unitId,
+ * leaseId and partyId onto every line it writes. An entry booked against the
+ * company alone cannot be attributed to anybody afterwards.
+ */
+export async function entityStatement(db, { orgId, partyId = null, siteId = null, unitId = null, from = null, to = null }) {
+  const dimension = partyId ? { partyId } : siteId ? { siteId } : unitId ? { unitId } : null;
+  if (!dimension) {
+    fail("DIMENSION_REQUIRED", "A statement is for a party, a property or a unit — name one.");
+  }
+
+  const lines = await db.journalLine.findMany({
+    where: {
+      orgId, ...dimension,
+      entry: {
+        status: { in: ["POSTED", "REVERSED"] },
+        ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
+      },
+    },
+    include: {
+      account: { select: { id: true, code: true, name: true, type: true, normal: true } },
+      entry: { select: { id: true, ref: true, date: true, memo: true, status: true, sourceType: true, sourceId: true } },
+    },
+  });
+
+  /* By date, then by the entry's own reference, so two entries on one day
+     always read in the same order twice running. */
+  lines.sort((a, b) => (a.entry.date - b.entry.date) || a.entry.ref.localeCompare(b.entry.ref));
+
+  let running = 0n;
+  let charged = 0n, paid = 0n;
+  const rows = lines.map((l) => {
+    /*
+     * FROM THE ENTITY'S SIDE, NOT THE COMPANY'S.
+     *
+     * A tenant's statement is read by the tenant: what they were charged
+     * increases what they owe, what they paid reduces it. In the company's
+     * books that same charge is a debit to receivable and the payment a
+     * credit, so the running balance here is debit-less-credit — which is
+     * the tenant's balance, not the account's.
+     */
+    charged += l.debit;
+    paid += l.credit;
+    running += l.debit - l.credit;
+    return {
+      entryId: l.entry.id, ref: l.entry.ref, date: l.entry.date,
+      memo: l.memo || l.entry.memo || "",
+      account: l.account, status: l.entry.status,
+      sourceType: l.entry.sourceType, sourceId: l.entry.sourceId,
+      debit: l.debit, credit: l.credit, balance: running,
+    };
+  });
+
+  return {
+    from: from || null, to: to || null,
+    of: dimension,
+    rows,
+    totals: { charged, paid, balance: running },
+  };
+}

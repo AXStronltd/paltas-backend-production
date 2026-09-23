@@ -166,6 +166,58 @@ async function alreadyPosted(db, orgId, sourceType, sourceId) {
   return existing || null;
 }
 
+/**
+ * WHICH PROPERTY, WHICH TENANT, WHICH UNIT.
+ *
+ * JournalLine carries siteId, buildingId, unitId, leaseId and partyId, and is
+ * indexed on three of them. Those columns are what make a statement PER
+ * ENTITY possible: a tenant's statement is their lines, a property's is its
+ * lines, and neither can be reconstructed afterwards from an account total.
+ *
+ * The bridge did not set any of them at first, so every automatic entry was
+ * booked against the company and nothing else — the books balanced, the
+ * reports were right, and "what does this tenant owe" had no answer. They are
+ * filled in here, once, at the moment the entry is posted, because the link
+ * from a lease to its unit and site is known then and gone later.
+ *
+ * ── THE PROPERTY GOES ON EVERY LINE; THE PARTY DOES NOT ────────────────
+ *
+ * siteId, buildingId, unitId and leaseId belong on BOTH sides of the entry:
+ * a property's statement wants the rent it earned as much as the receivable
+ * it raised, and property profitability is exactly the income and expense
+ * lines carrying a site.
+ *
+ * partyId belongs only on the line the party is the COUNTERPARTY TO — the
+ * receivable or the payable. Putting it on the income line as well was the
+ * first thing this did, and it made every tenant statement net to zero: the
+ * tenant appeared to be charged on the receivable and credited on the income,
+ * so somebody who owed a full month's rent read as square. A tenant is not a
+ * party to the company's revenue. They are a party to their own debt.
+ */
+async function dimensionsFor(db, orgId, { leaseId, partyId }) {
+  /* `where` is stamped on every line; `who` only on the counterparty's. */
+  const out = {
+    where: { siteId: null, buildingId: null, unitId: null, leaseId: leaseId || null },
+    who: { partyId: partyId || null },
+  };
+  if (!leaseId) return out;
+
+  const lease = await db.lease.findFirst({
+    where: { id: leaseId, orgId },
+    select: { tenantId: true, unit: { select: { id: true, siteId: true, buildingId: true } } },
+  });
+  if (!lease) return out;
+
+  /* The tenant on the lease, where the caller did not already name a party. */
+  if (!out.who.partyId) out.who.partyId = lease.tenantId || null;
+  if (lease.unit) {
+    out.where.unitId = lease.unit.id;
+    out.where.siteId = lease.unit.siteId || null;
+    out.where.buildingId = lease.unit.buildingId || null;
+  }
+  return out;
+}
+
 const skip = (reason) => ({ posted: null, skipped: reason });
 const big = (v) => (typeof v === "bigint" ? v : BigInt(v || 0));
 
@@ -248,14 +300,20 @@ export async function postForInvoice(db, { orgId, invoice, userId }) {
   if (!receivable) return skip(`account ${ACCOUNTS.receivable} is missing or closed to postings`);
   if (!income) return skip(`account ${incomeCode} is missing or closed to postings`);
 
+  const dim = await dimensionsFor(db, orgId, {
+    leaseId: invoice.leaseId, partyId: invoice.partyId,
+  });
+
   const lines = [
-    { accountId: receivable.id, debit: Number(total), memo: `Invoice ${invoice.ref}` },
-    { accountId: income.id, credit: Number(net), memo: `Invoice ${invoice.ref}` },
+    /* The customer is the counterparty to the receivable, and to nothing else
+       in this entry. */
+    { accountId: receivable.id, debit: Number(total), memo: `Invoice ${invoice.ref}`, ...dim.where, ...dim.who },
+    { accountId: income.id, credit: Number(net), memo: `Invoice ${invoice.ref}`, ...dim.where },
   ];
   if (tax > 0n) {
     const taxAcct = usable(chart, ACCOUNTS.taxPayable);
     if (!taxAcct) return skip(`account ${ACCOUNTS.taxPayable} is missing, and this invoice carries tax`);
-    lines.push({ accountId: taxAcct.id, credit: Number(tax), memo: "Tax on " + invoice.ref });
+    lines.push({ accountId: taxAcct.id, credit: Number(tax), memo: "Tax on " + invoice.ref, ...dim.where });
   }
 
   return book(db, {
@@ -294,14 +352,21 @@ export async function postForPayment(db, { orgId, payment, invoice, userId }) {
   if (!into) return skip(`account ${intoCode} is missing or closed to postings`);
   if (!receivable) return skip(`account ${ACCOUNTS.receivable} is missing or closed to postings`);
 
+  /* The payment's own row names no party — it clears an invoice, and the
+     invoice is what knows whose it was. */
+  const dim = await dimensionsFor(db, orgId, {
+    leaseId: invoice && invoice.leaseId, partyId: invoice && invoice.partyId,
+  });
+
   return book(db, {
     orgId, sourceType: "payment", sourceId: payment.id,
     date: payment.receivedAt || new Date(),
     memo: `Payment ${payment.reference || ""}`.trim() + (invoice ? ` for ${invoice.ref}` : ""),
     currency: payment.currency,
     lines: [
-      { accountId: into.id, debit: Number(amount), memo: String(payment.method || "") },
-      { accountId: receivable.id, credit: Number(amount), memo: invoice ? invoice.ref : "" },
+      { accountId: into.id, debit: Number(amount), memo: String(payment.method || ""), ...dim.where },
+      /* Clearing THEIR receivable, so this is the line that is theirs. */
+      { accountId: receivable.id, credit: Number(amount), memo: invoice ? invoice.ref : "", ...dim.where, ...dim.who },
     ],
     userId,
   });
@@ -337,9 +402,13 @@ export async function postForExpense(db, { orgId, expense, userId }) {
     date: expense.spentOn || new Date(),
     memo: expense.detail || "Expense",
     currency: expense.currency,
+    /* An expense already names its property and its vendor. */
     lines: [
-      { accountId: cost.id, debit: Number(amount), memo: expense.category || "" },
-      { accountId: payable.id, credit: Number(amount), memo: expense.detail || "" },
+      { accountId: cost.id, debit: Number(amount), memo: expense.category || "",
+        siteId: expense.siteId || null },
+      /* What is owed to the vendor is the vendor's line. */
+      { accountId: payable.id, credit: Number(amount), memo: expense.detail || "",
+        siteId: expense.siteId || null, partyId: expense.partyId || null },
     ],
     userId,
   });

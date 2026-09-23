@@ -50,6 +50,7 @@ import {
   LedgerError, DEFAULT_CHART, NORMAL_BALANCE,
   seedChartOfAccounts, postJournal, reverseJournal,
   accountBalance, trialBalance, periodFor,
+  balanceSheet, incomeStatement, cashMovement, entityStatement,
 } from "../domain/ledger.js";
 
 export const ledgerRoutes = Router();
@@ -648,5 +649,160 @@ ledgerRoutes.get("/ledger/period-for", route(async (req, res) => {
     date,
     period: period || null,
     willAccept: !period || period.status !== "CLOSED",
+  });
+}));
+
+/* ====================================================================== *
+ * 5. THE STATEMENTS
+ *
+ * Read-only, all of them, and all built from the journal. Nothing here
+ * computes a figure a second way: each one asks the domain, which asks the
+ * lines. A statement that agreed with itself but not with the trial balance
+ * would be the worst of both.
+ * ====================================================================== */
+
+/**
+ * GET /ledger/balance-sheet?asAt=
+ *
+ * What the company owns, owes and is worth. `retained` is the profit not yet
+ * moved into equity — without it the two sides do not meet, and a reader who
+ * does not know that reports a working sheet as broken.
+ */
+ledgerRoutes.get("/ledger/balance-sheet", route(async (req, res) => {
+  need(req, "list", "the ledger");
+  const sheet = await balanceSheet(db, {
+    orgId: req.actor.orgId,
+    asAt: when(req.query.asAt, "asAt"),
+  });
+  /*
+   * `rows` IS THE SAME SHEET, FLAT, and it exists for the console.
+   *
+   * The three lists above are the right shape to read; a client that renders
+   * one array is the shape the console's adapter layer actually has. Sending
+   * only the structured form meant a screen reading `assets` silently dropped
+   * the liabilities, the equity and the totals — a balance sheet showing half
+   * of itself and no sign that it had.
+   *
+   * Retained earnings is a row here rather than a separate total, because on
+   * the flat form it belongs to equity: summing the rows by side then gives a
+   * sheet that balances without the reader having to know to add the profit.
+   */
+  const rows = [
+    ...sheet.assets.map((r) => ({ ...r, side: "assets" })),
+    ...sheet.liabilities.map((r) => ({ ...r, side: "liabilities" })),
+    ...sheet.equity.map((r) => ({ ...r, side: "equity" })),
+    {
+      accountId: null, code: "", name: "Retained earnings", type: "EQUITY",
+      normal: "CREDIT", balance: sheet.totals.retained, side: "equity",
+      computed: true,
+    },
+  ];
+
+  res.json({
+    asAt: sheet.asAt,
+    rows,
+    assets: sheet.assets,
+    liabilities: sheet.liabilities,
+    equity: sheet.equity,
+    totals: sheet.totals,
+    funding: sheet.funding,
+    balanced: sheet.balanced,
+    difference: sheet.difference,
+  });
+}));
+
+/** GET /ledger/income-statement?from=&to= — earned, spent, and the difference. */
+ledgerRoutes.get("/ledger/income-statement", route(async (req, res) => {
+  need(req, "list", "the ledger");
+  const pl = await incomeStatement(db, {
+    orgId: req.actor.orgId,
+    from: when(req.query.from, "from"),
+    to: when(req.query.to, "to"),
+  });
+  /* Flat, for the same reason the balance sheet is — see there. `kind` is
+     what the row is, so a screen can group without a second request. */
+  const rows = [
+    ...pl.income.map((r) => ({ ...r, kind: "income" })),
+    ...pl.expenses.map((r) => ({ ...r, kind: "expense" })),
+  ];
+
+  res.json({
+    from: pl.from,
+    to: pl.to,
+    rows,
+    income: pl.income,
+    expenses: pl.expenses,
+    totals: pl.totals,
+  });
+}));
+
+/**
+ * GET /ledger/cash-movement?from=&to=
+ *
+ * Named for what it is. An IAS 7 cash flow splits movement into operating,
+ * investing and financing, and nothing in this schema says which of the three
+ * a payment was — so the response carries a `basis` line saying as much
+ * rather than letting a reader assume they are holding a filing.
+ */
+ledgerRoutes.get("/ledger/cash-movement", route(async (req, res) => {
+  need(req, "list", "the ledger");
+  const cash = await cashMovement(db, {
+    orgId: req.actor.orgId,
+    from: when(req.query.from, "from"),
+    to: when(req.query.to, "to"),
+  });
+  res.json({
+    from: cash.from,
+    to: cash.to,
+    basis: cash.basis,
+    rows: cash.rows,
+    totals: cash.totals,
+    reconciles: cash.reconciles,
+  });
+}));
+
+/**
+ * GET /ledger/statement?partyId= | ?siteId= | ?unitId=
+ *
+ * An owner's, a tenant's or a property's statement — the same shape for all
+ * three, because it is the same question asked of a different dimension.
+ */
+ledgerRoutes.get("/ledger/statement", route(async (req, res) => {
+  need(req, "list", "the ledger");
+  const { partyId, siteId, unitId } = req.query;
+  if (!partyId && !siteId && !unitId) {
+    throw badRequest("A statement is for somebody or something — send partyId, siteId or unitId.");
+  }
+
+  /* Asked here so an id belonging to another company answers 404 rather than
+     an empty statement, which reads as "they owe nothing". */
+  if (partyId) {
+    const p = await db.party.findFirst({ where: { id: String(partyId), orgId: req.actor.orgId }, select: { id: true } });
+    if (!p) throw hidden();
+  }
+  if (siteId) {
+    const site = await db.site.findFirst({ where: { id: String(siteId), orgId: req.actor.orgId }, select: { id: true } });
+    if (!site) throw hidden();
+  }
+  if (unitId) {
+    const unit = await db.unit.findFirst({ where: { id: String(unitId), orgId: req.actor.orgId }, select: { id: true } });
+    if (!unit) throw hidden();
+  }
+
+  const st = await entityStatement(db, {
+    orgId: req.actor.orgId,
+    partyId: partyId ? String(partyId) : null,
+    siteId: siteId ? String(siteId) : null,
+    unitId: unitId ? String(unitId) : null,
+    from: when(req.query.from, "from"),
+    to: when(req.query.to, "to"),
+  });
+
+  res.json({
+    from: st.from,
+    to: st.to,
+    of: st.of,
+    rows: st.rows,
+    totals: st.totals,
   });
 }));
