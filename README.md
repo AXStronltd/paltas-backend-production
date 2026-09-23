@@ -27,32 +27,39 @@ Google  ──sign in──▶  paltas-backend  ──▶  Postgres
 | **Organizations** | `POST /organizations` creates the whole chain in one transaction and returns the session. |
 | **Promotions** | The full workflow: write, submit, review, approve, publish, pause — with the roles enforced server-side. |
 | **The public feed** | `GET /promotions/public`, the only endpoint an anonymous visitor can reach. |
-| **The six products** | Property, Development, Hotel, Agent & Host, Security and the shared money spine — 150 endpoints over 28 resources. **[ROUTES.md](ROUTES.md)** is the reference. |
+| **The six products** | Property, Development, Hotel, Agent & Host, Security and the shared money spine — 47 resources, five endpoints each, plus twenty written by hand. **[ROUTES.md](ROUTES.md)** is the reference. |
 
-Most of those 150 are not written by hand. They are built from 28 declarations
+Almost none of those are written by hand. They are built from 47 declarations
 in `src/domain/registry.js`, which is the reason they are all scoped to one
 company, permission-checked and audited in the same way — there is no code
 path in which a product endpoint is not. `src/http/resource.js` is that
 framework, and it is 400 lines rather than thirty route files.
 
-What it does **not** do yet: the market service in `backend.md` §4c, which is
-why `PALTAS_API_BASE` must stay unset. And the `Plan`/`AddOn` layer, which is
-waiting on two product decisions — see the end of [AUDIT.md](AUDIT.md).
+The market service in `backend.md` §4c **is now built and served** — see
+`src/routes/market.js`. The `Plan`/`AddOn` layer is still waiting on two
+product decisions; see the end of [AUDIT.md](AUDIT.md).
 
-**Testing, honestly stated.** 204 tests, 169 passing, 0 failing, 35 skipped.
+**Testing, honestly stated.** 844 tests, 844 passing, 0 failing, 0 skipped —
+on a machine with a generated Prisma client and a PostgreSQL to point at:
 
-The skipped 35 need a generated Prisma client, and `prisma generate`
-downloads an engine from a host this was built behind a firewall from. So
-the product API is exercised two other ways instead: `test/fake-prisma.js`
-holds rows in memory so the real app, routers and guards run here — that
-found and fixed three real bugs, one of which left paid invoices showing as
-unpaid — and `test/migration.test.js` runs the real migrations against a
-real PostgreSQL 16 and compares the result to `schema.prisma` column by
-column. `prisma validate` also passes, which caught 29 enums that would have
-failed at `prisma generate`.
+```bash
+npx prisma generate
+TEST_DATABASE_URL=postgresql://USER@127.0.0.1:5432/paltas_backend_test npm test
+```
 
-What remains untested is the join: real Prisma issuing real SQL. See
-[RUN.md](RUN.md) — three commands on a machine with internet.
+Without those two things the suite still runs and still passes; the tests
+that need them skip themselves and say so rather than failing. That is the
+only difference, and it is why an earlier version of this file reported 169
+passing and 35 skipped: it was written on a machine behind a firewall, where
+`prisma generate` could not download its engine.
+
+**The join is no longer untested.** Real Prisma issuing real SQL against a
+real PostgreSQL 16 is exercised by the full suite above. `test/fake-prisma.js`
+is still there and still valuable — it holds rows in memory so the app,
+routers and guards run with no database at all, and it found three real bugs,
+one of which left paid invoices showing as unpaid. `test/migration.test.js`
+runs the real migrations and compares the result to `schema.prisma` column by
+column. See [RUN.md](RUN.md).
 
 ---
 
@@ -171,36 +178,49 @@ if it finds one. See `src/config.js`.
 
 ## Connecting the frontend
 
-### Use `PALTAS_PROMOTIONS_API`, not `PALTAS_API_BASE` — for now
+### Both switches are live — §4c has shipped
 
 ```html
-<script>window.PALTAS_PROMOTIONS_API = "https://api.paltas.io";</script>
+<script>window.PALTAS_API_BASE = "https://api.paltas.io";</script>
 ```
 
-**Do not set `window.PALTAS_API_BASE` yet.** It belongs to the market service
-(`assets/market-config.js`, `backend.md` §4c). Setting it makes that service
-stop using its local table and call four endpoints this API does not serve yet:
-`/market/config`, `/payment-methods/available`, `/localization/config` and
-`/services/available`.
+This used to say **do not set `PALTAS_API_BASE`**, because it belongs to the
+market service and this API served none of §4c. It serves all of it now:
 
-And §4c is explicit that a failed availability call is **not** permission to
-guess — the frontend then offers *no payment methods at all* rather than
-falling back to a table that may be a release behind. So setting the shared
-switch today would turn promotions on and payment selection off, across the
-whole marketplace, with nothing on screen to connect the two.
+| Endpoint | Serves |
+|---|---|
+| `GET /market/config` | every country the platform knows |
+| `GET /payment-methods/available` | what may be offered, in one market, now |
+| `GET /localization/config` | which languages, and how complete |
+| `GET /market/services` | what a customer can do in a market |
 
-One switch, two services, one of them not built. So promotions has its own
-until §4c ships:
+All four are **public** — no session, no organization — because a visitor
+chooses a country and sees prices before they have an account. They are
+cacheable, and they answer 200 to an anonymous caller.
 
-| Switch | Turns on | Set it? |
-|---|---|---|
-| `window.PALTAS_PROMOTIONS_API` | Promotions only | **Yes — now** |
-| `window.PALTAS_API_BASE` | Promotions **and** the market service | Once §4c is built |
+The fourth is `/market/services`, **not** `/services/available` as §4c
+originally named it. `/services` is a tenant resource — model `HotelService`,
+one hotel's restaurants and transfers, behind a session — so Express bound
+`:id = "available"` and the request got a 401 from a router that had no idea
+it had been asked a different question. Two unrelated things wanted one path;
+the tenant's outlets kept it.
 
-`js43.js` reads the promotions switch first and falls back to the shared one,
-so the day this service serves §4c you set `PALTAS_API_BASE` alone and the
-separate switch can be deleted. `test/contract.test.js` fails if this API ever
-starts serving *some* of §4c's four endpoints and not all four.
+In the frontend, `assets/market-config.js` defaults the base to `/api` on any
+host that is not localhost, and `netlify.toml` proxies `/api/*` through to
+this service — so the session cookie stays first-party, which is what makes
+sign-in work on Safari and iOS. On localhost the base stays empty and the
+local table is used, so the offline demo still needs no backend.
+
+`window.PALTAS_PROMOTIONS_API` still works and still takes precedence — but it
+is no longer necessary, and can be deleted. `test/contract.test.js` fails if
+this API ever starts serving *some* of §4c's four endpoints and not all four.
+
+**One catalogue, not two.** `src/domain/market.js` does not reimplement any of
+this: it loads the frontend's own `market-config.js` from `contract/` and
+serves it, so the fifty countries, twenty-eight payment rails and the fee
+table exist once. `test/market-drift.test.js` compares the two copies answer
+by answer — every country, rail, fee, capability and language pack — and fails
+if the served answers ever stop matching what the browser would compute.
 
 With either set, the frontend's `PromoAPI` talks to this service; with neither,
 the frontend keeps its in-memory mock and the offline demo still works. **No

@@ -34,12 +34,12 @@ A single row comes back under its own name: `{ "unit": { … } }`.
 
 ---
 
-## The 28 resources
+## The 47 resources
 
 | Path | Needs the product | Area |
 |---|---|---|
 | `/sites` | — | property |
-| `/buildings` `/units` `/leases` `/projects` `/assets` | Property Management | property |
+| `/buildings` `/units` `/leases` `/projects` `/contracts` `/assets` | Property Management | property |
 | `/work-orders` | — | maintenance |
 | `/parties` | — | people |
 | `/documents` | — | documents |
@@ -169,8 +169,8 @@ Every error has a code a program can read and a sentence a person can act on.
 
 ## What has been proved, and what has not
 
-**Proved here**, against a real PostgreSQL 16 and against an in-memory
-Prisma stand-in, 169 passing tests:
+**Proved here**, against a real PostgreSQL 16 with a real Prisma client, and
+also against an in-memory Prisma stand-in — 844 passing tests:
 
 - **every one of these endpoints has now actually run.** `test/fake-prisma.js`
   holds rows in memory so the real Express app, the real routers and the real
@@ -257,6 +257,6 @@ net underneath.
 
 ### 3. A test that filled a reference with a label
 
-The sweep across all 28 resources filled a required `siteId` with the string
+The sweep across all 47 resources filled a required `siteId` with the string
 `"A's zones"`. Not a product bug, but the kind of test failure that gets
 blamed on the code — so the sweep now creates real rows and passes real ids.

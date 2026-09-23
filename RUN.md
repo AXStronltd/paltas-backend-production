@@ -1,6 +1,16 @@
-# Getting to 217 / 217
+# Getting to 844 / 844
 
-**Where it stands: 217 tests, 182 passing, 0 failing, 35 skipped.**
+**Where it stands: 844 tests, 844 passing, 0 failing, 0 skipped** — with a
+generated Prisma client and a PostgreSQL to point at:
+
+```bash
+npx prisma generate
+TEST_DATABASE_URL=postgresql://USER@127.0.0.1:5432/paltas_backend_test npm test
+```
+
+Without those, the suite still passes; the tests that need them skip
+themselves and say why. The heading below described the state when neither
+was available on the machine this was built on.
 
 Since the last note the number went up, and so did what it covers. I stopped
 waiting for your machine and built a stand-in for Prisma that keeps rows in
@@ -38,8 +48,8 @@ as **2001**. A booking taken for next week would have been filed a quarter of
 a century in the past with no error anywhere. Those formats are now parsed
 properly, and anything genuinely unreadable is refused instead of guessed at.
 
-§3 of the contract — the 45 endpoints the buttons name out loud — is a
-different matter: 8 are served, the rest are not built. Every one of the 45
+§3 of the contract — the 45 endpoints the buttons name out loud — was a
+different matter when this was written: 8 served, the rest not built. Every one of the 45
 now has a written decision and a reason, and a test fails if one is ever
 added, quietly served, or quietly dropped.
 
@@ -48,7 +58,7 @@ added, quietly served, or quietly dropped.
 ## The one that mattered
 
 `POST /payments` was registered twice — once by the framework that builds the
-28 resources, once by hand — and Express silently used the first. **The
+47 resources, once by hand — and Express silently used the first. **The
 hand-written one never ran.** It is the only thing that recomputes what an
 invoice is owed.
 
@@ -148,7 +158,7 @@ Prisma and would have stopped step 2 dead.
 Against a real PostgreSQL 16, and against the in-memory stand-in:
 
 - **every endpoint has now actually executed** — 20 scenarios over real HTTP,
-  including a sweep that creates a row in all 28 resources as one company and
+  including a sweep that creates a row in all 47 resources as one company and
   checks the other company can see none of them
 - the migrations build exactly what `schema.prisma` declares: every column,
   type, nullability, index, foreign key and delete rule, checked both ways

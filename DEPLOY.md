@@ -404,10 +404,10 @@ and it is the most common reason a first deployment cannot sign anybody in.
 
 Relative — that is the point. Not `https://api.paltas.io`.
 
-> Not `PALTAS_API_BASE`. That one belongs to the market service, which turns on
-> four endpoints this API does not serve yet, and §4c says a failed call offers
-> *nothing* rather than falling back — so setting it switches payment selection
-> off across the marketplace. See the README.
+> `PALTAS_API_BASE` is also safe to set now. It belongs to the market service,
+> and this API serves all four of §4c's endpoints — so it no longer switches
+> payment selection off. The frontend defaults it to `/api` on any non-localhost
+> host anyway, so in practice you need set neither. See the README.
 
 **And `contract/homepage-feed.html`** pasted into `index.html` before
 `</body>` — the one call the carousel is waiting for.

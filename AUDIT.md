@@ -4,6 +4,28 @@ Run before any push or deploy. No commits were made.
 
 ---
 
+> ## Addendum — 2026-09-24
+>
+> **This document is a snapshot, kept as written.** Several of its findings have
+> since been closed, and the two below are the ones that change how the rest of
+> it reads:
+>
+> - **§4c is built.** The table further down lists `/market/config`,
+>   `/payment-methods/available`, `/localization/config` and
+>   `/services/available` as *not served*. All four are served now
+>   (`src/routes/market.js`), the last of them at `/market/services` rather
+>   than `/services/available` — `/services` was already a tenant resource.
+>   `PALTAS_API_BASE` no longer has to stay unset; the recommendation near the
+>   end of this file is superseded.
+>
+> - **The suite is no longer partly skipped.** 844 tests, all passing, against
+>   a real PostgreSQL with a real Prisma client.
+>
+> The two product questions at the end — the Development/Community entitlement,
+> and what the Security add-on means commercially — are **still open**.
+
+---
+
 ## The headline, first
 
 **The gap is real and it is exactly the gap the README has described since day
