@@ -39,7 +39,7 @@ import { clean } from "../domain/input.ts";
 import { scopeWhere, scopedSites } from "../domain/scope.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
-} from "./session.js";
+} from "./session.ts";
 
 /* ====================================================================== *
  * THE CHECKS A HAND-WRITTEN ROUTE FORGETS.

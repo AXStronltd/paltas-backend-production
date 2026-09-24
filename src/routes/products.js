@@ -33,7 +33,7 @@ import { scopedTo } from "../domain/scope.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
-} from "../http/session.js";
+} from "../http/session.ts";
 import { sync as syncChannel, status as channelStatus } from "../domain/channels.js";
 import { postForPayment, reverseFor } from "../domain/posting.js";
 import {

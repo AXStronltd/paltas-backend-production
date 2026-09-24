@@ -43,7 +43,7 @@
 import { Router } from "express";
 import { db } from "../db.ts";
 import { badRequest, forbidden, hidden } from "../http/errors.ts";
-import { requireSession } from "../http/session.js";
+import { requireSession } from "../http/session.ts";
 import { rateLimit } from "../http/rate-limit.ts";
 
 export const guestRoutes = Router();

@@ -42,7 +42,7 @@ import {
 } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
-} from "../http/session.js";
+} from "../http/session.ts";
 import { whyNotArea } from "../domain/access.ts";
 import {
   EDITABLE_STATES, OFFERING_TRANSITIONS, canOffering, eligibilityRefusal,

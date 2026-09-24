@@ -8,4 +8,4 @@ export { rateLimit } from "./rate-limit.ts";
 export { securityHeaders } from "./security-headers.ts";
 export { resourceRouter, clean } from "./resource.js";
 export { withSession, requireSession, requireOrganization,
-         requireOpenSubscription, requireProduct } from "./session.js";
+         requireOpenSubscription, requireProduct } from "./session.ts";

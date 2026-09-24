@@ -48,7 +48,15 @@ export interface Config {
   readonly origins: readonly string[];
   readonly secureCookies: boolean;
   readonly sameOrigin: boolean;
-  readonly cookieSameSite: string;
+  /**
+   * How the session cookie travels.
+   *
+   * The three values a browser accepts, and not `string`. Express types
+   * `res.cookie`'s sameSite as this union, so leaving it loose here meant
+   * every caller casting — and a cast is how a typo reaches a browser that
+   * silently ignores the whole attribute.
+   */
+  readonly cookieSameSite: "lax" | "none" | "strict";
   readonly trustProxyHops: number;
   readonly sessionDays: number;
 }
@@ -126,6 +134,26 @@ const PRODUCTION_ORIGINS = [
  * specific mistake of reading a value nobody added to REQUIRED, which today
  * lets `undefined` into the config silently.
  */
+/**
+ * COOKIE_SAMESITE, if somebody set it, and the right default if not.
+ *
+ * Checked rather than trusted: a browser silently ignores an attribute it
+ * does not recognise, so `SameSite=Lx` is not an error anywhere — it is a
+ * cookie with no SameSite at all, which is a different security posture
+ * arrived at by typo.
+ */
+function sameSite(given: string | undefined, sameOrigin: boolean): "lax" | "none" | "strict" {
+  const v = String(given || "").trim().toLowerCase();
+  if (v === "lax" || v === "none" || v === "strict") return v;
+  if (v !== "") {
+    throw new Error(
+      `COOKIE_SAMESITE is "${given}", which no browser recognises. It must be ` +
+      `lax, none or strict — or unset, which gives ` +
+      `${sameOrigin ? "lax (the app and API share an origin)" : "none (they do not)"}.`);
+  }
+  return sameOrigin ? "lax" : "none";
+}
+
 function required(env: Env, key: string): string {
   const value = env[key];
   if (value === undefined || value.trim() === "") {
@@ -259,7 +287,7 @@ function read(env: Env): Config {
      * works it out rather than being told twice and getting it wrong once.
      */
     sameOrigin,
-    cookieSameSite: env.COOKIE_SAMESITE || (sameOrigin ? "lax" : "none"),
+    cookieSameSite: sameSite(env["COOKIE_SAMESITE"], sameOrigin),
 
     /*
      * How many proxies sit in front of this service. Render is one. Netlify

@@ -25,7 +25,7 @@ import { levelFor, whyNotArea } from "../domain/access.ts";
 import { badRequest, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
-} from "../http/session.js";
+} from "../http/session.ts";
 import { country as marketCountry } from "../domain/market.js";
 
 export const companyRoutes = Router();

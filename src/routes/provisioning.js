@@ -33,7 +33,7 @@
 import { Router } from "express";
 import { db } from "../db.ts";
 import { badRequest, conflict, notFound } from "../http/errors.ts";
-import { requireSession } from "../http/session.js";
+import { requireSession } from "../http/session.ts";
 import { requirePlatform } from "./platform.js";
 
 export const provisioningRoutes = Router();

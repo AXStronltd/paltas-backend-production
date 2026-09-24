@@ -44,7 +44,7 @@ import { whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
-} from "../http/session.js";
+} from "../http/session.ts";
 import { country as marketCountry } from "../domain/market.js";
 import {
   LedgerError, DEFAULT_CHART, NORMAL_BALANCE,

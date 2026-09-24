@@ -716,7 +716,7 @@ test("a new account can sign in and reach its own data", { skip }, async () => {
     googleSub: "sub_walks_001", email: "walks@example.com", name: "Walker", picture: "",
   });
 
-  const { createSession } = await import("../src/auth/sessions.js");
+  const { createSession } = await import("../src/auth/sessions.ts");
   const { token } = await createSession(user.id, { userAgent: "test", ip: "127.0.0.1" });
   const cookie = `paltas_session=${token}`;
 

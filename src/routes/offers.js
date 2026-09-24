@@ -35,7 +35,7 @@ import { whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
-} from "../http/session.js";
+} from "../http/session.ts";
 
 export const offerRoutes = Router();
 

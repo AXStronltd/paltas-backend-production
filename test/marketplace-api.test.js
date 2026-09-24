@@ -591,7 +591,7 @@ test("the traveller's IP reaches the supplier and is not invented", { skip }, as
 
 /** A signed-in person with their own cookie. */
 async function person(tag) {
-  const { createSession } = await import("../src/auth/sessions.js");
+  const { createSession } = await import("../src/auth/sessions.ts");
   const u = await db.user.create({
     data: { email: `${tag}-${Date.now()}-${Math.round(Math.random() * 1e6)}@paltas.io`, name: tag },
   });

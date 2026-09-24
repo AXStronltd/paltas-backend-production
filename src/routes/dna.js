@@ -22,7 +22,7 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
-import { requireSession, requireOrganization, requireOpenSubscription } from "../http/session.js";
+import { requireSession, requireOrganization, requireOpenSubscription } from "../http/session.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { clean } from "../domain/input.ts";
 import { whyNotArea } from "../domain/access.ts";

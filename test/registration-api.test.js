@@ -50,7 +50,7 @@ if (!skip) {
     ({ db } = await import("../src/db.ts"));
     ({ createApp } = await import("../src/server.js"));
     ({ upsertUser } = await import("../src/routes/auth.js"));
-    ({ createSession } = await import("../src/auth/sessions.js"));
+    ({ createSession } = await import("../src/auth/sessions.ts"));
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
     const m = String(e && e.message);

@@ -36,7 +36,7 @@ if (!skip) {
     ({ db } = await import("../src/db.ts"));
     ({ createApp } = await import("../src/server.js"));
     ({ upsertUser } = await import("../src/routes/auth.js"));
-    ({ createSession } = await import("../src/auth/sessions.js"));
+    ({ createSession } = await import("../src/auth/sessions.ts"));
     ({ hashToken } = await import("../src/domain/invitations.js"));
     await db.$queryRaw`SELECT 1`;
   } catch (e) {

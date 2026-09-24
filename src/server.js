@@ -14,7 +14,7 @@ import { db, closeDb } from "./db.ts";
 import {
   cors, errorHandler, notFound, rateLimit, securityHeaders, withSession,
 } from "./http/index.ts";
-import { pruneExpiredSessions } from "./auth/sessions.js";
+import { pruneExpiredSessions } from "./auth/sessions.ts";
 import { authRoutes } from "./routes/auth.js";
 import { organizationRoutes } from "./routes/organizations.js";
 import { invitationRoutes } from "./routes/invitations.js";

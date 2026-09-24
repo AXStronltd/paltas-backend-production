@@ -21,13 +21,33 @@
 
 import crypto from "node:crypto";
 import { config } from "../config.ts";
+import type { Prisma } from "@prisma/client";
+import type { Response } from "express";
+
 import { db } from "../db.ts";
 
 export const COOKIE = "paltas_session";
 
-const hash = (token) => crypto.createHash("sha256").update(token).digest("hex");
+const hash = (token: string): string =>
+  crypto.createHash("sha256").update(token).digest("hex");
 
-export async function createSession(userId, { orgId, userAgent, ip } = {}) {
+/** What a browser was given, and when it stops working. */
+export interface IssuedSession {
+  readonly token: string;
+  readonly expiresAt: Date;
+}
+
+/** Where the sign-in came from. All optional — a session can be made without. */
+export interface SessionOrigin {
+  readonly orgId?: string | null;
+  readonly userAgent?: string | undefined;
+  readonly ip?: string | undefined;
+}
+
+export async function createSession(
+  userId: string,
+  { orgId, userAgent, ip }: SessionOrigin = {},
+): Promise<IssuedSession> {
   const token = crypto.randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + config.sessionDays * 24 * 60 * 60 * 1000);
 
@@ -49,7 +69,19 @@ export async function createSession(userId, { orgId, userAgent, ip } = {}) {
  * The row behind a cookie, or null. An expired row is deleted on sight rather
  * than left to a cleanup job that may never be written.
  */
-export async function readSession(token) {
+/**
+ * A session row with its user attached.
+ *
+ * Derived from Prisma rather than written out, so it cannot drift from the
+ * `include` two lines below it — which is the failure a hand-written shape
+ * has: somebody adds a column, the type does not know, and every reader gets
+ * a field the compiler says does not exist.
+ */
+export type SessionWithUser = Prisma.SessionGetPayload<{ include: { user: true } }>;
+
+export async function readSession(
+  token: string | undefined | null,
+): Promise<SessionWithUser | null> {
   if (!token) return null;
   const row = await db.session.findUnique({
     where: { tokenHash: hash(token) },
@@ -63,23 +95,23 @@ export async function readSession(token) {
   return row;
 }
 
-export async function destroySession(token) {
+export async function destroySession(token: string | undefined | null): Promise<void> {
   if (!token) return;
   await db.session.deleteMany({ where: { tokenHash: hash(token) } });
 }
 
 /** Sign out everywhere — used when an account is compromised or closed. */
-export async function destroyAllSessions(userId) {
+export async function destroyAllSessions(userId: string): Promise<void> {
   await db.session.deleteMany({ where: { userId } });
 }
 
-export async function switchOrganization(sessionId, orgId) {
+export async function switchOrganization(sessionId: string, orgId: string): Promise<void> {
   await db.session.update({ where: { id: sessionId }, data: { orgId } });
 }
 
 /* ------------------------------------------------------------ cookies */
 
-export function setSessionCookie(res, token, expiresAt) {
+export function setSessionCookie(res: Response, token: string, expiresAt: Date): void {
   res.cookie(COOKIE, token, {
     /* JavaScript cannot read it. An XSS bug then cannot steal the session,
        which is the difference between a bad day and a very bad day. */
@@ -102,7 +134,7 @@ export function setSessionCookie(res, token, expiresAt) {
   });
 }
 
-export function clearSessionCookie(res) {
+export function clearSessionCookie(res: Response): void {
   res.clearCookie(COOKIE, {
     httpOnly: true,
     secure: config.secureCookies,

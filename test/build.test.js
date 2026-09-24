@@ -25,7 +25,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 import ts from "typescript";
@@ -104,9 +104,22 @@ test("the compiled market module still finds the contract file", { skip: skipUnb
  * the image, which builds the source, so the real enforcement happens there.
  */
 function skipUnbuilt() {
-  return existsSync(join(ROOT, "dist", "server.js"))
-    ? false
-    : "dist/ has not been built — run `npm run build` (CI does, via docker build)";
+  if (!existsSync(join(ROOT, "dist", "server.js"))) {
+    return "dist/ has not been built — run `npm run build` (CI does, via docker build)";
+  }
+  /*
+   * A STALE dist/ IS NOT A FAILURE OF THE SOURCE.
+   *
+   * Converting one more file leaves dist/ one file behind, and the tree
+   * comparison below then reports it as a mismatch — which reads as "the
+   * build is broken" when the truth is "nobody has rebuilt". Saying which it
+   * is costs two lines and saves the wrong five minutes.
+   */
+  const newest = (dir) => walk(dir).reduce((t, f) => Math.max(t, statSync(f).mtimeMs), 0);
+  if (newest(join(ROOT, "src")) > newest(join(ROOT, "dist"))) {
+    return "dist/ is older than src/ — run `npm run build` to check the emitted tree";
+  }
+  return false;
 }
 
 function walk(dir) {

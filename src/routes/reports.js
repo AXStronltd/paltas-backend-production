@@ -28,7 +28,7 @@ import { RESOURCES } from "../domain/registry.js";
 import { forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
-} from "../http/session.js";
+} from "../http/session.ts";
 
 export const reportRoutes = Router();
 

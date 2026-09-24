@@ -33,7 +33,7 @@ import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { numberFor } from "../http/resource.js";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
-} from "../http/session.js";
+} from "../http/session.ts";
 
 export const commsRoutes = Router();
 

@@ -11,8 +11,8 @@ import { beginSignIn, completeSignIn, OAUTH_COOKIE } from "../auth/google.js";
 import {
   COOKIE, clearSessionCookie, createSession, destroySession,
   setSessionCookie, switchOrganization,
-} from "../auth/sessions.js";
-import { sessionView } from "../domain/session-view.js";
+} from "../auth/sessions.ts";
+import { sessionView } from "../domain/session-view.ts";
 import { badRequest, forbidden, rateLimit, requireSession, unauthorized } from "../http/index.ts";
 
 export const authRoutes = Router();
