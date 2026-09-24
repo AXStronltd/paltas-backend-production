@@ -33,6 +33,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+/* Source is read through one helper, so a file renamed to .ts does not make
+   this scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESOURCES } from "../src/domain/registry.js";
@@ -40,8 +43,8 @@ import { RESOURCES } from "../src/domain/registry.js";
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");
 
-const products = readFileSync(join(ROOT, "src", "routes", "products.js"), "utf8");
-const framework = readFileSync(join(ROOT, "src", "http", "resource.js"), "utf8");
+const products = sourceText("routes", "products.js");
+const framework = sourceText("http", "resource.js");
 const schema = readFileSync(join(ROOT, "prisma", "schema.prisma"), "utf8");
 
 /* ---------------------------------------------------------------- */
@@ -63,13 +66,14 @@ const schema = readFileSync(join(ROOT, "prisma", "schema.prisma"), "utf8");
 const HAND_WRITTEN_FILES = [
   "products.js", "offers.js", "workflow.js", "comms.js", "site.js",
   "ledger.js", "company.js", "investments.js", "dna.js",
+  "procurement.js", "predevelopment.js", "handover.js", "reports.js",
 ];
 
 function handWritten() {
   const out = [];
   for (const file of HAND_WRITTEN_FILES) {
     let text;
-    try { text = readFileSync(join(ROOT, "src", "routes", file), "utf8"); }
+    try { text = sourceText("routes", file); }
     catch { continue; }                  /* a router that has been renamed */
     for (const m of text.matchAll(/^\s*(?:guarded|\w+Routes)\.(get|post|patch|delete)\(\s*"([^"]+)"/gm)) {
       out.push({ verb: m[1].toUpperCase(), path: m[2], file });
@@ -124,7 +128,7 @@ function sameShape(a, b) {
  * So the same path is checked two different ways depending on where it lives,
  * and the second check reads server.js rather than trusting a comment in it.
  */
-const ABOVE_PRODUCTS = readFileSync(join(ROOT, "src", "server.js"), "utf8");
+const ABOVE_PRODUCTS = sourceText("server.js");
 
 function mountedAboveProducts(file) {
   /*
@@ -135,7 +139,7 @@ function mountedAboveProducts(file) {
    * is worse than no test, because the next person fixes the code.
    */
   let text;
-  try { text = readFileSync(join(ROOT, "src", "routes", file), "utf8"); }
+  try { text = sourceText("routes", file); }
   catch { return false; }
   const named = text.match(/export const (\w+) = Router\(\)/);
   if (!named) return false;

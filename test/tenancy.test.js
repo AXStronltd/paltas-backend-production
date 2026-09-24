@@ -23,12 +23,18 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+/*
+ * WHICH FILES ARE THE SOURCE, decided in one place rather than by an
+ * extension filter here. This scanner is the one standing between one
+ * company and another company's data, and a `.js` filter over a directory of
+ * `.ts` files does not fail — it finds nothing and passes. See test/src-files.js.
+ */
+import { allSourceFiles, resolveSource, SRC, sourceFiles, sourceText } from "./src-files.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const SRC = join(HERE, "..", "src");
 
 const schema = readFileSync(join(HERE, "..", "prisma", "schema.prisma"), "utf8");
 
@@ -98,8 +104,7 @@ function orgReferencing() {
 const modelOf = (accessor) => accessor.charAt(0).toUpperCase() + accessor.slice(1);
 
 function routeFiles() {
-  const dir = join(SRC, "routes");
-  return readdirSync(dir).filter((f) => f.endsWith(".js")).map((f) => join(dir, f));
+  return sourceFiles("routes");
 }
 
 /*
@@ -378,7 +383,7 @@ test("the exemption list is short, and every entry still applies", () => {
   assert.ok(EXEMPT.length <= 5, `${EXEMPT.length} exemptions is more than a person will read`);
 
   for (const e of EXEMPT) {
-    const text = readFileSync(join(SRC, "routes", e.file), "utf8");
+    const text = sourceText("routes", e.file);
     assert.ok(e.match.test(text),
       `the exemption for ${e.file} no longer matches anything — delete it`);
     assert.ok(e.why && e.why.length > 40, `the exemption for ${e.file} has no real reason`);
@@ -394,12 +399,12 @@ test("a person only ever acts for an organization they belong to", () => {
    * organization id could arrive in a body or a header and be believed, every
    * other check in this service would be decoration.
    */
-  const view = readFileSync(join(SRC, "domain", "session-view.js"), "utf8");
+  const view = sourceText("domain", "session-view.js");
   assert.match(view, /db\.membership\.findMany\(\{\s*where:\s*\{\s*userId/,
     "the session is not built from the person's own memberships");
 
   /* And the one place an organization can be switched checks membership. */
-  const auth = readFileSync(join(SRC, "routes", "auth.js"), "utf8");
+  const auth = sourceText("routes", "auth.js");
   const handler = auth.match(/session\/organization[\s\S]*?\n\}\);/);
   assert.ok(handler, "the organization-switch route is gone");
   assert.match(handler[0], /db\.membership\.findUnique/,
@@ -461,7 +466,7 @@ test("nothing trusts an organization id sent by the caller", () => {
 });
 
 test("the actor's rights come from the database, not the request", () => {
-  const view = readFileSync(join(SRC, "domain", "session-view.js"), "utf8");
+  const view = sourceText("domain", "session-view.js");
   const actor = view.match(/export async function actorFor[\s\S]*?\n\}/);
   assert.ok(actor, "actorFor() is gone");
   assert.ok(!/req\.|request/.test(actor[0]),
@@ -483,7 +488,7 @@ test("the actor's rights come from the database, not the request", () => {
  * and that nothing outside these two reviewed files uses that shape at all.
  * ================================================================ */
 
-const FRAMEWORK = join(SRC, "http", "resource.js");
+const FRAMEWORK = resolveSource("http", "resource.js");
 
 test("every query the resource framework makes is scoped to one company", () => {
   const text = readFileSync(FRAMEWORK, "utf8");
@@ -596,43 +601,49 @@ test("nothing outside the framework reaches a model through a variable", () => {
   const ALLOWED = new Set(["resource.js", "products.js"]);
   const offenders = [];
 
-  const walk = (dir) => {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const p = join(dir, entry.name);
-      if (entry.isDirectory()) { walk(p); continue; }
-      if (!entry.name.endsWith(".js")) continue;
-      if (ALLOWED.has(entry.name)) continue;
-      /* Comments do not run. registry.js documents the shape in prose, and
-         reporting its own documentation as a violation is the sort of false
-         alarm that gets a test deleted. */
-      const raw = readFileSync(p, "utf8");
-      const text = raw
-        .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "))
-        .replace(/(^|[^:])\/\/.*$/gm, "$1");
-      for (const m of text.matchAll(/db\[/g)) {
-        const line = text.slice(0, m.index).split("\n").length;
-        offenders.push(`${entry.name}:${line} — db[…]`);
-      }
-      /*
-       * AND THE OTHER WAY OF HIDING FROM THE SCANNER.
-       *
-       * The scanner above matches `db.<model>.<method>(`. A file that passes
-       * `db` into a helper under another name — `function find(db_, where) {
-       * return db_.rfi.findMany(...) }` — is scoped or not exactly as before,
-       * and completely invisible to it. Fifteen queries left the guard's sight
-       * that way in one go, in routes/reports.js, before this was added.
-       *
-       * So aliasing `db` is refused too. It costs nothing: every route in this
-       * service imports `db` directly and calls it by name.
-       */
-      for (const m of text.matchAll(/(?:\(|,|=)\s*(\w+)\s*(?:\)|,|=>)?[\s\S]{0,120}?\b\1\.(?:rfi|task|defect|contract|payment|invoice|unit|site|meeting|permit|drawing|handover|expense)\.(?:findMany|findFirst|updateMany|deleteMany|count|aggregate)\(/g)) {
-        if (m[1] === "db" || m[1] === "tx") continue;   /* the import, and a transaction client */
-        const line = text.slice(0, m.index).split("\n").length;
-        offenders.push(`${entry.name}:${line} — reaches a model through "${m[1]}" rather than db`);
-      }
+  let scanned = 0;
+  for (const p of allSourceFiles()) {
+    const entry = { name: p.split("/").pop() };
+    /* `resource.js` and `products.js` however they are spelled. */
+    if (ALLOWED.has(entry.name.replace(/\.ts$/, ".js"))) continue;
+    scanned += 1;
+    /* Comments do not run. registry.js documents the shape in prose, and
+       reporting its own documentation as a violation is the sort of false
+       alarm that gets a test deleted. */
+    const raw = readFileSync(p, "utf8");
+    const text = raw
+      .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "))
+      .replace(/(^|[^:])\/\/.*$/gm, "$1");
+    for (const m of text.matchAll(/db\[/g)) {
+      const line = text.slice(0, m.index).split("\n").length;
+      offenders.push(`${entry.name}:${line} — db[…]`);
     }
-  };
-  walk(SRC);
+    /*
+     * AND THE OTHER WAY OF HIDING FROM THE SCANNER.
+     *
+     * The scanner above matches `db.<model>.<method>(`. A file that passes
+     * `db` into a helper under another name — `function find(db_, where) {
+     * return db_.rfi.findMany(...) }` — is scoped or not exactly as before,
+     * and completely invisible to it. Fifteen queries left the guard's sight
+     * that way in one go, in routes/reports.js, before this was added.
+     *
+     * So aliasing `db` is refused too. It costs nothing: every route in this
+     * service imports `db` directly and calls it by name.
+     */
+    for (const m of text.matchAll(/(?:\(|,|=)\s*(\w+)\s*(?:\)|,|=>)?[\s\S]{0,120}?\b\1\.(?:rfi|task|defect|contract|payment|invoice|unit|site|meeting|permit|drawing|handover|expense)\.(?:findMany|findFirst|updateMany|deleteMany|count|aggregate)\(/g)) {
+      if (m[1] === "db" || m[1] === "tx") continue;   /* the import, and a transaction client */
+      const line = text.slice(0, m.index).split("\n").length;
+      offenders.push(`${entry.name}:${line} — reaches a model through "${m[1]}" rather than db`);
+    }
+  }
+
+  /*
+   * IT ACTUALLY LOOKED. The whole reason this file exists: a scanner that
+   * finds nothing reports the same green tick as one that checked seventy
+   * files, and that is precisely what a `.js` filter does to a `.ts` source
+   * tree.
+   */
+  assert.ok(scanned > 40, `only ${scanned} source files were scanned — the scanner is looking in the wrong place`);
 
   assert.deepEqual(offenders, [],
     "These reach a Prisma model through a variable, so no scanner can tell which " +
@@ -646,7 +657,7 @@ test("the product routes read a row by id and organization together", () => {
    * file — voiding a payment, closing a folio, admitting a visitor — starts
    * working on other companies' rows at once.
    */
-  const text = readFileSync(join(SRC, "routes", "products.js"), "utf8");
+  const text = sourceText("routes", "products.js");
   const own = text.match(/async function own\([\s\S]*?\n\}/);
   assert.ok(own, "own() is gone from products.js");
   assert.match(own[0], /where: \{ id, orgId \}/,

@@ -19,12 +19,15 @@ import {
   clearanceFor, mayRead,
 } from "../src/domain/classification.js";
 import { normalisePath, contains, mayDataset, whyNotDataset } from "../src/modules/authority/domain/jurisdiction.js";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 const HERE = fileURLToPath(new URL("..", import.meta.url));
 const schema = readFileSync(join(HERE, "prisma/schema.prisma"), "utf8");
-const routes = readFileSync(join(HERE, "src/modules/authority/api/routes.js"), "utf8");
-const jurisdiction = readFileSync(join(HERE, "src/modules/authority/domain/jurisdiction.js"), "utf8");
-const context = readFileSync(join(HERE, "src/modules/property-dna/domain/context.js"), "utf8");
+const routes = sourceText("modules", "authority", "api", "routes.js");
+const jurisdiction = sourceText("modules", "authority", "domain", "jurisdiction.js");
+const context = sourceText("modules", "property-dna", "domain", "context.js");
 
 /* ---------------------------------------------------------------- *
  * 1. NO WILDCARD ANYWHERE

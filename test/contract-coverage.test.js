@@ -30,10 +30,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESOURCES } from "../src/domain/registry.js";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const md = readFileSync(join(HERE, "..", "contract", "backend.md"), "utf8");
-const products = readFileSync(join(HERE, "..", "src", "routes", "products.js"), "utf8");
+const products = sourceText("routes", "products.js");
 
 /** `| \`POST\` | \`/hotel/rooms\` | A room, its type… |` */
 function parseNamed() {

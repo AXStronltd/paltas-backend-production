@@ -32,6 +32,9 @@ import { join, resolve } from "node:path";
 import { createContext, runInContext } from "node:vm";
 import { makeWindow } from "./dom-shim.js";
 import { RESOURCES } from "../src/domain/registry.js";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");
@@ -654,7 +657,7 @@ test("the sign-in page reads the failure parameter the backend actually sends",
     assert.ok(new RegExp(v + ":").test(auth), `no message for signin=${v}`);
   }
 
-  const routes = readFileSync("src/routes/auth.js", "utf8");
+  const routes = sourceText("routes", "auth.js");
   const targets = [...routes.matchAll(/appUrl\}(\/[a-z0-9_\-./]*\.html)/g)].map((m) => m[1]);
   assert.ok(targets.length >= 1, "the callback no longer redirects failures to a page");
   for (const t of targets) {

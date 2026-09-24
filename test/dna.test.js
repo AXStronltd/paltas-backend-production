@@ -24,17 +24,20 @@ import {
   clearanceFor, mayRead, visibleRows, redact, withheldSummary, publicProfile,
 } from "../src/domain/classification.js";
 import { refFor, SUCCESSION_NEXT, SUCCESSION_TERMINAL, mayAdvance } from "../src/domain/dna.js";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 /* fileURLToPath, not .pathname: this repository's directory name contains a
    space, and .pathname hands back "paltas-backend%202". */
 const HERE = fileURLToPath(new URL("..", import.meta.url));
 const schema = readFileSync(join(HERE, "prisma/schema.prisma"), "utf8");
-const routes = readFileSync(join(HERE, "src/routes/dna.js"), "utf8");
-const domain = readFileSync(join(HERE, "src/domain/dna.js"), "utf8");
+const routes = sourceText("routes", "dna.js");
+const domain = sourceText("domain", "dna.js");
 /* Identity moved into the module when Property DNA was split up; the rule it
    has to keep did not move. */
-const identity = readFileSync(join(HERE, "src/modules/property-dna/domain/identity.js"), "utf8");
-const classification = readFileSync(join(HERE, "src/domain/classification.js"), "utf8");
+const identity = sourceText("modules", "property-dna", "domain", "identity.js");
+const classification = sourceText("domain", "classification.js");
 
 const FE = process.env.PALTAS_FRONTEND || resolve(HERE, "..", "paltas-frontend 2");
 const skipFE = existsSync(join(FE, "assets", "console.js")) ? undefined : `no frontend at ${FE}`;

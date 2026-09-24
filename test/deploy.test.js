@@ -22,6 +22,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 const DOCKERFILE = readFileSync("Dockerfile", "utf8");
 const DOCKERIGNORE = existsSync(".dockerignore")
@@ -293,7 +296,7 @@ test("API responses are not cacheable unless they are genuinely public", () => {
    * responses, so the rule looked right and did nothing. That is why this test
    * reads server.js rather than the toml.
    */
-  const server = readFileSync("src/server.js", "utf8");
+  const server = sourceText("server.js");
   const idx = server.indexOf('res.set("Cache-Control", "no-store")');
   assert.notEqual(idx, -1,
     "server.js no longer sets a no-store default, so an authenticated response " +
