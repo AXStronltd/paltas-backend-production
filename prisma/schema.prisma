@@ -357,6 +357,12 @@ model Organization {
   Dispatch           Dispatch[]
   DispatchEvent      DispatchEvent[]
   Campaign           Campaign[]
+  Acquisition        Acquisition[]
+  DiligenceItem      DiligenceItem[]
+  Feasibility        Feasibility[]
+  Drawing            Drawing[]
+  Permit             Permit[]
+  PermitEvent        PermitEvent[]
   Rfq                Rfq[]
   Quote              Quote[]
   PurchaseOrder      PurchaseOrder[]
@@ -942,6 +948,7 @@ model Party {
   dispatches         Dispatch[]
   quotedOn           Quote[]                @relation("QuoteVendor")
   purchaseOrders     PurchaseOrder[]        @relation("PurchaseVendor")
+  landSales          Acquisition[]          @relation("AcquisitionSeller")
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -988,6 +995,7 @@ model Document {
 
   /// An official record this document evidences, when it is one.
   authorityRecords PropertyAuthorityRecord[]
+  drawings         Drawing[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -1136,6 +1144,10 @@ model Project {
   Task          Task[]
   Dispatch      Dispatch[]
   Campaign      Campaign[]
+  Acquisition   Acquisition[]
+  Feasibility   Feasibility[]
+  Drawing       Drawing[]
+  Permit        Permit[]
   Rfq           Rfq[]
   PurchaseOrder PurchaseOrder[]
   ChangeOrder   ChangeOrder[]
@@ -4433,8 +4445,9 @@ model Parcel {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  properties PropertyParcel[]
-  records    PropertyAuthorityRecord[]
+  properties   PropertyParcel[]
+  records      PropertyAuthorityRecord[]
+  acquisitions Acquisition[]
 
   @@unique([orgId, ref])
   @@index([orgId, jurisdictionId])
@@ -5924,4 +5937,350 @@ model ChangeOrder {
   @@index([orgId, status])
   @@index([orgId, contractId])
   @@index([orgId, projectId])
+}
+
+/**
+ * ====================================================================== *
+ * EVERYTHING THAT HAPPENS BEFORE ANYBODY BUILDS ANYTHING.
+ * Land is found and bought, the numbers are tested, somebody draws it, and
+ * an authority says yes. Four registers, and each one carries a rule that a
+ * spreadsheet cannot:
+ * Acquisition  cannot complete while a due-diligence item is unresolved.
+ * Buying land on an unsettled title search is the single most
+ * expensive mistake in this business.
+ * Feasibility  every derived figure is COMPUTED, never stored. A study
+ * whose profit is a column drifts from its own inputs, and
+ * the drift is invisible.
+ * Drawing      issuing a revision supersedes the previous one rather than
+ * overwriting it. Somebody built to the old sheet.
+ * Permit       expiry is worked out on the way out. A stored "approved"
+ * on a consent that lapsed last March is a licence to build
+ * illegally.
+ * ── AND WHAT IS DELIBERATELY NOT HERE ──────────────────────────────────
+ * There is no second Parcel. `Parcel` already exists as the AUTHORITY's
+ * record of a piece of land — its number as the registry writes it, its
+ * tenure, its zoning — and an Acquisition points at one rather than keeping
+ * its own copy. A company's pipeline and a land registry are two different
+ * things about the same ground, and only one of them is the truth about who
+ * owns it.
+ * ======================================================================
+ */
+
+enum AcquisitionStatus {
+  IDENTIFIED
+  APPRAISING
+  OFFERED
+  UNDER_NEGOTIATION
+  AGREED
+  /// Price agreed, searches running. The state most deals die in, and the one
+  /// a pipeline that goes straight from AGREED to COMPLETED cannot show.
+  DUE_DILIGENCE
+  COMPLETED
+  ABANDONED
+}
+
+enum DiligenceStatus {
+  PENDING
+  /// Checked, nothing wrong.
+  CLEAR
+  /// Checked, something IS wrong. Blocks completion until it is settled.
+  ISSUE
+  /// Deliberately accepted with the problem known, by somebody named. Not the
+  /// same as clear, and the difference is the whole point of having it.
+  WAIVED
+}
+
+enum FeasibilityStatus {
+  DRAFT
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  /// Replaced by a later study. Kept, because the numbers a decision was made
+  /// on matter more than the numbers that turned out to be right.
+  SUPERSEDED
+}
+
+enum DrawingStatus {
+  DRAFT
+  ISSUED_FOR_COMMENT
+  /// Build to this. Editing one is refused — a change is a new revision.
+  ISSUED_FOR_CONSTRUCTION
+  SUPERSEDED
+}
+
+enum PermitStatus {
+  NOT_STARTED
+  PREPARING
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  REFUSED
+  WITHDRAWN
+  /// Set only by the route that notices, never typed. See onRead in registry.js:
+  /// a consent that lapsed is expired whatever the column says.
+  EXPIRED
+}
+
+model Acquisition {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  /// The development it becomes, once it becomes one.
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// THE AUTHORITY'S record of this land, not a copy of it.
+  parcelId  String?
+  parcel    Parcel?  @relation(fields: [parcelId], references: [id], onDelete: SetNull)
+
+  title    String
+  location String @default("")
+  areaSqm  Int?
+  tenure   String @default("")
+
+  sellerId   String?
+  seller     Party?  @relation("AcquisitionSeller", fields: [sellerId], references: [id], onDelete: SetNull)
+  sellerName String  @default("")
+
+  /// Minor units. Three figures because they are three different facts, and a
+  /// single "price" column loses the two that explain the third.
+  askingPrice  BigInt @default(0)
+  offeredPrice BigInt @default(0)
+  agreedPrice  BigInt @default(0)
+  currency     String @default("KES")
+
+  status AcquisitionStatus @default(IDENTIFIED)
+
+  offeredOn       DateTime?
+  agreedOn        DateTime?
+  targetOn        DateTime?
+  completedOn     DateTime?
+  /// Why it died, where it died. The most useful column in the table after
+  /// the third one that dies the same way.
+  abandonedReason String    @default("")
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  diligence   DiligenceItem[]
+  feasibility Feasibility[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+}
+
+/// One thing that has to be checked before money changes hands.
+model DiligenceItem {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  acquisitionId String
+  acquisition   Acquisition @relation(fields: [acquisitionId], references: [id], onDelete: Cascade)
+
+  title    String
+  /// Title, search, survey, environmental, planning, rates. Free text, because
+  /// what has to be checked differs by jurisdiction and an enum would be one
+  /// country's list.
+  category String @default("")
+
+  status       DiligenceStatus @default(PENDING)
+  finding      String          @default("")
+  /// Who accepted a known problem, and why. Only meaningful on WAIVED, and
+  /// required by the route that sets it.
+  waivedBy     String          @default("")
+  waivedReason String          @default("")
+
+  checkedBy String    @default("")
+  checkedOn DateTime?
+  dueOn     DateTime?
+
+  position Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([acquisitionId])
+}
+
+/// Does it work on paper.
+///
+/// EVERY DERIVED FIGURE IS ABSENT FROM THIS TABLE. Total cost, profit, margin
+/// and residual land value are computed from the inputs on the way out. A
+/// stored margin is one that disagrees with its own numbers the first time
+/// somebody edits a cost and nothing recalculates.
+model Feasibility {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId     String?
+  project       Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  acquisitionId String?
+  acquisition   Acquisition? @relation(fields: [acquisitionId], references: [id], onDelete: SetNull)
+
+  title       String
+  assumptions String            @default("")
+  status      FeasibilityStatus @default(DRAFT)
+
+  /// All minor units. The INPUTS, and only the inputs.
+  landCost     BigInt @default(0)
+  buildCost    BigInt @default(0)
+  professional BigInt @default(0)
+  financeCost  BigInt @default(0)
+  otherCost    BigInt @default(0)
+  /// What the finished thing is expected to sell or let for.
+  grossValue   BigInt @default(0)
+  currency     String @default("KES")
+
+  /// Basis points, so 17.5% is 1750 — an integer, like every other scaled
+  /// number here. A float would make two studies with the same inputs
+  /// disagree in the last digit.
+  targetMarginBps Int @default(0)
+
+  decidedBy   String    @default("")
+  decidedOn   DateTime?
+  decidedNote String    @default("")
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+}
+
+/// A sheet, at one revision.
+///
+/// Revisions are separate rows, chained, exactly as submittals are — and for
+/// the same reason. Somebody built to revision B, and overwriting it means
+/// nobody can ever find out what they built to.
+model Drawing {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  /// THE DRAWING NUMBER — A-101, S-204. The handle everybody on a site uses,
+  /// which is not the same as this service's own ref.
+  number     String
+  title      String
+  discipline String @default("")
+  revision   String @default("A")
+  scale      String @default("")
+
+  status     DrawingStatus @default(DRAFT)
+  issuedOn   DateTime?
+  issuedBy   String        @default("")
+  /// Where the file lives, if anywhere. Nullable because a register is useful
+  /// before anybody uploads anything.
+  documentId String?
+  document   Document?     @relation(fields: [documentId], references: [id], onDelete: SetNull)
+
+  /// The sheet this one replaces, and the one that replaced it.
+  previousId String?  @unique
+  previous   Drawing? @relation("DrawingRevisions", fields: [previousId], references: [id], onDelete: SetNull)
+  next       Drawing? @relation("DrawingRevisions")
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, projectId, number])
+}
+
+/// Somebody official saying yes.
+model Permit {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  title String
+  /// Planning, building, environmental, occupation, hoarding. Free text — every
+  /// jurisdiction names these differently and an enum would be one city's.
+  kind  String @default("")
+
+  authority String @default("")
+  /// THE AUTHORITY'S OWN NUMBER. The only handle that works when ringing them
+  /// up, and required before a permit may be recorded as approved.
+  reference String @default("")
+
+  status PermitStatus @default(NOT_STARTED)
+
+  submittedOn   DateTime?
+  decidedOn     DateTime?
+  /// When it lapses. The column that turns an approval into a problem.
+  expiresOn     DateTime?
+  /// What was granted subject to. Conditions are where the cost hides.
+  conditions    String    @default("")
+  refusedReason String    @default("")
+
+  /// Minor units. What it cost to apply, which nobody remembers and everybody
+  /// is asked for at the end.
+  fee      BigInt @default(0)
+  currency String @default("KES")
+
+  /// Whether work may legally proceed without it. The flag that turns a list
+  /// of paperwork into a list of blockers.
+  blocking Boolean @default(true)
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events PermitEvent[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, expiresOn])
+}
+
+/// Every move a permit makes. Append-only: it is what somebody reads when an
+/// authority asks when the application went in.
+model PermitEvent {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  permitId String
+  permit   Permit @relation(fields: [permitId], references: [id], onDelete: Cascade)
+
+  status PermitStatus
+  detail String       @default("")
+  byName String       @default("")
+
+  at DateTime @default(now())
+
+  @@index([orgId])
+  @@index([permitId])
 }

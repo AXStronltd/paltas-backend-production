@@ -220,6 +220,53 @@ export const CONSOLE_FORMS = {
   },
 
   /*
+   * BEFORE ANYBODY BUILDS. No form offers a status, a decision, an agreed
+   * price or an authority's reference — every one of those is a move that
+   * checks something first.
+   */
+  pm_land: {
+    resource: "acquisitions",
+    label: "＋ Add a site",
+    fields: {
+      project: "projectId", parcel: "parcelId", seller: "sellerId",
+      sellerName: "sellerName", title: "title", loc: "location",
+      area: "areaSqm", tenure: "tenure", asking: "askingPrice",
+      cur: "currency", target: "targetOn",
+    },
+  },
+
+  pm_feasibility: {
+    resource: "feasibilities",
+    label: "＋ New appraisal",
+    fields: {
+      project: "projectId", acquisition: "acquisitionId", title: "title",
+      assumptions: "assumptions", land: "landCost", build: "buildCost",
+      fees: "professional", finance: "financeCost", other: "otherCost",
+      gdv: "grossValue", cur: "currency", target: "targetMarginBps",
+    },
+  },
+
+  pm_drawings: {
+    resource: "drawings",
+    label: "＋ Add a drawing",
+    fields: {
+      project: "projectId", number: "number", title: "title",
+      discipline: "discipline", rev: "revision", scale: "scale",
+      document: "documentId",
+    },
+  },
+
+  pm_permits: {
+    resource: "permits",
+    label: "＋ New application",
+    fields: {
+      project: "projectId", title: "title", kind: "kind",
+      authority: "authority", fee: "fee", cur: "currency",
+      blocking: "blocking", expires: "expiresOn",
+    },
+  },
+
+  /*
    * PROCUREMENT AND VARIATIONS. No form offers a status, a total or a
    * decision: an order's figures come from its lines, and everything else is
    * a move that writes consequences beside it.

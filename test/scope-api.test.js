@@ -336,6 +336,9 @@ const EXPECTED_UNNARROWABLE = [
   /* Procurement buys for a PROJECT or for the company at large, and a
      purchase order for head office scaffolding belongs to no site at all. */
   "rfqs", "quotes", "purchase-orders", "goods-receipts", "change-orders",
+  /* Land the company has not bought yet belongs to no site — that is what
+     buying it would create. Drawings and permits hang off a project. */
+  "acquisitions", "feasibilities", "drawings", "permits",
   "token-holdings", "viewings",
 ].sort();
 

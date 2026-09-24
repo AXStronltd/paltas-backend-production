@@ -30,6 +30,7 @@ import { workflowRoutes } from "./routes/workflow.js";
 import { commsRoutes } from "./routes/comms.js";
 import { siteRoutes } from "./routes/site.js";
 import { procurementRoutes } from "./routes/procurement.js";
+import { predevRoutes } from "./routes/predevelopment.js";
 import { commsWebhookRoutes } from "./routes/comms-webhook.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
@@ -326,6 +327,13 @@ export function createApp() {
    * reach their resource routers and be read as an order called "committed".
    */
   app.use(procurementRoutes);
+
+  /*
+   * BEFORE ANYBODY BUILDS — land, feasibility, drawings, permits. Above
+   * productRoutes like the rest: `/drawings/current` and `/permits/blocking`
+   * would otherwise be read as a drawing called "current".
+   */
+  app.use(predevRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

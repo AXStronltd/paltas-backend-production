@@ -161,6 +161,62 @@ const NOT_WRITABLE_HERE = {
   },
 
   /*
+   * BEFORE ANYBODY BUILDS. Land, feasibility, drawings, permits.
+   */
+  acquisitions: {
+    status: "moved by POST /acquisitions/:id/status, which refuses to COMPLETE " +
+            "while a due-diligence item is unsettled. Buying land on an " +
+            "unresolved title search is the single most expensive mistake " +
+            "available in this business, and it is always made by ticking it off",
+    offeredPrice: "written when an offer is made, with its date",
+    agreedPrice: "written when a price is agreed, with the seller's name and the date",
+    offeredOn: "stamped by the status route",
+    agreedOn: "stamped by the status route",
+    completedOn: "stamped when it completes, which is the move that checks the searches",
+    abandonedReason: "why a deal died — required by the route, and the most useful " +
+                     "column in the table by the third one that dies the same way",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  feasibilities: {
+    status: "moved by POST /feasibilities/:id/{decide,supersede}. A scheme that " +
+            "does not work on its own numbers may still be approved — companies " +
+            "take strategic losses — but never silently",
+    decidedBy: "who approved it",
+    decidedOn: "stamped when somebody decides",
+    decidedNote: "the reasoning, required on a rejection and on approving a loss",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  drawings: {
+    status: "moved by POST /drawings/:id/{issue,revise}. Issuing a revision " +
+            "supersedes the previous rather than overwriting it — somebody " +
+            "built to revision B",
+    issuedOn: "stamped when it goes out",
+    issuedBy: "who issued it",
+    previousId: "the chain between revisions, written when the next one is opened",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  permits: {
+    status: "moved by POST /permits/:id/status. EXPIRED in particular is never " +
+            "typed: a consent that lapsed is expired whatever the column says, " +
+            "and that is worked out on the way out",
+    reference: "the AUTHORITY'S own number, required before a permit may be " +
+               "recorded as approved. It is the only handle that works when " +
+               "ringing them up, and a caller who could type one could invent it",
+    submittedOn: "stamped when the application goes in",
+    decidedOn: "stamped when the authority decides",
+    conditions: "what was granted subject to, recorded with the grant",
+    refusedReason: "the authority's own reason. It is what an appeal is built on",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  /*
    * PROCUREMENT. Two rules run through all of it: an order's figures come
    * from its LINES, and money lives in the ledger rather than here.
    */

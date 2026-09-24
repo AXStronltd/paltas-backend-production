@@ -144,13 +144,17 @@ function valueFor(consoleField, kind) {
 /* ---------------------------------------------------------------- rig */
 
 let server, base, cookie;
+/* The company everything below is created inside. Held so that a reference to
+   a model NO RESOURCE OWNS can be made directly, the way the framework reads
+   it — see referenceTo(). */
+let ORG = null;
 
 async function boot() {
   const app = createApp();
   await new Promise((r) => { server = app.listen(0, r); });
   base = `http://127.0.0.1:${server.address().port}`;
 
-  const org = await db.organization.create({
+  const org = ORG = await db.organization.create({
     data: {
       name: "Console Test Ltd",
       subscription: { create: { status: "ACTIVE" } },
@@ -337,7 +341,28 @@ async function referenceTo(model) {
   if (madeRows.has(model)) return madeRows.get(model);
 
   const entry = Object.entries(RESOURCES).find(([, r]) => r.model === model);
-  assert.ok(entry, `no resource declares model "${model}" — the id: reference names nothing`);
+  if (!entry) {
+    /*
+     * A REFERENCE TO A MODEL NO RESOURCE OWNS.
+     *
+     * The framework allows it: checkReferences falls back to the model name
+     * and looks the row up directly, scoped to the company like everything
+     * else. `id:parcel` is the first — a Parcel is the AUTHORITY's record of
+     * a piece of land, reached through the Property DNA routes rather than
+     * through a staff resource, and an acquisition points at one rather than
+     * keeping its own copy of somebody else's land registry.
+     *
+     * So the row is made directly here, the same way the framework reads it.
+     * Asserting instead would have failed a reference the service handles
+     * perfectly well, and the fix would have been to delete the link.
+     */
+    assert.ok(db[model], `"${model}" is neither a resource nor a model — id: names nothing`);
+    const made = await db[model].create({
+      data: { orgId: ORG.id, ref: `REF-${++unique}` },
+    });
+    madeRows.set(model, made.id);
+    return made.id;
+  }
   const [slug, resource] = entry;
 
   const body = {};

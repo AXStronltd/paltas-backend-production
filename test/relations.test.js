@@ -341,6 +341,12 @@ test("every model has an id and timestamps, or says why not", () => {
      */
     "SiteEvent",
     /*
+     * EVERY MOVE A PERMIT MAKES. Read when an authority asks when the
+     * application went in, which is a question with one right answer and no
+     * appetite for a row that was edited afterwards.
+     */
+    "PermitEvent",
+    /*
      * ONE SIDE OF ONE POSTED JOURNAL ENTRY.
      *
      * It has no updatedAt because it is never updated, and that is the whole

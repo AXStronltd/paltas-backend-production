@@ -36,7 +36,8 @@
  *             expose it in.
  * ====================================================================== */
 
-import { nextFor } from "./decisions.js";
+import { ACQUISITION_NEXT, nextFor, PERMIT_NEXT } from "./decisions.js";
+import { feasibilityNumbers } from "./feasibility.js";
 
 /*
  * WHAT EACH STATE ACTUALLY MEANS, IN WORDS.
@@ -54,6 +55,18 @@ import { nextFor } from "./decisions.js";
  * rejection stops work that could have carried on. Said in words beside the
  * row rather than left to a console to interpret.
  */
+/* What each stage of a land deal actually means, said once. */
+const ACQUISITION_MEANS = {
+  IDENTIFIED: "Found. Nobody has looked at the numbers.",
+  APPRAISING: "Being tested on paper.",
+  OFFERED: "An offer is with the seller.",
+  UNDER_NEGOTIATION: "Being haggled over.",
+  AGREED: "Price agreed. Nothing has been checked.",
+  DUE_DILIGENCE: "Searches running. This is where most deals die.",
+  COMPLETED: "Bought.",
+  ABANDONED: "Dead, with the reason kept.",
+};
+
 const SUBMITTAL_MEANS = {
   DRAFT: "Being prepared. Nobody has been asked to look at it.",
   SUBMITTED: "With the reviewer, waiting.",
@@ -441,6 +454,150 @@ export const RESOURCES = {
    * meeting, deciding something and finishing a task all have consequences
    * beyond their own row.
    */
+  /* ------------------------------------------- BEFORE ANYBODY BUILDS */
+  acquisitions: {
+    model: "acquisition", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "land acquisitions",
+    fields: {
+      projectId: "id:project", parcelId: "id:parcel", sellerId: "id:party",
+      sellerName: "string", title: "string", location: "string",
+      areaSqm: "int", tenure: "string",
+      askingPrice: "money", currency: "string", targetOn: "date",
+    },
+    /* `offeredPrice`, `agreedPrice` and every date beside them are written by
+       the status route, which is the only thing that knows what was agreed
+       and when. */
+    required: ["title"], numbered: "ref", prefix: "ACQ",
+    search: ["ref", "title", "location", "sellerName", "tenure"],
+    order: [{ createdAt: "desc" }],
+    onRead: (row) => ({
+      canComplete: ["AGREED", "DUE_DILIGENCE"].includes(row.status),
+      live: !["COMPLETED", "ABANDONED"].includes(row.status),
+      /* The moves still open from here, so the console draws exactly the
+         buttons the route would accept — rather than keeping its own copy of
+         the table, which drifts on the first change to either. */
+      nextStatuses: ACQUISITION_NEXT[row.status] || [],
+      means: ACQUISITION_MEANS[row.status] || "",
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      parcel: { select: { id: true, ref: true, zoning: true, tenure: true } },
+      seller: { select: { id: true, name: true } },
+      diligence: {
+        select: { id: true, title: true, category: true, status: true,
+                  finding: true, waivedBy: true, waivedReason: true,
+                  checkedBy: true, checkedOn: true, dueOn: true, position: true },
+        orderBy: { position: "asc" },
+      },
+    },
+  },
+
+  feasibilities: {
+    model: "feasibility", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "feasibility studies",
+    fields: {
+      projectId: "id:project", acquisitionId: "id:acquisition",
+      title: "string", assumptions: "text",
+      landCost: "money", buildCost: "money", professional: "money",
+      financeCost: "money", otherCost: "money", grossValue: "money",
+      currency: "string", targetMarginBps: "int",
+    },
+    required: ["title"], numbered: "ref", prefix: "FEA",
+    search: ["ref", "title", "assumptions"],
+    order: [{ createdAt: "desc" }],
+    /*
+     * EVERY DERIVED FIGURE, COMPUTED HERE AND STORED NOWHERE.
+     *
+     * A margin in a column is one that disagrees with its own inputs the
+     * first time a cost changes and nothing recalculates — and nobody ever
+     * notices, because the number still looks like a number.
+     */
+    onRead: (row) => feasibilityNumbers(row),
+    include: {
+      project: { select: { id: true, name: true } },
+      acquisition: { select: { id: true, ref: true, title: true } },
+    },
+  },
+
+  drawings: {
+    model: "drawing", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "drawings",
+    fields: {
+      projectId: "id:project", number: "string", title: "string",
+      discipline: "string", revision: "string", scale: "string",
+      documentId: "id:document",
+    },
+    required: ["number", "title"], numbered: "ref", prefix: "DRW",
+    search: ["ref", "number", "title", "discipline"],
+    order: [{ number: "asc" }],
+    onRead: (row) => ({
+      canIssue: row.status !== "SUPERSEDED",
+      canRevise: row.status !== "SUPERSEDED",
+      /* The one thing somebody on site needs to know about a sheet. */
+      buildToThis: row.status === "ISSUED_FOR_CONSTRUCTION",
+      means: row.status === "ISSUED_FOR_CONSTRUCTION"
+        ? "Build to this. It is fixed — a change is a new revision."
+        : row.status === "SUPERSEDED"
+          ? "Replaced. Somebody on site may still be holding it."
+          : row.status === "ISSUED_FOR_COMMENT"
+            ? "Out for comment. Not to be built from."
+            : "Being drawn. Nobody has seen it.",
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      previous: { select: { id: true, ref: true, revision: true, status: true } },
+      next: { select: { id: true, ref: true, revision: true, status: true } },
+    },
+  },
+
+  permits: {
+    model: "permit", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "permits",
+    fields: {
+      projectId: "id:project", title: "string", kind: "string",
+      authority: "string", fee: "money", currency: "string",
+      blocking: "bool", expiresOn: "date",
+    },
+    /* `reference`, `status`, `conditions` and the decision dates are written
+       by POST /permits/:id/status — an approval needs the authority's own
+       number, and a caller who could type one could invent it. */
+    required: ["title"], numbered: "ref", prefix: "PER",
+    search: ["ref", "title", "kind", "authority", "reference"],
+    order: [{ createdAt: "desc" }],
+    /*
+     * EXPIRY IS WORKED OUT ON THE WAY OUT.
+     *
+     * A stored APPROVED on a consent that lapsed last March is a licence to
+     * build illegally, and nothing would ever change it — the column is
+     * correct about what the authority said and wrong about today.
+     */
+    onRead: (row) => {
+      const lapsed = row.status === "APPROVED" && !!row.expiresOn
+        && new Date(row.expiresOn) < new Date();
+      const granted = row.status === "APPROVED" && !lapsed;
+      return {
+        lapsed,
+        granted,
+        blocks: !!row.blocking && !granted,
+        /* Sent for the same reason as an acquisition's. */
+        nextStatuses: PERMIT_NEXT[row.status] || [],
+        means: lapsed
+          ? "GRANTED AND SINCE LAPSED. Work relying on it is unlawful today."
+          : granted ? "Granted and current."
+          : row.status === "REFUSED" ? "Refused, with the authority's reason kept."
+          : row.blocking ? "Required, and not granted. Work cannot lawfully proceed."
+          : "Not granted. Work does not depend on it.",
+      };
+    },
+    include: {
+      project: { select: { id: true, name: true } },
+      events: {
+        select: { id: true, status: true, detail: true, byName: true, at: true },
+        orderBy: { at: "asc" },
+      },
+    },
+  },
+
   /* --------------------------------------- PROCUREMENT AND VARIATIONS */
   /*
    * NONE OF THESE IS AN ACCOUNTING RECORD. A purchase order is a commitment

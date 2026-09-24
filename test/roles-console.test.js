@@ -199,7 +199,8 @@ test("every screen a role is given actually renders", { skip }, () => {
   const { w: fin } = open("PROPERTY_MANAGEMENT", "FINANCE");
   const byFinance = new Set(
     (fin.win.__navFor("property") || []).flatMap((g) => (g.items || []).map((i) => i[0])));
-  for (const screen of ["pm_rfqs", "pm_orders", "pm_variations"]) {
+  for (const screen of ["pm_rfqs", "pm_orders", "pm_variations",
+                        "pm_land", "pm_feasibility"]) {
     assert.ok(byFinance.has(screen), `${screen} was never reached, so nothing above tested it`);
     assert.ok(!reached.has(screen),
       `${screen} is reachable by OPERATIONS — a site manager could commit the company to pay`);
@@ -207,7 +208,8 @@ test("every screen a role is given actually renders", { skip }, () => {
   for (const screen of ["pm_meetings", "pm_decisions", "pm_tasks", "pm_mywork",
                         "co_outbox", "co_messages", "co_campaigns",
                         "pm_rfis", "pm_submittals", "pm_inspections",
-                        "pm_defects", "pm_diary"]) {
+                        "pm_defects", "pm_diary",
+                        "pm_drawings", "pm_permits"]) {
     assert.ok(reached.has(screen), `${screen} was never reached, so nothing above tested it`);
   }
 });
