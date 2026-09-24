@@ -30,7 +30,7 @@ import { resourceRouter } from "../http/resource.js";
 import { clean } from "../domain/input.js";
 import { allows, whyNotArea } from "../domain/access.js";
 import { scopedTo } from "../domain/scope.js";
-import { badRequest, conflict, forbidden, hidden } from "../http/errors.js";
+import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.js";

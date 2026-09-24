@@ -72,7 +72,7 @@
 
 import { Router } from "express";
 import { db } from "../db.js";
-import { badRequest } from "../http/errors.js";
+import { badRequest } from "../http/errors.ts";
 import { rateLimit } from "../http/rate-limit.js";
 import { publicCompareStatus } from "../domain/compare.js";
 import { searchSupply, publicStatus } from "../domain/supply.js";

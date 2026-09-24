@@ -41,7 +41,7 @@
 
 import { Router } from "express";
 import { db } from "../db.js";
-import { badRequest, unavailable, notFound } from "../http/errors.js";
+import { badRequest, unavailable, notFound } from "../http/errors.ts";
 import { rateLimit } from "../http/rate-limit.js";
 import { requireSession } from "../http/session.js";
 import { supplier, isConnected, status as supplyStatus, publicStatus } from "../domain/supply.js";

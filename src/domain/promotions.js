@@ -7,7 +7,7 @@
  * where checks are suggestions.
  * ====================================================================== */
 
-import { badRequest } from "../http/errors.js";
+import { badRequest } from "../http/errors.ts";
 
 /* ------------------------------------------------------- the public gate */
 

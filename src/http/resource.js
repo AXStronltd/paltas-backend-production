@@ -32,7 +32,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { RESOURCES } from "../domain/registry.js";
 import { allows, whyNotArea } from "../domain/access.js";
-import { badRequest, conflict, forbidden, hidden } from "./errors.js";
+import { badRequest, conflict, forbidden, hidden } from "./errors.ts";
 import { clean } from "../domain/input.js";
 /* Site scope lives in the domain, not here — products.js needs the same
    rule for its summary counts, and one copy of a filter is the point. */

@@ -21,7 +21,7 @@
 
 import { Router } from "express";
 import { db } from "../db.js";
-import { badRequest, conflict, forbidden, notFound, unavailable } from "../http/errors.js";
+import { badRequest, conflict, forbidden, notFound, unavailable } from "../http/errors.ts";
 import { rateLimit } from "../http/rate-limit.js";
 import { requireOrganization } from "../http/session.js";
 import { config } from "../config.js";

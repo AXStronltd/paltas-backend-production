@@ -22,7 +22,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { RESOURCES } from "../domain/registry.js";
 import { levelFor, whyNotArea } from "../domain/access.js";
-import { badRequest, forbidden, hidden } from "../http/errors.js";
+import { badRequest, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.js";

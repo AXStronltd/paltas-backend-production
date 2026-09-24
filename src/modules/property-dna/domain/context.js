@@ -18,7 +18,7 @@
  * ====================================================================== */
 
 import { db } from "../../../db.js";
-import { forbidden, hidden } from "../../../http/errors.js";
+import { forbidden, hidden } from "../../../http/errors.ts";
 import { whyNotArea } from "../../../domain/access.js";
 import { clearanceFor, reachesProperty, whyNotClass } from "../../../domain/classification.js";
 import { dnaFor } from "./identity.js";

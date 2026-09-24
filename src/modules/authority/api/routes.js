@@ -16,7 +16,7 @@
 import { Router } from "express";
 import { db } from "../../../db.js";
 import { requireSession, requireOrganization } from "../../../http/session.js";
-import { badRequest, conflict, forbidden, hidden } from "../../../http/errors.js";
+import { badRequest, conflict, forbidden, hidden } from "../../../http/errors.ts";
 import { clean } from "../../../domain/input.js";
 import { mayRead, visibleRows, withheldSummary, AUTHORITY_CLASS } from "../../../domain/classification.js";
 import { context, gate, audit } from "../../property-dna/domain/context.js";

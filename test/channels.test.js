@@ -27,7 +27,7 @@ import {
   register, status, sync,
 } from "../src/domain/channels.js";
 
-const products = readFileSync(new URL("../src/routes/products.js", import.meta.url), "utf8");
+const products = sourceText("routes", "products.js");
 
 test.afterEach(() => clear());
 
@@ -59,12 +59,39 @@ test("the refusal reaches the operator instead of becoming a generic 500", () =>
   assert.equal(e.expose, true, "without `expose` the real message is swallowed");
   assert.equal(e.status, 503);
 
-  const errors = readFileSync(new URL("../src/http/errors.js", import.meta.url), "utf8");
-  assert.match(errors, /err\.expose === true/,
-    "the error handler no longer reads `expose` — this seam's status depends on it");
-  assert.match(errors, /err\.status === 503/,
-    "the error handler no longer treats 503 as client-safe");
+  /*
+   * AND THE HANDLER REALLY DOES PASS IT THROUGH.
+   *
+   * This used to grep http/errors for `err.expose === true`, which tested the
+   * spelling rather than the behaviour — and broke the moment that check moved
+   * into a type guard, while doing exactly the same thing. Calling the handler
+   * cannot drift like that: it either says "no manager" or it says something
+   * went wrong at our end, and only one of those is true here.
+   */
+  const said = throughHandler(e);
+  assert.equal(said.status, 503, "the refusal became a different status");
+  assert.equal(said.body.message, "no manager",
+    "the operator was told something went wrong at our end — the one thing that " +
+    "is NOT true here. Nothing is wrong; nothing is connected.");
+  assert.notEqual(said.body.error, "internal", "the refusal was swallowed as a generic 500");
+
+  /* A lookalike without the flag must NOT get through. */
+  const sneaky = Object.assign(new Error("internal detail"), { status: 503 });
+  assert.equal(throughHandler(sneaky).body.error, "internal",
+    "an error that merely has a status talked its way into a response body");
 });
+
+/** Run one thrown value through the real error handler and report what a caller sees. */
+function throughHandler(err) {
+  let status = 0;
+  let body = null;
+  const res = {
+    status(code) { status = code; return this; },
+    json(payload) { body = payload; return this; },
+  };
+  errorHandler({ error() {} })(err, { method: "GET", originalUrl: "/x" }, res, () => {});
+  return { status, body };
+}
 
 test("the refusal says what is missing and what it would take to fix", async () => {
   clear();
@@ -224,7 +251,7 @@ test("commission is taken from the integer, in minor units", () => {
 });
 
 test("a reservation can only be attributed to a channel of the same company", () => {
-  const registry = readFileSync(new URL("../src/domain/registry.js", import.meta.url), "utf8");
+  const registry = sourceText("domain", "registry.js");
   const res = registry.slice(registry.indexOf("reservations: {"));
   assert.match(res.slice(0, res.indexOf("\n  },")), /channelId: "id:channel"/,
     'channelId must be declared `id:channel` — a plain "string" would let a ' +
@@ -240,6 +267,10 @@ test("a reservation can only be attributed to a channel of the same company", ()
 
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
+import { errorHandler } from "../src/http/errors.ts";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");

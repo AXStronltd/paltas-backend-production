@@ -16,6 +16,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 /* config.js reads the environment at import time and refuses to start without
    it, which is the behaviour we want in production and something a test has to
@@ -371,7 +374,7 @@ test("the PKCE cookie is scoped so the browser sends it to the callback", async 
 
 test("nothing hardcodes the cookie path any more", async () => {
   const { readFileSync } = await import("node:fs");
-  const auth = readFileSync(new URL("../src/routes/auth.js", import.meta.url), "utf8");
+  const auth = sourceText("routes", "auth.js");
   assert.ok(!/path: ?"\/auth"/.test(auth),
     'a literal path: "/auth" is back in auth.js. It is correct only when ' +
     "PUBLIC_URL has no prefix, and wrong on production.");

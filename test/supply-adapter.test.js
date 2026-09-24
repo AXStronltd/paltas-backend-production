@@ -20,6 +20,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 /*
  * The precedence test imports src/server.js, which validates its configuration
@@ -1434,7 +1437,7 @@ test("PALTAS creates no Stripe object of its own, anywhere", () => {
    * one would charge the guest twice. So the assertion is scoped to the file it
    * is about.
    */
-  const src = readFileSync(new URL("../src/suppliers/liteapi.js", import.meta.url), "utf8");
+  const src = sourceText("suppliers", "liteapi.js");
   assert.ok(!/from ["']stripe["']|require\(["']stripe["']\)/.test(src),
     "the LiteAPI adapter imports the Stripe SDK — it must not: the PaymentIntent " +
     "is created on LiteAPI's platform, and anything created here would be a " +

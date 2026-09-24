@@ -27,7 +27,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { whyNotArea } from "../domain/access.js";
-import { badRequest, conflict, forbidden, hidden } from "../http/errors.js";
+import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { numberFor } from "../http/resource.js";
 import {
   requireOpenSubscription, requireOrganization, requireSession,

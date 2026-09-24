@@ -9,6 +9,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 /*
  * config.js validates the environment AT IMPORT TIME and throws if anything is
@@ -204,7 +207,7 @@ test("the Google redirect URI survives a path prefix", () => {
 test("the cookie is set and cleared with the same same-site value", async () => {
   /* A cookie cleared with different attributes is a cookie the browser keeps —
      which is somebody pressing sign out and staying signed in. */
-  const sessions = readFileSync(new URL("../src/auth/sessions.js", import.meta.url), "utf8");
+  const sessions = sourceText("auth", "sessions.js");
   const set = sessions.match(/setSessionCookie[\s\S]*?\n\}/)[0];
   const clear = sessions.match(/clearSessionCookie[\s\S]*?\n\}/)[0];
   for (const attr of ["httpOnly", "secure", "sameSite", "path"]) {

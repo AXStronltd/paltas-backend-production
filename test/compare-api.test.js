@@ -10,6 +10,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const SCHEMA = "test_compare";
@@ -155,8 +158,7 @@ test("the same question is bought once", { skip }, async () => {
 
 test("it is rate limited harder than the free endpoints", { skip }, async () => {
   /* The rooms list costs nothing and gets 120/min. This costs money. */
-  const src = (await import("node:fs")).readFileSync(
-    new URL("../src/routes/stays.js", import.meta.url), "utf8");
+  const src = sourceText("routes", "stays.js");
   const block = src.slice(src.indexOf('/compare"'), src.indexOf('/compare"') + 220);
   assert.ok(/max: 20\b/.test(block),
     "the metered endpoint is not limited more tightly than the free ones");

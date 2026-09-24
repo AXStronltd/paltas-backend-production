@@ -38,6 +38,27 @@
     "allowJs": true,
     "checkJs": false,
 
+    /* HOW A HALF-CONVERTED TREE ACTUALLY RUNS.
+     *
+     * Node does not map `./errors.js` to `errors.ts`. Verified: it throws
+     * ERR_MODULE_NOT_FOUND, from a .js importer and from a .ts one alike. So
+     * during the migration a specifier must name the file that really exists —
+     * `./errors.ts` — or nothing runs unbuilt, and the test suite runs unbuilt
+     * by design.
+     *
+     * But a COMPILED tree has no .ts files, so the emitted specifier must say
+     * `.js`. These two options are the purpose-built answer: source says
+     * `./errors.ts`, tsc emits `./errors.js`.
+     *
+     * Verified here that it rewrites the specifier in .js importers too, which
+     * is what makes a half-converted tree possible at all — the 28 files that
+     * import errors are mostly still JavaScript.
+     *
+     * test/imports.test.js proves every relative specifier resolves to a file
+     * that exists, which is the failure this pair prevents. */
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+
     /* On from the first day, before a single file is converted. A migration
      * that starts loose and tightens later is one that never tightens.
      *

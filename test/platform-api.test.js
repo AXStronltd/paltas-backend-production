@@ -14,6 +14,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -262,13 +265,13 @@ test("it never reaches the resource framework", { skip }, async () => {
    * separation is real and not just intended.
    */
   const { readFileSync } = await import("node:fs");
-  const src = readFileSync(new URL("../src/routes/platform.js", import.meta.url), "utf8");
+  const src = sourceText("routes", "platform.js");
   for (const forbidden of ["resourceRouter", "RESOURCES", "domain/registry"]) {
     assert.ok(!src.includes(forbidden),
       `routes/platform.js references ${forbidden} — the cross-tenant console must not ` +
       `go through the org-scoped framework`);
   }
-  const framework = readFileSync(new URL("../src/http/resource.js", import.meta.url), "utf8");
+  const framework = sourceText("http", "resource.js");
   assert.ok(!/isPlatform|PLATFORM/.test(framework),
     "http/resource.js knows about PLATFORM — the organization filter has been made " +
     "conditional, which is the design this console exists to avoid");

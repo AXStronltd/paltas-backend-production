@@ -23,7 +23,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { requireSession, requireOrganization, requireOpenSubscription } from "../http/session.js";
-import { badRequest, conflict, forbidden, hidden } from "../http/errors.js";
+import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { clean } from "../domain/input.js";
 import { whyNotArea } from "../domain/access.js";
 import {

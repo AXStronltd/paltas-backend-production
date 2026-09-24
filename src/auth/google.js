@@ -25,7 +25,7 @@
 import crypto from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import { config } from "../config.js";
-import { badRequest, unauthorized } from "../http/errors.js";
+import { badRequest, unauthorized } from "../http/errors.ts";
 
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";

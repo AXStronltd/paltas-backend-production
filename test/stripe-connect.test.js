@@ -16,6 +16,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 import {
   stripeProcessor, notConnected, register, clear, isConnected, status,
@@ -240,7 +243,7 @@ test("the webhook route reads the RAW body, before express.json", () => {
    * looks exactly like a wrong secret, which is why this is pinned rather than
    * left to whoever next reorders server.js.
    */
-  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8")
+  const server = sourceText("server.js")
     .replace(/\/\*[\s\S]*?\*\//g, "");
   const hook = server.indexOf("app.use(stripeWebhookRoutes)");
   const json = server.indexOf("express.json(");
@@ -249,7 +252,7 @@ test("the webhook route reads the RAW body, before express.json", () => {
     "the Stripe webhook is mounted AFTER express.json(), so every signature " +
     "will fail verification");
 
-  const route = readFileSync(new URL("../src/routes/stripe-webhook.js", import.meta.url), "utf8");
+  const route = sourceText("routes", "stripe-webhook.js");
   assert.ok(/express\.raw\(/.test(route), "the webhook does not take a raw body");
 });
 
@@ -282,7 +285,7 @@ test("the API version is pinned", () => {
   /* An unpinned version lets Stripe change a response shape under a running
      service — and this one moves money. */
   assert.match(STRIPE_API_VERSION, /^\d{4}-\d{2}-\d{2}\./);
-  const src = readFileSync(new URL("../src/payments/stripe.js", import.meta.url), "utf8");
+  const src = sourceText("payments", "stripe.js");
   assert.ok(/apiVersion: STRIPE_API_VERSION/.test(src), "the client is created without a pinned apiVersion");
 });
 
@@ -292,7 +295,7 @@ test("PALTAS does not invent its own commission", () => {
    * decision nobody has made. A percentage guessed in a source file would start
    * taking money from member companies on no authority at all.
    */
-  const src = readFileSync(new URL("../src/routes/payments.js", import.meta.url), "utf8");
+  const src = sourceText("routes", "payments.js");
   const fn = src.slice(src.indexOf("export function platformFee"));
   assert.ok(/return 0;/.test(fn.slice(0, 200)),
     "platformFee returns something other than zero — that is a pricing decision, " +

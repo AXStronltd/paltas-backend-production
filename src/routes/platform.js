@@ -43,7 +43,7 @@
 
 import { Router } from "express";
 import { db } from "../db.js";
-import { badRequest, conflict, forbidden, notFound } from "../http/errors.js";
+import { badRequest, conflict, forbidden, notFound } from "../http/errors.ts";
 import { requireSession } from "../http/session.js";
 import { actorFor } from "../domain/session-view.js";
 import { status as supplyStatus } from "../domain/supply.js";

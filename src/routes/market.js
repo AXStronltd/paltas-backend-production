@@ -28,7 +28,7 @@
 
 import { Router } from "express";
 import { countries, localization, paymentMethods, services } from "../domain/market.js";
-import { badRequest } from "../http/errors.js";
+import { badRequest } from "../http/errors.ts";
 
 export const marketRoutes = Router();
 

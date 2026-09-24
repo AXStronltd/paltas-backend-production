@@ -7,6 +7,9 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 /* connectComparison() lives in server.js, whose config guard refuses to load
    without these. They are stubs — nothing here starts a server or opens a
@@ -253,8 +256,7 @@ test("health says which build is answering, and since when", async () => {
    *
    * A commit SHA identifies a build. It is not a credential and grants nothing.
    */
-  const src = (await import("node:fs")).readFileSync(
-    new URL("../src/server.js", import.meta.url), "utf8");
+  const src = sourceText("server.js");
   const h = src.slice(src.indexOf('app.get("/health"'), src.indexOf('app.get("/", (_req'));
 
   assert.match(h, /RENDER_GIT_COMMIT/, "health does not say which build is answering");

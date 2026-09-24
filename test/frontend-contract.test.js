@@ -34,7 +34,7 @@ import { makeWindow } from "./dom-shim.js";
 import { RESOURCES } from "../src/domain/registry.js";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceFiles, sourceText } from "./src-files.js";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");
@@ -252,8 +252,8 @@ test("every adapter names an endpoint the backend actually serves", { skip }, ()
    */
   const slugs = new Set(Object.keys(RESOURCES));
   const paths = new Set();
-  for (const f of readdirSync("src/routes")) {
-    const t = readFileSync(join("src/routes", f), "utf8");
+  for (const f of sourceFiles("routes")) {
+    const t = readFileSync(f, "utf8");
     for (const m of t.matchAll(/\.(get|post|patch|delete)\(\s*"([^"]+)"/g)) paths.add(m[2]);
   }
 
@@ -328,8 +328,8 @@ test("every adapter reads the envelope key its endpoint actually returns",
     "found only " + pairs.length + " path/key adapter declarations — the shape " +
     "has changed and this test is no longer checking anything");
 
-  const routes = readdirSync("src/routes")
-    .map((f) => readFileSync(join("src/routes", f), "utf8")).join("\n");
+  const routes = sourceFiles("routes")
+    .map((f) => readFileSync(f, "utf8")).join("\n");
 
   const wrong = [];
   for (const { path, key } of pairs) {
@@ -1590,7 +1590,7 @@ test("the products on the homepage are ones PALTAS can actually deliver", { skip
   /* And the guest experience must still EXIST, just not as a card here. */
   assert.ok(!cards.some((c) => /Guest Portal/.test(c)),
     "Guest Portal is still offered as a product to choose");
-  const guestRoutes = readFileSync(new URL("../src/routes/guest.js", import.meta.url), "utf8");
+  const guestRoutes = sourceText("routes", "guest.js");
   assert.ok(/guest\/stay|guest\/services/.test(guestRoutes),
     "the guest endpoints were removed along with the card — the functionality must stay");
 });

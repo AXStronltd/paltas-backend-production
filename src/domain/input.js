@@ -13,7 +13,7 @@
  * ====================================================================== */
 
 import pkg from "@prisma/client";
-import { badRequest } from "../http/errors.js";
+import { badRequest } from "../http/errors.ts";
 import { ENUM_WORDS } from "./console-map.js";
 
 /*

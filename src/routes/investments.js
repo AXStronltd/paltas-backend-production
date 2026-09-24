@@ -39,7 +39,7 @@ import { Router } from "express";
 import { db } from "../db.js";
 import {
   badRequest, conflict, forbidden, hidden, unavailable,
-} from "../http/errors.js";
+} from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.js";

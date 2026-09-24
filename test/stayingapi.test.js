@@ -314,11 +314,14 @@ test("it is not registered as the marketplace's supplier", () => {
    * no booking endpoint would put cards on the homepage whose "View rooms"
    * button has nothing behind it.
    */
-  const server = readFileSync(new URL("../src/server.js", import.meta.url), "utf8");
+  const server = sourceText("server.js");
   assert.ok(!/register\(\s*stayingApi|stayingApi[\s\S]{0,80}?supply\.register/.test(server),
     "StayingAPI is being registered as the bookable supplier");
 });
 import { readFileSync } from "node:fs";
+/* Source is read through one helper so a rename to .ts cannot make this
+   scanner silently find nothing. See test/src-files.js. */
+import { sourceText } from "./src-files.js";
 
 test("a key pasted with whitespace is trimmed, and a blank one is absent", () => {
   /*

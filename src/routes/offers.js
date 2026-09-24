@@ -32,7 +32,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { whyNotArea } from "../domain/access.js";
-import { badRequest, conflict, forbidden, hidden } from "../http/errors.js";
+import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.js";
