@@ -27,6 +27,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { makeWindow } from "./dom-shim.js";
+import { CONSOLE_FORMS } from "../src/domain/console-map.js";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");
@@ -213,6 +214,50 @@ test("every screen a role is given actually renders", { skip }, () => {
                         "pm_team", "pm_handover", "pm_project_report"]) {
     assert.ok(reached.has(screen), `${screen} was never reached, so nothing above tested it`);
   }
+});
+
+test("every ＋ form has a screen that can open it", { skip }, () => {
+  /*
+   * A FORM NOBODY CAN REACH IS DEAD WEIGHT, and it is invisible: the spec is
+   * served by GET /console/forms, every field of it is checked against the
+   * API by console-forms.test.js, and it passes — while no button anywhere
+   * opens it.
+   *
+   * `pm_quotes` was exactly that for a while. It is opened from inside the
+   * RFQ panel now, because a quote belongs to a request and a list of quotes
+   * detached from what was asked for is not useful — which is why it never
+   * got a screen of its own and why the gap was easy to miss.
+   *
+   * So the rule is not "every form has a screen of the same name". It is
+   * "something opens it".
+   */
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const js = readFileSync(join(FE, "assets", "console.js"), "utf8");
+
+  /*
+   * `documents` is the one exemption, and it is the opposite case: that screen
+   * has a REAL upload button (data-act="docPick") which does something a
+   * generated form cannot — it picks a file. Its form spec is kept because
+   * aliasesFor() reads it for the field names, not because anybody opens it.
+   */
+  const HAS_ITS_OWN = new Set(["documents"]);
+
+  const orphans = [];
+  for (const screen of Object.keys(CONSOLE_FORMS)) {
+    if (HAS_ITS_OWN.has(screen)) continue;
+    const opens = js.includes(`newOpen::${screen}`);
+    const drawn = js.includes(`newPanel("${screen}")`);
+    if (!opens || !drawn) {
+      orphans.push(`${screen}${!opens ? " — nothing calls newOpen for it" : ""}` +
+                   `${!drawn ? " — no screen draws its panel" : ""}`);
+    }
+  }
+  assert.deepEqual(orphans, [],
+    "Forms the console serves that nobody can reach:\n   " + orphans.join("\n   ") +
+    "\n\n  Either give it a button, or delete it from console-map.js.");
+  /* And it really read the table. */
+  assert.ok(Object.keys(CONSOLE_FORMS).length > 20, "the form table stopped loading");
+  assert.ok(w.win.__S, "the console stopped loading");
 });
 
 test("the role table is not quietly empty", { skip }, () => {
