@@ -690,10 +690,15 @@ test("every commitment and every variation is recorded", { skip }, async () => {
   await call(`/change-orders/${v.id}/submit`, { method: "POST", cookie });
   await call(`/change-orders/${v.id}/decide`, { method: "POST", cookie, body: { approve: true } });
 
+  /* Taking a line OFF an order is the half that used to leave nothing behind. */
+  const draft = await order(cookie);
+  const l = await line(cookie, draft.id);
+  await call(`/purchase-orders/${draft.id}/lines/${l.line.id}`, { method: "DELETE", cookie });
+
   const actions = new Set((await db.auditEvent.findMany({
     where: { orgId }, select: { action: true } })).map((e) => e.action));
   for (const want of ["rfq.issue", "rfq.award", "purchase.issue", "purchase.invoice",
-                      "change.submit", "change.decide"]) {
+                      "purchase.line.remove", "change.submit", "change.decide"]) {
     assert.ok(actions.has(want), `${want} was not recorded`);
   }
 });

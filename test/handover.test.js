@@ -631,17 +631,23 @@ test("every handover and every move on a sale is recorded", { skip }, async () =
   const { orgId, cookie } = await company();
   const u = await unit(cookie);
   const h = await handover(cookie, { unitId: u.id });
-  await finish(cookie, h.id);
   const c = await contract(cookie, 1_000_000, u.id);
   await call(`/contracts/${c.id}/status`, { method: "POST", cookie, body: { status: "SOLD" } });
   const p = await project(cookie);
   const m = await call(`/projects/${p.id}/team`, { method: "POST", cookie,
     body: { name: "A", role: "PM" } });
   await call(`/projects/${p.id}/team/${m.json.member.id}/leave`, { method: "POST", cookie });
+  /* A meter reading quietly changed before the handover finished must leave
+     something behind, so the item route is audited too. */
+  const item = await call(`/handovers/${h.id}/items`, { method: "POST", cookie,
+    body: { title: "Electricity meter", kind: "Meter" } });
+  await call(`/handovers/${h.id}/items/${item.json.item.id}`, { method: "POST", cookie,
+    body: { status: "DONE", reading: "004182 kWh" } });
+  await finish(cookie, h.id);
 
   const actions = new Set((await db.auditEvent.findMany({
     where: { orgId }, select: { action: true } })).map((e) => e.action));
-  for (const want of ["handover.complete", "contract.status",
+  for (const want of ["handover.complete", "handover.item", "contract.status",
                       "project.team.join", "project.team.leave"]) {
     assert.ok(actions.has(want), `${want} was not recorded`);
   }

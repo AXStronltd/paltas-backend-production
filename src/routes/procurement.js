@@ -283,6 +283,11 @@ procurementRoutes.delete("/purchase-orders/:id/lines/:lineId", route(async (req,
   });
   if (!removed.count) throw hidden();
   const out = await retotal(req.actor.orgId, order.id, order.tax);
+  /* Adding a line was audited and removing one was not, which is the worse
+     half to miss: taking something off an order changes what is being bought
+     and leaves nothing behind to say it was ever on it. */
+  await audit(req, "purchase.line.remove", "purchaseOrder", order.id,
+    { ref: order.ref, lineId: req.params.lineId });
   res.json({ order: out });
 }));
 

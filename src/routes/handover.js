@@ -203,6 +203,14 @@ handoverRoutes.post("/handovers/:id/items/:itemId", route(async (req, res) => {
     where: { id: item.id },
     data: { status: to, reading: text(req.body?.reading, 160), note },
   });
+  /*
+   * A METER READING IS THE RECORD. Auditing only the completion would mean an
+   * item marked as a problem and quietly changed to done before the handover
+   * finished leaves nothing behind — and that is precisely the change
+   * somebody would want to make quietly.
+   */
+  await audit(req, "handover.item", "handover", h.id,
+    { ref: h.ref, item: item.title, to, reading: out.reading || undefined });
   res.json({ item: out });
 }));
 
