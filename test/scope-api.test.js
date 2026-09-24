@@ -348,7 +348,7 @@ const EXPECTED_UNNARROWABLE = [
 
 test("the resources with no site are NOT narrowed — by design",
   { skip }, async () => {
-  const { RESOURCES } = await import("../src/domain/registry.js");
+  const { RESOURCES } = await import("../src/domain/registry.ts");
   const without = Object.entries(RESOURCES)
     .filter(([slug, r]) => slug !== "sites" && !r.fields.siteId)
     .map(([slug]) => slug);

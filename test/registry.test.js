@@ -23,7 +23,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RESOURCES } from "../src/domain/registry.js";
+import { RESOURCES } from "../src/domain/registry.ts";
 import { AREAS, ROLE_AREAS, LEVELS, allows, levelFor, whyNotArea } from "../src/domain/access.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -501,11 +501,45 @@ const NOT_WRITABLE_HERE = {
 
 /* ================================================================ */
 
-test("every resource names a model that exists", () => {
-  for (const [slug, r] of Object.entries(RESOURCES)) {
-    assert.ok(MODELS.has(modelName(r.model)),
-      `resource "${slug}" declares model "${r.model}", and schema.prisma has no model ${modelName(r.model)}`);
-  }
+test("the generated client and schema.prisma name the same models", async () => {
+  /*
+   * THIS REPLACED "every resource names a model that exists".
+   *
+   * That test walked the registry asserting each `model` is in schema.prisma.
+   * The compiler does it now, and better — `model: ModelKey` is derived from
+   * Prisma's own generated names, so a typo does not reach a test at all:
+   *
+   *     Type '"handovers"' is not assignable to type '"user" | "session" | …'
+   *     Did you mean '"handover"'?
+   *
+   * But the compiler checks against the GENERATED CLIENT, and the old test
+   * checked against the SCHEMA. Those are the same thing only while somebody
+   * has run `prisma generate` — and a stale client would make every type in
+   * registry-types.ts quietly check the wrong list.
+   *
+   * So this is what is actually left to prove: the two agree. It is a
+   * stronger guarantee than the test it replaces, and it is the one the types
+   * now depend on.
+   */
+  const prismaPkg = await import("@prisma/client");
+  const generated = new Set(Object.keys(prismaPkg.Prisma.ModelName));
+
+  /* MODELS is a Map of name -> body, so its keys are the names. Spreading the
+     Map itself gives [key, value] pairs, which compare equal to nothing. */
+  const declared = [...MODELS.keys()];
+  const missing = declared.filter((m) => !generated.has(m));
+  const extra = [...generated].filter((m) => !MODELS.has(m));
+
+  assert.deepEqual(missing, [],
+    "schema.prisma declares models the generated client has never heard of. " +
+    "Run `npx prisma generate` — until you do, every `model:` and `id:` in the " +
+    "registry is being checked against a stale list.");
+  assert.deepEqual(extra, [],
+    "the generated client carries models schema.prisma no longer has. Run " +
+    "`npx prisma generate`.");
+
+  /* And it really compared something. */
+  assert.ok(generated.size > 100, `only ${generated.size} models in the client`);
 });
 
 test("every field a request may write is a real column", () => {

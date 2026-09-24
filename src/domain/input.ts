@@ -14,7 +14,7 @@
 
 import pkg from "@prisma/client";
 import { badRequest } from "../http/errors.ts";
-import { ENUM_WORDS } from "./console-map.js";
+import { ENUM_WORDS } from "./console-map.ts";
 
 /*
  * THE VALUES EACH ENUM ACTUALLY ALLOWS.

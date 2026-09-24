@@ -30,8 +30,8 @@ import crypto from "node:crypto";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RESOURCES } from "../src/domain/registry.js";
-import { CONSOLE_FORMS } from "../src/domain/console-map.js";
+import { RESOURCES } from "../src/domain/registry.ts";
+import { CONSOLE_FORMS } from "../src/domain/console-map.ts";
 import prismaPkg from "@prisma/client";
 
 const HERE = dirname(fileURLToPath(import.meta.url));

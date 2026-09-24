@@ -25,7 +25,7 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
-import { RESOURCES } from "../domain/registry.js";
+import { RESOURCES } from "../domain/registry.ts";
 import { resourceRouter } from "../http/resource.js";
 import { clean } from "../domain/input.ts";
 import { allows, whyNotArea } from "../domain/access.ts";

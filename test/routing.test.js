@@ -38,7 +38,7 @@ import { readFileSync } from "node:fs";
 import { sourceText } from "./src-files.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RESOURCES } from "../src/domain/registry.js";
+import { RESOURCES } from "../src/domain/registry.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(HERE, "..");

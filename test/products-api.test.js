@@ -25,7 +25,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { RESOURCES } from "../src/domain/registry.js";
+import { RESOURCES } from "../src/domain/registry.ts";
 
 /* Reading the migrations off disk is db-help.js's job now, so the filesystem
    and path imports this file used to need have gone with it. */

@@ -49,7 +49,15 @@
  * this service's name; a field already sharing a name is listed anyway, so
  * that the table can be read against §2 line by line without cross-checking.
  */
-export const CONSOLE_FORMS = {
+/** One screen's ＋ form: where it posts, and what it calls each field. */
+export interface ConsoleForm {
+  readonly resource: string;
+  readonly label: string;
+  /** The console's name for a column, mapped to this service's. */
+  readonly fields: Readonly<Record<string, string>>;
+}
+
+export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
 
   /* ---------------------------------------------------- agent & host */
 
@@ -619,14 +627,14 @@ export const ENUM_WORDS = {
 };
 
 /** One place to ask: what is this console field really called? */
-export function backendField(screen, consoleField) {
+export function backendField(screen: string, consoleField: string): string | null {
   const form = CONSOLE_FORMS[screen];
   if (!form) return null;
-  return form.fields[consoleField] || null;
+  return form.fields[consoleField] ?? null;
 }
 
 /** Every screen that writes to a given resource. */
-export function screensFor(resource) {
+export function screensFor(resource: string): string[] {
   return Object.entries(CONSOLE_FORMS)
     .filter(([, f]) => f.resource === resource)
     .map(([screen]) => screen);
@@ -636,8 +644,8 @@ export function screensFor(resource) {
  * The alias table a resource needs, assembled from every screen that
  * writes to it. Built once at import; registry.js hands it to clean().
  */
-export function aliasesFor(resource) {
-  const out = {};
+export function aliasesFor(resource: string): Record<string, string> {
+  const out: Record<string, string> = {};
   for (const [, form] of Object.entries(CONSOLE_FORMS)) {
     if (form.resource !== resource) continue;
     for (const [from, to] of Object.entries(form.fields)) {

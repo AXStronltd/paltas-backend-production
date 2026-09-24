@@ -31,7 +31,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createContext, runInContext } from "node:vm";
 import { makeWindow } from "./dom-shim.js";
-import { RESOURCES } from "../src/domain/registry.js";
+import { RESOURCES } from "../src/domain/registry.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
 import { sourceFiles, sourceText } from "./src-files.js";

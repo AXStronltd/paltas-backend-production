@@ -19,7 +19,7 @@
  * a different record; a changed mind is a NEW decision that supersedes the old
  * one, and both stay.
  */
-export const DECISION_NEXT = {
+export const DECISION_NEXT: Readonly<Record<string, readonly string[]>> = {
   OPEN: ["UNDER_REVIEW", "APPROVED", "REJECTED"],
   UNDER_REVIEW: ["APPROVED", "REJECTED"],
   APPROVED: ["IMPLEMENTED", "CLOSED"],
@@ -29,8 +29,8 @@ export const DECISION_NEXT = {
 };
 
 /** The moves still open to a decision in this state. Never undefined. */
-export function nextFor(status) {
-  return DECISION_NEXT[status] || [];
+export function nextFor(status: string): readonly string[] {
+  return DECISION_NEXT[status] ?? [];
 }
 
 
@@ -42,7 +42,7 @@ export function nextFor(status) {
  * the `acquisitions` resource sends the allowed moves out beside each row so
  * the console draws exactly those buttons and no others.
  * ====================================================================== */
-export const ACQUISITION_NEXT = {
+export const ACQUISITION_NEXT: Readonly<Record<string, readonly string[]>> = {
   IDENTIFIED: ["APPRAISING", "OFFERED", "ABANDONED"],
   APPRAISING: ["OFFERED", "ABANDONED"],
   OFFERED: ["UNDER_NEGOTIATION", "AGREED", "ABANDONED"],
@@ -63,7 +63,7 @@ export const ACQUISITION_NEXT = {
  * out on the way out. It is in the table so that the one legitimate write of
  * it has a path.
  * ====================================================================== */
-export const PERMIT_NEXT = {
+export const PERMIT_NEXT: Readonly<Record<string, readonly string[]>> = {
   NOT_STARTED: ["PREPARING", "WITHDRAWN"],
   PREPARING: ["SUBMITTED", "WITHDRAWN"],
   SUBMITTED: ["UNDER_REVIEW", "APPROVED", "REFUSED", "WITHDRAWN"],

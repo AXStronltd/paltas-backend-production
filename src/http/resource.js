@@ -30,7 +30,7 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
-import { RESOURCES } from "../domain/registry.js";
+import { RESOURCES } from "../domain/registry.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "./errors.ts";
 import { clean } from "../domain/input.ts";

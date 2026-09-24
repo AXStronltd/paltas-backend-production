@@ -17,7 +17,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { clean } from "../src/domain/input.ts";
-import { RESOURCES } from "../src/domain/registry.js";
+import { RESOURCES } from "../src/domain/registry.ts";
 
 const INVOICE = RESOURCES.invoices;
 const PAYMENT = RESOURCES.payments;

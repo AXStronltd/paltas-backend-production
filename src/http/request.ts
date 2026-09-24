@@ -27,6 +27,8 @@
  * is the feature.
  * ====================================================================== */
 
+import type { Request } from "express";
+
 import type { Level } from "../domain/access.ts";
 import type { SessionWithUser } from "../auth/sessions.ts";
 
@@ -78,6 +80,24 @@ declare global {
       actor?: Actor;
     }
   }
+}
+
+/**
+ * A REQUEST THAT HAS ALREADY BEEN THROUGH THE GUARDS.
+ *
+ * `req.actor` is optional on an ordinary Request, and rightly so — plenty of
+ * routes run without one. But a handler mounted behind requireSession() and
+ * requireOrganization() cannot reach a caller who has neither, and saying so
+ * once is better than an `if (!req.actor)` in every hook that would never be
+ * true and could never be tested.
+ *
+ * The guarantee is enforced by the middleware, not by this type. The one
+ * place that asserts it is http/resource.ts, where the guards are visible on
+ * the same page.
+ */
+export interface AuthenticatedRequest extends Request {
+  readonly actor: Actor;
+  readonly session: SessionWithUser;
 }
 
 /** Levels, re-exported so a route can name one without reaching into access. */

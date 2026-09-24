@@ -20,7 +20,7 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
-import { RESOURCES } from "../domain/registry.js";
+import { RESOURCES } from "../domain/registry.ts";
 import { levelFor, whyNotArea } from "../domain/access.ts";
 import { badRequest, forbidden, hidden } from "../http/errors.ts";
 import {

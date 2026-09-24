@@ -23,7 +23,7 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { RESOURCES } from "../src/domain/registry.js";
+import { RESOURCES } from "../src/domain/registry.ts";
 
 process.env.DATABASE_URL ||= "postgresql://fake@127.0.0.1:5432/fake";
 process.env.SESSION_SECRET ||= "test-secret";

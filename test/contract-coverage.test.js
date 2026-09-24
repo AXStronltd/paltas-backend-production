@@ -29,7 +29,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RESOURCES } from "../src/domain/registry.js";
+import { RESOURCES } from "../src/domain/registry.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
 import { sourceText } from "./src-files.js";

@@ -36,7 +36,10 @@
  *             expose it in.
  * ====================================================================== */
 
-import { ACQUISITION_NEXT, nextFor, PERMIT_NEXT } from "./decisions.js";
+import type { Registry, ResourceDeclaration } from "./registry-types.ts";
+import { isPast, isSet, numberOf, statusOf, textOf } from "./registry-types.ts";
+
+import { ACQUISITION_NEXT, nextFor, PERMIT_NEXT } from "./decisions.ts";
 import { feasibilityNumbers } from "./feasibility.js";
 
 /*
@@ -56,7 +59,7 @@ import { feasibilityNumbers } from "./feasibility.js";
  * row rather than left to a console to interpret.
  */
 /* What each stage of a land deal actually means, said once. */
-const ACQUISITION_MEANS = {
+const ACQUISITION_MEANS: Readonly<Record<string, string>> = {
   IDENTIFIED: "Found. Nobody has looked at the numbers.",
   APPRAISING: "Being tested on paper.",
   OFFERED: "An offer is with the seller.",
@@ -67,7 +70,7 @@ const ACQUISITION_MEANS = {
   ABANDONED: "Dead, with the reason kept.",
 };
 
-const SUBMITTAL_MEANS = {
+const SUBMITTAL_MEANS: Readonly<Record<string, string>> = {
   DRAFT: "Being prepared. Nobody has been asked to look at it.",
   SUBMITTED: "With the reviewer, waiting.",
   UNDER_REVIEW: "Being looked at now.",
@@ -77,7 +80,7 @@ const SUBMITTAL_MEANS = {
   REJECTED: "Not acceptable. Start again.",
 };
 
-const DISPATCH_MEANS = {
+const DISPATCH_MEANS: Readonly<Record<string, string>> = {
   DRAFT: "Written, not released. Nobody is trying to send it.",
   QUEUED: "Waiting for something to carry it. Nothing has been sent.",
   SUBMITTED: "A provider accepted it. That is not the same as it arriving.",
@@ -87,7 +90,7 @@ const DISPATCH_MEANS = {
   CANCELLED: "Stopped before anything carried it.",
 };
 import { db } from "../db.ts";
-import { aliasesFor } from "./console-map.js";
+import { aliasesFor } from "./console-map.ts";
 import { postForExpense, postForInvoice } from "./posting.js";
 
 /* Field kinds:
@@ -100,7 +103,16 @@ import { postForExpense, postForInvoice } from "./posting.js";
 
 const AT = { createdAt: "date", updatedAt: "date" };   // never writable; listed for clarity only
 
-export const RESOURCES = {
+/*
+ * `satisfies`, NOT an annotation.
+ *
+ * An annotation would check every declaration against the type and then throw
+ * away what it learned — `RESOURCES.offers.model` would be `ModelKey`, the
+ * union of all 132, rather than `"offer"`. `satisfies` checks the same things
+ * and keeps the literal, so anything reading a specific resource still knows
+ * exactly which model it names.
+ */
+const DECLARATIONS = {
 
   /* ================================================== SHARED SPINE */
 
@@ -469,10 +481,10 @@ export const RESOURCES = {
     search: ["ref", "toName", "handedBy", "receivedBy"],
     order: [{ scheduledOn: "desc" }],
     onRead: (row) => ({
-      canComplete: !["COMPLETED", "CANCELLED"].includes(row.status),
-      means: row.status === "COMPLETED"
+      canComplete: !["COMPLETED", "CANCELLED"].includes(statusOf(row)),
+      means: statusOf(row) === "COMPLETED"
         ? "Handed over. What was handed over that day does not change afterwards."
-        : row.status === "REFUSED"
+        : statusOf(row) === "REFUSED"
           ? "The buyer would not take it. The reason is what has to be put right."
           : "Not yet handed over. Serious defects against the unit will stop it.",
     }),
@@ -513,10 +525,10 @@ export const RESOURCES = {
     search: ["name", "role", "company", "responsible"],
     order: [{ role: "asc" }],
     onRead: (row) => ({
-      current: !row.leftOn,
+      current: !isSet(row, "leftOn"),
       /* Somebody in a role with nothing said about what they answer for is a
          name, not a contact. */
-      stated: !!row.responsible,
+      stated: !!isSet(row, "responsible"),
     }),
     include: {
       project: { select: { id: true, name: true } },
@@ -541,13 +553,13 @@ export const RESOURCES = {
     search: ["ref", "title", "location", "sellerName", "tenure"],
     order: [{ createdAt: "desc" }],
     onRead: (row) => ({
-      canComplete: ["AGREED", "DUE_DILIGENCE"].includes(row.status),
-      live: !["COMPLETED", "ABANDONED"].includes(row.status),
+      canComplete: ["AGREED", "DUE_DILIGENCE"].includes(statusOf(row)),
+      live: !["COMPLETED", "ABANDONED"].includes(statusOf(row)),
       /* The moves still open from here, so the console draws exactly the
          buttons the route would accept — rather than keeping its own copy of
          the table, which drifts on the first change to either. */
-      nextStatuses: ACQUISITION_NEXT[row.status] || [],
-      means: ACQUISITION_MEANS[row.status] || "",
+      nextStatuses: ACQUISITION_NEXT[statusOf(row)] || [],
+      means: ACQUISITION_MEANS[statusOf(row)] || "",
     }),
     include: {
       project: { select: { id: true, name: true } },
@@ -601,15 +613,15 @@ export const RESOURCES = {
     search: ["ref", "number", "title", "discipline"],
     order: [{ number: "asc" }],
     onRead: (row) => ({
-      canIssue: row.status !== "SUPERSEDED",
-      canRevise: row.status !== "SUPERSEDED",
+      canIssue: statusOf(row) !== "SUPERSEDED",
+      canRevise: statusOf(row) !== "SUPERSEDED",
       /* The one thing somebody on site needs to know about a sheet. */
-      buildToThis: row.status === "ISSUED_FOR_CONSTRUCTION",
-      means: row.status === "ISSUED_FOR_CONSTRUCTION"
+      buildToThis: statusOf(row) === "ISSUED_FOR_CONSTRUCTION",
+      means: statusOf(row) === "ISSUED_FOR_CONSTRUCTION"
         ? "Build to this. It is fixed — a change is a new revision."
-        : row.status === "SUPERSEDED"
+        : statusOf(row) === "SUPERSEDED"
           ? "Replaced. Somebody on site may still be holding it."
-          : row.status === "ISSUED_FOR_COMMENT"
+          : statusOf(row) === "ISSUED_FOR_COMMENT"
             ? "Out for comment. Not to be built from."
             : "Being drawn. Nobody has seen it.",
     }),
@@ -642,20 +654,19 @@ export const RESOURCES = {
      * correct about what the authority said and wrong about today.
      */
     onRead: (row) => {
-      const lapsed = row.status === "APPROVED" && !!row.expiresOn
-        && new Date(row.expiresOn) < new Date();
-      const granted = row.status === "APPROVED" && !lapsed;
+      const lapsed = statusOf(row) === "APPROVED" && isPast(row, "expiresOn");
+      const granted = statusOf(row) === "APPROVED" && !lapsed;
       return {
         lapsed,
         granted,
-        blocks: !!row.blocking && !granted,
+        blocks: !!isSet(row, "blocking") && !granted,
         /* Sent for the same reason as an acquisition's. */
-        nextStatuses: PERMIT_NEXT[row.status] || [],
+        nextStatuses: PERMIT_NEXT[statusOf(row)] || [],
         means: lapsed
           ? "GRANTED AND SINCE LAPSED. Work relying on it is unlawful today."
           : granted ? "Granted and current."
-          : row.status === "REFUSED" ? "Refused, with the authority's reason kept."
-          : row.blocking ? "Required, and not granted. Work cannot lawfully proceed."
+          : statusOf(row) === "REFUSED" ? "Refused, with the authority's reason kept."
+          : isSet(row, "blocking") ? "Required, and not granted. Work cannot lawfully proceed."
           : "Not granted. Work does not depend on it.",
       };
     },
@@ -687,8 +698,8 @@ export const RESOURCES = {
     search: ["ref", "title", "description", "category"],
     order: [{ createdAt: "desc" }],
     onRead: (row) => ({
-      canIssue: row.status === "DRAFT",
-      canAward: ["ISSUED", "CLOSED"].includes(row.status),
+      canIssue: statusOf(row) === "DRAFT",
+      canAward: ["ISSUED", "CLOSED"].includes(statusOf(row)),
     }),
     include: {
       project: { select: { id: true, name: true } },
@@ -731,14 +742,14 @@ export const RESOURCES = {
     search: ["ref", "title", "vendorName", "description"],
     order: [{ createdAt: "desc" }],
     onRead: (row) => ({
-      canIssue: row.status === "DRAFT",
-      canReceive: ["ISSUED", "PARTIALLY_RECEIVED"].includes(row.status),
-      canInvoice: row.status !== "DRAFT" && !row.expenseId,
+      canIssue: statusOf(row) === "DRAFT",
+      canReceive: ["ISSUED", "PARTIALLY_RECEIVED"].includes(statusOf(row)),
+      canInvoice: statusOf(row) !== "DRAFT" && !isSet(row, "expenseId"),
       /* COMMITTED, NOT SPENT. The distinction the whole design rests on, said
          beside the row so no console has to decide how to word it. */
-      means: row.expenseId
+      means: isSet(row, "expenseId")
         ? "Invoiced. The cost is in the books as an expense."
-        : row.status === "DRAFT"
+        : statusOf(row) === "DRAFT"
           ? "Not yet issued. The company is committed to nothing."
           : "Committed, not spent. Nothing reaches the ledger until the invoice is recorded.",
     }),
@@ -801,16 +812,16 @@ export const RESOURCES = {
     search: ["ref", "title", "reason", "decidedBy"],
     order: [{ createdAt: "desc" }],
     onRead: (row) => ({
-      canSubmit: row.status === "DRAFT",
-      canDecide: row.status === "SUBMITTED",
-      canWithdraw: ["DRAFT", "SUBMITTED"].includes(row.status),
+      canSubmit: statusOf(row) === "DRAFT",
+      canDecide: statusOf(row) === "SUBMITTED",
+      canWithdraw: ["DRAFT", "SUBMITTED"].includes(statusOf(row)),
       /* An approved variation is the only kind that changes anything. */
-      counts: row.status === "APPROVED",
-      means: row.status === "APPROVED"
+      counts: statusOf(row) === "APPROVED",
+      means: statusOf(row) === "APPROVED"
         ? "Approved. The contract's current value includes this; the signed figure does not change."
-        : row.status === "SUBMITTED" ? "Waiting for somebody to decide."
-        : row.status === "REJECTED" ? "Turned down, with the reason kept."
-        : row.status === "WITHDRAWN" ? "Taken back before anybody decided."
+        : statusOf(row) === "SUBMITTED" ? "Waiting for somebody to decide."
+        : statusOf(row) === "REJECTED" ? "Turned down, with the reason kept."
+        : statusOf(row) === "WITHDRAWN" ? "Taken back before anybody decided."
         : "Being prepared. Nobody has been asked.",
     }),
     include: {
@@ -841,9 +852,9 @@ export const RESOURCES = {
     onRead: (row) => ({
       /* Overdue is a fact about now, so it is worked out on the way out
          rather than stored and left to go stale overnight. */
-      overdue: row.status === "OPEN" && !!row.dueOn && new Date(row.dueOn) < new Date(),
-      canAnswer: row.status !== "VOID" && row.status !== "CLOSED",
-      canClose: row.status === "ANSWERED",
+      overdue: statusOf(row) === "OPEN" && isPast(row, "dueOn"),
+      canAnswer: statusOf(row) !== "VOID" && statusOf(row) !== "CLOSED",
+      canClose: statusOf(row) === "ANSWERED",
     }),
     include: {
       project: { select: { id: true, name: true } },
@@ -867,11 +878,11 @@ export const RESOURCES = {
     search: ["ref", "title", "specRef", "discipline", "contractor"],
     order: [{ createdAt: "desc" }],
     onRead: (row) => ({
-      canSubmit: row.status === "DRAFT",
-      canReview: ["SUBMITTED", "UNDER_REVIEW"].includes(row.status),
+      canSubmit: statusOf(row) === "DRAFT",
+      canReview: ["SUBMITTED", "UNDER_REVIEW"].includes(statusOf(row)),
       /* Said out loud: approved-as-noted is the outcome everybody misreads,
          and reading it as a rejection stops work that could continue. */
-      means: SUBMITTAL_MEANS[row.status] || "",
+      means: SUBMITTAL_MEANS[statusOf(row)] || "",
     }),
     include: {
       project: { select: { id: true, name: true } },
@@ -895,7 +906,7 @@ export const RESOURCES = {
     required: ["title"], numbered: "ref", prefix: "INS",
     search: ["ref", "title", "kind", "area", "inspectorName"],
     order: [{ scheduledOn: "desc" }],
-    onRead: (row) => ({ canRecord: row.status === "SCHEDULED" }),
+    onRead: (row) => ({ canRecord: statusOf(row) === "SCHEDULED" }),
     include: {
       project: { select: { id: true, name: true } },
       unit: { select: { id: true, ref: true } },
@@ -919,13 +930,13 @@ export const RESOURCES = {
     search: ["ref", "title", "description", "location", "trade", "assigneeName"],
     order: [{ createdAt: "desc" }],
     onRead: (row) => ({
-      overdue: ["OPEN", "IN_PROGRESS"].includes(row.status)
-        && !!row.dueOn && new Date(row.dueOn) < new Date(),
-      canFix: !["VERIFIED", "CLOSED", "REJECTED"].includes(row.status),
-      canVerify: row.status === "FIXED",
+      overdue: ["OPEN", "IN_PROGRESS"].includes(statusOf(row))
+        && isPast(row, "dueOn"),
+      canFix: !["VERIFIED", "CLOSED", "REJECTED"].includes(statusOf(row)),
+      canVerify: statusOf(row) === "FIXED",
       /* FIXED is the state everybody reads as finished. It is not. */
-      means: row.status === "FIXED"
-        ? `${row.fixedByName || "Somebody"} says it is done. It is not closed until ` +
+      means: statusOf(row) === "FIXED"
+        ? `${textOf(row, "fixedByName") || "Somebody"} says it is done. It is not closed until ` +
           `somebody else checks it.`
         : "",
     }),
@@ -970,8 +981,8 @@ export const RESOURCES = {
     search: ["ref", "workDone", "delays", "contractors"],
     order: [{ on: "desc" }],
     onRead: (row) => ({
-      locked: !!row.lockedAt,
-      means: row.lockedAt
+      locked: !!isSet(row, "lockedAt"),
+      means: isSet(row, "lockedAt")
         ? "The day is over, so this entry is fixed. Corrections are appended as amendments."
         : "Still today — this entry can be edited until the day is out.",
     }),
@@ -1004,10 +1015,10 @@ export const RESOURCES = {
     /* What a person may still do with it, decided by the same states the
        route enforces so the console never draws a button that would 409. */
     onRead: (row) => ({
-      canSend: ["DRAFT", "QUEUED", "FAILED"].includes(row.status),
-      canCancel: !["SUBMITTED", "DELIVERED", "CANCELLED"].includes(row.status),
+      canSend: ["DRAFT", "QUEUED", "FAILED"].includes(statusOf(row)),
+      canCancel: !["SUBMITTED", "DELIVERED", "CANCELLED"].includes(statusOf(row)),
       /* Said out loud, because SUBMITTED is the state everybody misreads. */
-      means: DISPATCH_MEANS[row.status] || "",
+      means: DISPATCH_MEANS[statusOf(row)] || "",
     }),
     include: {
       campaign: { select: { id: true, ref: true, name: true } },
@@ -1032,14 +1043,14 @@ export const RESOURCES = {
     search: ["ref", "name", "subject"],
     order: [{ createdAt: "desc" }],
     onRead: (row) => ({
-      canSend: row.status === "DRAFT",
-      canCancel: ["DRAFT", "SENDING", "PARTIAL"].includes(row.status),
+      canSend: statusOf(row) === "DRAFT",
+      canCancel: ["DRAFT", "SENDING", "PARTIAL"].includes(statusOf(row)),
       /* Neither a count nor a percentage on its own: "18 of 40 accepted" is
          what somebody watching a campaign go out actually reads. */
-      progress: row.total
-        ? `${row.submitted} of ${row.total} accepted` +
-          (row.delivered ? `, ${row.delivered} confirmed delivered` : "") +
-          (row.failed ? `, ${row.failed} failed` : "")
+      progress: numberOf(row, "total")
+        ? `${numberOf(row, "submitted")} of ${numberOf(row, "total")} accepted` +
+          (numberOf(row, "delivered") ? `, ${numberOf(row, "delivered")} confirmed delivered` : "") +
+          (numberOf(row, "failed") ? `, ${numberOf(row, "failed")} failed` : "")
         : "Not sent yet",
     }),
     include: { project: { select: { id: true, name: true } } },
@@ -1077,7 +1088,7 @@ export const RESOURCES = {
     order: [{ createdAt: "desc" }],
     /* The moves still open from here, so the console can draw exactly the
        buttons the register would accept and no others. */
-    onRead: (row) => ({ nextStatuses: nextFor(row.status) }),
+    onRead: (row) => ({ nextStatuses: nextFor(statusOf(row)) }),
     include: {
       project: { select: { id: true, name: true } },
       meeting: { select: { id: true, ref: true, title: true } },
@@ -1582,10 +1593,10 @@ export const RESOURCES = {
     async afterWrite({ row, before, action, req, db }) {
       if (action !== "update") return {};
       const was = before && before.status;
-      if (was !== "DRAFT" || row.status === "DRAFT" || row.status === "VOID") return {};
+      if (was !== "DRAFT" || statusOf(row) === "DRAFT" || statusOf(row) === "VOID") return {};
 
       const full = await db.invoice.findFirst({
-        where: { id: row.id, orgId: req.actor.orgId }, include: { lines: true },
+        where: { id: textOf(row, "id"), orgId: req.actor.orgId }, include: { lines: true },
       });
       if (!full) return {};
 
@@ -2017,7 +2028,7 @@ export const RESOURCES = {
               "(BURN or TRANSFER) recorded in TokenEvent, not a row deleted.",
   },
 
-};
+} satisfies Registry;
 
 /** `/hotel/rooms` → the declaration, or undefined. */
 /*
@@ -2029,13 +2040,22 @@ export const RESOURCES = {
  * that writes to it, so clean() accepts either spelling and the 27 forms
  * work without one line changing in the frontend.
  */
-for (const [slug, r] of Object.entries(RESOURCES)) {
-  r.aliases = aliasesFor(slug);
-}
+/*
+ * BUILT IN RATHER THAN BOLTED ON.
+ *
+ * This used to mutate `r.aliases` onto each declaration after the fact, which
+ * works and is invisible: a reader of the literal above sees no `aliases` and
+ * has no reason to think one appears later. Composing the exported registry
+ * from the declarations says it in one place, and it means the literal stays
+ * exactly what it claims to be.
+ */
+export const RESOURCES: Registry = Object.fromEntries(
+  Object.entries(DECLARATIONS).map(([slug, r]) => [slug, { ...r, aliases: aliasesFor(slug) }]),
+);
 
-export const resource = (slug) => RESOURCES[slug];
+export const resource = (slug: string): ResourceDeclaration | undefined => RESOURCES[slug];
 
-export const slugs = () => Object.keys(RESOURCES);
+export const slugs = (): string[] => Object.keys(RESOURCES);
 
 /* Referenced above so a reader can see what is deliberately not writable. */
 void AT;

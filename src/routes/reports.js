@@ -24,7 +24,7 @@
 import { Router } from "express";
 import { db } from "../db.ts";
 import { levelFor, whyNotArea } from "../domain/access.ts";
-import { RESOURCES } from "../domain/registry.js";
+import { RESOURCES } from "../domain/registry.ts";
 import { forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,

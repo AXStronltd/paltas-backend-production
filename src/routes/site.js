@@ -24,7 +24,7 @@
 import { Router } from "express";
 import { db } from "../db.ts";
 import { whyNotArea } from "../domain/access.ts";
-import { aliasesFor } from "../domain/console-map.js";
+import { aliasesFor } from "../domain/console-map.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { numberFor } from "../http/resource.js";
 import {

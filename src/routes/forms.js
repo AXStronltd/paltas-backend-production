@@ -24,8 +24,8 @@
 
 import { Router } from "express";
 import pkg from "@prisma/client";
-import { RESOURCES } from "../domain/registry.js";
-import { CONSOLE_FORMS } from "../domain/console-map.js";
+import { RESOURCES } from "../domain/registry.ts";
+import { CONSOLE_FORMS } from "../domain/console-map.ts";
 import { requireSession, requireOrganization } from "../http/session.ts";
 
 export const formRoutes = Router();
