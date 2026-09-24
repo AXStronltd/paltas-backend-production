@@ -27,6 +27,7 @@
 import { Router } from "express";
 import { db } from "../db.js";
 import { whyNotArea } from "../domain/access.js";
+import { DECISION_NEXT } from "../domain/decisions.js";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.js";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
@@ -229,21 +230,7 @@ workflowRoutes.post("/meetings/:id/minutes", route(async (req, res) => {
  * DECISIONS
  * ====================================================================== */
 
-/**
- * A register only moves forwards.
- *
- * Reopening an approved decision as OPEN would let a record be rewritten into
- * a different record; a changed mind is a NEW decision that supersedes the
- * old one, and both stay.
- */
-const DECISION_NEXT = {
-  OPEN: ["UNDER_REVIEW", "APPROVED", "REJECTED"],
-  UNDER_REVIEW: ["APPROVED", "REJECTED"],
-  APPROVED: ["IMPLEMENTED", "CLOSED"],
-  REJECTED: ["CLOSED"],
-  IMPLEMENTED: ["CLOSED"],
-  CLOSED: [],
-};
+/* The table lives in domain/decisions.js — the console reads it too. */
 
 workflowRoutes.post("/decisions/:id/status", route(async (req, res) => {
   need(req, "update", "decisions");

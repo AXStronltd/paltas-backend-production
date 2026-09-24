@@ -36,6 +36,7 @@
  *             expose it in.
  * ====================================================================== */
 
+import { nextFor } from "./decisions.js";
 import { db } from "../db.js";
 import { aliasesFor } from "./console-map.js";
 import { postForExpense, postForInvoice } from "./posting.js";
@@ -434,6 +435,9 @@ export const RESOURCES = {
     required: ["subject"], numbered: "ref", prefix: "DEC",
     search: ["ref", "subject", "description", "area", "ownerName"],
     order: [{ createdAt: "desc" }],
+    /* The moves still open from here, so the console can draw exactly the
+       buttons the register would accept and no others. */
+    onRead: (row) => ({ nextStatuses: nextFor(row.status) }),
     include: {
       project: { select: { id: true, name: true } },
       meeting: { select: { id: true, ref: true, title: true } },

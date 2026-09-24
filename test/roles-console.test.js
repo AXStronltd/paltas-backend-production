@@ -179,6 +179,22 @@ test("every screen a role is given actually renders", { skip }, () => {
     }
   }
   assert.deepEqual(broken, [], "screens a role can open but cannot use:\n   " + broken.join("\n   "));
+
+  /*
+   * AND IT ACTUALLY RENDERED THEM.
+   *
+   * The loop above reports what broke, which is worth nothing if it walked an
+   * empty menu — every screen in the product would be "fine" because none was
+   * tried. So a handful of the newest screens are named: they were the last
+   * ones added to the table, and if the table is not being read they are the
+   * first ones that would silently stop being checked.
+   */
+  const { w } = open("PROPERTY_MANAGEMENT", "OPERATIONS");
+  const reached = new Set(
+    (w.win.__navFor("property") || []).flatMap((g) => (g.items || []).map((i) => i[0])));
+  for (const screen of ["pm_meetings", "pm_decisions", "pm_tasks", "pm_mywork"]) {
+    assert.ok(reached.has(screen), `${screen} was never reached, so nothing above tested it`);
+  }
 });
 
 test("the role table is not quietly empty", { skip }, () => {

@@ -241,7 +241,7 @@ export function resourceRouter(slug) {
       const rolled = resource.rollup ? await resource.rollup(page, req.actor.orgId) : page;
 
       res.json({
-        [slug]: rolled,
+        [slug]: rolled.map((r) => onRead(resource, r)),
         nextCursor: more ? rows[take - 1].id : null,
       });
     } catch (e) { next(e); }
@@ -275,7 +275,7 @@ export function resourceRouter(slug) {
         include: withHistory(resource),
       });
       if (!row) throw hidden();
-      res.json({ [singular(slug)]: row });
+      res.json({ [singular(slug)]: onRead(resource, row) });
     } catch (e) { next(e); }
   });
 
@@ -478,6 +478,35 @@ async function afterWrite(resource, ctx) {
   } catch (e) {
     console.error("afterWrite failed", resource.model, ctx.row && ctx.row.id, e.message);
     return {};
+  }
+}
+
+/**
+ * WHAT A ROW LOOKS LIKE ON THE WAY OUT.
+ *
+ * A resource may declare `onRead(row)` returning fields to merge onto it. It
+ * is for facts that are DERIVED rather than stored — which moves a decision
+ * may still make, what a task is waiting on — where storing them would mean
+ * keeping a copy of a rule in a column and having to remember to update it.
+ *
+ * IT EXISTS SO A SCREEN NEVER OFFERS A BUTTON THE SERVER WOULD REFUSE. The
+ * decision register only moves forwards along one table; a console that kept
+ * its own copy of that table would drift from it on the first change, and the
+ * drift shows up as a person pressing Approve and being told no.
+ *
+ * Pure and synchronous on purpose. A hook that could query would be a query
+ * per row on every list, which is how a fast list becomes a slow one without
+ * anybody noticing.
+ */
+function onRead(resource, row) {
+  if (!resource.onRead || !row) return row;
+  try {
+    return { ...row, ...(resource.onRead(row) || {}) };
+  } catch (e) {
+    /* Derived fields are a convenience; the row is the record. Losing the
+       former must never cost the latter. */
+    console.error("onRead failed", resource.model, row.id, e.message);
+    return row;
   }
 }
 

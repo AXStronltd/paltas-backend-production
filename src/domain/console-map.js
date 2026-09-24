@@ -182,6 +182,43 @@ export const CONSOLE_FORMS = {
     },
   },
 
+  /*
+   * THE OPERATING LOOP. Three forms that only ask for the beginning of a
+   * thing: a meeting's status, a decision's status and a task's status are
+   * all moved by their own routes, so none of them is offered here. A form
+   * that let somebody type "APPROVED" into a decision would write a word and
+   * none of its consequences.
+   */
+  pm_meetings: {
+    resource: "meetings",
+    label: "＋ New meeting",
+    fields: {
+      project: "projectId", title: "title", kind: "kind",
+      startsAt: "startsAt", endsAt: "endsAt",
+      location: "location", videoUrl: "videoUrl", agenda: "agenda",
+    },
+  },
+
+  pm_decisions: {
+    resource: "decisions",
+    label: "＋ Log a decision",
+    fields: {
+      project: "projectId", meeting: "meetingId", subject: "subject",
+      description: "description", options: "options", area: "area",
+      owner: "ownerName",
+    },
+  },
+
+  pm_tasks: {
+    resource: "tasks",
+    label: "＋ New task",
+    fields: {
+      project: "projectId", meeting: "meetingId", decision: "decisionId",
+      parent: "parentId", title: "title", detail: "detail",
+      who: "assigneeName", priority: "priority", due: "dueOn",
+    },
+  },
+
   pm_contracts: {
     resource: "contracts",
     label: "＋ New sale",
