@@ -25,7 +25,7 @@ import {
 import { stateOf } from "../domain/invitations.js";
 /* The token lookup lives in auth/ beside the session's, because its key IS
    the credential — see the header of that file. */
-import { findByToken } from "../auth/invitations.js";
+import { findByToken } from "../auth/invitations.ts";
 
 export const invitationRoutes = Router();
 

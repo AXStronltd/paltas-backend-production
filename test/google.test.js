@@ -31,7 +31,7 @@ process.env.PUBLIC_URL ||= "https://api.example.test";
 process.env.APP_URL ||= "https://app.example.test";
 
 const { beginSignIn, completeSignIn, verifyIdToken, openPending } =
-  await import("../src/auth/google.js");
+  await import("../src/auth/google.ts");
 
 /* ---------------------------------------------------- a fake Google ---- */
 

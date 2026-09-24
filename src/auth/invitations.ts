@@ -31,7 +31,7 @@ import { hashToken } from "../domain/invitations.js";
  * Returns null rather than throwing for anything that cannot be a token, so a
  * swept URL and a mistyped one are indistinguishable from the outside.
  */
-export async function findByToken(token) {
+export async function findByToken(token: unknown) {
   if (!token) return null;
   const raw = String(token);
   /* 32 random bytes base64url is 43 characters. Anything shorter was never

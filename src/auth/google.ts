@@ -73,12 +73,84 @@ const TEN_MINUTES = 10 * 60 * 1000;
 
 export const OAUTH_COOKIE = "paltas_oauth";
 
-function sign(payload) {
+/**
+ * WHAT IS HELD IN THE COOKIE BETWEEN THE TWO STEPS.
+ *
+ * The PKCE verifier and the state value, plus where the person was going. It
+ * lives in a signed cookie rather than in a table because there is nothing to
+ * clean up afterwards and nothing to look up under load — and because a
+ * sign-in that depends on a database write is a sign-in that fails when the
+ * database is briefly busy.
+ */
+export interface PendingSignIn {
+  readonly verifier: string;
+  readonly state: string;
+  readonly expires: number;
+  /** Where to send them afterwards. Checked by safeNext(), never trusted. */
+  readonly next?: string;
+}
+
+/** What step one produces: where to send the browser, and what to remember. */
+export interface BeginSignIn {
+  readonly url: string;
+  /** Echoed back by Google and compared with the sealed cookie. */
+  readonly state: string;
+  readonly cookie: string;
+}
+
+/** What Google came back with. */
+export interface CallbackParams {
+  readonly code?: unknown;
+  readonly state?: unknown;
+  readonly cookie?: unknown;
+}
+
+/**
+ * The person Google is willing to vouch for.
+ *
+ * `sub` is the only stable identifier — an email address can be reassigned
+ * inside a Workspace domain, and treating it as the identity is how one
+ * person inherits another's account.
+ */
+export interface Identity {
+  /**
+   * Google's own subject id — the ONLY stable identifier.
+   *
+   * Named `googleSub` rather than `sub` because that is what it is called
+   * everywhere it is stored and compared. An email address can be reassigned
+   * inside a Workspace domain, and treating it as the identity is how one
+   * person inherits another's account.
+   */
+  readonly googleSub: string;
+  readonly email: string;
+  readonly name: string;
+  readonly picture: string;
+}
+
+/** A verified identity, and where the person was going before they signed in. */
+export interface CompletedSignIn {
+  readonly identity: Identity;
+  readonly next: string | undefined;
+}
+
+/**
+ * The two things a test replaces.
+ *
+ * Injected rather than mocked at the module level so the real code path is
+ * the one under test: a fake `fetch` and a fake key set, and nothing else
+ * about sign-in is stubbed.
+ */
+export interface SignInDeps {
+  readonly fetch?: typeof globalThis.fetch;
+  readonly jwks?: Parameters<typeof jwtVerify>[1];
+}
+
+function sign(payload: string): string {
   return crypto.createHmac("sha256", config.sessionSecret).update(payload).digest("base64url");
 }
 
 /** The cookie value: the payload, and proof this service wrote it. */
-export function sealPending(held) {
+export function sealPending(held: PendingSignIn): string {
   const body = Buffer.from(JSON.stringify(held)).toString("base64url");
   return body + "." + sign(body);
 }
@@ -91,7 +163,7 @@ export function sealPending(held) {
  * as a real one, because there is no shape in which this returns a half-valid
  * answer.
  */
-export function openPending(cookie) {
+export function openPending(cookie: unknown): PendingSignIn | null {
   if (!cookie || typeof cookie !== "string") return null;
   const cut = cookie.lastIndexOf(".");
   if (cut < 1) return null;
@@ -114,7 +186,7 @@ export function openPending(cookie) {
   return held;
 }
 
-const b64url = (buf) => Buffer.from(buf).toString("base64url");
+const b64url = (buf: Uint8Array): string => Buffer.from(buf).toString("base64url");
 
 /**
  * Step one. Returns the URL to send the person to.
@@ -123,7 +195,7 @@ const b64url = (buf) => Buffer.from(buf).toString("base64url");
  * allowed origins rather than trusted: an open redirect on a sign-in endpoint
  * is how a phishing page borrows your domain's good name.
  */
-export function beginSignIn({ next } = {}) {
+export function beginSignIn({ next }: { readonly next?: string } = {}): BeginSignIn {
   const state = b64url(crypto.randomBytes(32));
   const verifier = b64url(crypto.randomBytes(32));
   const challenge = b64url(crypto.createHash("sha256").update(verifier).digest());
@@ -155,7 +227,7 @@ export function beginSignIn({ next } = {}) {
  * full URL somebody supplied — the check is "does it start with a single
  * slash", which rejects `//evil.example` as well as `https://evil.example`.
  */
-function safeNext(next) {
+function safeNext(next: unknown): string {
   const s = String(next || "");
   if (!s) return "/";
 
@@ -195,11 +267,23 @@ function safeNext(next) {
  * Step two. Hand it the `code` and `state` Google came back with; get a
  * verified identity or an error that says which part failed.
  */
-export async function completeSignIn({ code, state, cookie }, deps = {}) {
-  const fetchImpl = deps.fetch || globalThis.fetch;
+export async function completeSignIn(
+  { code, state, cookie }: CallbackParams,
+  deps: SignInDeps = {},
+): Promise<CompletedSignIn> {
+  const fetchImpl = deps.fetch ?? globalThis.fetch;
 
-  if (!code) throw badRequest("Google did not return a sign-in code.");
-  if (!state) throw badRequest("Google did not return the state value.");
+  /*
+   * These come off a query string, so they are `unknown` until checked —
+   * Express gives `string | string[] | ParsedQs`, and a caller who sends
+   * `?code=a&code=b` hands an ARRAY to something that expects text.
+   */
+  if (typeof code !== "string" || !code) {
+    throw badRequest("Google did not return a sign-in code.");
+  }
+  if (typeof state !== "string" || !state) {
+    throw badRequest("Google did not return the state value.");
+  }
 
   const held = openPending(cookie);
 
@@ -273,16 +357,34 @@ export async function completeSignIn({ code, state, cookie }, deps = {}) {
         ? " Google did not accept this application's credentials."
         : "";
 
-    const err = unauthorized("Google would not complete the sign-in." + hint);
-    /* Read by the route to name the failure on the page the person lands on. */
-    err.googleError = named;
-    throw err;
+    /*
+     * The route reads this to name the failure on the page the person lands
+     * on — "redirect_uri_mismatch" is the difference between a five-minute fix
+     * and an afternoon. Declared on the error rather than bolted on, so a
+     * reader can see it is part of the contract.
+     */
+    throw Object.assign(
+      unauthorized("Google would not complete the sign-in." + hint),
+      { googleError: named } satisfies { googleError: string },
+    );
   }
 
-  const tokens = await res.json();
-  if (!tokens.id_token) throw unauthorized("Google did not return an identity token.");
+  /*
+   * Somebody else's JSON. Narrowed rather than trusted: this is the one
+   * response in the whole sign-in that is not signed, and reading a field off
+   * it without checking is how a malformed reply becomes a confusing 500
+   * instead of an honest "Google did not return an identity token".
+   */
+  const tokens: unknown = await res.json();
+  const idToken =
+    typeof tokens === "object" && tokens !== null
+      ? (tokens as Record<string, unknown>)["id_token"]
+      : undefined;
+  if (typeof idToken !== "string" || !idToken) {
+    throw unauthorized("Google did not return an identity token.");
+  }
 
-  const identity = await verifyIdToken(tokens.id_token, deps);
+  const identity = await verifyIdToken(idToken, deps);
   return { identity, next: held.next };
 }
 
@@ -291,8 +393,8 @@ export async function completeSignIn({ code, state, cookie }, deps = {}) {
  * Google, `aud` is this application. Skipping any of the three turns a signed
  * assertion into a string anybody can type.
  */
-export async function verifyIdToken(idToken, deps = {}) {
-  const keys = deps.jwks || JWKS;
+export async function verifyIdToken(idToken: string, deps: SignInDeps = {}): Promise<Identity> {
+  const keys = deps.jwks ?? JWKS;
   let payload;
   try {
     ({ payload } = await jwtVerify(idToken, keys, {

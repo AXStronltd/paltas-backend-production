@@ -7,7 +7,7 @@
 import { Router } from "express";
 import { config } from "../config.ts";
 import { db } from "../db.ts";
-import { beginSignIn, completeSignIn, OAUTH_COOKIE } from "../auth/google.js";
+import { beginSignIn, completeSignIn, OAUTH_COOKIE } from "../auth/google.ts";
 import {
   COOKIE, clearSessionCookie, createSession, destroySession,
   setSessionCookie, switchOrganization,
