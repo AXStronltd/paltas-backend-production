@@ -161,6 +161,64 @@ const NOT_WRITABLE_HERE = {
   },
 
   /*
+   * PROCUREMENT. Two rules run through all of it: an order's figures come
+   * from its LINES, and money lives in the ledger rather than here.
+   */
+  rfqs: {
+    status: "moved by POST /rfqs/:id/{issue,award}. Awarding also declines every " +
+            "other quote and opens the purchase order, in one transaction",
+    issuedOn: "stamped when it goes out",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  quotes: {
+    status: "written by POST /rfqs/:id/award, which awards one and declines the rest. " +
+            "A writable one would let two vendors both be the winner",
+    decidedNote: "why this quote and not the others — required by the award route, " +
+                 "because an award with no reasoning is the one somebody asks about later",
+  },
+
+  "purchase-orders": {
+    status: "moved by POST /purchase-orders/:id/{issue,receive,invoice,cancel}",
+    subtotal: "COMPUTED FROM THE LINES. A caller who can send a total can send one " +
+              "that does not match what was ordered, and the order becomes two " +
+              "documents disagreeing with each other",
+    tax: "sent when the order is issued, and folded into the total there",
+    total: "subtotal plus tax. Same reason as subtotal",
+    rfqId: "set when a request is awarded",
+    quoteId: "set when a request is awarded, and unique — an order that could be " +
+             "pointed at a second quote could be bought twice",
+    issuedOn: "stamped when the company commits",
+    closedOn: "stamped when it is invoiced or cancelled",
+    expenseId: "THE BRIDGE TO THE BOOKS, written when the invoice is recorded. A " +
+               "caller who could set it could point an order at somebody else's " +
+               "expense, or at one that does not exist, and the cost of a thing " +
+               "would become unanswerable",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  "goods-receipts": {
+    receivedOn: "when the delivery actually arrived, sent to the receive route " +
+                "along with what was in it",
+  },
+
+  "change-orders": {
+    status: "moved by POST /change-orders/:id/{submit,decide,withdraw}. Approving " +
+            "one changes what a contract is WORTH without touching what it was " +
+            "signed at — both figures survive, which is the only reason a " +
+            "variation register is worth keeping",
+    submittedOn: "stamped when it goes for a decision",
+    decidedOn: "stamped when somebody decides",
+    decidedBy: "who approved it. An approved variation with nobody's name on it " +
+               "is the one that turns out to have been nobody's decision",
+    decidedNote: "the reasoning, required on a rejection",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  /*
    * THE FIVE SITE REGISTERS. Each status below is moved by routes/site.js,
    * because each move is a rule a column cannot hold.
    */
@@ -397,6 +455,16 @@ test("every field a request may write is a real column", () => {
          * about twenty-one million shillings becomes unsaveable.
          */
         money: "BigInt",
+        /*
+         * The same column, with the sign rule turned off in input.js.
+         *
+         * It exists for amounts that are a CHANGE to a figure rather than the
+         * figure itself: a variation that omits a balcony reduces a contract,
+         * and forcing it positive would record a credit as a charge. A
+         * separate kind rather than a flag, so every use of it is visible
+         * here and `money` stays strict by default.
+         */
+        "signed-money": "BigInt",
         float: "Float", bool: "Boolean", date: "DateTime", json: "Json",
       }[kind] || (kind.startsWith("enum:") ? kind.slice(5)
                 : kind.startsWith("id:") ? "String" : null);

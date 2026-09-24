@@ -357,6 +357,13 @@ model Organization {
   Dispatch           Dispatch[]
   DispatchEvent      DispatchEvent[]
   Campaign           Campaign[]
+  Rfq                Rfq[]
+  Quote              Quote[]
+  PurchaseOrder      PurchaseOrder[]
+  PurchaseLine       PurchaseLine[]
+  GoodsReceipt       GoodsReceipt[]
+  GoodsReceiptLine   GoodsReceiptLine[]
+  ChangeOrder        ChangeOrder[]
   Rfi                Rfi[]
   Submittal          Submittal[]
   Inspection         Inspection[]
@@ -933,6 +940,8 @@ model Party {
   propertyRelations  PropertyRelationship[]
   MeetingParticipant MeetingParticipant[]
   dispatches         Dispatch[]
+  quotedOn           Quote[]                @relation("QuoteVendor")
+  purchaseOrders     PurchaseOrder[]        @relation("PurchaseVendor")
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -1109,29 +1118,32 @@ model Project {
   spent    BigInt       @default(0)
   currency String       @default("KES")
 
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
-  CapitalCall CapitalCall[]
-  offerings   Offering[]
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+  CapitalCall   CapitalCall[]
+  offerings     Offering[]
   /// The units this project actually holds, as rows.
-  unitRows    Unit[]
+  unitRows      Unit[]
   /// The sale agreements written against it.
-  contracts   Contract[]
+  contracts     Contract[]
   /// The stages of work this development is built in.
-  phases      ProjectPhase[]
+  phases        ProjectPhase[]
   /// Its dated commitments, whether or not they belong to a phase.
-  milestones  Milestone[]
-  offers      Offer[]
-  Meeting     Meeting[]
-  Decision    Decision[]
-  Task        Task[]
-  Dispatch    Dispatch[]
-  Campaign    Campaign[]
-  Rfi         Rfi[]
-  Submittal   Submittal[]
-  Inspection  Inspection[]
-  Defect      Defect[]
-  SiteDiary   SiteDiary[]
+  milestones    Milestone[]
+  offers        Offer[]
+  Meeting       Meeting[]
+  Decision      Decision[]
+  Task          Task[]
+  Dispatch      Dispatch[]
+  Campaign      Campaign[]
+  Rfq           Rfq[]
+  PurchaseOrder PurchaseOrder[]
+  ChangeOrder   ChangeOrder[]
+  Rfi           Rfi[]
+  Submittal     Submittal[]
+  Inspection    Inspection[]
+  Defect        Defect[]
+  SiteDiary     SiteDiary[]
 
   @@index([orgId])
   @@index([orgId, stage])
@@ -1345,8 +1357,9 @@ model Contract {
   completedOn DateTime?
   note        String    @default("")
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  changeOrders ChangeOrder[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -2571,8 +2584,9 @@ model Expense {
   status      ExpenseStatus @default(RECORDED)
   note        String        @default("")
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  purchaseOrder PurchaseOrder?
 
   @@index([orgId, spentOn])
   @@index([orgId, status])
@@ -5344,7 +5358,8 @@ model Rfi {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  events SiteEvent[]
+  events       SiteEvent[]
+  changeOrders ChangeOrder[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -5576,4 +5591,337 @@ model SiteEvent {
   @@index([inspectionId])
   @@index([defectId])
   @@index([diaryId])
+}
+
+/**
+ * ====================================================================== *
+ * BUYING THINGS, AND CHANGING WHAT WAS AGREED.
+ * ── WHERE THE MONEY IS, AND WHERE IT IS NOT ────────────────────────────
+ * NONE OF THESE MODELS IS AN ACCOUNTING RECORD. A purchase order is a
+ * COMMITMENT — a promise to pay, not a payment — and a change order is a
+ * VARIATION, which is an agreement about what a contract is now worth. The
+ * money itself stays where it already lives: Expense, Invoice, Payment, and
+ * the double-entry ledger underneath them.
+ * That line matters because the obvious mistake is to give a purchase order
+ * its own "paid" column. The moment it exists, a company has two answers to
+ * "what have we spent" and no way to tell which is right. So the bridge is a
+ * single nullable `expenseId`: when the invoice arrives, the PO points at the
+ * expense that records it, and every figure anybody reports comes from the
+ * expense.
+ * ── WHY A CHANGE ORDER DOES NOT TOUCH THE CONTRACT ─────────────────────
+ * Contract.price is what was AGREED. A variation that edited it would leave a
+ * contract worth £4.3m with no record that it was signed at £3.9m, and the
+ * question every dispute turns on — what changed, when, and who approved it —
+ * would be unanswerable. So the price is never written to. The current value
+ * is the original plus every APPROVED variation, computed on the way out.
+ * ======================================================================
+ */
+
+enum RfqStatus {
+  DRAFT
+  ISSUED
+  /// Closed to new quotes, not yet decided.
+  CLOSED
+  AWARDED
+  CANCELLED
+}
+
+enum QuoteStatus {
+  RECEIVED
+  SHORTLISTED
+  AWARDED
+  /// Not chosen. Kept, because "we asked three people" is the record that
+  /// makes an award defensible.
+  DECLINED
+}
+
+enum PurchaseStatus {
+  DRAFT
+  ISSUED
+  PARTIALLY_RECEIVED
+  RECEIVED
+  /// Received, invoiced, and the invoice is in the books. The end.
+  CLOSED
+  CANCELLED
+}
+
+enum ChangeOrderStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+  /// Taken back before anybody decided. Distinct from rejected: nobody said no.
+  WITHDRAWN
+}
+
+model Rfq {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String    @default("")
+  category    String    @default("")
+  status      RfqStatus @default(DRAFT)
+  /// When quotes are wanted by. A request with no date is one nobody answers.
+  dueOn       DateTime?
+  issuedOn    DateTime?
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  quotes Quote[]
+  orders PurchaseOrder[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+}
+
+model Quote {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  rfqId      String
+  rfq        Rfq     @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  /// The vendor, as a Party. SetNull so removing a contact does not delete
+  /// the record of what they quoted.
+  vendorId   String?
+  vendor     Party?  @relation("QuoteVendor", fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorName String  @default("")
+
+  /// Minor units, like every amount in this schema.
+  amount       BigInt      @default(0)
+  currency     String      @default("KES")
+  leadTimeDays Int         @default(0)
+  validUntil   DateTime?
+  notes        String      @default("")
+  status       QuoteStatus @default(RECEIVED)
+  /// Why this one and not the others. Required by the award route, because an
+  /// award with no reasoning is the one somebody asks about later.
+  decidedNote  String      @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  order PurchaseOrder?
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([rfqId])
+}
+
+model PurchaseOrder {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  rfqId     String?
+  rfq       Rfq?     @relation(fields: [rfqId], references: [id], onDelete: SetNull)
+  /// One award makes one order, so this is unique — awarding twice would
+  /// otherwise buy the same thing twice.
+  quoteId   String?  @unique
+  quote     Quote?   @relation(fields: [quoteId], references: [id], onDelete: SetNull)
+
+  vendorId   String?
+  vendor     Party?  @relation("PurchaseVendor", fields: [vendorId], references: [id], onDelete: SetNull)
+  vendorName String  @default("")
+
+  title       String
+  description String @default("")
+
+  /// COMPUTED FROM THE LINES, never typed. A caller who can send a total can
+  /// send one that does not match what was ordered, and the order becomes two
+  /// documents disagreeing with each other.
+  subtotal BigInt @default(0)
+  tax      BigInt @default(0)
+  total    BigInt @default(0)
+  currency String @default("KES")
+
+  status     PurchaseStatus @default(DRAFT)
+  issuedOn   DateTime?
+  expectedOn DateTime?
+  closedOn   DateTime?
+
+  /// THE BRIDGE TO THE BOOKS, and the only one.
+  ///
+  /// Set when the vendor's invoice is recorded. Everything anybody reports
+  /// about money comes from the Expense on the other end of this, never from
+  /// the order — a purchase order with its own paid column is a second answer
+  /// to "what have we spent".
+  expenseId String?  @unique
+  expense   Expense? @relation(fields: [expenseId], references: [id], onDelete: SetNull)
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines    PurchaseLine[]
+  receipts GoodsReceipt[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+}
+
+model PurchaseLine {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  orderId String
+  order   PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  position    Int    @default(0)
+  description String
+  /// Quantities in THOUSANDTHS, as an integer. 1.5 tonnes is 1500.
+  ///
+  /// Not a float: 0.1 + 0.2 is not 0.3 in binary floating point, and a
+  /// delivery note that says 2.9999999 tonnes were received against 3 ordered
+  /// is a dispute nobody can settle. Not Decimal either, because every other
+  /// number in this schema is a scaled integer and one exception is the one
+  /// somebody forgets to scale.
+  quantity    Int    @default(1000)
+  unit        String @default("")
+  /// Minor units, per whole unit of measure.
+  unitPrice   BigInt @default(0)
+  /// quantity × unitPrice, carried so a line reads without arithmetic.
+  total       BigInt @default(0)
+
+  /// How much has actually turned up, in the same thousandths.
+  receivedQty Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  receiptLines GoodsReceiptLine[]
+
+  @@index([orgId])
+  @@index([orderId])
+}
+
+model GoodsReceipt {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  orderId String
+  order   PurchaseOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  receivedOn   DateTime @default(now())
+  receivedBy   String   @default("")
+  /// The delivery note number the driver handed over. The handle a dispute
+  /// with a supplier is actually conducted in.
+  deliveryNote String   @default("")
+  note         String   @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines GoodsReceiptLine[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orderId])
+}
+
+model GoodsReceiptLine {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  receiptId String
+  receipt   GoodsReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  lineId    String
+  line      PurchaseLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+
+  /// Thousandths, as on the order line.
+  quantity  Int    @default(0)
+  /// Accepted, damaged, wrong item. Free text: every trade describes this
+  /// differently and an enum would be somebody else's vocabulary.
+  condition String @default("")
+  note      String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([receiptId])
+  @@index([lineId])
+}
+
+/// A variation to what was agreed.
+///
+/// It does NOT edit the contract. Contract.price stays at what was signed
+/// forever, and the current value is that plus every approved variation —
+/// computed, so the question every dispute turns on (what changed, when, and
+/// who approved it) has an answer.
+model ChangeOrder {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId  String?
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// The sale it varies, where it varies one. A variation to the works rather
+  /// than to a sale has a project and no contract.
+  contractId String?
+  contract   Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  /// What caused it, where that was an RFI. The chain from question to cost.
+  rfiId      String?
+  rfi        Rfi?      @relation(fields: [rfiId], references: [id], onDelete: SetNull)
+
+  title  String
+  reason String @default("")
+
+  /// SIGNED, in minor units. A variation that reduces the price is a real and
+  /// common thing — an omission — and forcing it positive would mean recording
+  /// a credit as a charge.
+  amount   BigInt @default(0)
+  currency String @default("KES")
+  /// Days added to the programme. Also signed: work can be brought forward.
+  days     Int    @default(0)
+
+  status      ChangeOrderStatus @default(DRAFT)
+  submittedOn DateTime?
+  decidedOn   DateTime?
+  /// Who approved it. An approved variation with nobody's name on it is the
+  /// one that turns out to have been nobody's decision.
+  decidedBy   String            @default("")
+  decidedNote String            @default("")
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, contractId])
+  @@index([orgId, projectId])
 }

@@ -370,6 +370,13 @@ function valueForKind(kind, field) {
     return values[0];
   }
   if (kind === "int" || kind === "money" || kind === "float") return 4;
+  /*
+   * NEGATIVE ON PURPOSE. `signed-money` exists for amounts that can go both
+   * ways — a variation that omits a balcony reduces a contract — so sending a
+   * positive one here would test the half that `money` already covers and
+   * leave the half this kind was added for untested.
+   */
+  if (kind === "signed-money") return -4;
   if (kind === "bool") return true;
   if (kind === "date") return "Mar 2024";
   unique += 1;

@@ -29,6 +29,7 @@ import { offerRoutes } from "./routes/offers.js";
 import { workflowRoutes } from "./routes/workflow.js";
 import { commsRoutes } from "./routes/comms.js";
 import { siteRoutes } from "./routes/site.js";
+import { procurementRoutes } from "./routes/procurement.js";
 import { commsWebhookRoutes } from "./routes/comms-webhook.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
@@ -318,6 +319,13 @@ export function createApp() {
    * productRoutes first would find nothing.
    */
   app.use(siteRoutes);
+
+  /*
+   * PROCUREMENT AND VARIATIONS — above productRoutes, like the rest.
+   * `/purchase-orders/committed` and `/contracts/:id/value` would otherwise
+   * reach their resource routers and be read as an order called "committed".
+   */
+  app.use(procurementRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

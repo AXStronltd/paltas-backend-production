@@ -220,6 +220,50 @@ export const CONSOLE_FORMS = {
   },
 
   /*
+   * PROCUREMENT AND VARIATIONS. No form offers a status, a total or a
+   * decision: an order's figures come from its lines, and everything else is
+   * a move that writes consequences beside it.
+   */
+  pm_rfqs: {
+    resource: "rfqs",
+    label: "＋ Ask for quotes",
+    fields: {
+      project: "projectId", title: "title", description: "description",
+      category: "category", due: "dueOn",
+    },
+  },
+
+  pm_quotes: {
+    resource: "quotes",
+    label: "＋ Record a quote",
+    fields: {
+      rfq: "rfqId", vendor: "vendorId", vendorName: "vendorName",
+      amount: "amount", cur: "currency", lead: "leadTimeDays",
+      valid: "validUntil", notes: "notes",
+    },
+  },
+
+  pm_orders: {
+    resource: "purchase-orders",
+    label: "＋ New purchase order",
+    fields: {
+      project: "projectId", vendor: "vendorId", vendorName: "vendorName",
+      title: "title", description: "description", cur: "currency",
+      expected: "expectedOn",
+    },
+  },
+
+  pm_variations: {
+    resource: "change-orders",
+    label: "＋ Raise a variation",
+    fields: {
+      project: "projectId", contract: "contractId", rfi: "rfiId",
+      title: "title", reason: "reason", amount: "amount",
+      cur: "currency", days: "days",
+    },
+  },
+
+  /*
    * THE FIVE SITE REGISTERS. No form offers a status, an answer, a review
    * outcome, a fix or a lock — every one of those is a move with consequences,
    * and a field somebody types into would record the word without them.

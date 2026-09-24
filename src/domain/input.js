@@ -154,7 +154,7 @@ export function clean(resource, body, { partial }) {
       if (s.length > cap) { problems.push(`${key} is longer than ${cap} characters.`); continue; }
       out[key] = s === "" && kind.startsWith("id:") ? null : s;
 
-    } else if (kind === "int" || kind === "money") {
+    } else if (kind === "int" || kind === "money" || kind === "signed-money") {
       const n = Number(v);
       if (!Number.isFinite(n)) { problems.push(`${key} must be a number.`); continue; }
       /*
@@ -163,6 +163,19 @@ export function clean(resource, body, { partial }) {
        * A negative rent, a negative invoice line or a negative deposit is
        * always a bug or an attempt, and the one legitimate negative — a
        * refund — is a payment, which has its own endpoint and its own sign.
+       *
+       * ── EXCEPT WHERE THE SIGN IS THE POINT ─────────────────────────────
+       *
+       * `signed-money` is the deliberate opposite, and it exists for exactly
+       * one shape of thing: an amount that can legitimately go both ways
+       * because it is a CHANGE to a figure rather than the figure itself. A
+       * variation that omits a balcony reduces a contract, and forcing it
+       * positive would mean recording a credit as a charge — which is worse
+       * than the bug the rule above prevents.
+       *
+       * It is a separate kind rather than a flag so that every use of it is
+       * visible in the registry: `money` is the default and stays strict, and
+       * anything wanting the other behaviour has to say so by name.
        */
       if (!Number.isSafeInteger(Math.round(n))) { problems.push(`${key} is too large.`); continue; }
       const i = Math.round(n);

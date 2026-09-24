@@ -333,6 +333,9 @@ const EXPECTED_UNNARROWABLE = [
      other resource, exactly as `contracts` above. Same documented limitation,
      not a new one. */
   "rfis", "submittals", "inspections", "defects", "site-diary",
+  /* Procurement buys for a PROJECT or for the company at large, and a
+     purchase order for head office scaffolding belongs to no site at all. */
+  "rfqs", "quotes", "purchase-orders", "goods-receipts", "change-orders",
   "token-holdings", "viewings",
 ].sort();
 

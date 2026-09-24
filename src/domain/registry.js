@@ -441,6 +441,158 @@ export const RESOURCES = {
    * meeting, deciding something and finishing a task all have consequences
    * beyond their own row.
    */
+  /* --------------------------------------- PROCUREMENT AND VARIATIONS */
+  /*
+   * NONE OF THESE IS AN ACCOUNTING RECORD. A purchase order is a commitment
+   * and a change order is an agreement about what a contract is now worth;
+   * the money stays in Expense, Invoice, Payment and the ledger. They are in
+   * the `finance` area all the same, because committing a company to pay
+   * somebody is a money decision even before any money moves.
+   */
+  rfqs: {
+    model: "rfq", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "requests for quotation",
+    fields: {
+      projectId: "id:project", title: "string", description: "text",
+      category: "string", dueOn: "date",
+    },
+    required: ["title"], numbered: "ref", prefix: "RFQ",
+    search: ["ref", "title", "description", "category"],
+    order: [{ createdAt: "desc" }],
+    onRead: (row) => ({
+      canIssue: row.status === "DRAFT",
+      canAward: ["ISSUED", "CLOSED"].includes(row.status),
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      quotes: {
+        select: { id: true, ref: true, vendorName: true, amount: true,
+                  currency: true, leadTimeDays: true, status: true, decidedNote: true },
+        orderBy: { amount: "asc" },
+      },
+    },
+  },
+
+  quotes: {
+    model: "quote", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "quotes",
+    fields: {
+      rfqId: "id:rfq", vendorId: "id:party", vendorName: "string",
+      amount: "money", currency: "string", leadTimeDays: "int",
+      validUntil: "date", notes: "text",
+    },
+    required: ["rfqId"], numbered: "ref", prefix: "QUO",
+    search: ["ref", "vendorName", "notes"],
+    order: [{ amount: "asc" }],
+    include: {
+      rfq: { select: { id: true, ref: true, title: true, status: true } },
+      vendor: { select: { id: true, name: true } },
+    },
+  },
+
+  "purchase-orders": {
+    model: "purchaseOrder", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "purchase orders",
+    fields: {
+      projectId: "id:project", vendorId: "id:party", vendorName: "string",
+      title: "string", description: "text", currency: "string",
+      expectedOn: "date",
+    },
+    /* `subtotal`, `tax` and `total` are computed from the lines; `status` and
+       `expenseId` are moved by routes/procurement.js. */
+    required: ["title"], numbered: "ref", prefix: "PO",
+    search: ["ref", "title", "vendorName", "description"],
+    order: [{ createdAt: "desc" }],
+    onRead: (row) => ({
+      canIssue: row.status === "DRAFT",
+      canReceive: ["ISSUED", "PARTIALLY_RECEIVED"].includes(row.status),
+      canInvoice: row.status !== "DRAFT" && !row.expenseId,
+      /* COMMITTED, NOT SPENT. The distinction the whole design rests on, said
+         beside the row so no console has to decide how to word it. */
+      means: row.expenseId
+        ? "Invoiced. The cost is in the books as an expense."
+        : row.status === "DRAFT"
+          ? "Not yet issued. The company is committed to nothing."
+          : "Committed, not spent. Nothing reaches the ledger until the invoice is recorded.",
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      vendor: { select: { id: true, name: true } },
+      lines: {
+        select: { id: true, position: true, description: true, quantity: true,
+                  unit: true, unitPrice: true, total: true, receivedQty: true },
+        orderBy: { position: "asc" },
+      },
+      receipts: {
+        select: { id: true, ref: true, receivedOn: true, receivedBy: true, deliveryNote: true },
+        orderBy: { receivedOn: "asc" },
+      },
+      expense: { select: { id: true, amount: true, currency: true, spentOn: true } },
+    },
+  },
+
+  "goods-receipts": {
+    model: "goodsReceipt", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "goods receipts",
+    /*
+     * `noCreate`, not `ownCreate`: there is no POST /goods-receipts at all,
+     * and there must not be. A delivery is recorded against the ORDER, which
+     * is the only place that can refuse to receive more than was ordered and
+     * update each line's running total in the same transaction. A receipt
+     * created on its own would be a delivery of nothing in particular.
+     */
+    noCreate:
+      "A delivery is recorded against the order it arrived against, by POST " +
+      "/purchase-orders/:id/receive. That route refuses to receive more than " +
+      "was ordered and updates each line in the same transaction; a receipt " +
+      "created on its own path could do neither.",
+    fields: { orderId: "id:purchaseOrder", receivedBy: "string", deliveryNote: "string", note: "text" },
+    required: ["orderId"], numbered: "ref", prefix: "GRN",
+    search: ["ref", "deliveryNote", "receivedBy"],
+    order: [{ receivedOn: "desc" }],
+    include: {
+      order: { select: { id: true, ref: true, title: true, vendorName: true } },
+      lines: {
+        select: { id: true, lineId: true, quantity: true, condition: true, note: true },
+      },
+    },
+  },
+
+  "change-orders": {
+    model: "changeOrder", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "variations",
+    fields: {
+      projectId: "id:project", contractId: "id:contract", rfiId: "id:rfi",
+      title: "string", reason: "text",
+      /* SIGNED. An omission reduces a contract, and forcing it positive would
+         mean recording a credit as a charge. */
+      amount: "signed-money", currency: "string",
+      /* Signed for the same reason: work can be brought forward. */
+      days: "int",
+    },
+    required: ["title"], numbered: "ref", prefix: "CO",
+    search: ["ref", "title", "reason", "decidedBy"],
+    order: [{ createdAt: "desc" }],
+    onRead: (row) => ({
+      canSubmit: row.status === "DRAFT",
+      canDecide: row.status === "SUBMITTED",
+      canWithdraw: ["DRAFT", "SUBMITTED"].includes(row.status),
+      /* An approved variation is the only kind that changes anything. */
+      counts: row.status === "APPROVED",
+      means: row.status === "APPROVED"
+        ? "Approved. The contract's current value includes this; the signed figure does not change."
+        : row.status === "SUBMITTED" ? "Waiting for somebody to decide."
+        : row.status === "REJECTED" ? "Turned down, with the reason kept."
+        : row.status === "WITHDRAWN" ? "Taken back before anybody decided."
+        : "Being prepared. Nobody has been asked.",
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      contract: { select: { id: true, ref: true, price: true, currency: true } },
+      rfi: { select: { id: true, ref: true, subject: true } },
+    },
+  },
+
   /* ------------------------------------------------- SITE OPERATIONS */
   /*
    * Five registers. Every status below is absent from `fields` and moved by

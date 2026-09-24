@@ -192,6 +192,18 @@ test("every screen a role is given actually renders", { skip }, () => {
   const { w } = open("PROPERTY_MANAGEMENT", "OPERATIONS");
   const reached = new Set(
     (w.win.__navFor("property") || []).flatMap((g) => (g.items || []).map((i) => i[0])));
+
+  /* Procurement belongs to FINANCE, not operations — committing the company
+     to pay somebody is a money decision even before any money moves. So it is
+     checked through the role that actually has it. */
+  const { w: fin } = open("PROPERTY_MANAGEMENT", "FINANCE");
+  const byFinance = new Set(
+    (fin.win.__navFor("property") || []).flatMap((g) => (g.items || []).map((i) => i[0])));
+  for (const screen of ["pm_rfqs", "pm_orders", "pm_variations"]) {
+    assert.ok(byFinance.has(screen), `${screen} was never reached, so nothing above tested it`);
+    assert.ok(!reached.has(screen),
+      `${screen} is reachable by OPERATIONS — a site manager could commit the company to pay`);
+  }
   for (const screen of ["pm_meetings", "pm_decisions", "pm_tasks", "pm_mywork",
                         "co_outbox", "co_messages", "co_campaigns",
                         "pm_rfis", "pm_submittals", "pm_inspections",
