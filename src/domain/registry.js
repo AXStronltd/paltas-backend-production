@@ -398,6 +398,84 @@ export const RESOURCES = {
   },
 
   /*
+   * MEETINGS, DECISIONS AND TASKS — the loop a development is run in.
+   *
+   * Created and edited here; MOVED by routes/workflow.js, because holding a
+   * meeting, deciding something and finishing a task all have consequences
+   * beyond their own row.
+   */
+  meetings: {
+    model: "meeting", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "meetings",
+    fields: {
+      projectId: "id:project", title: "string", kind: "enum:MeetingKind",
+      startsAt: "date", endsAt: "date", location: "string", videoUrl: "string",
+      agenda: "text",
+    },
+    /* `minutes`, `minutesSentAt` and `status` are not here — see
+       NOT_WRITABLE_HERE in test/registry.test.js for why each is an act. */
+    required: ["title"], numbered: "ref", prefix: "MTG",
+    search: ["ref", "title", "agenda", "location"],
+    order: [{ startsAt: "desc" }],
+    include: {
+      project: { select: { id: true, name: true } },
+      participants: { select: { id: true, name: true, email: true, role: true, attended: true, partyId: true } },
+    },
+  },
+
+  decisions: {
+    model: "decision", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "decisions",
+    fields: {
+      projectId: "id:project", meetingId: "id:meeting", subject: "string",
+      description: "text", options: "text", decision: "text",
+      area: "string", ownerName: "string",
+    },
+    required: ["subject"], numbered: "ref", prefix: "DEC",
+    search: ["ref", "subject", "description", "area", "ownerName"],
+    order: [{ createdAt: "desc" }],
+    include: {
+      project: { select: { id: true, name: true } },
+      meeting: { select: { id: true, ref: true, title: true } },
+      history: {
+        select: { id: true, status: true, note: true, byName: true, at: true },
+        orderBy: { at: "asc" },
+      },
+    },
+  },
+
+  tasks: {
+    model: "task", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "tasks",
+    fields: {
+      projectId: "id:project", unitId: "id:unit", meetingId: "id:meeting",
+      decisionId: "id:decision", leadId: "id:lead", parentId: "id:task",
+      title: "string", detail: "text",
+      assigneeId: "id:user", assigneeName: "string",
+      priority: "enum:TaskPriority", dueOn: "date",
+    },
+    /* `status` and `completedAt` are moved by POST /tasks/:id/{done,reopen}. */
+    required: ["title"], numbered: "ref", prefix: "TSK",
+    search: ["ref", "title", "detail", "assigneeName"],
+    order: [{ dueOn: "asc" }],
+    include: {
+      project: { select: { id: true, name: true } },
+      unit: { select: { id: true, ref: true } },
+      meeting: { select: { id: true, ref: true, title: true } },
+      decision: { select: { id: true, ref: true, subject: true } },
+      checklist: {
+        select: { id: true, text: true, done: true, position: true, doneAt: true },
+        orderBy: { position: "asc" },
+      },
+      comments: {
+        select: { id: true, body: true, byName: true, at: true },
+        orderBy: { at: "asc" },
+      },
+      subtasks: { select: { id: true, ref: true, title: true, status: true } },
+    },
+  },
+
+  /*
    * OFFERS ON UNITS.
    *
    * Created and edited here like any resource; MOVED only through

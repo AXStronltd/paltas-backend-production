@@ -292,6 +292,23 @@ test("every model has an id and timestamps, or says why not", () => {
      */
     "PropertyTimelineEvent", "SuccessionStep",
     /*
+     * THE MOVES A DECISION MADE.
+     *
+     * A decision register whose history can be edited is not a register — the
+     * point of it is that somebody can later ask who approved something, when,
+     * and what was said at the time. A correction is a NEW event, and the route
+     * offers no PATCH and no DELETE for one.
+     *
+     * Same reasoning as WorkOrderEvent and IncidentEvent above, and the same
+     * shape: `at` and nothing else, because a row that is never updated has
+     * nothing to say about when it last was.
+     */
+    "DecisionEvent",
+    /* A comment on a task is a thing somebody said at a moment. Editing one
+       would rewrite a conversation, so there is no PATCH for it and nothing
+       for an updatedAt to record. */
+    "TaskComment",
+    /*
      * ONE SIDE OF ONE POSTED JOURNAL ENTRY.
      *
      * It has no updatedAt because it is never updated, and that is the whole

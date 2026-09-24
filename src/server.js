@@ -26,6 +26,7 @@ import { marketRoutes } from "./routes/market.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { companyRoutes } from "./routes/company.js";
 import { offerRoutes } from "./routes/offers.js";
+import { workflowRoutes } from "./routes/workflow.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
 import { paymentRoutes } from "./routes/payments.js";
@@ -278,6 +279,13 @@ export function createApp() {
    * consequences live here.
    */
   app.use(offerRoutes);
+
+  /*
+   * THE OPERATING LOOP — meeting → decision → task. Above productRoutes for
+   * the usual reason: `/tasks/mine` and `/tasks/:id/done` would otherwise
+   * reach the tasks RESOURCE router and be read as a task called "mine".
+   */
+  app.use(workflowRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

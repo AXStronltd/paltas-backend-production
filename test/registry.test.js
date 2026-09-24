@@ -97,6 +97,39 @@ const NEVER_WRITABLE = {
  */
 const NOT_WRITABLE_HERE = {
   /*
+   * THE OPERATING LOOP IS MOVED BY ACTS, NOT BY FIELDS.
+   *
+   * A decision whose status is a column can be edited from OPEN to
+   * IMPLEMENTED with nothing recording who approved it — which is the single
+   * thing a decision register exists to prevent. A task marked done by PATCH
+   * leaves `completedAt` empty, so "finished late" and "finished on time"
+   * collapse into the same fact.
+   */
+  meetings: {
+    status: "moved by POST /meetings/:id/{hold,cancel} — holding a meeting also " +
+            "records who actually attended",
+    minutes: "written by POST /meetings/:id/minutes, which is also where they are issued",
+    minutesSentAt: "stamped when the minutes are issued, never claimed",
+  },
+
+  decisions: {
+    status: "moved by POST /decisions/:id/status, which enforces that a register " +
+            "only goes forwards, requires an owner before APPROVED and a reason " +
+            "before REJECTED, and appends to the history",
+    decidedOn: "stamped when it is approved or rejected",
+  },
+
+  tasks: {
+    status: "moved by POST /tasks/:id/{done,reopen} — finishing a parent is " +
+            "refused while its subtasks are open",
+    completedAt: "stamped when the task is finished, and cleared when it is " +
+                 "reopened, so a reopened task is not also complete",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+
+  /*
    * AN OFFER IS MOVED BY AN ACT, NEVER BY A FIELD.
    *
    * Every column below is set by routes/offers.js — send, view, accept,

@@ -162,6 +162,7 @@ model User {
   successionShares  SuccessionBeneficiary[]
   successionSteps   SuccessionStep[]
   propertyScans     PropertyScan[]
+  Task              Task[]
 
   @@index([googleSub])
 }
@@ -335,16 +336,23 @@ model Organization {
   /**
    * ---- The authority layer. What the state records about a property. ----
    */
-  authorityProfile  AuthorityProfile?
-  jurisdictions     Jurisdiction[]
-  parcels           Parcel[]
-  propertyParcels   PropertyParcel[]
-  authorityRecords  PropertyAuthorityRecord[]
-  authorityRequests AuthorityRequest[]
-  Contract          Contract[]
-  ProjectPhase      ProjectPhase[]
-  Milestone         Milestone[]
-  Offer             Offer[]
+  authorityProfile   AuthorityProfile?
+  jurisdictions      Jurisdiction[]
+  parcels            Parcel[]
+  propertyParcels    PropertyParcel[]
+  authorityRecords   PropertyAuthorityRecord[]
+  authorityRequests  AuthorityRequest[]
+  Contract           Contract[]
+  ProjectPhase       ProjectPhase[]
+  Milestone          Milestone[]
+  Offer              Offer[]
+  Meeting            Meeting[]
+  MeetingParticipant MeetingParticipant[]
+  Decision           Decision[]
+  DecisionEvent      DecisionEvent[]
+  Task               Task[]
+  TaskChecklistItem  TaskChecklistItem[]
+  TaskComment        TaskComment[]
 }
 
 model Subscription {
@@ -827,6 +835,7 @@ model Unit {
   offers      Offer[]
   PricingRule PricingRule[]
   offerings   Offering[]
+  Task        Task[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -909,7 +918,8 @@ model Party {
   Conversation Conversation[]
 
   /// A named heir or family member on a property, before they are a user.
-  propertyRelations PropertyRelationship[]
+  propertyRelations  PropertyRelationship[]
+  MeetingParticipant MeetingParticipant[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -1099,6 +1109,9 @@ model Project {
   /// Its dated commitments, whether or not they belong to a phase.
   milestones  Milestone[]
   offers      Offer[]
+  Meeting     Meeting[]
+  Decision    Decision[]
+  Task        Task[]
 
   @@index([orgId])
   @@index([orgId, stage])
@@ -1338,6 +1351,54 @@ model Contract {
 /// EXPIRED is set by the service when the validity date passes, not inferred
 /// on a screen — an expired offer has to stop being acceptable everywhere at
 /// once, rather than look expired in one place and be acceptable in another.
+/// What kind of meeting it was. A site meeting and a board meeting produce
+/// very different minutes, and filtering by it is the first thing anybody
+/// asks of a year's worth of them.
+enum MeetingKind {
+  SITE
+  DESIGN
+  PROGRESS
+  COMMERCIAL
+  BOARD
+  CLIENT
+  OTHER
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  HELD
+  CANCELLED
+}
+
+/// Where a decision has got to.
+///
+/// IMPLEMENTED is separate from APPROVED because approving something and
+/// having it done are different facts, and the gap between them is exactly
+/// what a decision register exists to make visible.
+enum DecisionStatus {
+  OPEN
+  UNDER_REVIEW
+  APPROVED
+  REJECTED
+  IMPLEMENTED
+  CLOSED
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  BLOCKED
+  DONE
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
 enum OfferStatus {
   DRAFT
   SENT
@@ -1843,6 +1904,7 @@ model Lead {
   updatedAt DateTime @updatedAt
 
   viewings Viewing[]
+  Task     Task[]
 
   @@index([orgId, stage])
 }
@@ -4682,4 +4744,248 @@ model JournalLine {
   @@index([orgId, siteId])
   @@index([orgId, unitId])
   @@index([orgId, partyId])
+}
+
+/// A MEETING, AND WHAT CAME OUT OF IT.
+///
+/// The loop a development is actually run in is meeting → decision → task →
+/// owner → deadline → completion, and none of it existed: minutes lived in
+/// documents nobody could query, and the actions agreed in a site meeting
+/// were somebody's notebook.
+///
+/// Participants are their own rows rather than a string, because "who was in
+/// the room" is asked of a decision months later, and a comma-separated list
+/// cannot answer whether somebody actually attended.
+model Meeting {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  title    String
+  kind     MeetingKind   @default(PROGRESS)
+  status   MeetingStatus @default(SCHEDULED)
+  startsAt DateTime?
+  endsAt   DateTime?
+  /// A room, a site, or nothing. Kept apart from `videoUrl` so "where" and
+  /// "how to join" are not one field somebody has to read carefully.
+  location String        @default("")
+  videoUrl String        @default("")
+
+  /// Written before. The minutes are written after, and overwriting one with
+  /// the other loses what was meant to be discussed but was not.
+  agenda        String    @default("")
+  minutes       String    @default("")
+  /// When the minutes were actually circulated. Null means nobody has had them.
+  minutesSentAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  participants MeetingParticipant[]
+  decisions    Decision[]
+  tasks        Task[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, projectId])
+  @@index([orgId, startsAt])
+}
+
+/// Somebody in the room — or invited and not there, which is also a fact.
+model MeetingParticipant {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  meetingId String
+  meeting   Meeting      @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  /// A party where they are one of the company's contacts, a name where they
+  /// are not — an architect who is nobody's customer still attends.
+  partyId  String?
+  party    Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  name     String
+  email    String  @default("")
+  role     String  @default("")
+  /// Invited is not attended.
+  attended Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  /// Attendance is set after the meeting, so this row is updated.
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, meetingId])
+}
+
+/// THE DECISION REGISTER.
+///
+/// A decision is not a note in the minutes. It has an owner, a date, a status
+/// that moves, and things that happen because of it — and six months later
+/// somebody asks who decided, when, and what was considered instead. That is
+/// what `options` is for: the alternatives that were rejected are the part
+/// nobody writes down and everybody later wants.
+model Decision {
+  id    String       @id @default(cuid())
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orgId String
+
+  ref String
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// The meeting it came out of, where it came from one. Decisions are also
+  /// taken outside meetings, so this is optional rather than the parent.
+  meetingId String?
+  meeting   Meeting? @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+
+  subject     String
+  description String @default("")
+  /// What else was considered. Free text — a structured option model would be
+  /// a second thing to maintain for something read, not computed.
+  options     String @default("")
+  decision    String @default("")
+  /// What it touches: design, cost, programme, legal. Free text, because
+  /// every development draws these lines differently.
+  area        String @default("")
+
+  ownerName String         @default("")
+  status    DecisionStatus @default(OPEN)
+  decidedOn DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tasks   Task[]
+  history DecisionEvent[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, projectId])
+  @@index([orgId, status])
+}
+
+/// Append-only. A decision that can be edited into a different decision is
+/// not a register — the same reasoning WorkOrderEvent is built on.
+model DecisionEvent {
+  id         String       @id @default(cuid())
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  decisionId String
+  decision   Decision     @relation(fields: [decisionId], references: [id], onDelete: Cascade)
+
+  status DecisionStatus
+  note   String         @default("")
+  byName String         @default("")
+  at     DateTime       @default(now())
+
+  @@index([orgId, decisionId])
+}
+
+/// A TASK — the thing somebody actually has to do.
+///
+/// NOT OpsTask, which is a hotel and agency turnover job pinned to a unit and
+/// gated to AGENT_HOST. This is the general task a development runs on, and
+/// merging the two would either widen a cleaning checklist into a project
+/// planner or narrow a project planner into a cleaning checklist.
+///
+/// It points at whatever it came from — a project, a unit, a meeting, a
+/// decision — because "why am I doing this" is the question a task list
+/// cannot usually answer.
+model Task {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId  String?
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  unitId     String?
+  unit       Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  meetingId  String?
+  meeting    Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  decisionId String?
+  decision   Decision? @relation(fields: [decisionId], references: [id], onDelete: SetNull)
+  leadId     String?
+  lead       Lead?     @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  /// Subtasks. A task cascades to its children: a parent that is gone leaves
+  /// children nobody can reach or account for.
+  parentId String?
+  /// SetNull, not Cascade. `parentId` is optional, so a task can stand on its
+  /// own — deleting the parent must not delete work that still has to be done.
+  /// A subtask whose parent is gone becomes a task in its own right, which is
+  /// recoverable; deleting it is not.
+  parent   Task?   @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: SetNull)
+  subtasks Task[]  @relation("TaskSubtasks")
+
+  title  String
+  detail String @default("")
+
+  /// Who it is with. A userId where they have an account, and a name either
+  /// way — a contractor's foreman is assigned work and never signs in.
+  assigneeId   String?
+  assignee     User?   @relation(fields: [assigneeId], references: [id], onDelete: SetNull)
+  assigneeName String  @default("")
+
+  priority      TaskPriority @default(NORMAL)
+  status        TaskStatus   @default(TODO)
+  dueOn         DateTime?
+  /// Stamped when it is actually finished, so a task completed late still
+  /// reads as late.
+  completedAt   DateTime?
+  /// Who created it, kept as a name so "created by me" survives their leaving.
+  createdById   String?
+  createdByName String       @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  checklist TaskChecklistItem[]
+  comments  TaskComment[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, assigneeId])
+  @@index([orgId, dueOn])
+  @@index([orgId, projectId])
+}
+
+model TaskChecklistItem {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  taskId String
+  task   Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  text     String
+  done     Boolean   @default(false)
+  position Int       @default(0)
+  doneAt   DateTime?
+
+  createdAt DateTime @default(now())
+  /// Ticked and unticked, so it is updated.
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, taskId])
+}
+
+model TaskComment {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  taskId String
+  task   Task         @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  body   String
+  byName String   @default("")
+  at     DateTime @default(now())
+
+  @@index([orgId, taskId])
 }

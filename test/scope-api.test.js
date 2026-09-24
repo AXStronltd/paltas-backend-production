@@ -313,9 +313,11 @@ test("role and scope are two walls, and both stand", { skip }, async () => {
  */
 const EXPECTED_UNNARROWABLE = [
   "audit-tasks", "capital-calls", "channels", "contracts", "conversations",
-  "deals", "distributions", "documents", "group-bookings", "guest-requests",
+  "deals", "decisions", "distributions", "documents", "group-bookings", "guest-requests",
+  "meetings",
   "investment-orders", "investor-profiles", "investors", "invoices", "leads",
   "leases", "listings", "messages", "milestones", "offers", "ops-tasks", "parties", "payments",
+  "tasks",
   "project-phases",
   "payouts", "pricing-rules", "rate-rules", "reservations",
   "token-holdings", "viewings",
