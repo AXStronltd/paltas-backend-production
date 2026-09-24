@@ -611,7 +611,24 @@ test("nothing outside the framework reaches a model through a variable", () => {
         .replace(/(^|[^:])\/\/.*$/gm, "$1");
       for (const m of text.matchAll(/db\[/g)) {
         const line = text.slice(0, m.index).split("\n").length;
-        offenders.push(`${entry.name}:${line}`);
+        offenders.push(`${entry.name}:${line} — db[…]`);
+      }
+      /*
+       * AND THE OTHER WAY OF HIDING FROM THE SCANNER.
+       *
+       * The scanner above matches `db.<model>.<method>(`. A file that passes
+       * `db` into a helper under another name — `function find(db_, where) {
+       * return db_.rfi.findMany(...) }` — is scoped or not exactly as before,
+       * and completely invisible to it. Fifteen queries left the guard's sight
+       * that way in one go, in routes/reports.js, before this was added.
+       *
+       * So aliasing `db` is refused too. It costs nothing: every route in this
+       * service imports `db` directly and calls it by name.
+       */
+      for (const m of text.matchAll(/(?:\(|,|=)\s*(\w+)\s*(?:\)|,|=>)?[\s\S]{0,120}?\b\1\.(?:rfi|task|defect|contract|payment|invoice|unit|site|meeting|permit|drawing|handover|expense)\.(?:findMany|findFirst|updateMany|deleteMany|count|aggregate)\(/g)) {
+        if (m[1] === "db" || m[1] === "tx") continue;   /* the import, and a transaction client */
+        const line = text.slice(0, m.index).split("\n").length;
+        offenders.push(`${entry.name}:${line} — reaches a model through "${m[1]}" rather than db`);
       }
     }
   };

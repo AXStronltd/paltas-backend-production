@@ -32,6 +32,7 @@ import { siteRoutes } from "./routes/site.js";
 import { procurementRoutes } from "./routes/procurement.js";
 import { predevRoutes } from "./routes/predevelopment.js";
 import { handoverRoutes } from "./routes/handover.js";
+import { reportRoutes } from "./routes/reports.js";
 import { commsWebhookRoutes } from "./routes/comms-webhook.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
@@ -342,6 +343,13 @@ export function createApp() {
    * otherwise be swallowed by their own resource routers.
    */
   app.use(handoverRoutes);
+
+  /*
+   * ONE DEVELOPMENT ON ONE PAGE, AND ITS TRAIL. Above productRoutes, like
+   * everything else: `/projects/:id/report` would otherwise be read by the
+   * projects resource router as a project with the id "report".
+   */
+  app.use(reportRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

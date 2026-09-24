@@ -210,7 +210,7 @@ test("every screen a role is given actually renders", { skip }, () => {
                         "pm_rfis", "pm_submittals", "pm_inspections",
                         "pm_defects", "pm_diary",
                         "pm_drawings", "pm_permits",
-                        "pm_team", "pm_handover"]) {
+                        "pm_team", "pm_handover", "pm_project_report"]) {
     assert.ok(reached.has(screen), `${screen} was never reached, so nothing above tested it`);
   }
 });
