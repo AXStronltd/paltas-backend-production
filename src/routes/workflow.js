@@ -28,7 +28,9 @@ import { Router } from "express";
 import { db } from "../db.js";
 import { whyNotArea } from "../domain/access.js";
 import { DECISION_NEXT } from "../domain/decisions.js";
+import { deliver, STATUS_FOR } from "../domain/messaging.js";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.js";
+import { numberFor } from "../http/resource.js";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.js";
@@ -194,7 +196,7 @@ workflowRoutes.post("/meetings/:id/cancel", route(async (req, res) => {
 workflowRoutes.post("/meetings/:id/minutes", route(async (req, res) => {
   need(req, "update", "meetings");
   const meeting = await ownMeeting(req, req.params.id, {
-    include: { participants: { select: { id: true, name: true, email: true } } },
+    include: { participants: { select: { id: true, name: true, email: true, partyId: true } } },
   });
 
   const minutes = text(req.body?.minutes, 20000);
@@ -212,6 +214,25 @@ workflowRoutes.post("/meetings/:id/minutes", route(async (req, res) => {
     where: { id: meeting.id },
     data: { minutes, ...(send ? { minutesSentAt: new Date() } : {}) },
   });
+
+  /*
+   * ISSUING MINUTES MAKES REAL MESSAGES.
+   *
+   * This used to stamp `minutesSentAt` and say in the response that delivery
+   * was somebody else's job — which was honest, and was also a promise that
+   * nothing kept. Now it hands each recipient to the communications layer,
+   * which either finds a provider or does not, and either way there is a row
+   * per person with its own state and its own reason.
+   *
+   * `minutesSentAt` therefore means "these were issued", not "these arrived".
+   * Whether they arrived is answered per person in the outbox, because that
+   * is the only place it can be answered honestly.
+   */
+  let dispatched = [];
+  if (send) {
+    dispatched = await issueMinutes(req, meeting, out, recipients);
+  }
+
   await audit(req, send ? "meeting.minutes.issue" : "meeting.minutes.save", "meeting", meeting.id,
     { ref: meeting.ref, recipients: recipients.length });
 
@@ -219,12 +240,82 @@ workflowRoutes.post("/meetings/:id/minutes", route(async (req, res) => {
     meeting: out,
     issued: send,
     recipients: recipients.map((p) => ({ name: p.name, email: p.email })),
-    /* Said plainly rather than implied. */
-    delivery: send
-      ? "Recorded as issued. Delivery is the communications layer's job and no message has been sent."
-      : null,
+    dispatches: dispatched.map((d) => ({ id: d.id, ref: d.ref, to: d.toAddress, status: d.status })),
+    /*
+     * Said plainly, and said by the thing that knows. `unconfigured` here is
+     * not a failure to report — it is the ordinary state of a company that
+     * has not connected a mail provider, and the sentence says exactly that
+     * rather than implying the minutes are on their way.
+     */
+    delivery: send ? sentence(dispatched) : null,
   });
 }));
+
+/** One message per person, attempted, each recorded whatever happened. */
+async function issueMinutes(req, meeting, updated, recipients) {
+  const orgId = req.actor.orgId;
+  const subject = `Minutes — ${meeting.title}`;
+  const made = [];
+
+  for (const p of recipients) {
+    let row;
+    try {
+      row = await db.dispatch.create({
+        data: {
+          orgId, ref: await numberFor("dispatches", orgId), channel: "EMAIL",
+          status: "QUEUED", toName: p.name, toAddress: p.email, partyId: p.partyId,
+          subject, body: updated.minutes,
+          projectId: meeting.projectId, meetingId: meeting.id,
+          createdById: req.session.userId, createdByName: who(req),
+        },
+      });
+    } catch (e) {
+      /* One bad address must not cost the other nine their message. */
+      console.error("minutes dispatch not created", meeting.ref, p.email, e.message);
+      continue;
+    }
+
+    const result = await deliver("EMAIL", { to: p.email, subject, body: updated.minutes });
+    const status = STATUS_FOR[result.outcome];
+    const now = new Date();
+    const [after] = await db.$transaction([
+      db.dispatch.update({
+        where: { id: row.id },
+        data: {
+          status, provider: result.provider, providerRef: result.providerRef,
+          submittedAt: status === "SUBMITTED" ? now : null,
+          failedAt: status === "FAILED" ? now : null,
+          error: status === "FAILED" ? String(result.detail).slice(0, 1000) : "",
+        },
+      }),
+      db.dispatchEvent.create({
+        data: {
+          orgId, dispatchId: row.id, status,
+          detail: String(result.detail).slice(0, 1000), byName: who(req),
+        },
+      }),
+    ]);
+    made.push(after);
+  }
+  return made;
+}
+
+/** What actually happened, in one sentence, without flattering it. */
+function sentence(dispatched) {
+  const n = dispatched.length;
+  if (!n) return "Nothing was created — no message could be prepared.";
+  const queued = dispatched.filter((d) => d.status === "QUEUED").length;
+  const submitted = dispatched.filter((d) => d.status === "SUBMITTED").length;
+  const failed = dispatched.filter((d) => d.status === "FAILED").length;
+  if (queued === n) {
+    return `Recorded as issued, and ${n} message${n === 1 ? "" : "s"} queued. ` +
+           `No mail provider is connected, so nothing has been sent yet.`;
+  }
+  return `${submitted} accepted by the provider` +
+         (failed ? `, ${failed} refused` : "") +
+         (queued ? `, ${queued} still queued` : "") +
+         `. Delivery is confirmed separately in the outbox.`;
+}
 
 /* ====================================================================== *
  * DECISIONS

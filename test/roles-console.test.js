@@ -192,7 +192,8 @@ test("every screen a role is given actually renders", { skip }, () => {
   const { w } = open("PROPERTY_MANAGEMENT", "OPERATIONS");
   const reached = new Set(
     (w.win.__navFor("property") || []).flatMap((g) => (g.items || []).map((i) => i[0])));
-  for (const screen of ["pm_meetings", "pm_decisions", "pm_tasks", "pm_mywork"]) {
+  for (const screen of ["pm_meetings", "pm_decisions", "pm_tasks", "pm_mywork",
+                        "co_outbox", "co_messages", "co_campaigns"]) {
     assert.ok(reached.has(screen), `${screen} was never reached, so nothing above tested it`);
   }
 });

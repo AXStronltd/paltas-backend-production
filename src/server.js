@@ -27,6 +27,8 @@ import { ledgerRoutes } from "./routes/ledger.js";
 import { companyRoutes } from "./routes/company.js";
 import { offerRoutes } from "./routes/offers.js";
 import { workflowRoutes } from "./routes/workflow.js";
+import { commsRoutes } from "./routes/comms.js";
+import { commsWebhookRoutes } from "./routes/comms-webhook.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
 import { paymentRoutes } from "./routes/payments.js";
@@ -111,6 +113,16 @@ export function createApp() {
   app.use(express.json({ limit: "256kb" }));
   app.use(cookieParser());
   app.use(rateLimit({ windowMs: 60_000, max: 600 }));
+
+  /*
+   * DELIVERY RECEIPTS FROM A MAIL OR SMS PROVIDER.
+   *
+   * Above every router that requires a session, because a provider has none.
+   * Below express.json(), unlike Stripe's: this one authenticates with a
+   * shared secret in a header rather than a signature over the exact bytes,
+   * so the parsed body is fine and the raw one is not needed.
+   */
+  app.use(commsWebhookRoutes);
   app.use(withSession());
 
   /* Render polls this. It touches the database on purpose: a service that
@@ -286,6 +298,13 @@ export function createApp() {
    * reach the tasks RESOURCE router and be read as a task called "mine".
    */
   app.use(workflowRoutes);
+
+  /*
+   * COMMUNICATIONS — above productRoutes, like the rest. `/dispatches/outbox`
+   * would otherwise reach the dispatches RESOURCE router and be read as a
+   * dispatch with the id "outbox".
+   */
+  app.use(commsRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

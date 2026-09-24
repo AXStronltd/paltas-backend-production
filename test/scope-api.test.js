@@ -311,8 +311,15 @@ test("role and scope are two walls, and both stand", { skip }, async () => {
  * they already read its whole lease book. That is the documented limitation
  * named below, not a new one.
  */
+/*
+ * `dispatches` and `campaigns` are here for a different reason from the rest:
+ * a message is addressed to a PERSON, not to a building. Narrowing somebody's
+ * outbox by the sites they cover would hide the letter they wrote to a buyer
+ * who has not chosen a flat yet, and would make "what have we told this
+ * person?" a question with a different answer per reader.
+ */
 const EXPECTED_UNNARROWABLE = [
-  "audit-tasks", "capital-calls", "channels", "contracts", "conversations",
+  "audit-tasks", "campaigns", "capital-calls", "channels", "contracts", "conversations",
   "deals", "decisions", "distributions", "documents", "group-bookings", "guest-requests",
   "meetings",
   "investment-orders", "investor-profiles", "investors", "invoices", "leads",
@@ -320,6 +327,7 @@ const EXPECTED_UNNARROWABLE = [
   "tasks",
   "project-phases",
   "payouts", "pricing-rules", "rate-rules", "reservations",
+  "dispatches",
   "token-holdings", "viewings",
 ].sort();
 

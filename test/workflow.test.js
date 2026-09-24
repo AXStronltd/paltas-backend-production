@@ -275,8 +275,26 @@ test("minutes are never reported as sent to nobody", { skip }, async () => {
     body: { minutes: "Discussed.", send: true } });
   assert.equal(issued.json.issued, true);
   assert.equal(issued.json.recipients.length, 1);
-  /* And it does not claim delivery. */
-  assert.match(issued.json.delivery, /no message has been sent/i);
+
+  /*
+   * A REAL MESSAGE PER PERSON, not a promise that one exists.
+   *
+   * Issuing used to stamp the meeting and say delivery was the communications
+   * layer's job. There is a communications layer now, so it hands each
+   * recipient to it — and with no mail provider connected the honest outcome
+   * is a queued message, which is what these assert.
+   */
+  assert.equal(issued.json.dispatches.length, 1);
+  assert.equal(issued.json.dispatches[0].to, "x@example.com");
+  assert.equal(issued.json.dispatches[0].status, "QUEUED",
+    "minutes were recorded as sent with no provider to send them");
+  assert.match(issued.json.delivery, /nothing has been sent yet/i);
+
+  /* And it is really in the outbox, against the meeting it came from. */
+  const box = await call("/dispatches/outbox?view=queued", { cookie });
+  assert.equal(box.json.count, 1);
+  assert.equal(box.json.dispatches[0].meetingId, m.id);
+  assert.match(box.json.dispatches[0].subject, /Minutes — Site progress/);
 });
 
 /* ---------------------------------------------------------------- *

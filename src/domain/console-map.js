@@ -219,6 +219,30 @@ export const CONSOLE_FORMS = {
     },
   },
 
+  /*
+   * COMMUNICATIONS. Neither form offers a status: what a message's state is
+   * depends on what a carrier did with it, and a field somebody can type into
+   * would let a person record a delivery that never happened.
+   */
+  co_messages: {
+    resource: "dispatches",
+    label: "＋ New message",
+    fields: {
+      channel: "channel", toName: "toName", to: "toAddress",
+      party: "partyId", subject: "subject", body: "body",
+      project: "projectId", meeting: "meetingId", task: "taskId",
+    },
+  },
+
+  co_campaigns: {
+    resource: "campaigns",
+    label: "＋ New campaign",
+    fields: {
+      n: "name", channel: "channel", subject: "subject",
+      body: "body", project: "projectId",
+    },
+  },
+
   pm_contracts: {
     resource: "contracts",
     label: "＋ New sale",

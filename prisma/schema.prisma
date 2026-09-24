@@ -163,6 +163,7 @@ model User {
   successionSteps   SuccessionStep[]
   propertyScans     PropertyScan[]
   Task              Task[]
+  Dispatch          Dispatch[]
 
   @@index([googleSub])
 }
@@ -353,6 +354,9 @@ model Organization {
   Task               Task[]
   TaskChecklistItem  TaskChecklistItem[]
   TaskComment        TaskComment[]
+  Dispatch           Dispatch[]
+  DispatchEvent      DispatchEvent[]
+  Campaign           Campaign[]
 }
 
 model Subscription {
@@ -920,6 +924,7 @@ model Party {
   /// A named heir or family member on a property, before they are a user.
   propertyRelations  PropertyRelationship[]
   MeetingParticipant MeetingParticipant[]
+  dispatches         Dispatch[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -1112,6 +1117,8 @@ model Project {
   Meeting     Meeting[]
   Decision    Decision[]
   Task        Task[]
+  Dispatch    Dispatch[]
+  Campaign    Campaign[]
 
   @@index([orgId])
   @@index([orgId, stage])
@@ -3009,6 +3016,9 @@ model Message {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  /// Where an outbound one was actually sent, if it was. See Dispatch.
+  dispatches Dispatch[]
+
   @@index([orgId])
   @@index([conversationId, createdAt])
 }
@@ -4789,6 +4799,7 @@ model Meeting {
   participants MeetingParticipant[]
   decisions    Decision[]
   tasks        Task[]
+  dispatches   Dispatch[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -4946,8 +4957,9 @@ model Task {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  checklist TaskChecklistItem[]
-  comments  TaskComment[]
+  checklist  TaskChecklistItem[]
+  comments   TaskComment[]
+  dispatches Dispatch[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -4988,4 +5000,214 @@ model TaskComment {
   at     DateTime @default(now())
 
   @@index([orgId, taskId])
+}
+
+/**
+ * ====================================================================== *
+ * COMMUNICATIONS — and the difference between sent and delivered.
+ * THE WHOLE POINT OF THESE THREE MODELS IS THAT `status` CANNOT LIE.
+ * A property business tells people things: a buyer that their offer lapses on
+ * Friday, a tenant that the water is off on Tuesday, forty leaseholders that
+ * the service charge has changed. Whether those messages arrived is not a
+ * detail — it is the whole record, and the one fact somebody will be asked
+ * for in six months.
+ * So the states are separated more finely than a product usually bothers to:
+ * DRAFT      written, not released. Nobody is trying to send it.
+ * QUEUED     released, and nothing has accepted it yet. This is where a
+ * message sits when no provider is configured. It is an honest
+ * state, not a failure: the message exists, it is meant to go,
+ * and nothing has taken it.
+ * SUBMITTED  a provider accepted it and gave back its own id. This is NOT
+ * delivery. It means somebody else now has the problem.
+ * DELIVERED  the provider told us it arrived. ONLY a provider callback
+ * writes this state. Nothing in this service may set it, because
+ * nothing in this service knows it.
+ * FAILED     the provider refused it, with its reason kept.
+ * BOUNCED    it was accepted, then came back. Told to us afterwards.
+ * The state a product usually skips is QUEUED, and skipping it is exactly the
+ * lie: with no mail provider connected, "Send" that writes SENT produces a
+ * screen full of messages nobody ever received.
+ * ======================================================================
+ */
+
+enum DispatchChannel {
+  EMAIL
+  SMS
+  WHATSAPP
+  /// Shown inside PALTAS. The only channel this service can deliver itself,
+  /// and the only one whose DELIVERED it may ever write.
+  IN_APP
+}
+
+enum DispatchStatus {
+  DRAFT
+  QUEUED
+  SUBMITTED
+  DELIVERED
+  FAILED
+  BOUNCED
+  CANCELLED
+}
+
+enum CampaignStatus {
+  DRAFT
+  SENDING
+  /// Every message was accepted by a provider.
+  SENT
+  /// Some were and some were not. A separate state because "sent" over a
+  /// batch where a third failed is the most misleading word available.
+  PARTIAL
+  FAILED
+  CANCELLED
+}
+
+model Dispatch {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  channel DispatchChannel @default(EMAIL)
+  status  DispatchStatus  @default(DRAFT)
+
+  /// Both the name and the address, because an address without a name is
+  /// unreadable in a list and a name without an address cannot be sent to.
+  toName    String @default("")
+  toAddress String @default("")
+
+  partyId String?
+  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  userId  String?
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  subject String @default("")
+  body    String @default("")
+
+  /// What it is about. All optional: a message may be about nothing in
+  /// particular, and a required parent would mean inventing one.
+  projectId  String?
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  meetingId  String?
+  meeting    Meeting?  @relation(fields: [meetingId], references: [id], onDelete: SetNull)
+  taskId     String?
+  task       Task?     @relation(fields: [taskId], references: [id], onDelete: SetNull)
+  campaignId String?
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  /// THIS IS NOT A SECOND MESSAGES TABLE.
+  ///
+  /// `Message` is a line in a CRM conversation — two-way, with read receipts,
+  /// belonging to a thread with one contact. A Dispatch is the delivery of
+  /// something: it has a provider, an id at that provider, and a state that
+  /// only a provider callback may advance.
+  ///
+  /// They meet here. An outbound conversation message that is actually EMAILED
+  /// gets a Dispatch pointing back at it, so the thread keeps reading as a
+  /// conversation while the delivery record stays where deliveries live. A
+  /// dispatch with none of these — minutes, a campaign — is about something
+  /// else entirely.
+  conversationMessageId String?
+  conversationMessage   Message? @relation(fields: [conversationMessageId], references: [id], onDelete: SetNull)
+
+  /// WHO ACCEPTED IT, AND WHAT THEY CALLED IT.
+  ///
+  /// Kept because it is the only way to answer "did it go?" from outside this
+  /// service. Without the provider's own id, a support question becomes a
+  /// search through somebody else's dashboard by address and guesswork.
+  provider    String @default("")
+  providerRef String @default("")
+
+  /// When a provider took it. Not when it arrived — see deliveredAt.
+  submittedAt DateTime?
+  /// When a provider said it arrived. Written by a callback and nothing else.
+  deliveredAt DateTime?
+  failedAt    DateTime?
+  /// The provider's own words about why. Ours would be a guess.
+  error       String    @default("")
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events DispatchEvent[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, campaignId])
+  @@index([orgId, conversationMessageId])
+  @@index([orgId, projectId])
+}
+
+/// Every state a message has been in. Append-only: this is the record that
+/// answers "when did you tell them?", and one that can be edited afterwards
+/// answers nothing.
+model DispatchEvent {
+  id         String       @id @default(cuid())
+  dispatchId String
+  dispatch   Dispatch     @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  orgId      String
+  org        Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  status DispatchStatus
+  /// What happened, in whoever's words are most truthful — the provider's
+  /// where there is one.
+  detail String         @default("")
+  /// Who or what caused it. "system" for a provider callback.
+  byName String         @default("")
+
+  at DateTime @default(now())
+
+  @@index([dispatchId])
+  @@index([orgId])
+}
+
+/// One thing said to many people. The messages stay individual — a campaign
+/// that could not tell you which of forty leaseholders it failed to reach is
+/// not a record of anything.
+model Campaign {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  name    String
+  channel DispatchChannel @default(EMAIL)
+  status  CampaignStatus  @default(DRAFT)
+
+  subject String @default("")
+  body    String @default("")
+
+  /// Who it went to, as the audience was described when it was built — not a
+  /// live query. Re-running the query months later would answer a different
+  /// question, and this has to say who was actually written to.
+  audience String @default("")
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  /// Counted rather than derived, because a campaign of four thousand should
+  /// not need four thousand rows read to draw one line of a list.
+  total     Int @default(0)
+  submitted Int @default(0)
+  delivered Int @default(0)
+  failed    Int @default(0)
+
+  sentAt DateTime?
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  dispatches Dispatch[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
 }

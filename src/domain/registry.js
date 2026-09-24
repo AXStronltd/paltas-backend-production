@@ -37,6 +37,27 @@
  * ====================================================================== */
 
 import { nextFor } from "./decisions.js";
+
+/*
+ * WHAT EACH STATE ACTUALLY MEANS, IN WORDS.
+ *
+ * SUBMITTED is the one everybody reads as "sent", and it is not: it means a
+ * provider took it. QUEUED is the one everybody reads as "broken", and it is
+ * not either: it means nothing has taken it yet, which with no provider
+ * connected is the correct and expected place for a message to sit.
+ *
+ * Carried on the row rather than written into the console, so one sentence
+ * answers for both and neither can drift into something more flattering.
+ */
+const DISPATCH_MEANS = {
+  DRAFT: "Written, not released. Nobody is trying to send it.",
+  QUEUED: "Waiting for something to carry it. Nothing has been sent.",
+  SUBMITTED: "A provider accepted it. That is not the same as it arriving.",
+  DELIVERED: "The provider confirmed it arrived.",
+  FAILED: "A provider refused it.",
+  BOUNCED: "It was accepted and then came back.",
+  CANCELLED: "Stopped before anything carried it.",
+};
 import { db } from "../db.js";
 import { aliasesFor } from "./console-map.js";
 import { postForExpense, postForInvoice } from "./posting.js";
@@ -405,6 +426,67 @@ export const RESOURCES = {
    * meeting, deciding something and finishing a task all have consequences
    * beyond their own row.
    */
+  /*
+   * COMMUNICATIONS. `status`, `provider`, `providerRef` and every timestamp
+   * are absent from `fields` deliberately — a dispatch's state is the record
+   * of what a carrier did, and a PATCH that could write DELIVERED would make
+   * the whole table worthless. See routes/comms.js.
+   */
+  dispatches: {
+    model: "dispatch", area: "people", product: null,
+    label: "messages",
+    fields: {
+      channel: "enum:DispatchChannel", toName: "string", toAddress: "string",
+      partyId: "id:party", subject: "string", body: "text",
+      projectId: "id:project", meetingId: "id:meeting", taskId: "id:task",
+    },
+    required: ["toAddress"], numbered: "ref", prefix: "MSG",
+    search: ["ref", "toName", "toAddress", "subject"],
+    order: [{ createdAt: "desc" }],
+    /* What a person may still do with it, decided by the same states the
+       route enforces so the console never draws a button that would 409. */
+    onRead: (row) => ({
+      canSend: ["DRAFT", "QUEUED", "FAILED"].includes(row.status),
+      canCancel: !["SUBMITTED", "DELIVERED", "CANCELLED"].includes(row.status),
+      /* Said out loud, because SUBMITTED is the state everybody misreads. */
+      means: DISPATCH_MEANS[row.status] || "",
+    }),
+    include: {
+      campaign: { select: { id: true, ref: true, name: true } },
+      party: { select: { id: true, name: true } },
+      events: {
+        select: { id: true, status: true, detail: true, byName: true, at: true },
+        orderBy: { at: "asc" },
+      },
+    },
+  },
+
+  campaigns: {
+    model: "campaign", area: "people", product: null,
+    label: "campaigns",
+    fields: {
+      name: "string", channel: "enum:DispatchChannel",
+      subject: "string", body: "text", projectId: "id:project",
+    },
+    /* `status` and the four counters are written by POST /campaigns/:id/send,
+       which is the only thing that knows what actually happened. */
+    required: ["name"], numbered: "ref", prefix: "CMP",
+    search: ["ref", "name", "subject"],
+    order: [{ createdAt: "desc" }],
+    onRead: (row) => ({
+      canSend: row.status === "DRAFT",
+      canCancel: ["DRAFT", "SENDING", "PARTIAL"].includes(row.status),
+      /* Neither a count nor a percentage on its own: "18 of 40 accepted" is
+         what somebody watching a campaign go out actually reads. */
+      progress: row.total
+        ? `${row.submitted} of ${row.total} accepted` +
+          (row.delivered ? `, ${row.delivered} confirmed delivered` : "") +
+          (row.failed ? `, ${row.failed} failed` : "")
+        : "Not sent yet",
+    }),
+    include: { project: { select: { id: true, name: true } } },
+  },
+
   meetings: {
     model: "meeting", area: "property", product: "PROPERTY_MANAGEMENT",
     label: "meetings",

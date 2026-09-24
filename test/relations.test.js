@@ -309,6 +309,16 @@ test("every model has an id and timestamps, or says why not", () => {
        for an updatedAt to record. */
     "TaskComment",
     /*
+     * EVERY STATE A MESSAGE HAS BEEN IN.
+     *
+     * The row that answers "when did you tell them, and how do you know?".
+     * Its `at` is the moment it was reported — by a person pressing send, or
+     * by the carrier's callback — and a row that could be updated afterwards
+     * answers neither question. There is no PATCH for one, and an updatedAt
+     * would only offer a second clock to disagree with the first.
+     */
+    "DispatchEvent",
+    /*
      * ONE SIDE OF ONE POSTED JOURNAL ENTRY.
      *
      * It has no updatedAt because it is never updated, and that is the whole

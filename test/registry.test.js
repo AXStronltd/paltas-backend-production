@@ -128,6 +128,53 @@ const NOT_WRITABLE_HERE = {
     createdByName: "taken from the session at create time",
   },
 
+  /*
+   * A DISPATCH'S STATE IS THE RECORD OF WHAT A CARRIER DID.
+   *
+   * It is the one table in this service where a writable column would make
+   * the whole thing worthless: a PATCH that could set DELIVERED turns an
+   * outbox from evidence into a claim, and the question it exists to answer
+   * — "did you tell them?" — stops having an answer.
+   *
+   * SUBMITTED is written by POST /dispatches/:id/send, when a provider
+   * accepts it. DELIVERED is written by the provider's own callback in
+   * routes/comms-webhook.js and by nothing else anywhere in this service,
+   * because nothing else knows.
+   */
+  dispatches: {
+    status: "written by POST /dispatches/:id/{send,cancel} and by the provider's " +
+            "delivery callback. DELIVERED in particular is only ever the " +
+            "carrier's word — this service does not know and may not say",
+    provider: "the name of whoever accepted it, recorded when they did",
+    submittedAt: "stamped when a provider took it",
+    deliveredAt: "stamped ONLY by a verified provider callback",
+    failedAt: "stamped when a provider refused it",
+    error: "the provider's own sentence about why. Ours would be a guess",
+    campaignId: "set by POST /campaigns/:id/send. A caller who could file a " +
+                "message into somebody else's campaign could make a batch " +
+                "report numbers that never happened",
+    conversationMessageId: "set when an outbound CRM message is actually sent; " +
+                           "it is the link between a thread and a delivery, not " +
+                           "a field to fill in",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  campaigns: {
+    status: "written by POST /campaigns/:id/{send,cancel}. PARTIAL in " +
+            "particular is computed from what actually happened to each " +
+            "message, and a writable one would let a batch that half failed " +
+            "be recorded as SENT",
+    audience: "written when the campaign is sent, describing who it ACTUALLY " +
+              "went to. Editable, it would describe who somebody wishes it had",
+    submitted: "counted from the messages",
+    delivered: "counted from the messages, which are counted from callbacks",
+    failed: "counted from the messages",
+    sentAt: "stamped when it went",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
 
   /*
    * AN OFFER IS MOVED BY AN ACT, NEVER BY A FIELD.

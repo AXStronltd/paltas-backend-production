@@ -105,6 +105,22 @@ async function nextNumber(resource, slug, orgId) {
 }
 
 /**
+ * The same number, for a route that writes rows the framework did not.
+ *
+ * A campaign creates four hundred dispatches at once; the framework's create
+ * handler makes one at a time. Without this the route would have to build the
+ * ref itself, and two pieces of code deciding what MSG-0042 means is how a
+ * company ends up with two of them.
+ */
+export async function numberFor(slug, orgId) {
+  const resource = RESOURCES[slug];
+  if (!resource || !resource.numbered) {
+    throw new Error(`${slug} is not a numbered resource`);
+  }
+  return nextNumber(resource, slug, orgId);
+}
+
+/**
  * Record what was done.
  *
  * Best-effort ON PURPOSE: a failure to write the log must not undo the work
@@ -571,6 +587,22 @@ function translate(e, label) {
 
 /** `work-orders` → `workOrder`, for the single-row envelope. */
 function singular(slug) {
-  const base = slug.replace(/ies$/, "y").replace(/sses$/, "ss").replace(/s$/, "");
+  const base = slug
+    .replace(/ies$/, "y")
+    .replace(/sses$/, "ss")
+    /*
+     * `dispatches` → `dispatch`, not `dispatche`.
+     *
+     * English adds -ES rather than -S after a sibilant, and stripping one
+     * letter from those leaves a word that is not a word. It surfaced on the
+     * first resource whose name ends in one: every response came back under
+     * `{ dispatche: ... }`, which is the sort of thing that is only ever found
+     * by a caller reading undefined.
+     *
+     * A bare `s` is deliberately NOT in this set — `expenses` ends in -ses and
+     * is an -s plural, so including it would turn `expense` into `expens`.
+     */
+    .replace(/(ch|sh|x|z)es$/, "$1")
+    .replace(/s$/, "");
   return base.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 }
