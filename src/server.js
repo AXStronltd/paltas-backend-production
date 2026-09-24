@@ -24,6 +24,7 @@ import { productRoutes } from "./routes/products.js";
 import { formRoutes } from "./routes/forms.js";
 import { marketRoutes } from "./routes/market.js";
 import { ledgerRoutes } from "./routes/ledger.js";
+import { companyRoutes } from "./routes/company.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
 import { paymentRoutes } from "./routes/payments.js";
@@ -256,6 +257,16 @@ export function createApp() {
    * still enforced in the domain.
    */
   app.use(ledgerRoutes);
+
+  /*
+   * WHAT A COMPANY CAN ASK ABOUT ITSELF — its audit trail, its expiring
+   * documents, one customer's payment history, and its own settings.
+   *
+   * Above productRoutes like the rest: `/documents/expiring` would otherwise
+   * reach the documents RESOURCE router first and be read as a document with
+   * the id "expiring".
+   */
+  app.use(companyRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */
