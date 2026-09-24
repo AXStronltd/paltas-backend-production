@@ -24,7 +24,7 @@
 
 import crypto from "node:crypto";
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import { config } from "../config.js";
+import { config } from "../config.ts";
 import { badRequest, unauthorized } from "../http/errors.ts";
 
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";

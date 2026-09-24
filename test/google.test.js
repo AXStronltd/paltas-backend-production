@@ -345,7 +345,7 @@ test("the PKCE cookie is scoped so the browser sends it to the callback", async 
     ["https://paltas.io/api/", "/api/auth"],  /* trailing slash           */
   ];
 
-  const { readConfig } = await import("../src/config.js");
+  const { readConfig } = await import("../src/config.ts");
   const base = {
     DATABASE_URL: "postgresql://u@h/db",
     SESSION_SECRET: "a-long-random-string",

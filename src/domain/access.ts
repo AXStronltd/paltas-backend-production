@@ -30,7 +30,16 @@
  * Adding a resource means naming its area, not editing a matrix.
  * ====================================================================== */
 
-/** The eight areas. Every resource in registry.js names one of them. */
+/**
+ * The eight areas. Every resource in registry.js names one of them.
+ *
+ * `as const` and not a plain array, because that is what turns this from a
+ * list of strings into a type. `Area` below is derived from it, so a resource
+ * declaring `area: "propery"` stops compiling instead of quietly granting
+ * nobody access to anything — which is the shape this mistake takes today:
+ * levelFor() returns "none", every request 403s, and the message blames the
+ * role.
+ */
 export const AREAS = [
   "property",     // sites, buildings, units, leases, projects, assets
   "maintenance",  // work orders and their history
@@ -54,7 +63,7 @@ export const AREAS = [
    * finance clerk reconciling rent is not thereby approving an offering.
    */
   "investments",
-];
+] as const;
 
 /**
  * The four levels, in order. Each includes everything below it.
@@ -64,17 +73,33 @@ export const AREAS = [
  * them need to make a record disappear, and the ones that do are the ones a
  * company would name if asked.
  */
-export const LEVELS = ["none", "read", "write", "manage"];
-const RANK = Object.fromEntries(LEVELS.map((l, i) => [l, i]));
+export const LEVELS = ["none", "read", "write", "manage"] as const;
+
+/** One of the eight areas. Derived, so the list above is the only place to edit. */
+export type Area = (typeof AREAS)[number];
+/** How much of an area somebody holds. */
+export type Level = (typeof LEVELS)[number];
+/** What every role is granted, per area. */
+export type AreaGrants = Readonly<Record<Area, Level>>;
+
+/**
+ * The order, as numbers, so `>=` can compare two levels.
+ *
+ * Typed as a full record rather than inferred: `RANK[level]` is then known to
+ * exist for every level, and an unknown string cannot reach it at all.
+ */
+const RANK: Readonly<Record<Level, number>> =
+  Object.fromEntries(LEVELS.map((l, i) => [l, i])) as Record<Level, number>;
 
 /** Shorthand, so the table below reads as a table rather than as JSON. */
-const all = (level) => Object.fromEntries(AREAS.map((a) => [a, level]));
+const all = (level: Level): AreaGrants =>
+  Object.fromEntries(AREAS.map((a) => [a, level])) as AreaGrants;
 
 /* ====================================================================== *
  * THE TABLE.
  * ====================================================================== */
 
-export const ROLE_AREAS = {
+export const ROLE_AREAS: Readonly<Record<string, AreaGrants>> = {
   /* ---- the people who run the company ---- */
 
   OWNER: all("manage"),
@@ -159,12 +184,25 @@ export const ROLE_AREAS = {
   GUEST: all("none"),
 };
 
+/**
+ * WHO IS ASKING.
+ *
+ * Built by session-view.js from the person's MEMBERSHIPS, never from anything
+ * the request said — that is the line every other check in this service rests
+ * on. Only the two fields this module reads are named here; the full shape
+ * arrives with the session types in a later phase.
+ */
+export interface Actor {
+  readonly role: string;
+  readonly orgId: string;
+}
+
 /* ====================================================================== *
  * ASKING THE TABLE.
  * ====================================================================== */
 
 /** What this actor may do in an area. Unknown role → nothing. */
-export function levelFor(actor, area) {
+export function levelFor(actor: Actor | null | undefined, area: Area): Level {
   if (!actor) return "none";
   const row = ROLE_AREAS[actor.role];
   if (!row) return "none";
@@ -176,9 +214,12 @@ export const ACT_LEVEL = {
   list: "read", get: "read",
   create: "write", update: "write",
   delete: "manage",
-};
+} as const satisfies Readonly<Record<string, Level>>;
 
-export function allows(actor, area, act) {
+/** One of the five things a caller can ask to do. */
+export type Act = keyof typeof ACT_LEVEL;
+
+export function allows(actor: Actor | null | undefined, area: Area, act: Act): boolean {
   const need = ACT_LEVEL[act];
   if (!need) return false;
   return RANK[levelFor(actor, area)] >= RANK[need];
@@ -191,7 +232,12 @@ export function allows(actor, area, act) {
  * throwing, so the route picks the status code and the person reads
  * something that tells them what to do next.
  */
-export function whyNotArea(actor, area, act, label) {
+export function whyNotArea(
+  actor: Actor | null | undefined,
+  area: Area,
+  act: Act,
+  label?: string,
+): string | null {
   if (!actor) return "You are not signed in.";
 
   const have = levelFor(actor, area);

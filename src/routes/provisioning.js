@@ -31,7 +31,7 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { badRequest, conflict, notFound } from "../http/errors.ts";
 import { requireSession } from "../http/session.js";
 import { requirePlatform } from "./platform.js";

@@ -24,7 +24,7 @@
  * ====================================================================== */
 
 import crypto from "node:crypto";
-import { ROLE_AREAS } from "./access.js";
+import { ROLE_AREAS } from "./access.ts";
 
 /** Same construction as a session token, and for the same reason. */
 export const newToken = () => crypto.randomBytes(32).toString("base64url");

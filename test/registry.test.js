@@ -24,7 +24,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESOURCES } from "../src/domain/registry.js";
-import { AREAS, ROLE_AREAS, LEVELS, allows, levelFor, whyNotArea } from "../src/domain/access.js";
+import { AREAS, ROLE_AREAS, LEVELS, allows, levelFor, whyNotArea } from "../src/domain/access.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const schema = readFileSync(join(HERE, "..", "prisma", "schema.prisma"), "utf8");

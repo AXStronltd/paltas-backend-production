@@ -86,7 +86,7 @@ const DISPATCH_MEANS = {
   BOUNCED: "It was accepted and then came back.",
   CANCELLED: "Stopped before anything carried it.",
 };
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { aliasesFor } from "./console-map.js";
 import { postForExpense, postForInvoice } from "./posting.js";
 

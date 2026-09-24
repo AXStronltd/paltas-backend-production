@@ -36,14 +36,14 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import {
   badRequest, conflict, forbidden, hidden, unavailable,
 } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.js";
-import { whyNotArea } from "../domain/access.js";
+import { whyNotArea } from "../domain/access.ts";
 import {
   EDITABLE_STATES, OFFERING_TRANSITIONS, canOffering, eligibilityRefusal,
   offeringRefusal, splitCodes, submissionGaps,

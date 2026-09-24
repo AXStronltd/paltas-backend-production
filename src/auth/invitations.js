@@ -22,7 +22,7 @@
  * routes/ unconditional instead of teaching it an exception.
  * ====================================================================== */
 
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { hashToken } from "../domain/invitations.js";
 
 /**

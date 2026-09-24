@@ -33,7 +33,7 @@ let createApp, db, pg, supply;
 if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
-    ({ db } = await import("../src/db.js"));
+    ({ db } = await import("../src/db.ts"));
     ({ createApp } = await import("../src/server.js"));
     supply = await import("../src/domain/supply.js");
     await db.$queryRaw`SELECT 1`;

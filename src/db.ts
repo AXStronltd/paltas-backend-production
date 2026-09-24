@@ -32,10 +32,32 @@ import { PrismaClient } from "@prisma/client";
  * default pool can be larger than is wise there.
  * ====================================================================== */
 
+/**
+ * The client every module in this service shares.
+ *
+ * ITS TYPE IS THE POINT OF THE WHOLE MIGRATION. `db` is imported by 36
+ * modules, and from here on every one of them gets a checked answer: a
+ * misspelt column, a `where` on a field that is not there, a `select` that
+ * cannot produce the field a caller then reads — all of them stop compiling
+ * rather than failing on whichever request reaches them first.
+ *
+ * Nothing about the runtime behaviour changes. Prisma generated these types
+ * all along; nothing was asking for them.
+ */
 export const db = new PrismaClient({
-  log: process.env.PRISMA_LOG === "1" ? ["query", "warn", "error"] : ["warn", "error"],
+  log: process.env["PRISMA_LOG"] === "1" ? ["query", "warn", "error"] : ["warn", "error"],
 });
 
-export async function closeDb() {
+/**
+ * The type of that client, for anything that needs to name it.
+ *
+ * Exported because the framework reaches models through a variable —
+ * `db[resource.model]` — and typing that needs something to key off. It is
+ * also what a test double would have to satisfy; see the note in
+ * test/fake-prisma.js about why the in-memory stand-in does not try.
+ */
+export type Db = typeof db;
+
+export async function closeDb(): Promise<void> {
   await db.$disconnect();
 }

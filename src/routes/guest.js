@@ -41,10 +41,10 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { badRequest, forbidden, hidden } from "../http/errors.ts";
 import { requireSession } from "../http/session.js";
-import { rateLimit } from "../http/rate-limit.js";
+import { rateLimit } from "../http/rate-limit.ts";
 
 export const guestRoutes = Router();
 

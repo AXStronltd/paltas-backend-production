@@ -2,7 +2,9 @@
  * HEADERS ON EVERY RESPONSE.
  * ====================================================================== */
 
-export function securityHeaders() {
+import type { RequestHandler } from "express";
+
+export function securityHeaders(): RequestHandler {
   return (_req, res, next) => {
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Referrer-Policy", "no-referrer");

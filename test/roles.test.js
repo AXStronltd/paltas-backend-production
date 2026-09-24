@@ -25,7 +25,7 @@ import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { ROLE_AREAS, AREAS, LEVELS } from "../src/domain/access.js";
+import { ROLE_AREAS, AREAS, LEVELS } from "../src/domain/access.ts";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");

@@ -24,11 +24,11 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { RESOURCES } from "../domain/registry.js";
 import { resourceRouter } from "../http/resource.js";
 import { clean } from "../domain/input.js";
-import { allows, whyNotArea } from "../domain/access.js";
+import { allows, whyNotArea } from "../domain/access.ts";
 import { scopedTo } from "../domain/scope.js";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {

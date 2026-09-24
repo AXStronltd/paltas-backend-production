@@ -37,7 +37,7 @@ let createApp, db, pg, channels;
 if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
-    ({ db } = await import("../src/db.js"));
+    ({ db } = await import("../src/db.ts"));
     ({ createApp } = await import("../src/server.js"));
     channels = await import("../src/domain/channels.js");
     await db.$queryRaw`SELECT 1`;

@@ -71,9 +71,9 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { badRequest } from "../http/errors.ts";
-import { rateLimit } from "../http/rate-limit.js";
+import { rateLimit } from "../http/rate-limit.ts";
 import { publicCompareStatus } from "../domain/compare.js";
 import { searchSupply, publicStatus } from "../domain/supply.js";
 

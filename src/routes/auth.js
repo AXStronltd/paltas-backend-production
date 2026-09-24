@@ -5,15 +5,15 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { config } from "../config.js";
-import { db } from "../db.js";
+import { config } from "../config.ts";
+import { db } from "../db.ts";
 import { beginSignIn, completeSignIn, OAUTH_COOKIE } from "../auth/google.js";
 import {
   COOKIE, clearSessionCookie, createSession, destroySession,
   setSessionCookie, switchOrganization,
 } from "../auth/sessions.js";
 import { sessionView } from "../domain/session-view.js";
-import { badRequest, forbidden, rateLimit, requireSession, unauthorized } from "../http/index.js";
+import { badRequest, forbidden, rateLimit, requireSession, unauthorized } from "../http/index.ts";
 
 export const authRoutes = Router();
 

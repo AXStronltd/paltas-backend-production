@@ -20,11 +20,11 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import {
   badRequest, forbidden, hidden, notFound,
   rateLimit, requireOpenSubscription, requireOrganization, requireSession,
-} from "../http/index.js";
+} from "../http/index.ts";
 import { can, whyNot } from "../domain/rights.js";
 import {
   TRANSITIONS, cleanPromotionInput, contentCheck, creativeCheck,

@@ -20,11 +20,11 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { badRequest, conflict, forbidden, notFound, unavailable } from "../http/errors.ts";
-import { rateLimit } from "../http/rate-limit.js";
+import { rateLimit } from "../http/rate-limit.ts";
 import { requireOrganization } from "../http/session.js";
-import { config } from "../config.js";
+import { config } from "../config.ts";
 import {
   processor, isConnected, status as payStatus, wireAccount, NotReadyToCharge,
 } from "../payments/stripe.js";

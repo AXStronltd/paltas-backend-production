@@ -21,11 +21,11 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { requireSession, requireOrganization, requireOpenSubscription } from "../http/session.js";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { clean } from "../domain/input.js";
-import { whyNotArea } from "../domain/access.js";
+import { whyNotArea } from "../domain/access.ts";
 import {
   clearanceFor, mayRead, visibleRows, redact, withheldSummary,
   whyNotClass, publicProfile, reachesProperty, SECURITY_CLASS, ALL_CLASSES,

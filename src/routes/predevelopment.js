@@ -26,8 +26,8 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
-import { whyNotArea } from "../domain/access.js";
+import { db } from "../db.ts";
+import { whyNotArea } from "../domain/access.ts";
 import { ACQUISITION_NEXT, PERMIT_NEXT } from "../domain/decisions.js";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { feasibilityNumbers } from "../domain/feasibility.js";

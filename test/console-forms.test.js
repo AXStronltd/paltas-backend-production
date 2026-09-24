@@ -52,7 +52,7 @@ let db, createApp;
 if (!skip) {
   const { createFakeDb } = await import("./fake-prisma.js");
   db = createFakeDb();
-  mock.module("../src/db.js", { namedExports: { db, closeDb: async () => {} } });
+  mock.module("../src/db.ts", { namedExports: { db, closeDb: async () => {} } });
   ({ createApp } = await import("../src/server.js"));
 }
 

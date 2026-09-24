@@ -7,7 +7,7 @@
  * tomorrow.
  * ====================================================================== */
 
-import { db } from "../db.js";
+import { db } from "../db.ts";
 
 /*
  * THE IDENTIFIER AND THE RECORD MOVED to modules/property-dna/domain/identity.js

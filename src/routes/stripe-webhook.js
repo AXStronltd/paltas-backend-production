@@ -31,7 +31,7 @@
 
 import { Router } from "express";
 import express from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { processor, isConnected, wireAccount } from "../payments/stripe.js";
 
 export const stripeWebhookRoutes = Router();

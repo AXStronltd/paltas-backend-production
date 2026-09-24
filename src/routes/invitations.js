@@ -18,10 +18,10 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import {
   badRequest, conflict, forbidden, notFound, rateLimit, requireSession,
-} from "../http/index.js";
+} from "../http/index.ts";
 import { stateOf } from "../domain/invitations.js";
 /* The token lookup lives in auth/ beside the session's, because its key IS
    the credential — see the header of that file. */

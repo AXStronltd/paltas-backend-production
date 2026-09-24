@@ -19,9 +19,9 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { RESOURCES } from "../domain/registry.js";
-import { levelFor, whyNotArea } from "../domain/access.js";
+import { levelFor, whyNotArea } from "../domain/access.ts";
 import { badRequest, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,

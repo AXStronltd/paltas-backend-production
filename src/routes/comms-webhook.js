@@ -34,7 +34,7 @@
 
 import crypto from "node:crypto";
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 
 export const commsWebhookRoutes = Router();
 

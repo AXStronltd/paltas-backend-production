@@ -40,9 +40,9 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { badRequest, unavailable, notFound } from "../http/errors.ts";
-import { rateLimit } from "../http/rate-limit.js";
+import { rateLimit } from "../http/rate-limit.ts";
 import { requireSession } from "../http/session.js";
 import { supplier, isConnected, status as supplyStatus, publicStatus } from "../domain/supply.js";
 import { comparePrices, compareStatus, findHomes } from "../domain/compare.js";

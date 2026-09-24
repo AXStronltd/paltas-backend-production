@@ -13,7 +13,7 @@
  * from nothing else — no defaults invented at the edge, no "probably ACTIVE".
  * ====================================================================== */
 
-import { db } from "../db.js";
+import { db } from "../db.ts";
 
 /* ====================================================================== *
  * THE SHAPE VERSION. THE SESSION IS WORTHLESS WITHOUT IT.

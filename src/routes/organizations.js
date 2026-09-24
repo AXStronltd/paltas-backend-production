@@ -13,10 +13,10 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
-import { badRequest, conflict, forbidden, requireSession } from "../http/index.js";
-import { notFound, rateLimit } from "../http/index.js";
-import { config } from "../config.js";
+import { db } from "../db.ts";
+import { badRequest, conflict, forbidden, requireSession } from "../http/index.ts";
+import { notFound, rateLimit } from "../http/index.ts";
+import { config } from "../config.ts";
 import {
   INVITE_DAYS, cleanEmail, grantableBy, hashToken, inviteLink, newToken,
   stateOf, toWire, whyNotInvite,

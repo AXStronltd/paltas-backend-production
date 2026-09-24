@@ -14,7 +14,7 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../../../db.js";
+import { db } from "../../../db.ts";
 import { requireSession, requireOrganization } from "../../../http/session.js";
 import { badRequest, conflict, forbidden, hidden } from "../../../http/errors.ts";
 import { clean } from "../../../domain/input.js";

@@ -47,7 +47,7 @@ let createApp, db, pg, upsertUser, createSession;
 if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
-    ({ db } = await import("../src/db.js"));
+    ({ db } = await import("../src/db.ts"));
     ({ createApp } = await import("../src/server.js"));
     ({ upsertUser } = await import("../src/routes/auth.js"));
     ({ createSession } = await import("../src/auth/sessions.js"));

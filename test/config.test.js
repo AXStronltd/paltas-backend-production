@@ -27,7 +27,7 @@ process.env.GOOGLE_CLIENT_SECRET ||= "shh";
 process.env.PUBLIC_URL ||= "https://api.example.test";
 process.env.APP_URL ||= "https://app.example.test";
 
-const { readConfig } = await import("../src/config.js");
+const { readConfig } = await import("../src/config.ts");
 
 const ok = {
   DATABASE_URL: "postgresql://u@h/db",

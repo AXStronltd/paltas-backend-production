@@ -20,8 +20,8 @@
  * ====================================================================== */
 
 import crypto from "node:crypto";
-import { config } from "../config.js";
-import { db } from "../db.js";
+import { config } from "../config.ts";
+import { db } from "../db.ts";
 
 export const COOKIE = "paltas_session";
 

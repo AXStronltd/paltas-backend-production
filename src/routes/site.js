@@ -22,8 +22,8 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
-import { whyNotArea } from "../domain/access.js";
+import { db } from "../db.ts";
+import { whyNotArea } from "../domain/access.ts";
 import { aliasesFor } from "../domain/console-map.js";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { numberFor } from "../http/resource.js";

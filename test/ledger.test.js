@@ -38,7 +38,7 @@ let db, pg, L;
 if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
-    ({ db } = await import("../src/db.js"));
+    ({ db } = await import("../src/db.ts"));
     L = await import("../src/domain/ledger.js");
     await db.$queryRaw`SELECT 1`;
   } catch (e) {

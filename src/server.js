@@ -9,11 +9,11 @@
 import express from "express";
 import cookieParser from "cookie-parser";
 
-import { config } from "./config.js";
-import { db, closeDb } from "./db.js";
+import { config } from "./config.ts";
+import { db, closeDb } from "./db.ts";
 import {
   cors, errorHandler, notFound, rateLimit, securityHeaders, withSession,
-} from "./http/index.js";
+} from "./http/index.ts";
 import { pruneExpiredSessions } from "./auth/sessions.js";
 import { authRoutes } from "./routes/auth.js";
 import { organizationRoutes } from "./routes/organizations.js";

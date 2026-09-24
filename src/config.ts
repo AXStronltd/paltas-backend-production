@@ -11,7 +11,49 @@
  * lists the names and no values at all, deliberately.
  * ====================================================================== */
 
-const REQUIRED = [
+/**
+ * THE ENVIRONMENT, AS A SHAPE RATHER THAN A BAG OF STRINGS.
+ *
+ * `process.env` is `Record<string, string | undefined>`, and every value in
+ * it is either absent or text — never a number, never a boolean, whatever it
+ * looks like. Naming that here is what makes the coercions below visible:
+ * `Number(env.SESSION_DAYS) || 14` is not defensive programming, it is the
+ * only way to get a number out of this.
+ */
+export type Env = Record<string, string | undefined>;
+
+/**
+ * Everything this service needs to run, after it has been read and checked.
+ *
+ * Deliberately a type rather than an interface: it is the exact shape `read()`
+ * returns, and nothing should be able to declare a second, subtly different
+ * version of it somewhere else.
+ */
+export interface Config {
+  readonly env: string;
+  readonly port: number;
+  readonly databaseUrl: string;
+  readonly sessionSecret: string;
+  readonly publicUrl: string;
+  readonly appUrl: string;
+  readonly google: {
+    readonly clientId: string;
+    readonly clientSecret: string;
+    /** Must equal what is registered in Google Cloud, character for character. */
+    readonly redirectUri: string;
+    /** Derived from PUBLIC_URL, because getting it wrong breaks sign-in silently. */
+    readonly cookiePath: string;
+  };
+  /** An allow-list, never "*" — the session is a cookie. */
+  readonly origins: readonly string[];
+  readonly secureCookies: boolean;
+  readonly sameOrigin: boolean;
+  readonly cookieSameSite: string;
+  readonly trustProxyHops: number;
+  readonly sessionDays: number;
+}
+
+const REQUIRED: ReadonlyArray<readonly [name: string, why: string]> = [
   ["DATABASE_URL",
    "The Postgres connection string. On Render this is the INTERNAL URL of the database this service owns."],
   ["SESSION_SECRET",
@@ -34,7 +76,7 @@ const REQUIRED = [
  * is not a secret. This service refuses to start if it finds one, rather than
  * trusting that nobody will ever add one.
  */
-function refuseLeakyNames(env) {
+function refuseLeakyNames(env: Env): void {
   const leaked = Object.keys(env).filter(
     (k) => k.startsWith("NEXT_PUBLIC_") && /SECRET|KEY|TOKEN|PASSWORD|DATABASE/i.test(k)
   );
@@ -71,15 +113,39 @@ const PRODUCTION_ORIGINS = [
   "https://paltas-frontend.netlify.app",
 ];
 
-/** Same origin listed twice is one origin. Order is kept; first wins. */
-function dedupe(list) {
-  const seen = new Set();
-  return list
-    .map((o) => String(o || "").trim().replace(/\/+$/, ""))
-    .filter((o) => o && !seen.has(o) && (seen.add(o), true));
+/**
+ * A value REQUIRED has already proved is there.
+ *
+ * `process.env.DATABASE_URL` is `string | undefined` however many times it has
+ * been checked, because the check above is a runtime filter and the compiler
+ * cannot follow it into this function. Casting the doubt away would work and
+ * would also be a lie the day the two lists drift.
+ *
+ * So it checks again, cheaply, and the message names the real failure: not
+ * "missing setting" — that was handled above with a helpful list — but the
+ * specific mistake of reading a value nobody added to REQUIRED, which today
+ * lets `undefined` into the config silently.
+ */
+function required(env: Env, key: string): string {
+  const value = env[key];
+  if (value === undefined || value.trim() === "") {
+    throw new Error(
+      `${key} is read by config.ts and is not in its REQUIRED list, so nothing ` +
+      `checked it at boot. Add it to REQUIRED with a sentence saying where to ` +
+      `get it — otherwise a missing value reaches the service as undefined.`);
+  }
+  return value;
 }
 
-function read(env) {
+/** Same origin listed twice is one origin. Order is kept; first wins. */
+function dedupe(list: readonly (string | undefined)[]): string[] {
+  const seen = new Set<string>();
+  return list
+    .map((o) => String(o || "").trim().replace(/\/+$/, ""))
+    .filter((o) => o !== "" && !seen.has(o) && (seen.add(o), true));
+}
+
+function read(env: Env): Config {
   refuseLeakyNames(env);
 
   const missing = REQUIRED.filter(([k]) => !env[k] || !String(env[k]).trim());
@@ -108,18 +174,18 @@ function read(env) {
   })();
 
   return {
-    env: env.NODE_ENV || "development",
-    port: Number(env.PORT) || 8080,
+    env: env["NODE_ENV"] || "development",
+    port: Number(env["PORT"]) || 8080,
 
-    databaseUrl: env.DATABASE_URL,
-    sessionSecret: env.SESSION_SECRET,
+    databaseUrl: required(env, "DATABASE_URL"),
+    sessionSecret: required(env, "SESSION_SECRET"),
 
     publicUrl,
     appUrl,
 
     google: {
-      clientId: env.GOOGLE_CLIENT_ID,
-      clientSecret: env.GOOGLE_CLIENT_SECRET,
+      clientId: required(env, "GOOGLE_CLIENT_ID"),
+      clientSecret: required(env, "GOOGLE_CLIENT_SECRET"),
       /* Whatever you register in Google Cloud must equal this string exactly,
          including the scheme and any trailing path. Google compares it
          character for character and the error it gives is famously unhelpful. */
@@ -211,5 +277,5 @@ function read(env) {
   };
 }
 
-export const config = read(process.env);
+export const config: Config = read(process.env);
 export { read as readConfig };

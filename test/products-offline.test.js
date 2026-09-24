@@ -45,7 +45,7 @@ if (!skip) {
 
   /* The one substitution. Everything downstream of src/db.js is the real
      code, unaware that anything is unusual. */
-  mock.module("../src/db.js", {
+  mock.module("../src/db.ts", {
     namedExports: { db, closeDb: async () => {} },
   });
 

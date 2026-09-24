@@ -2,7 +2,8 @@
  * WHICH BROWSERS MAY CALL THIS API.
  * ====================================================================== */
 
-import { config } from "../config.js";
+import { config } from "../config.ts";
+import type { RequestHandler } from "express";
 
 /*
  * An allow-list, and never "*".
@@ -13,7 +14,7 @@ import { config } from "../config.js";
  * no CORS headers at all and the browser refuses it — which is the correct
  * outcome and needs no error of our own.
  */
-export function cors() {
+export function cors(): RequestHandler {
   const allowed = new Set(config.origins);
   return (req, res, next) => {
     const origin = req.headers.origin;
@@ -25,7 +26,7 @@ export function cors() {
       res.setHeader("Access-Control-Max-Age", "600");
       res.setHeader("Vary", "Origin");
     }
-    if (req.method === "OPTIONS") return res.sendStatus(204);
+    if (req.method === "OPTIONS") { res.sendStatus(204); return; }
     next();
   };
 }

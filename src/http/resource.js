@@ -29,9 +29,9 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
+import { db } from "../db.ts";
 import { RESOURCES } from "../domain/registry.js";
-import { allows, whyNotArea } from "../domain/access.js";
+import { allows, whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "./errors.ts";
 import { clean } from "../domain/input.js";
 /* Site scope lives in the domain, not here — products.js needs the same

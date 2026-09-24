@@ -17,9 +17,9 @@
  *   authority   the public-authority profile, when the caller is one
  * ====================================================================== */
 
-import { db } from "../../../db.js";
+import { db } from "../../../db.ts";
 import { forbidden, hidden } from "../../../http/errors.ts";
-import { whyNotArea } from "../../../domain/access.js";
+import { whyNotArea } from "../../../domain/access.ts";
 import { clearanceFor, reachesProperty, whyNotClass } from "../../../domain/classification.js";
 import { dnaFor } from "./identity.js";
 import { authorityContext } from "../../authority/domain/jurisdiction.js";

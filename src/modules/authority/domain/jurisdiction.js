@@ -26,7 +26,7 @@
  * The separator check is what stops "KE/NAIRO" matching "KE/NAIROBI".
  * ====================================================================== */
 
-import { db } from "../../../db.js";
+import { db } from "../../../db.ts";
 
 /** Uppercase, slash-separated, no leading or trailing slash. */
 export function normalisePath(parts) {

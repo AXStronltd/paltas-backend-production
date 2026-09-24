@@ -38,7 +38,7 @@
  * people who run the company — not inherited by climbing the ladder.
  * ====================================================================== */
 
-import { levelFor } from "./access.js";
+import { levelFor } from "./access.ts";
 
 /**
  * The ladder, least to most restricted.

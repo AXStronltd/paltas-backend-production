@@ -22,8 +22,8 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.js";
-import { levelFor, whyNotArea } from "../domain/access.js";
+import { db } from "../db.ts";
+import { levelFor, whyNotArea } from "../domain/access.ts";
 import { RESOURCES } from "../domain/registry.js";
 import { forbidden, hidden } from "../http/errors.ts";
 import {
