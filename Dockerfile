@@ -18,6 +18,44 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends openssl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
+# ======================================================================
+# STAGE ONE: COMPILE.
+#
+# This stage has the dev dependencies — TypeScript among them — and exists
+# only to turn src/ into dist/. Nothing from it ships except that directory.
+#
+# It is a separate stage rather than a `npm ci` followed by a prune because
+# the runtime image must never have contained the toolchain at all: a layer
+# is forever, and "we deleted it afterwards" is not true of a container image.
+# ======================================================================
+FROM base AS builder
+
+COPY package.json package-lock.json* ./
+# Everything, including devDependencies. This is the one place in the build
+# where that is correct.
+RUN npm ci
+
+# The Prisma client is generated from the schema alone and needs no database.
+# It is generated HERE as well as in the runtime stage because the compiler
+# reads its types.
+COPY prisma ./prisma
+RUN npx prisma generate
+
+COPY tsconfig.json ./
+COPY src ./src
+
+# tsc, with the strictness in tsconfig.json. A type error fails the build,
+# which is the whole point of having one.
+RUN npm run build
+
+# ======================================================================
+# STAGE TWO: RUN.
+#
+# Production dependencies and compiled output. No TypeScript, no source,
+# no test suite.
+# ======================================================================
+FROM base AS runtime
+
 # Dependencies first, so a change to source code does not reinstall them.
 COPY package.json package-lock.json* ./
 
@@ -43,6 +81,10 @@ RUN npx prisma generate
 # ever listens. The deploy then fails and Render keeps the previous build —
 # which looks exactly like "the push did nothing".
 #
+# THE PATH IS RESOLVED RELATIVE TO THE MODULE — HERE/../../contract — so it
+# only stays correct while dist/ mirrors src/ at the same depth. tsconfig.json
+# pins `rootDir: src` for that reason, and test/build.test.js asserts it.
+#
 # Copied by name rather than as the whole directory, so the runtime dependency
 # is visible here and the image does not carry backend.md and the other
 # documentation. test/deploy.test.js checks this list against every file the
@@ -50,7 +92,8 @@ RUN npx prisma generate
 # ----------------------------------------------------------------------
 COPY contract/market-config.js ./contract/market-config.js
 
-COPY src ./src
+# The compiled service. `src` never enters this image.
+COPY --from=builder /app/dist ./dist
 
 # ======================================================================
 # MIGRATIONS DO NOT RUN HERE.

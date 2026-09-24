@@ -1,0 +1,79 @@
+/* ======================================================================
+ * THE MIGRATION CONFIGURATION, AND WHAT EACH LINE IS PROTECTING.
+ *
+ * This repository is JavaScript today. Every setting below is chosen so
+ * that it keeps working unchanged while files move across one at a time —
+ * and so that the day a file becomes .ts the compiler is ALREADY strict,
+ * rather than being tightened later, when tightening means a hundred errors
+ * at once and the temptation to reach for `any`.
+ * ====================================================================== */
+{
+  "compilerOptions": {
+    /* Node 22 in the image, Node 24 in CI. ES2023 is comfortably inside both
+       and leaves BigInt literals alone, rather than downlevelling money
+       arithmetic into something that no longer looks like the source. */
+    "target": "ES2023",
+    "lib": ["ES2023"],
+
+    /* nodenext, because package.json says `type: module` and every import in
+       this service already carries its .js extension. Anything else rewrites
+       those specifiers and breaks the resolution the runtime actually does. */
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    /* PINNED, and not an accident.
+     *
+     * src/domain/market.js reads contract/market-config.js at IMPORT time,
+     * resolved as HERE/../../ — so dist/domain/market.js must sit at exactly
+     * the depth src/domain/market.js does. `rootDir: src` keeps that true.
+     * Set it to "." and the output becomes dist/src/domain/market.js, the
+     * path resolves one level wrong, and the container does not start at all.
+     * test/build.test.js asserts this. */
+    "rootDir": "src",
+    "outDir": "dist",
+
+    /* The whole point of an incremental migration: JavaScript compiles and
+       emits alongside TypeScript. checkJs stays OFF so converting a file is a
+       deliberate act rather than something that happens to all 74 at once. */
+    "allowJs": true,
+    "checkJs": false,
+
+    /* On from the first day, before a single file is converted. A migration
+     * that starts loose and tightens later is one that never tightens.
+     *
+     * noUncheckedIndexedAccess and exactOptionalPropertyTypes are held back
+     * deliberately — see Phase 7. Prisma's argument types are `field?: T | null`
+     * throughout and this codebase spreads conditionals into them; turning
+     * those two on now would bury a genuine conversion error under hundreds of
+     * unrelated ones. */
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Node runs .ts test files directly by stripping types, which is what
+     * keeps the test suite free of a build step. Stripping refuses anything
+     * that is not erasable — no TS enum, no namespace, no parameter properties
+     * — so the compiler refuses them too and the failure is a type error at
+     * author time rather than a runtime refusal in CI.
+     *
+     * Verified on this machine: `enum Colour { Red }` under strip-only mode
+     * gives "TypeScript enum is not supported in strip-only mode". */
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+
+    /* Prisma's generated index.d.ts is 370,961 lines. Checking it on every
+       build costs minutes and finds nothing this service can act on. */
+    "skipLibCheck": true,
+
+    "sourceMap": true,
+    "declaration": false,
+    "resolveJsonModule": true
+  },
+
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "test", "scripts", "prisma"]
+}

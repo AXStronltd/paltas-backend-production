@@ -169,6 +169,46 @@ test("the image copies what it needs and not the documentation", () => {
     "the running service has no use for. Copy the files it reads, by name.");
 });
 
+test("the image runs the compiled output, and never the source", () => {
+  /*
+   * THE INVARIANT THE MIGRATION ADDED.
+   *
+   * src/ is compiled to dist/ in a builder stage and only dist/ is copied
+   * into the runtime image. Two things could quietly undo that: a start
+   * command still pointing at src/server.js (which would then be missing, so
+   * at least it fails loudly), or a runtime stage that copies src/ as well
+   * (which would NOT fail — it would ship the source and the toolchain's
+   * output side by side, and nobody could say which one was running).
+   */
+  const pkg = JSON.parse(readFileSync("package.json", "utf8"));
+  assert.match(pkg.scripts.start, /node dist\/server\.js/,
+    "`npm start` must run the compiled server. Running src/server.js would mean " +
+    "the build is decoration.");
+  assert.ok(pkg.scripts.build, "there is no build script, so nothing produces dist/");
+
+  /* The builder stage exists and actually compiles. */
+  assert.match(DOCKERFILE, /FROM\s+\S+\s+AS\s+builder/i,
+    "the Dockerfile has no builder stage, so the toolchain would ship in the " +
+    "runtime image — and a layer is forever.");
+  assert.match(DOCKERFILE, /RUN npm run build/,
+    "the builder stage never runs the build");
+  assert.match(DOCKERFILE, /COPY --from=builder \/app\/dist \.\/dist/,
+    "the runtime stage does not take dist/ from the builder");
+
+  /*
+   * And the runtime stage copies no source. Checked by splitting on the stage
+   * boundary rather than searching the whole file, because the BUILDER
+   * legitimately copies src and a naive grep would read that as a violation.
+   */
+  const runtime = DOCKERFILE.slice(DOCKERFILE.search(/FROM\s+\S+\s+AS\s+runtime/i));
+  assert.ok(runtime.length > 100, "no runtime stage found to check");
+  assert.doesNotMatch(runtime, /^COPY\s+(?!--from)src\b/m,
+    "the runtime image copies src/ as well as dist/. Both would be present and " +
+    "nobody could say which one is running.");
+  assert.doesNotMatch(runtime, /^COPY\s+(?!--from).*tsconfig/m,
+    "the runtime image carries tsconfig.json, which it has no use for");
+});
+
 test("the start command migrates before it serves", () => {
   const pkg = JSON.parse(readFileSync("package.json", "utf8"));
   assert.match(pkg.scripts.start, /prisma migrate deploy\s*&&/,

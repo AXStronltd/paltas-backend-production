@@ -54,3 +54,11 @@ contract/netlify.toml
 
 .DS_Store
 coverage/
+
+# COMPILED OUTPUT, WHICH IS BUILT INSIDE THE IMAGE AND NEVER SENT TO IT.
+#
+# The builder stage compiles src/ into /app/dist and the runtime stage copies
+# it across with COPY --from. A dist/ left over from a local build has no
+# business in the build context: at best it is dead weight, at worst it is
+# stale output that looks like the current one.
+dist/

@@ -52,6 +52,16 @@ jobs:
       # buried in a test.
       - run: npx prisma generate
 
+      # TYPES BEFORE TESTS, deliberately.
+      #
+      # A type error is a compile failure, and a compile failure means the
+      # image cannot be built at all — so finding it after a twenty-second
+      # test run wastes twenty seconds every time. It also fails with a file
+      # and a line, where the same mistake found at runtime fails with
+      # whatever the first affected request happened to be.
+      - name: Typecheck
+        run: npm run typecheck
+
       - name: Test
         run: npm test
 
