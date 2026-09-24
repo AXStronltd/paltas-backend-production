@@ -46,7 +46,17 @@ if (!skip) {
   /* The one substitution. Everything downstream of src/db.js is the real
      code, unaware that anything is unusual. */
   mock.module("../src/db.ts", {
-    namedExports: { db, closeDb: async () => {} },
+    namedExports: {
+      db,
+      closeDb: async () => {},
+      /*
+       * `delegate` is how the resource framework reaches a model chosen at
+       * run time, and it lives beside the real client — so a fake client has
+       * to supply it too. Mocking the module without this left the framework
+       * with no accessor at all, and every generated endpoint failed at once.
+       */
+      delegate: (model) => db[model],
+    },
   });
 
   ({ createApp } = await import("../src/server.js"));

@@ -6,6 +6,6 @@ export { errorHandler, ApiError, badRequest, conflict, forbidden, hidden,
 export { cors } from "./cors.ts";
 export { rateLimit } from "./rate-limit.ts";
 export { securityHeaders } from "./security-headers.ts";
-export { resourceRouter, clean } from "./resource.js";
+export { resourceRouter, clean } from "./resource.ts";
 export { withSession, requireSession, requireOrganization,
          requireOpenSubscription, requireProduct } from "./session.ts";

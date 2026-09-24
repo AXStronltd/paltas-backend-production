@@ -52,7 +52,17 @@ let db, createApp;
 if (!skip) {
   const { createFakeDb } = await import("./fake-prisma.js");
   db = createFakeDb();
-  mock.module("../src/db.ts", { namedExports: { db, closeDb: async () => {} } });
+  mock.module("../src/db.ts", {
+  namedExports: {
+    db,
+    closeDb: async () => {},
+    /* `delegate` is how the resource framework reaches a model chosen at run
+       time, and it lives beside the real client — so a fake client supplies it
+       too. Without it the framework has no accessor and every generated
+       endpoint fails at once. */
+    delegate: (model) => db[model],
+  },
+});
   ({ createApp } = await import("../src/server.js"));
 }
 

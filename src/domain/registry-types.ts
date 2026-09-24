@@ -220,6 +220,15 @@ export interface ResourceDeclaration {
   /** What to join on a read. */
   readonly include?: Record<string, unknown>;
 
+  /**
+   * The column whose change appends a history row. Defaults to "status".
+   *
+   * Supported by the framework and used by no declaration today — which is
+   * why it was missing from the first draft of this type, and why the
+   * compiler pointed at the two places that read it.
+   */
+  readonly statusField?: string;
+
   /** The column a per-company number is written to, usually `ref`. */
   readonly numbered?: string;
   /** Its prefix — INV, RFI, MSG. Upper case letters only. */

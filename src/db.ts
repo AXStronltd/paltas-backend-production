@@ -1,5 +1,7 @@
 import { PrismaClient } from "@prisma/client";
 
+import type { ModelKey } from "./domain/registry-types.ts";
+
 /* ====================================================================== *
  * THE DATABASE.
  *
@@ -60,4 +62,68 @@ export type Db = typeof db;
 
 export async function closeDb(): Promise<void> {
   await db.$disconnect();
+}
+
+/* ====================================================================== *
+ * REACHING A MODEL CHOSEN AT RUN TIME.
+ *
+ * ── WHY THIS EXISTS, AND WHY IT IS HERE AND NOWHERE ELSE ───────────────
+ *
+ * The resource framework is generic over 132 models by construction: one
+ * declaration names `model: "rfi"` and the same forty lines of code then
+ * serve rfis, tasks, defects and everything else. So it has to reach
+ * `db.rfi` through a variable, and no amount of care makes
+ * `db[someModelName].findFirst(args)` type-check on its own — Prisma gives
+ * every model its own argument types, and indexing by a union of 132 keys
+ * produces a union of 132 incompatible signatures that no call can satisfy.
+ *
+ * This is the one place in the service where that is resolved, and it is
+ * resolved with ONE cast rather than an `any` spread through the framework:
+ *
+ *   - the shape below names ONLY the six methods the framework actually
+ *     calls, so it is a promise about a small surface rather than about
+ *     Prisma;
+ *   - everything comes back as `Record<string, unknown>`, NOT `any`, so
+ *     every caller still has to narrow what it reads. An `any` here would
+ *     have silently become the type of every row in the service.
+ *
+ * ── AND IT IS FENCED ───────────────────────────────────────────────────
+ *
+ * Exporting this makes it reachable from anywhere, which would be a way to
+ * query a model without the scoping scanner being able to see which table
+ * was touched. test/tenancy.test.js refuses `delegate(` outside the
+ * framework for exactly that reason — the same rule it already applies to
+ * `db[…]`, and the reason this replaced it: dynamic access used to happen in
+ * two files and now happens in one.
+ * ====================================================================== */
+
+/** A row as the framework sees it: columns it cannot know, values it must narrow. */
+export type Row = Record<string, unknown>;
+
+/** The six methods the resource framework calls, and nothing else. */
+export interface ModelDelegate {
+  findMany(args?: unknown): Promise<Row[]>;
+  findFirst(args?: unknown): Promise<Row | null>;
+  create(args: unknown): Promise<Row>;
+  updateMany(args: unknown): Promise<{ count: number }>;
+  deleteMany(args: unknown): Promise<{ count: number }>;
+  count(args?: unknown): Promise<number>;
+}
+
+/**
+ * `delegate("rfi")` is `db.rfi`, narrowed to what the framework uses.
+ *
+ * The model name is typed, so a misspelt one is still a compile error — the
+ * cast gives up the ARGUMENT types, not the model list.
+ */
+export function delegate(model: ModelKey): ModelDelegate {
+  const client = db as unknown as Record<ModelKey, ModelDelegate>;
+  const found = client[model];
+  if (!found) {
+    /* Unreachable while ModelKey comes from Prisma's own generated names, and
+       worth saying out loud anyway: a stale client is how that stops being
+       true, and registry.test.js checks the two lists agree. */
+    throw new Error(`the Prisma client has no model "${model}" — run \`prisma generate\``);
+  }
+  return found;
 }

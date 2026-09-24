@@ -29,10 +29,17 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.ts";
+import type { Request, RequestHandler } from "express";
+
+import type { AfterWriteContext, ResourceDeclaration } from "../domain/registry-types.ts";
+import type { Act } from "../domain/access.ts";
+import type { Actor, AuthenticatedRequest } from "./request.ts";
+import type { ModelDelegate, Row } from "../db.ts";
+
+import { db, delegate } from "../db.ts";
 import { RESOURCES } from "../domain/registry.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
-import { badRequest, conflict, forbidden, hidden } from "./errors.ts";
+import { badRequest, conflict, forbidden, hidden, messageOf } from "./errors.ts";
 import { clean } from "../domain/input.ts";
 /* Site scope lives in the domain, not here — products.js needs the same
    rule for its summary counts, and one copy of a filter is the point. */
@@ -54,7 +61,11 @@ import {
  * relation reads across the wall. The foreign keys do not stop it — they
  * only check the row exists somewhere.
  */
-async function checkReferences(resource, data, orgId) {
+async function checkReferences(
+  resource: ResourceDeclaration,
+  data: Record<string, unknown>,
+  orgId: string,
+): Promise<void> {
   const jobs = [];
   for (const [key, kind] of Object.entries(resource.fields)) {
     if (!kind.startsWith("id:")) continue;
@@ -62,7 +73,7 @@ async function checkReferences(resource, data, orgId) {
     if (!value) continue;
     const target = RESOURCES[pluralOf(kind.slice(3))] || { model: kind.slice(3) };
     jobs.push(
-      db[target.model].findFirst({ where: { id: value, orgId }, select: { id: true } })
+      delegate(target.model).findFirst({ where: { id: value, orgId }, select: { id: true } })
         .then((row) => (row ? null : key))
     );
   }
@@ -80,7 +91,7 @@ async function checkReferences(resource, data, orgId) {
 }
 
 /** `site` → `sites`, so a kind of `id:site` finds the sites declaration. */
-function pluralOf(model) {
+function pluralOf(model: string): string {
   for (const [slug, r] of Object.entries(RESOURCES)) if (r.model === model) return slug;
   return model;
 }
@@ -93,7 +104,11 @@ function pluralOf(model) {
  * the counter is named per company, one customer's volume never shows in
  * another's numbering.
  */
-async function nextNumber(resource, slug, orgId) {
+async function nextNumber(
+  resource: ResourceDeclaration,
+  slug: string,
+  orgId: string,
+): Promise<string> {
   const name = `${slug}:${orgId}`;
   const row = await db.counter.upsert({
     where: { name },
@@ -112,7 +127,7 @@ async function nextNumber(resource, slug, orgId) {
  * ref itself, and two pieces of code deciding what MSG-0042 means is how a
  * company ends up with two of them.
  */
-export async function numberFor(slug, orgId) {
+export async function numberFor(slug: string, orgId: string): Promise<string> {
   const resource = RESOURCES[slug];
   if (!resource || !resource.numbered) {
     throw new Error(`${slug} is not a numbered resource`);
@@ -127,20 +142,29 @@ export async function numberFor(slug, orgId) {
  * the customer just did. It is a record of activity, not a control — the
  * things that must not happen are prevented above, not detected here.
  */
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string,
+  detail?: unknown,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId,
-        actorId: req.session.userId,
-        actorName: req.view?.user?.name || req.view?.user?.email || "",
+        orgId: actorOf(req).orgId,
+        /* The session is present for the same reason the actor is — see
+           actorOf() above. Read through the actor rather than reaching for a
+           second optional that says the same thing. */
+        actorId: actorOf(req).userId,
+        actorName: actorOf(req).userName,
         action, entity, entityId,
         detail: detail || undefined,
         ip: req.ip || "",
       },
     });
   } catch (e) {
-    console.error("audit write failed", action, entity, entityId, e.message);
+    console.error("audit write failed", action, entity, entityId, messageOf(e));
   }
 }
 
@@ -148,38 +172,73 @@ async function audit(req, action, entity, entityId, detail) {
  * THE ROUTER.
  * ====================================================================== */
 
+/**
+ * The caller, on a router that has already required one.
+ *
+ * Every handler below is mounted behind requireSession() and
+ * requireOrganization() — see resourceRouter() — so `req.actor` is always
+ * present here. The optional type is still right for Express at large, and
+ * this is the one place that says why it is not right HERE.
+ *
+ * A thrown error rather than a cast: if this router is ever mounted without
+ * its guards, the failure should name that rather than reading `undefined.orgId`
+ * three frames later.
+ */
+function actorOf(req: Request): Actor {
+  const actor = req.actor;
+  if (!actor) {
+    throw new Error(
+      "a resource handler ran with no actor — resourceRouter() must stay mounted " +
+      "behind requireSession() and requireOrganization()");
+  }
+  return actor;
+}
+
+/**
+ * The same request, with the guarantee actorOf() checks made visible.
+ *
+ * The cast is on the line after a real check, and it is here rather than at
+ * each of the three call sites so that the justification sits beside it.
+ */
+function authed(req: Request): AuthenticatedRequest {
+  actorOf(req);
+  return req as AuthenticatedRequest;
+}
+
 const MAX_PAGE = 100;
 const DEFAULT_PAGE = 50;
 
 export { clean };
 
-export function resourceRouter(slug) {
+export function resourceRouter(slug: string): Router {
   const resource = RESOURCES[slug];
   if (!resource) throw new Error(`no resource declared for "${slug}"`);
 
   const router = Router({ mergeParams: true });
-  const model = () => db[resource.model];
+  const model = (): ModelDelegate => delegate(resource.model);
   const label = resource.label || slug;
 
   router.use(requireSession(), requireOrganization(), requireOpenSubscription());
 
   /* Entitlement before role. A company that has not bought Hotel Management
      has no rooms, and no role inside it can reach one. */
-  if (resource.product) {
+  const product = resource.product;
+  if (product) {
     router.use((req, _res, next) => {
-      if (!req.actor.products.includes(resource.product)) {
-        return next(forbidden(
+      if (!actorOf(req).products.includes(product)) {
+        next(forbidden(
           `This company's subscription does not include ` +
-          `${resource.product.replace(/_/g, " ").toLowerCase()}, so it has no ${label}.`));
+          `${product.replace(/_/g, " ").toLowerCase()}, so it has no ${label}.`));
+        return;
       }
       next();
     });
   }
 
   /** Role. One line, one place, every verb. */
-  const may = (act) => (req, _res, next) => {
-    const why = whyNotArea(req.actor, resource.area, act, label);
-    if (why) return next(forbidden(why));
+  const may = (act: Act): RequestHandler => (req, _res, next) => {
+    const why = whyNotArea(actorOf(req), resource.area, act, label);
+    if (why) { next(forbidden(why)); return; }
     next();
   };
 
@@ -197,13 +256,13 @@ export function resourceRouter(slug) {
          Both in one literal, so nothing can be inserted between the filter
          and the query it belongs to — see the note on scopedSites(). */
       const where = {
-        orgId: req.actor.orgId,
-        ...(scopeWhere(req.actor, resource, slug) || {}),
-      };
+        orgId: actorOf(req).orgId,
+        ...(scopeWhere(actorOf(req), resource, slug) || {}),
+      } as Record<string, unknown>;
 
-      if (req.query.status) {
+      if (req.query["status"]) {
         where[resource.statusField || "status"] =
-          String(req.query.status).toUpperCase().replace(/[\s-]+/g, "_");
+          String(req.query["status"]).toUpperCase().replace(/[\s-]+/g, "_");
       }
 
       /* Filter by any declared id field: ?siteId=…, ?listingId=… */
@@ -212,9 +271,10 @@ export function resourceRouter(slug) {
         if (req.query[key]) where[key] = String(req.query[key]);
       }
 
-      const q = String(req.query.q || "").trim();
-      if (q && (resource.search || []).length) {
-        where.OR = resource.search.map((f) => ({ [f]: { contains: q, mode: "insensitive" } }));
+      const q = String(req.query["q"] || "").trim();
+      const searchable = resource.search ?? [];
+      if (q && searchable.length) {
+        where["OR"] = searchable.map((f) => ({ [f]: { contains: q, mode: "insensitive" } }));
       }
 
       /*
@@ -254,7 +314,16 @@ export function resourceRouter(slug) {
        * from the units and leases the caller can already see, in one grouped
        * query each rather than one per row.
        */
-      const rolled = resource.rollup ? await resource.rollup(page, req.actor.orgId) : page;
+      /*
+       * A rollup reads `id` off every row, which is why RollupRow names it.
+       * The framework knows the rows came from a findMany on a model whose
+       * primary key is `id` — every model in this schema has one — so this
+       * asserts the field the declaration is allowed to rely on, and nothing
+       * else about the shape.
+       */
+      const rolled = resource.rollup
+        ? await resource.rollup(page as (Row & { id: string })[], actorOf(req).orgId)
+        : page;
 
       res.json({
         [slug]: rolled.map((r) => onRead(resource, r)),
@@ -270,7 +339,7 @@ export function resourceRouter(slug) {
     try {
       const row = await model().findFirst({
         where: {
-          id: req.params.id, orgId: req.actor.orgId,
+          id: req.params.id, orgId: actorOf(req).orgId,
           /*
            * AND, NOT SPREAD. The `sites` resource narrows on its OWN id —
            * scopeWhere returns { id: { in: allowed } } — and a spread puts
@@ -286,7 +355,7 @@ export function resourceRouter(slug) {
            * so this only ever bit sites — the one resource where being wrong
            * about WHICH row means being wrong about a whole property.
            */
-          AND: [scopeWhere(req.actor, resource, slug) || {}],
+          AND: [scopeWhere(actorOf(req), resource, slug) || {}],
         },
         include: withHistory(resource),
       });
@@ -318,7 +387,7 @@ export function resourceRouter(slug) {
   router.post("/", may("create"), async (req, res, next) => {
     try {
       const data = clean(resource, req.body, { partial: false });
-      await checkReferences(resource, data, req.actor.orgId);
+      await checkReferences(resource, data, actorOf(req).orgId);
 
       /*
        * AND IT CANNOT BE WRITTEN OUTSIDE THE REMIT EITHER.
@@ -334,14 +403,14 @@ export function resourceRouter(slug) {
           " at the sites you are assigned to.");
       }
 
-      if (resource.numbered) data[resource.numbered] = await nextNumber(resource, slug, req.actor.orgId);
+      if (resource.numbered) data[resource.numbered] = await nextNumber(resource, slug, actorOf(req).orgId);
 
       let row;
       try {
         row = await model().create({
           /* orgId LAST, so that even a declaration that mistakenly listed it
              as writable could not override the session's. */
-          data: { ...data, orgId: req.actor.orgId },
+          data: { ...data, orgId: actorOf(req).orgId },
           include: resource.include,
         });
       } catch (e) {
@@ -349,10 +418,10 @@ export function resourceRouter(slug) {
       }
 
       if (resource.history) await appendHistory(resource, row, "created", req);
-      await audit(req, "create", resource.model, row.id, { fields: Object.keys(data) });
+      await audit(req, "create", resource.model, String(row["id"]), { fields: Object.keys(data) });
 
-      res.status(201).json({ [singular(slug)]: row, ...(await afterWrite(resource, {
-        row, before: null, action: "create", req,
+      res.status(201).json({ [singular(slug)]: onRead(resource, row), ...(await afterWrite(resource, {
+        row, before: null, action: "create", req: authed(req),
       })) });
     } catch (e) { next(e); }
   });
@@ -377,7 +446,7 @@ export function resourceRouter(slug) {
     try {
       const before = await model().findFirst({
         where: {
-          id: req.params.id, orgId: req.actor.orgId,
+          id: req.params.id, orgId: actorOf(req).orgId,
           /*
            * AND, NOT SPREAD. The `sites` resource narrows on its OWN id —
            * scopeWhere returns { id: { in: allowed } } — and a spread puts
@@ -393,14 +462,14 @@ export function resourceRouter(slug) {
            * so this only ever bit sites — the one resource where being wrong
            * about WHICH row means being wrong about a whole property.
            */
-          AND: [scopeWhere(req.actor, resource, slug) || {}],
+          AND: [scopeWhere(actorOf(req), resource, slug) || {}],
         },
       });
       if (!before) throw hidden();
 
       const data = clean(resource, req.body, { partial: true });
       if (!Object.keys(data).length) throw badRequest("Nothing to change.");
-      await checkReferences(resource, data, req.actor.orgId);
+      await checkReferences(resource, data, actorOf(req).orgId);
 
       /*
        * updateMany, NOT update.
@@ -411,21 +480,28 @@ export function resourceRouter(slug) {
        * belt that costs nothing and the kind of braces that has saved
        * somebody's data before.
        */
-      await model().updateMany({ where: { id: before.id, orgId: req.actor.orgId }, data });
+      await model().updateMany({ where: { id: before.id, orgId: actorOf(req).orgId }, data });
 
       const row = await model().findFirst({
-        where: { id: before.id, orgId: req.actor.orgId },
+        where: { id: before["id"] as string, orgId: actorOf(req).orgId },
         include: resource.include,
       });
+      /*
+       * It was there a line ago — updateMany does not delete. Checked anyway,
+       * because the alternative is asserting it, and a row that has genuinely
+       * vanished between two queries is worth a clear failure rather than a
+       * confusing one three lines later.
+       */
+      if (!row) throw hidden();
 
       const statusField = resource.statusField || "status";
       if (resource.history && data[statusField] && data[statusField] !== before[statusField]) {
         await appendHistory(resource, row, String(data[statusField]).toLowerCase().replace(/_/g, " "), req);
       }
-      await audit(req, "update", resource.model, row.id, { fields: Object.keys(data) });
+      await audit(req, "update", resource.model, String(row["id"]), { fields: Object.keys(data) });
 
-      res.json({ [singular(slug)]: row, ...(await afterWrite(resource, {
-        row, before, action: "update", req,
+      res.json({ [singular(slug)]: onRead(resource, row), ...(await afterWrite(resource, {
+        row, before, action: "update", req: authed(req),
       })) });
     } catch (e) { next(e); }
   });
@@ -441,7 +517,7 @@ export function resourceRouter(slug) {
 
       const { count } = await model().deleteMany({
         where: {
-          id: req.params.id, orgId: req.actor.orgId,
+          id: req.params.id, orgId: actorOf(req).orgId,
           /*
            * AND, NOT SPREAD. The `sites` resource narrows on its OWN id —
            * scopeWhere returns { id: { in: allowed } } — and a spread puts
@@ -457,7 +533,7 @@ export function resourceRouter(slug) {
            * so this only ever bit sites — the one resource where being wrong
            * about WHICH row means being wrong about a whole property.
            */
-          AND: [scopeWhere(req.actor, resource, slug) || {}],
+          AND: [scopeWhere(actorOf(req), resource, slug) || {}],
         },
       });
       if (!count) throw hidden();
@@ -474,7 +550,7 @@ export function resourceRouter(slug) {
  * HISTORY.
  * ====================================================================== */
 
-function withHistory(resource) {
+function withHistory(resource: ResourceDeclaration): Record<string, unknown> | undefined {
   if (!resource.history) return resource.include;
   return { ...(resource.include || {}), events: { orderBy: { at: "asc" } } };
 }
@@ -501,12 +577,15 @@ function withHistory(resource) {
  *
  * So it reports rather than refuses — the same way appendHistory below does.
  */
-async function afterWrite(resource, ctx) {
+async function afterWrite(
+  resource: ResourceDeclaration,
+  ctx: Omit<AfterWriteContext, "db">,
+): Promise<Record<string, unknown>> {
   if (!resource.afterWrite) return {};
   try {
     return (await resource.afterWrite({ ...ctx, db })) || {};
   } catch (e) {
-    console.error("afterWrite failed", resource.model, ctx.row && ctx.row.id, e.message);
+    console.error("afterWrite failed", resource.model, ctx.row && ctx.row.id, messageOf(e));
     return {};
   }
 }
@@ -528,14 +607,14 @@ async function afterWrite(resource, ctx) {
  * per row on every list, which is how a fast list becomes a slow one without
  * anybody noticing.
  */
-function onRead(resource, row) {
+function onRead(resource: ResourceDeclaration, row: Row | null): Row | null {
   if (!resource.onRead || !row) return row;
   try {
     return { ...row, ...(resource.onRead(row) || {}) };
   } catch (e) {
     /* Derived fields are a convenience; the row is the record. Losing the
        former must never cost the latter. */
-    console.error("onRead failed", resource.model, row.id, e.message);
+    console.error("onRead failed", resource.model, row.id, messageOf(e));
     return row;
   }
 }
@@ -547,21 +626,31 @@ function onRead(resource, row) {
  * later to find out what actually happened. An entry that can be edited
  * afterwards is not a history, it is a draft.
  */
-async function appendHistory(resource, row, what, req) {
+async function appendHistory(
+  resource: ResourceDeclaration,
+  row: Row,
+  what: string,
+  req: Request,
+): Promise<void> {
+  const history = resource.history;
+  /* Only called when a declaration has one, and saying so costs one line and
+     removes a whole class of "possibly undefined" from the body below. */
+  if (!history) return;
+
   try {
-    await db[resource.history.model].create({
+    await delegate(history.model).create({
       data: {
-        [resource.history.key]: row.id,
+        [history.key]: row["id"],
         what,
         status: row[resource.statusField || "status"],
-        byId: req.session.userId,
+        byId: actorOf(req).userId,
         /* The name as well as the id: somebody who leaves the company must
            not erase the record of what they did. */
-        byName: req.view?.user?.name || req.view?.user?.email || "",
+        byName: actorOf(req).userName,
       },
     });
   } catch (e) {
-    console.error("history write failed", resource.model, row.id, e.message);
+    console.error("history write failed", resource.model, row["id"], messageOf(e));
   }
 }
 
@@ -569,11 +658,42 @@ async function appendHistory(resource, row, what, req) {
  * TURNING A DATABASE ERROR INTO A SENTENCE.
  * ====================================================================== */
 
-function translate(e, label) {
+/**
+ * What Prisma throws, as far as this function is concerned.
+ *
+ * Narrowed rather than reached into. `e.code` on an `unknown` is the reflex
+ * this migration exists to remove, and here it matters more than usual: this
+ * function decides whether a database failure becomes a 409 a caller can act
+ * on or a 500 that says nothing, and a wrong guess about the shape turns the
+ * first into the second.
+ */
+interface PrismaKnownError {
+  readonly code: string;
+  readonly meta?: {
+    readonly target?: unknown;
+    readonly constraint?: unknown;
+  };
+}
+
+function isPrismaError(e: unknown): e is PrismaKnownError {
+  return typeof e === "object" && e !== null
+    && typeof (e as Record<string, unknown>)["code"] === "string";
+}
+
+/** The columns a constraint names, as text, minus the one every row carries. */
+function columnsIn(target: unknown): string {
+  if (Array.isArray(target)) {
+    return target.filter((f) => f !== "orgId").map((f) => String(f)).join(", ");
+  }
+  return target === undefined || target === null ? "" : String(target);
+}
+
+function translate(e: unknown, label: string): unknown {
+  if (!isPrismaError(e)) return e;
+
   /* P2002 — a unique constraint. The caller broke a rule they can fix. */
-  if (e && e.code === "P2002") {
-    const on = (e.meta && e.meta.target) || [];
-    const field = Array.isArray(on) ? on.filter((f) => f !== "orgId").join(", ") : String(on);
+  if (e.code === "P2002") {
+    const field = columnsIn(e.meta?.target);
     return conflict(
       field
         ? `Another of this company's ${label} already uses that ${field}.`
@@ -581,7 +701,7 @@ function translate(e, label) {
   }
   /* P2003 — a foreign key. checkReferences catches the ones a caller sends;
      this catches a race where the row was deleted in between. */
-  if (e && e.code === "P2003") {
+  if (e.code === "P2003") {
     return badRequest("Something this refers to no longer exists. Reload and try again.");
   }
   /*
@@ -590,9 +710,8 @@ function translate(e, label) {
    * this is the net underneath, so that the worst case is a 400 naming the
    * column rather than a 500 saying nothing.
    */
-  if (e && e.code === "P2011") {
-    const col = (e.meta && (e.meta.target || e.meta.constraint)) || "";
-    const name = Array.isArray(col) ? col.join(", ") : String(col);
+  if (e.code === "P2011") {
+    const name = columnsIn(e.meta?.target ?? e.meta?.constraint);
     return badRequest(
       name ? `${name} is required.` : `Something required was missing from that ${label.replace(/s$/, "")}.`);
   }
@@ -600,7 +719,7 @@ function translate(e, label) {
 }
 
 /** `work-orders` → `workOrder`, for the single-row envelope. */
-function singular(slug) {
+function singular(slug: string): string {
   const base = slug
     .replace(/ies$/, "y")
     .replace(/sses$/, "ss")

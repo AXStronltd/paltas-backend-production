@@ -513,8 +513,11 @@ test("every query the resource framework makes is scoped to one company", () => 
          "event tables carry no orgId of their own",
   }];
 
+  /* `model()` is the framework's accessor; `delegate(…)` is the typed one it
+     and products.ts share. `db[…]` is the older spelling, kept in the pattern
+     so that reintroducing it is caught rather than silently unscanned. */
   for (const m of text.matchAll(
-    /(?:model\(\)|db\[[^\]]+\])\.(findMany|findFirst|findUnique|updateMany|deleteMany|create|count)\(/g)) {
+    /(?:model\(\)|delegate\([^)]*\)|db\[[^\]]+\])\.(findMany|findFirst|findUnique|updateMany|deleteMany|create|count)\(/g)) {
     const line = text.slice(0, m.index).split("\n").length;
 
     /* A window BACK, because `where` is very often built well above the call
@@ -583,11 +586,17 @@ test("every query the resource framework makes is scoped to one company", () => 
    * literal, and the next thing will too. Pinning the exact characters
    * `{ orgId: req.actor.orgId }` would fail on a correct narrowing, which
    * teaches whoever hits it to loosen the regex rather than read it.
+   *
+   * HOW the organization is reached is deliberately not pinned. It was
+   * `req.actor.orgId` and is now `actorOf(req).orgId` — the same value, read
+   * through a helper that refuses when the guards are not mounted. What
+   * matters is that the where OPENS with it, and both spellings are accepted
+   * so that this test keeps checking the rule rather than the wording.
    */
-  assert.match(text, /const where = \{\s*orgId: req\.actor\.orgId\b/,
+  assert.match(text, /const where = \{\s*orgId: (?:req\.actor|actorOf\(req\))\.orgId\b/,
     "the list endpoint no longer starts from a scoped `where` — that is what " +
     "makes every list in the product API safe");
-  assert.match(text, /data: \{ \.\.\.data, orgId: req\.actor\.orgId \}/,
+  assert.match(text, /data: \{ \.\.\.data, orgId: (?:req\.actor|actorOf\(req\))\.orgId \}/,
     "create no longer puts the session's organization LAST. Spread order is what " +
     "stops a declaration that mistakenly allowed orgId from letting a request choose it.");
 });
@@ -598,7 +607,16 @@ test("nothing outside the framework reaches a model through a variable", () => {
    * reviewed, both tested above. A third would be a query nobody can audit,
    * so it is refused here rather than found later.
    */
-  const ALLOWED = new Set(["resource.js", "products.js"]);
+  /*
+   * The files that may reach a model chosen at run time.
+   *
+   * db.ts joined them when the framework was typed: `delegate()` lives there,
+   * because making `db[someModelName]` type-check needs exactly one cast and
+   * that cast belongs beside the client rather than in the framework. The
+   * dynamic access itself moved from two files to one — this list is longer
+   * and the surface behind it is smaller.
+   */
+  const ALLOWED = new Set(["resource.js", "products.js", "db.js"]);
   const offenders = [];
 
   let scanned = 0;
@@ -617,6 +635,26 @@ test("nothing outside the framework reaches a model through a variable", () => {
     for (const m of text.matchAll(/db\[/g)) {
       const line = text.slice(0, m.index).split("\n").length;
       offenders.push(`${entry.name}:${line} — db[…]`);
+    }
+    /*
+     * AND THE TYPED SPELLING OF THE SAME THING.
+     *
+     * `delegate(model)` replaced `db[model]` when the framework was typed —
+     * one documented cast in db.ts instead of dynamic indexing in two files.
+     * It is a strict improvement, and it is also EXPORTED, so without this
+     * line any route could reach any table through a variable and no scanner
+     * could say which one.
+     *
+     * Found by falsifying rather than by review: a delegate() call was added
+     * to routes/offers.js and this test said nothing, because the rule had
+     * been written about the old spelling only.
+     */
+    for (const m of text.matchAll(/\bdelegate\s*\(/g)) {
+      const line = text.slice(0, m.index).split("\n").length;
+      offenders.push(
+        `${entry.name}:${line} — delegate(…) reaches a model through a variable. ` +
+        `It exists for the resource framework, which is generic over 132 models ` +
+        `by construction; a route names its own table.`);
     }
     /*
      * AND THE OTHER WAY OF HIDING FROM THE SCANNER.
