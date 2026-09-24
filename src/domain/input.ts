@@ -23,9 +23,18 @@ import { ENUM_WORDS } from "./console-map.js";
  * rather than a second copy kept by hand — which would drift the first time
  * somebody added a status.
  */
-function enumValues(name) {
-  const e = pkg[name] || (pkg.Prisma && pkg.Prisma[name]);
-  return e && typeof e === "object" ? Object.keys(e) : null;
+function enumValues(name: string): string[] | null {
+  /*
+   * Prisma's generated package is indexed by a name that is only known at
+   * runtime — it comes out of a registry declaration's `enum:Whatever`. A
+   * Record view of the module is the narrowest honest way to say that; the
+   * alternative is `any`, and this is precisely the kind of place where one
+   * `any` quietly becomes the shape of everything downstream.
+   */
+  const mod = pkg as unknown as Record<string, unknown>;
+  const nested = mod["Prisma"] as Record<string, unknown> | undefined;
+  const e = mod[name] ?? nested?.[name];
+  return e !== null && typeof e === "object" ? Object.keys(e) : null;
 }
 
 /* ====================================================================== *
@@ -53,7 +62,7 @@ const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun",
 /** Placeholders the console prints for "there is no date". */
 const NO_DATE = new Set(["", "-", "—", "–", "n/a", "na", "none", "tbc", "tbd"]);
 
-export function looseDate(raw) {
+export function looseDate(raw: unknown): Date | null | undefined {
   const v = String(raw).trim();
   if (NO_DATE.has(v.toLowerCase())) return null;
 
@@ -85,10 +94,22 @@ export function looseDate(raw) {
   }
 
   /* "9 Sep" or "Sep 9" — this year. THE ONE THAT MATTERS. */
-  if ((m = v.match(/^(\d{1,2})\s+([A-Za-z]{3,9})$/)) ||
-      (m = v.match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/) , m && (m = [m[0], m[2], m[1]]))) {
-    const mon = MONTHS.indexOf(String(m[2]).slice(0, 3).toLowerCase());
-    const day = Number(m[1]);
+  /*
+   * "9 Sep" and "Sep 9" are the same date written two ways, so the second
+   * match is reordered into the first's shape. Written as a plain array
+   * rather than reassigning the match, because a RegExpMatchArray carries
+   * `index` and `input` that nothing here reads and the compiler is right to
+   * notice a mismatch.
+   */
+  const dayFirst = v.match(/^(\d{1,2})\s+([A-Za-z]{3,9})$/);
+  const monthFirst = v.match(/^([A-Za-z]{3,9})\s+(\d{1,2})$/);
+  const parts: [string, string] | null =
+    dayFirst ? [dayFirst[1] ?? "", dayFirst[2] ?? ""]
+    : monthFirst ? [monthFirst[2] ?? "", monthFirst[1] ?? ""]
+    : null;
+  if (parts) {
+    const mon = MONTHS.indexOf(parts[1].slice(0, 3).toLowerCase());
+    const day = Number(parts[0]);
     if (mon >= 0 && day >= 1 && day <= 31) {
       return at(now.getFullYear(), mon, day, 0, 0);
     }
@@ -103,7 +124,39 @@ export function looseDate(raw) {
   return undefined;                       // not a date, and not "no date"
 }
 
-const at = (y, mo, d, h, mi) => new Date(Date.UTC(y, mo, d, h, mi));
+const at = (y: number, mo: number, d: number, h: number, mi: number): Date =>
+  new Date(Date.UTC(y, mo, d, h, mi));
+
+/**
+ * WHAT clean() NEEDS FROM A RESOURCE DECLARATION.
+ *
+ * Only the three things it reads. The full declaration type arrives with the
+ * registry in Phase 3; naming a smaller shape here means this module does not
+ * have to wait for it, and says plainly that validation does not care about
+ * the other twelve keys.
+ *
+ * `fields` maps a column to its kind — "string", "money", "id:project",
+ * "enum:DefectStatus". Those strings become a checked union in Phase 3, and
+ * this signature is what will carry it.
+ */
+export interface CleanableResource {
+  readonly fields: Readonly<Record<string, string>>;
+  readonly required?: readonly string[];
+  readonly model?: string;
+  /** The console's own abbreviations for these columns. See console-map.js. */
+  readonly aliases?: Readonly<Record<string, string>>;
+}
+
+/**
+ * The values safe to write.
+ *
+ * `clean()` THROWS rather than returning problems — a badRequest carrying
+ * every refusal, with the first as the sentence. I typed it as a result pair
+ * first, which is the shape it looks like it should have, and the compiler
+ * pointed at the `return out` that proved otherwise. Describing what code does
+ * rather than what it ought to do is most of the value of doing this at all.
+ */
+export type CleanedData = Record<string, unknown>;
 
 const MAX_TEXT = 4000;
 const MAX_STRING = 300;
@@ -118,10 +171,17 @@ const MAX_STRING = 300;
  * `total`, `ref` and the rest cannot be written, and they cannot: they are
  * not in the declaration, so they never reach the query.
  */
-export function clean(resource, body, { partial }) {
-  const out = {};
-  const problems = [];
-  const source = body && typeof body === "object" && !Array.isArray(body) ? body : {};
+export function clean(
+  resource: CleanableResource,
+  body: unknown,
+  { partial }: { readonly partial?: boolean },
+): CleanedData {
+  const out: Record<string, unknown> = {};
+  const problems: string[] = [];
+  const source: Record<string, unknown> =
+    body !== null && typeof body === "object" && !Array.isArray(body)
+      ? (body as Record<string, unknown>)
+      : {};
 
   /*
    * THE CONSOLE'S NAMES, ACCEPTED ALONGSIDE THIS SERVICE'S.
@@ -133,11 +193,11 @@ export function clean(resource, body, { partial }) {
    * The service's own name WINS if both are present. A caller sending both
    * has a bug, and the longer name is the one an API client means.
    */
-  const named = {};
-  for (const [from, to] of Object.entries(resource.aliases || {})) {
+  const named: Record<string, unknown> = {};
+  for (const [from, to] of Object.entries(resource.aliases ?? {})) {
     if (from in source && !(to in source)) named[to] = source[from];
   }
-  const given = { ...named, ...source };
+  const given: Record<string, unknown> = { ...named, ...source };
 
   for (const [key, kind] of Object.entries(resource.fields)) {
     if (!(key in given)) continue;
@@ -209,8 +269,9 @@ export function clean(resource, body, { partial }) {
        * identifier and not what the enum is called.
        */
       const spelled = String(v).trim().toUpperCase();
-      const named = ENUM_WORDS[spelled] ||
-                    ENUM_WORDS[spelled.replace(/[\s-]+/g, "_")] ||
+      const words: Readonly<Record<string, string>> = ENUM_WORDS;
+      const named = words[spelled] ??
+                    words[spelled.replace(/[\s-]+/g, "_")] ??
                     spelled.replace(/[\s-]+/g, "_");
 
       /*

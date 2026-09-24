@@ -40,8 +40,33 @@
  * implying a wall that is not there.
  * ====================================================================== */
 
+/**
+ * WHAT THIS MODULE NEEDS TO KNOW ABOUT WHO IS ASKING.
+ *
+ * `scope` is a Json column, so it arrives as whatever the driver handed back —
+ * usually parsed, sometimes text. `unknown` rather than a shape, because
+ * narrowing it is exactly what scopedSites() does below, and a type that
+ * claimed otherwise would be describing the happy path as if it were the only
+ * one.
+ */
+export interface ScopedActor {
+  readonly scope?: unknown;
+}
+
+/**
+ * The extra `where` a scope adds.
+ *
+ * Two shapes and no more: narrow a site by its own id, or narrow anything
+ * else by the site it belongs to. Typed as a union so a third shape cannot be
+ * introduced here without being named — and a filter nobody named is a filter
+ * nobody reviewed.
+ */
+export type SiteNarrowing =
+  | { readonly id: { readonly in: string[] } }
+  | { readonly siteId: { readonly in: string[] } };
+
 /** The site ids this actor may see, or null for "all of them". */
-export function scopedSites(actor) {
+export function scopedSites(actor: ScopedActor | null | undefined): string[] | null {
   let scope = actor && actor.scope;
 
   /* A Json column usually arrives parsed, but not down every path — raw SQL
@@ -52,9 +77,25 @@ export function scopedSites(actor) {
   if (typeof scope === "string") {
     try { scope = JSON.parse(scope); } catch { scope = null; }
   }
-  if (scope && scope.all === true) return null;                 /* unrestricted */
-  if (scope && Array.isArray(scope.sites) && scope.sites.length) {
-    return scope.sites.map(String);
+
+  /*
+   * NARROWED RATHER THAN ASSUMED.
+   *
+   * A Json column can hold anything — a number, a boolean, a shape from two
+   * schema versions ago. The old code read `scope.all` off whatever arrived,
+   * which happens to be safe in JavaScript and says nothing about what this
+   * function expects. Written out, the two shapes it accepts are visible, and
+   * everything else falls through to the same answer as an unreadable scope:
+   * nothing.
+   */
+  if (typeof scope !== "object" || scope === null) return [];
+  const bag = scope as Record<string, unknown>;
+
+  if (bag["all"] === true) return null;                         /* unrestricted */
+
+  const sites = bag["sites"];
+  if (Array.isArray(sites) && sites.length) {
+    return sites.map((id) => String(id));
   }
   return [];                                                    /* nothing */
 }
@@ -66,7 +107,11 @@ export function scopedSites(actor) {
  * that. A row whose `siteId` is null is NOT included: scope means "these
  * sites", and a row belonging to no site is not one of them.
  */
-export function scopeWhere(actor, resource, slug) {
+export function scopeWhere(
+  actor: ScopedActor | null | undefined,
+  resource: { readonly fields?: Readonly<Record<string, string>> },
+  slug: string,
+): SiteNarrowing | null {
   const allowed = scopedSites(actor);
   if (allowed === null) return null;
   if (slug === "sites") return { id: { in: allowed } };
@@ -85,7 +130,10 @@ export function scopeWhere(actor, resource, slug) {
  *
  * Returns null when nothing should be narrowed, which spreads to nothing.
  */
-export function scopedTo(actor, model) {
+export function scopedTo(
+  actor: ScopedActor | null | undefined,
+  model: string,
+): SiteNarrowing | null {
   const allowed = scopedSites(actor);
   if (allowed === null) return null;
   if (model === "site") return { id: { in: allowed } };

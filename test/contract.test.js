@@ -20,6 +20,7 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { sourceText } from "./src-files.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -34,7 +35,15 @@ const MD_PATH = CANDIDATES.find((p) => existsSync(p));
 const skip = MD_PATH ? false : "backend.md not found — set BACKEND_MD to the frontend's copy";
 const md = MD_PATH ? readFileSync(MD_PATH, "utf8") : "";
 
-const src = (rel) => readFileSync(join(HERE, "..", "src", rel), "utf8");
+/*
+ * Source by name, whatever it is written in.
+ *
+ * This was `readFileSync(join(HERE, "..", "src", rel))`, which is a fourth way
+ * of naming a source file and so a fourth thing my Phase 0 sweep did not find.
+ * It failed loudly — ENOENT, naming the exact path — which is the safe kind of
+ * failure and the reason it was a five-minute fix rather than a silent one.
+ */
+const src = (rel) => sourceText(...rel.split("/"));
 
 /* ================================================================ *
  * §1 — the session object.
@@ -77,15 +86,47 @@ test("every enum value §1 allows is one the database can hold", { skip }, async
 test("§1's three rules are the three the code actually implements", { skip }, async () => {
   const rights = src("domain/rights.js");
 
-  /* 1 — verification restricts publish and payout, and nothing else. */
+  /*
+   * 1 — verification restricts publish and payout, and nothing else.
+   *
+   * ASKED OF THE CODE, NOT GREPPED OUT OF IT. This used to match
+   * `VERIFICATION_RESTRICTS = {` and read the strings inside, which tested how
+   * the table was written rather than what it does — and broke the moment the
+   * declaration gained a type annotation, while restricting exactly the same
+   * two acts.
+   *
+   * Calling the function cannot drift like that, and it is a stronger claim
+   * besides: every act, against every verification status this service knows.
+   */
   assert.match(md, /Verification never closes a console/i);
-  const restricts = rights.match(/VERIFICATION_RESTRICTS = \{([\s\S]*?)\n\};/);
-  assert.ok(restricts, "VERIFICATION_RESTRICTS is gone");
-  const acts = new Set([...restricts[1].matchAll(/"(\w+)"/g)].map((m) => m[1]));
-  for (const a of acts) {
-    assert.ok(["publish", "payout"].includes(a),
-      `verification restricts "${a}", and §1 says it restricts only publish and payout`);
+  const { verificationRestricts } = await import("../src/domain/rights.ts");
+
+  const EVERY_ACT = [
+    "create", "editOwn", "editOrg", "submit",
+    "queue", "requestChanges", "approveMarketing", "flag",
+    "finalQueue", "publish", "schedule", "pause", "approveFinal",
+    "payout",
+  ];
+  const EVERY_STATUS = [
+    "NOT_STARTED", "PENDING", "ADDITIONAL_INFORMATION_REQUIRED",
+    "REJECTED", "COMPLETE",
+    /* and one this service has never heard of, which must be treated as the
+       strictest rather than as permission */
+    "SOMETHING_NEW",
+  ];
+
+  let everRestricted = 0;
+  for (const status of EVERY_STATUS) {
+    for (const act of EVERY_ACT) {
+      if (!verificationRestricts(status, act)) continue;
+      everRestricted += 1;
+      assert.ok(["publish", "payout"].includes(act),
+        `verification restricts "${act}" at ${status}, and §1 says it restricts ` +
+        "only publish and payout");
+    }
   }
+  /* And it really does restrict something, or the loop above proved nothing. */
+  assert.ok(everRestricted > 0, "verification restricts nothing at all");
 
   /* 2 — PAST_DUE still opens the console. */
   assert.match(md, /`PAST_DUE` still opens the console/i);

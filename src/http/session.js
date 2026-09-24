@@ -9,7 +9,7 @@
 import { COOKIE, readSession } from "../auth/sessions.js";
 import { actorFor, sessionView } from "../domain/session-view.js";
 import { forbidden, unauthorized } from "./errors.ts";
-import { subscriptionOpens } from "../domain/rights.js";
+import { subscriptionOpens } from "../domain/rights.ts";
 
 /**
  * Attaches `req.session`, `req.view` and `req.actor` when a valid cookie is

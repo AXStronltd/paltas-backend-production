@@ -33,10 +33,10 @@ import { db } from "../db.ts";
 import { RESOURCES } from "../domain/registry.js";
 import { allows, whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "./errors.ts";
-import { clean } from "../domain/input.js";
+import { clean } from "../domain/input.ts";
 /* Site scope lives in the domain, not here — products.js needs the same
    rule for its summary counts, and one copy of a filter is the point. */
-import { scopeWhere, scopedSites } from "../domain/scope.js";
+import { scopeWhere, scopedSites } from "../domain/scope.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "./session.js";

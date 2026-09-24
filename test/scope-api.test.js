@@ -382,7 +382,7 @@ test("SITE_BEARING matches the schema — it cannot drift", { skip }, async () =
    * models is written out by hand, and a hand-written list of what to secure
    * is a list that goes stale. This reads the schema and compares.
    */
-  const { SITE_BEARING } = await import("../src/domain/scope.js");
+  const { SITE_BEARING } = await import("../src/domain/scope.ts");
   const { readFileSync } = await import("node:fs");
   const schema = readFileSync(new URL("../prisma/schema.prisma", import.meta.url), "utf8");
 

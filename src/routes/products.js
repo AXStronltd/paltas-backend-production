@@ -27,9 +27,9 @@ import { Router } from "express";
 import { db } from "../db.ts";
 import { RESOURCES } from "../domain/registry.js";
 import { resourceRouter } from "../http/resource.js";
-import { clean } from "../domain/input.js";
+import { clean } from "../domain/input.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
-import { scopedTo } from "../domain/scope.js";
+import { scopedTo } from "../domain/scope.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,

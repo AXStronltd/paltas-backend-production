@@ -25,7 +25,7 @@ import {
   badRequest, forbidden, hidden, notFound,
   rateLimit, requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/index.ts";
-import { can, whyNot } from "../domain/rights.js";
+import { can, whyNot } from "../domain/rights.ts";
 import {
   TRANSITIONS, cleanPromotionInput, contentCheck, creativeCheck,
   isPubliclyVisible, publicWhere, toPublicWire, toWire, transitionRefusal,

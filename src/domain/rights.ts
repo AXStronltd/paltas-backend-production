@@ -26,9 +26,47 @@
  * turns a slow payer into a former customer. The wall is CANCELED and EXPIRED
  * — and even then nothing is deleted.
  */
+/**
+ * THE ELEVEN THINGS SOMEBODY CAN DO TO A PROMOTION.
+ *
+ * Named as a union rather than left as a string, because the two tables below
+ * are indexed by these and a typo in either is invisible: `can(actor, "aprove")`
+ * reads a missing key, returns false, and the person is told their role cannot
+ * do something it can.
+ */
+export type PromotionAct =
+  /* the customer's side */
+  | "create" | "editOwn" | "editOrg" | "submit"
+  /* PALTAS Marketing, and Compliance — which can send anything back and
+     approve nothing, which is the point of having it */
+  | "queue" | "requestChanges" | "approveMarketing" | "flag"
+  /* the publisher */
+  | "finalQueue" | "publish" | "schedule" | "pause" | "approveFinal"
+  /* the one verification governs alongside publish */
+  | "payout";
+
+/** What one role may do. Absent is the same as false, and says so. */
+export type PromotionGrants = Readonly<Partial<Record<PromotionAct, boolean>>>;
+
+/**
+ * Who is asking, as far as this module is concerned.
+ *
+ * Deliberately narrow. Verification and subscription arrive as strings from
+ * two different enums, and typing them as `unknown` here keeps the String()
+ * coercions below honest — they exist because these values have been through
+ * a database and a session.
+ */
+export interface PromotionActor {
+  readonly role?: string;
+  readonly isPlatform?: boolean;
+  readonly subscriptionStatus?: unknown;
+  readonly verificationStatus?: unknown;
+}
+
 const OPEN_SUBSCRIPTIONS = new Set(["TRIALING", "ACTIVE", "PAST_DUE"]);
 
-export const subscriptionOpens = (status) => OPEN_SUBSCRIPTIONS.has(String(status));
+export const subscriptionOpens = (status: unknown): boolean =>
+  OPEN_SUBSCRIPTIONS.has(String(status));
 
 /*
  * WHAT VERIFICATION RESTRICTS.
@@ -38,7 +76,7 @@ export const subscriptionOpens = (status) => OPEN_SUBSCRIPTIONS.has(String(statu
  * An unverified company can do all of its own work; what it cannot do is put
  * something in front of the public or move money out.
  */
-const VERIFICATION_RESTRICTS = {
+const VERIFICATION_RESTRICTS: Readonly<Record<string, readonly PromotionAct[]>> = {
   NOT_STARTED: ["publish", "payout"],
   PENDING: ["payout"],
   ADDITIONAL_INFORMATION_REQUIRED: ["publish", "payout"],
@@ -46,9 +84,13 @@ const VERIFICATION_RESTRICTS = {
   COMPLETE: [],
 };
 
-export function verificationRestricts(status, act) {
-  return (VERIFICATION_RESTRICTS[String(status)] || VERIFICATION_RESTRICTS.NOT_STARTED)
-    .includes(act);
+export function verificationRestricts(status: unknown, act: PromotionAct): boolean {
+  const restricted = VERIFICATION_RESTRICTS[String(status)]
+    /* An unknown verification status is treated as the strictest one. A
+       company whose status this service does not recognise is not a company
+       that has been verified. */
+    ?? VERIFICATION_RESTRICTS["NOT_STARTED"];
+  return restricted !== undefined && restricted.includes(act);
 }
 
 /* ---------------------------------------------------------- promotions */
@@ -60,6 +102,15 @@ export function verificationRestricts(status, act) {
  *
  * COMPLIANCE is the interesting row: it can read every queue and send
  * anything back, and it can approve NOTHING. That is the point of having it.
+ */
+/*
+ * `satisfies` rather than a plain annotation, deliberately.
+ *
+ * An annotation would let a typo in an ACT pass as long as it were a valid
+ * act somewhere — and worse, it would silently accept a NEW act that nobody
+ * added to the union, which is how `flag` and `finalQueue` came to be missing
+ * from the first version of that type. `satisfies` checks every key against
+ * the union while keeping the literal shape for anything reading it.
  */
 export const PROMOTION_RIGHTS = {
   PROMO_CONTRIBUTOR: { create: true, editOwn: true, submit: true },
@@ -75,7 +126,7 @@ export const PROMOTION_RIGHTS = {
     queue: true, finalQueue: true, requestChanges: true,
     approveFinal: true, publish: true, schedule: true, pause: true,
   },
-};
+} satisfies Readonly<Record<string, PromotionGrants>>;
 
 /*
  * THE ONE SPECIAL CASE, WRITTEN DOWN RATHER THAN LEFT IMPLICIT.
@@ -86,15 +137,25 @@ export const PROMOTION_RIGHTS = {
  * elevation is conditional on the membership being in a PLATFORM-entitled
  * organization, and is never inferred from the role alone.
  */
-export function promotionRights({ role, isPlatform }) {
+export function promotionRights(
+  { role, isPlatform }: { readonly role?: string; readonly isPlatform?: boolean },
+): PromotionGrants {
   if (isPlatform && (role === "OWNER" || role === "MANAGER")) {
-    return PROMOTION_RIGHTS.PUBLISHER;
+    return PROMOTION_RIGHTS["PUBLISHER"] ?? {};
   }
-  return PROMOTION_RIGHTS[role] || {};
+  /*
+   * A role this table has never heard of gets nothing. Indexed through a
+   * Record view of the literal, because `satisfies` above keeps the exact
+   * shape — which is what makes a typo in a KEY a compile error — and an
+   * exact shape cannot be indexed by an arbitrary string.
+   */
+  const table: Readonly<Record<string, PromotionGrants>> = PROMOTION_RIGHTS;
+  return (role !== undefined ? table[role] : undefined) ?? {};
 }
 
-export function can(actor, act) {
-  return Boolean(promotionRights(actor)[act]);
+export function can(actor: PromotionActor | null | undefined, act: PromotionAct): boolean {
+  if (!actor) return false;
+  return promotionRights(actor)[act] === true;
 }
 
 /**
@@ -102,7 +163,7 @@ export function can(actor, act) {
  * Throws nothing — it returns a reason, so the caller decides the status code
  * and the sentence the person reads.
  */
-export function whyNot(actor, act) {
+export function whyNot(actor: PromotionActor | null | undefined, act: PromotionAct): string | null {
   if (!actor) return "You are not signed in.";
   if (!subscriptionOpens(actor.subscriptionStatus)) {
     return "This company's subscription is " + String(actor.subscriptionStatus).toLowerCase() +
@@ -122,7 +183,7 @@ export function whyNot(actor, act) {
   return null;
 }
 
-function whoCan(act) {
+function whoCan(act: PromotionAct): string {
   if (act === "publish" || act === "schedule" || act === "pause" || act === "approveFinal") {
     return "Publishing belongs to a PALTAS publisher.";
   }

@@ -21,7 +21,7 @@ import assert from "node:assert/strict";
 import {
   PROMOTION_RIGHTS, can, promotionRights, subscriptionOpens,
   verificationRestricts, whyNot,
-} from "../src/domain/rights.js";
+} from "../src/domain/rights.ts";
 
 import {
   CREATIVE_RULES, PUBLIC_STATES, TRANSITIONS, cleanPromotionInput,

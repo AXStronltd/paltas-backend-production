@@ -24,7 +24,7 @@ import { Router } from "express";
 import { db } from "../db.ts";
 import { requireSession, requireOrganization, requireOpenSubscription } from "../http/session.js";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
-import { clean } from "../domain/input.js";
+import { clean } from "../domain/input.ts";
 import { whyNotArea } from "../domain/access.ts";
 import {
   clearanceFor, mayRead, visibleRows, redact, withheldSummary,
