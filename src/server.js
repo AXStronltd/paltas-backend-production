@@ -20,7 +20,7 @@ import { organizationRoutes } from "./routes/organizations.js";
 import { invitationRoutes } from "./routes/invitations.js";
 import { provisioningRoutes } from "./routes/provisioning.js";
 import { promotionRoutes } from "./routes/promotions.js";
-import { productRoutes } from "./routes/products.js";
+import { productRoutes } from "./routes/products.ts";
 import { formRoutes } from "./routes/forms.js";
 import { marketRoutes } from "./routes/market.js";
 import { ledgerRoutes } from "./routes/ledger.js";

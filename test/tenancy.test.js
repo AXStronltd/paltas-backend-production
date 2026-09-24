@@ -696,7 +696,10 @@ test("the product routes read a row by id and organization together", () => {
    * working on other companies' rows at once.
    */
   const text = sourceText("routes", "products.js");
-  const own = text.match(/async function own\([\s\S]*?\n\}/);
+  /* `own[<(]` rather than `own\(`, because the function is generic now —
+     `async function own<M extends ModelKey, Extra = unknown>(`. What is being
+     asserted is its BODY, and that has not changed. */
+  const own = text.match(/async function own[<(][\s\S]*?\n\}/);
   assert.ok(own, "own() is gone from products.js");
   assert.match(own[0], /where: \{ id, orgId \}/,
     "own() no longer filters by organization — every endpoint in products.js " +

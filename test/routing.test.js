@@ -35,7 +35,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 /* Source is read through one helper, so a file renamed to .ts does not make
    this scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceFiles, sourceText } from "./src-files.js";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESOURCES } from "../src/domain/registry.ts";
@@ -244,6 +244,62 @@ test("a resource that keeps its own create has one, and the framework skips it",
   }
 });
 
+test("a permission check names an ACT, never a level", async () => {
+  /*
+   * THE BUG THIS EXISTS FOR, WHICH WAS REAL AND WAS SHIPPED.
+   *
+   * `whyNotArea(actor, area, act)` reads ACT_LEVEL[act] to find the level an
+   * act needs. The acts are list, get, create, update, delete. The LEVELS are
+   * none, read, write, manage — different words for a different thing.
+   *
+   * Four endpoints passed a level where an act belongs:
+   *
+   *     need(req, "documents", "write", "documents")
+   *
+   * ACT_LEVEL["write"] is undefined, so the comparison became
+   * `RANK[have] < undefined`, which is false — and the check returned null,
+   * meaning ALLOWED. A role holding documents at read-only could ask for a
+   * presigned UPLOAD url. It refused nobody except roles that already had no
+   * access at all, which is the one case a permission check does not need.
+   *
+   * Found by the TypeScript migration: `Act` became a union and the compiler
+   * pointed at all four. Nothing else could have found it — every test that
+   * exercised those routes used an owner.
+   */
+  const { ACT_LEVEL, whyNotArea } = await import("../src/domain/access.ts");
+  const ACTS = Object.keys(ACT_LEVEL);
+  const LEVEL_WORDS = ["none", "read", "write", "manage"];
+
+  /* No level word may be one of the acts, or the confusion is unavoidable. */
+  for (const word of LEVEL_WORDS) {
+    assert.ok(!ACTS.includes(word),
+      `"${word}" is both a level and an act, which makes the two impossible to tell apart`);
+  }
+
+  /* And the mistake really does open the door, so this is worth guarding. */
+  const readOnly = { role: "FINANCE", orgId: "x" };
+  assert.ok(whyNotArea(readOnly, "documents", "update", "documents"),
+    "a read-only role was allowed to update — the fix did not take");
+  assert.equal(whyNotArea(readOnly, "documents", "write", "documents"), null,
+    "passing a LEVEL now refuses, which is better — but this test's premise " +
+    "has changed and its wording should change with it");
+
+  /* Nothing in the service may pass a level where an act belongs. */
+  const offenders = [];
+  for (const file of sourceFiles("routes").concat(sourceFiles("http"))) {
+    const text = readFileSync(file, "utf8");
+    for (const m of text.matchAll(
+      /\b(?:need|whyNotArea|allows)\s*\([^)]*?["'](none|read|write|manage)["']/g)) {
+      const line = text.slice(0, m.index).split("\n").length;
+      offenders.push(`${file.split("/").pop()}:${line} — passes "${m[1]}", which is a level`);
+    }
+  }
+  assert.deepEqual(offenders, [],
+    "These pass a LEVEL where an ACT belongs, which makes the check pass for " +
+    "everybody who has any access at all:\n    " + offenders.join("\n    ") +
+    "\n\n  The acts are: " + ACTS.join(", "));
+});
+
 test("every hand-written endpoint checks permission before it does anything", () => {
   /*
    * The framework does this for its 140. These ten are outside it, so they
@@ -261,7 +317,11 @@ test("every hand-written endpoint checks permission before it does anything", ()
     /* /summary decides per area inside itself — it returns a different set
        of counts per role rather than refusing outright. */
     if (path === "/summary") {
-      assert.match(chunk, /allows\(req\.actor/,
+      /* `actorOf(req)` is the typed accessor that replaced `req.actor` — it
+         refuses when the guards are not mounted rather than reading
+         undefined. Both spellings are accepted so this keeps checking the
+         RULE (counts are filtered per area) and not the wording. */
+      assert.match(chunk, /allows\((?:req\.actor|actorOf\(req\))/,
         "/summary no longer filters its counts by what the role may see");
       continue;
     }

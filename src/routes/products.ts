@@ -24,13 +24,21 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { db } from "../db.ts";
+import type { Prisma, PrismaClient } from "@prisma/client";
+import type { Request } from "express";
+
+import type { Act, Area } from "../domain/access.ts";
+import type { ModelKey } from "../domain/registry-types.ts";
+import type { Actor } from "../http/request.ts";
+import type { Row } from "../db.ts";
+
+import { db, delegate } from "../db.ts";
 import { RESOURCES } from "../domain/registry.ts";
 import { resourceRouter } from "../http/resource.ts";
 import { clean } from "../domain/input.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
 import { scopedTo } from "../domain/scope.ts";
-import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
+import { badRequest, conflict, forbidden, hidden, messageOf } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
@@ -59,30 +67,116 @@ const guarded = Router();
 guarded.use(requireSession(), requireOrganization(), requireOpenSubscription());
 productRoutes.use(guarded);
 
+/**
+ * The caller, on a router that has already required one.
+ *
+ * Same invariant as the framework's — everything below is mounted behind
+ * `guarded`, which is requireSession() + requireOrganization() +
+ * requireOpenSubscription(). See actorOf() in http/resource.ts.
+ */
+function actorOf(req: Request): Actor {
+  const actor = req.actor;
+  if (!actor) {
+    throw new Error(
+      "a product route ran with no actor — these are mounted behind `guarded`, " +
+      "which requires a session and an organization");
+  }
+  return actor;
+}
+
+/**
+ * `_count._all` off a groupBy result.
+ *
+ * Prisma types `_count` as the union of `true` and a per-column record,
+ * because the shape depends on what was asked for. This reads the one that
+ * `_count: { _all: true }` produces, and answers 0 for anything else rather
+ * than asserting.
+ */
+function countOf(group: { _count?: unknown } | undefined): number {
+  const c = group?._count;
+  if (typeof c !== "object" || c === null) return 0;
+  const all = (c as Record<string, unknown>)["_all"];
+  return typeof all === "number" ? all : 0;
+}
+
+/** What Prisma throws, narrowed. The same shape http/resource.ts uses. */
+function isPrismaError(e: unknown): e is { code: string } {
+  return typeof e === "object" && e !== null
+    && typeof (e as Record<string, unknown>)["code"] === "string";
+}
+
+/**
+ * A membership's remit, as a directory may show it.
+ *
+ * `sites` is a list of ids and the count is what is shown, because a
+ * directory listing every gate each guard covers is a map of the company's
+ * weak points.
+ */
+function scopeSummary(scope: unknown): { all: true } | { sites: number } {
+  if (typeof scope !== "object" || scope === null) return { sites: 0 };
+  const bag = scope as Record<string, unknown>;
+  if (bag["all"] === true) return { all: true };
+  const sites = bag["sites"];
+  return { sites: Array.isArray(sites) ? sites.length : 0 };
+}
+
 /** Role, for the endpoints below, which are not built by the framework. */
-function need(req, area, act, label) {
-  const why = whyNotArea(req.actor, area, act, label);
+function need(req: Request, area: Area, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req), area, act, label);
   if (why) throw forbidden(why);
 }
 
-/** A row of this company's, or nothing that admits the row exists. */
-async function own(model, id, orgId, extra) {
-  const row = await db[model].findFirst({ where: { id, orgId }, ...(extra || {}) });
+/**
+ * The row type a model's own findFirst yields, without the null.
+ *
+ * Recovered from the Prisma client rather than written out, so every column
+ * and every type comes from the schema.
+ */
+type RowOf<M extends ModelKey> =
+  NonNullable<Awaited<ReturnType<PrismaClient[M]["findFirst"]>>>;
+
+/**
+ * A row of this company's, or nothing that admits the row exists.
+ *
+ * GENERIC OVER THE MODEL, so a caller gets the real columns back.
+ * `delegate()` gives up Prisma's argument types — it has to, being generic
+ * over 132 models — but the call sites here are not generic: each one names
+ * its model as a literal. So the row type is recovered from that literal,
+ * and `invoice.total` is a bigint again rather than an unknown.
+ *
+ * `Extra` is for the callers that pass an `include`. A relation changes the
+ * shape and there is no way to derive that from a runtime object, so a caller
+ * that joins says what it joined: `own<"invoice", { lines: InvoiceLine[] }>`.
+ * Naming it is better than widening every row to allow anything.
+ */
+async function own<M extends ModelKey, Extra = unknown>(
+  model: M,
+  id: string,
+  orgId: string,
+  extra?: Record<string, unknown>,
+): Promise<RowOf<M> & Extra> {
+  const row = await delegate(model).findFirst({ where: { id, orgId }, ...(extra || {}) });
   if (!row) throw hidden();
-  return row;
+  return row as RowOf<M> & Extra;
 }
 
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request,
+  action: string,
+  entity: string,
+  entityId: string,
+  detail?: unknown,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId,
-        actorId: req.session.userId,
+        orgId: actorOf(req).orgId,
+        actorId: actorOf(req).userId,
         actorName: req.view?.user?.name || req.view?.user?.email || "",
         action, entity, entityId, detail: detail || undefined, ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, entity, e.message); }
+  } catch (e) { console.error("audit write failed", action, entity, messageOf(e)); }
 }
 
 /* ====================================================================== *
@@ -109,7 +203,8 @@ async function audit(req, action, entity, entityId, detail) {
  * ====================================================================== */
 
 /** A BigInt from whatever the database or a request body supplied. */
-const big = (v) => (typeof v === "bigint" ? v : BigInt(Math.round(Number(v) || 0)));
+const big = (v: unknown): bigint =>
+  typeof v === "bigint" ? v : BigInt(Math.round(Number(v) || 0));
 
 /**
  * Tax, in basis points, rounded the way the Number version rounded.
@@ -120,14 +215,14 @@ const big = (v) => (typeof v === "bigint" ? v : BigInt(Math.round(Number(v) || 0
  * few cents and nobody can say why. So the half is added back explicitly,
  * with the sign handled rather than assumed.
  */
-function taxOn(net, bps) {
+function taxOn(net: bigint, bps: unknown): bigint {
   const x = net * big(bps);
   const half = 5000n;
   return x >= 0n ? (x + half) / 10000n : -((-x + half) / 10000n);
 }
 
 /** Absolute value, for a figure that may legitimately be negative. */
-const abs = (v) => (v < 0n ? -v : v);
+const abs = (v: bigint): bigint => (v < 0n ? -v : v);
 
 /**
  * Money going into an audit `detail`, which is a Json column.
@@ -138,7 +233,7 @@ const abs = (v) => (v < 0n ? -v : v);
  * real figure is far below, and the audit trail is a record rather than a
  * ledger the books are reconciled from.
  */
-const auditable = (v) => (typeof v === "bigint" ? Number(v) : v);
+const auditable = (v: unknown): unknown => (typeof v === "bigint" ? Number(v) : v);
 
 /**
  * What the caller is told about the books.
@@ -148,8 +243,16 @@ const auditable = (v) => (typeof v === "bigint" ? Number(v) : v);
  * "recorded, not booked — no chart of accounts" is telling the truth; one
  * that shows nothing leaves somebody to discover the gap at year end.
  */
-const bookingOf = (b) => (b
-  ? { booked: b.posted ? b.posted.ref : null, why: b.skipped || null }
+interface PostingOutcome {
+  readonly posted?: { readonly ref?: string | null } | null;
+  readonly skipped?: string | null;
+}
+
+const bookingOf = (b: PostingOutcome | null | undefined): {
+  booked: string | null;
+  why: string | null;
+} => (b
+  ? { booked: b.posted?.ref ?? null, why: b.skipped ?? null }
   : { booked: null, why: null });
 
 /**
@@ -159,7 +262,7 @@ const bookingOf = (b) => (b
  * 16% is 1600 and the division by 10,000 happens once, at the end, on a
  * number that is already an integer count of cents.
  */
-export async function recomputeInvoice(invoiceId, orgId) {
+export async function recomputeInvoice(invoiceId: string, orgId: string) {
   /*
    * IT TAKES THE COMPANY TOO, AND THAT IS NOT BELT AND BRACES.
    *
@@ -214,7 +317,7 @@ export async function recomputeInvoice(invoiceId, orgId) {
 guarded.post("/invoices/:id/lines", async (req, res, next) => {
   try {
     need(req, "finance", "create", "invoices");
-    const invoice = await own("invoice", req.params.id, req.actor.orgId);
+    const invoice = await own("invoice", req.params.id, actorOf(req).orgId);
     if (invoice.status === "VOID") throw conflict("That invoice is void. Raise a new one.");
     if (invoice.status === "PAID") {
       throw conflict("That invoice is paid. Adding to it would change what somebody has already settled.");
@@ -233,7 +336,7 @@ guarded.post("/invoices/:id/lines", async (req, res, next) => {
     await db.invoiceLine.create({
       data: { invoiceId: invoice.id, detail, quantity, unitPrice, taxBps },
     });
-    const updated = await recomputeInvoice(invoice.id, req.actor.orgId);
+    const updated = await recomputeInvoice(invoice.id, actorOf(req).orgId);
     await audit(req, "invoice.line.add", "invoice", invoice.id, { detail, quantity, unitPrice });
 
     res.status(201).json({ invoice: updated });
@@ -243,7 +346,7 @@ guarded.post("/invoices/:id/lines", async (req, res, next) => {
 guarded.delete("/invoices/:id/lines/:lineId", async (req, res, next) => {
   try {
     need(req, "finance", "update", "invoices");
-    const invoice = await own("invoice", req.params.id, req.actor.orgId);
+    const invoice = await own("invoice", req.params.id, actorOf(req).orgId);
     if (invoice.status === "PAID" || invoice.status === "VOID") {
       throw conflict(`That invoice is ${invoice.status.toLowerCase()}; its lines are settled.`);
     }
@@ -252,7 +355,7 @@ guarded.delete("/invoices/:id/lines/:lineId", async (req, res, next) => {
     });
     if (!count) throw hidden();
 
-    const updated = await recomputeInvoice(invoice.id, req.actor.orgId);
+    const updated = await recomputeInvoice(invoice.id, actorOf(req).orgId);
     await audit(req, "invoice.line.remove", "invoice", invoice.id, { lineId: req.params.lineId });
     res.json({ invoice: updated });
   } catch (e) { next(e); }
@@ -272,24 +375,33 @@ guarded.post("/payments", async (req, res, next) => {
     }
 
     let invoice = null;
-    if (data.invoiceId) {
-      invoice = await own("invoice", data.invoiceId, req.actor.orgId);
+    if (data["invoiceId"]) {
+      invoice = await own("invoice", String(data["invoiceId"]), actorOf(req).orgId);
       if (invoice.status === "VOID") throw conflict("That invoice is void.");
       /* Currency is taken FROM THE INVOICE when one is named. Two numbers in
          two currencies added together is a wrong total that looks right. */
-      data.currency = invoice.currency;
+      data["currency"] = invoice.currency;
     }
 
     let payment;
     try {
-      payment = await db.payment.create({ data: { ...data, orgId: req.actor.orgId } });
+      /*
+       * clean() returns columns it has already checked against the
+       * declaration, which is a stronger guarantee than the shape of this
+       * object can express — it knows the FIELD NAMES are writable and their
+       * kinds are right, and Prisma's create type knows the columns. The two
+       * agree by construction; registry.test.js is what proves it.
+       */
+      payment = await db.payment.create({
+        data: { ...data, orgId: actorOf(req).orgId } as Prisma.PaymentUncheckedCreateInput,
+      });
     } catch (e) {
       /*
        * @@unique([orgId, method, reference]) — the same M-Pesa code cannot
        * be banked twice. This is the constraint that catches a double-submit
        * on a phone with a bad signal, which is the ordinary way it happens.
        */
-      if (e.code === "P2002") {
+      if (isPrismaError(e) && e.code === "P2002") {
         throw conflict(
           `A ${String(data.method || "").toLowerCase()} payment with reference ` +
           `“${data.reference}” is already recorded. It has not been taken twice.`);
@@ -297,7 +409,7 @@ guarded.post("/payments", async (req, res, next) => {
       throw e;
     }
 
-    const updated = invoice ? await recomputeInvoice(invoice.id, req.actor.orgId) : null;
+    const updated = invoice ? await recomputeInvoice(invoice.id, actorOf(req).orgId) : null;
     await audit(req, "payment.receive", "payment", payment.id,
       { amount: auditable(payment.amount), currency: payment.currency, method: payment.method });
 
@@ -315,7 +427,7 @@ guarded.post("/payments", async (req, res, next) => {
      * visible and always explained.
      */
     const booking = await postForPayment(db, {
-      orgId: req.actor.orgId, payment, invoice, userId: req.session.userId,
+      orgId: actorOf(req).orgId, payment, invoice, userId: actorOf(req).userId,
     });
     if (booking.skipped) {
       await audit(req, "payment.not_booked", "payment", payment.id, { why: booking.skipped });
@@ -341,7 +453,7 @@ guarded.post("/payments/:id/void", async (req, res, next) => {
         "only this sentence to go on.");
     }
 
-    const payment = await own("payment", req.params.id, req.actor.orgId);
+    const payment = await own("payment", req.params.id, actorOf(req).orgId);
     if (payment.voided) throw conflict("That payment is already void.");
 
     await db.payment.update({
@@ -349,15 +461,15 @@ guarded.post("/payments/:id/void", async (req, res, next) => {
       data: { voided: true, voidReason: why, voidedAt: new Date() },
     });
 
-    const invoice = payment.invoiceId ? await recomputeInvoice(payment.invoiceId, req.actor.orgId) : null;
+    const invoice = payment.invoiceId ? await recomputeInvoice(payment.invoiceId, actorOf(req).orgId) : null;
     await audit(req, "payment.void", "payment", payment.id,
       { reason: why, amount: auditable(payment.amount) });
 
     /* The books are corrected by a mirror entry, not by deleting the first
        one — so the payment, the void and the reason all stay readable. */
     const booking = await reverseFor(db, {
-      orgId: req.actor.orgId, sourceType: "payment", sourceId: payment.id,
-      reason: why, userId: req.session.userId,
+      orgId: actorOf(req).orgId, sourceType: "payment", sourceId: payment.id,
+      reason: why, userId: actorOf(req).userId,
     });
     if (booking.skipped) {
       await audit(req, "payment.void_not_booked", "payment", payment.id, { why: booking.skipped });
@@ -378,10 +490,10 @@ guarded.post("/payments/:id/void", async (req, res, next) => {
 guarded.get("/reservations/:id/folio", async (req, res, next) => {
   try {
     need(req, "hotel", "get", "folios");
-    const reservation = await own("reservation", req.params.id, req.actor.orgId);
+    const reservation = await own("reservation", req.params.id, actorOf(req).orgId);
 
     let folio = await db.folio.findFirst({
-      where: { reservationId: reservation.id, orgId: req.actor.orgId },
+      where: { reservationId: reservation.id, orgId: actorOf(req).orgId },
       include: { lines: { orderBy: { at: "asc" } } },
     });
 
@@ -390,7 +502,7 @@ guarded.get("/reservations/:id/folio", async (req, res, next) => {
     if (!folio) {
       folio = await db.folio.create({
         data: {
-          orgId: req.actor.orgId,
+          orgId: actorOf(req).orgId,
           reservationId: reservation.id,
           currency: reservation.currency,
         },
@@ -406,9 +518,9 @@ guarded.get("/reservations/:id/folio", async (req, res, next) => {
 guarded.post("/reservations/:id/folio/lines", async (req, res, next) => {
   try {
     need(req, "hotel", "create", "folios");
-    const reservation = await own("reservation", req.params.id, req.actor.orgId);
+    const reservation = await own("reservation", req.params.id, actorOf(req).orgId);
     const folio = await db.folio.findFirst({
-      where: { reservationId: reservation.id, orgId: req.actor.orgId },
+      where: { reservationId: reservation.id, orgId: actorOf(req).orgId },
     });
     if (!folio) throw badRequest("That stay has no folio open yet. Read it once to open one.");
     if (folio.closed) throw conflict("That folio is closed. A closed bill is a settled bill.");
@@ -438,9 +550,9 @@ guarded.post("/reservations/:id/folio/lines", async (req, res, next) => {
 guarded.post("/reservations/:id/folio/close", async (req, res, next) => {
   try {
     need(req, "hotel", "update", "folios");
-    const reservation = await own("reservation", req.params.id, req.actor.orgId);
+    const reservation = await own("reservation", req.params.id, actorOf(req).orgId);
     const folio = await db.folio.findFirst({
-      where: { reservationId: reservation.id, orgId: req.actor.orgId },
+      where: { reservationId: reservation.id, orgId: actorOf(req).orgId },
       include: { lines: true },
     });
     if (!folio) throw hidden();
@@ -480,7 +592,7 @@ guarded.post("/visits/:id/decide", async (req, res, next) => {
       throw badRequest("Refusing somebody entry needs a reason on the record.");
     }
 
-    const visit = await own("visit", req.params.id, req.actor.orgId);
+    const visit = await own("visit", req.params.id, actorOf(req).orgId);
     if (visit.status !== "WAITING") {
       throw conflict(`That visit is already ${visit.status.toLowerCase()}.`);
     }
@@ -504,7 +616,7 @@ guarded.post("/visits/:id/decide", async (req, res, next) => {
 guarded.post("/visits/:id/leave", async (req, res, next) => {
   try {
     need(req, "security", "update", "visits");
-    const visit = await own("visit", req.params.id, req.actor.orgId);
+    const visit = await own("visit", req.params.id, actorOf(req).orgId);
     if (visit.leftAt) throw conflict("That visitor is already signed out.");
 
     const row = await db.visit.update({
@@ -539,7 +651,7 @@ guarded.get("/members", async (req, res, next) => {
   try {
     need(req, "people", "list", "people");
     const rows = await db.membership.findMany({
-      where: { orgId: req.actor.orgId },
+      where: { orgId: actorOf(req).orgId },
       include: { user: { select: { id: true, name: true, email: true } } },
       orderBy: { createdAt: "asc" },
       take: 500,
@@ -554,8 +666,9 @@ guarded.get("/members", async (req, res, next) => {
         /* The remit, as stored. `sites` is a list of ids; the console shows
            how MANY, because a directory listing every gate each guard covers
            is a map of the company's weak points. */
-        scope: m.scope && m.scope.all === true ? { all: true }
-             : { sites: Array.isArray(m.scope && m.scope.sites) ? m.scope.sites.length : 0 },
+        /* A Json column, so narrowed rather than read through. See
+           domain/scope.ts, which does the same for the same reason. */
+        scope: scopeSummary(m.scope),
         since: m.createdAt,
       })),
     });
@@ -566,14 +679,14 @@ guarded.get("/members", async (req, res, next) => {
 guarded.get("/folio-lines", async (req, res, next) => {
   try {
     need(req, "hotel", "list", "folio lines");
-    if (!req.actor.products.includes("HOTEL_MANAGEMENT")) {
+    if (!actorOf(req).products.includes("HOTEL_MANAGEMENT")) {
       throw forbidden("This company has no hotel management, so it has no folios.");
     }
     const take = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
     const rows = await db.folioLine.findMany({
       /* FolioLine carries no orgId. It is scoped through its folio, which
          does — the same way every event table in this schema is scoped. */
-      where: { folio: { orgId: req.actor.orgId } },
+      where: { folio: { orgId: actorOf(req).orgId } },
       include: {
         folio: {
           select: {
@@ -610,7 +723,7 @@ guarded.get("/folio-lines", async (req, res, next) => {
 
 guarded.get("/summary", async (req, res, next) => {
   try {
-    const orgId = req.actor.orgId;
+    const orgId = actorOf(req).orgId;
     const today = new Date();
     const startOfDay = new Date(today.getFullYear(), today.getMonth(), today.getDate());
 
@@ -628,49 +741,52 @@ guarded.get("/summary", async (req, res, next) => {
      * are. `at(model)` returns nothing when the model has no site, which is
      * the same honest limit the lists have — see src/domain/scope.js.
      */
-    const at = (model) => scopedTo(req.actor, model) || {};
-    const may = (area) => allows(req.actor, area, "list");
-    const has = (product) => req.actor.products.includes(product);
+    const at = (model: string): Record<string, unknown> =>
+      scopedTo(actorOf(req), model) ?? {};
+    const may = (area: Area): boolean => allows(actorOf(req), area, "list");
+    const has = (product: string): boolean => actorOf(req).products.includes(product);
 
-    const jobs = {};
+    /* Built up conditionally — a tile nobody may see is a query nobody runs,
+       not a zero. The keys are whatever this role is allowed to count. */
+    const jobs: Record<string, Promise<number>> = {};
     if (may("property") && has("PROPERTY_MANAGEMENT")) {
-      jobs.units = db.unit.count({ where: { orgId, ...at("unit") } });
-      jobs.vacantUnits = db.unit.count({ where: { orgId, ...at("unit"), status: "VACANT" } });
-      jobs.activeLeases = db.lease.count({ where: { orgId, status: "ACTIVE" } });
+      jobs["units"] = db.unit.count({ where: { orgId, ...at("unit") } });
+      jobs["vacantUnits"] = db.unit.count({ where: { orgId, ...at("unit"), status: "VACANT" } });
+      jobs["activeLeases"] = db.lease.count({ where: { orgId, status: "ACTIVE" } });
     }
     if (may("maintenance")) {
-      jobs.openWorkOrders = db.workOrder.count({
+      jobs["openWorkOrders"] = db.workOrder.count({
         where: { orgId, ...at("workOrder"),
                  status: { in: ["OPEN", "ASSIGNED", "IN_PROGRESS", "BLOCKED"] } },
       });
-      jobs.urgentWorkOrders = db.workOrder.count({
+      jobs["urgentWorkOrders"] = db.workOrder.count({
         where: { orgId, ...at("workOrder"),
                  priority: "URGENT", status: { notIn: ["DONE", "CANCELLED"] } },
       });
     }
     if (may("hotel") && has("HOTEL_MANAGEMENT")) {
-      jobs.arrivalsToday = db.reservation.count({
+      jobs["arrivalsToday"] = db.reservation.count({
         where: { orgId, arriveOn: { gte: startOfDay }, status: { in: ["CONFIRMED", "PENDING"] } },
       });
-      jobs.inHouse = db.reservation.count({ where: { orgId, status: "CHECKED_IN" } });
-      jobs.roomsToClean = db.room.count({ where: { orgId, ...at("room"), housekeeping: "DIRTY" } });
+      jobs["inHouse"] = db.reservation.count({ where: { orgId, status: "CHECKED_IN" } });
+      jobs["roomsToClean"] = db.room.count({ where: { orgId, ...at("room"), housekeeping: "DIRTY" } });
     }
     if (may("agent") && has("AGENT_HOST")) {
-      jobs.liveListings = db.listing.count({ where: { orgId, status: "LIVE" } });
-      jobs.openLeads = db.lead.count({ where: { orgId, stage: { notIn: ["CLOSED", "LOST"] } } });
+      jobs["liveListings"] = db.listing.count({ where: { orgId, status: "LIVE" } });
+      jobs["openLeads"] = db.lead.count({ where: { orgId, stage: { notIn: ["CLOSED", "LOST"] } } });
     }
     if (may("security") && has("SECURITY_MANAGEMENT")) {
-      jobs.visitorsWaiting = db.visit.count({ where: { orgId, ...at("visit"), status: "WAITING" } });
-      jobs.visitorsInside = db.visit.count({ where: { orgId, ...at("visit"), status: "INSIDE" } });
-      jobs.openIncidents = db.incident.count({
+      jobs["visitorsWaiting"] = db.visit.count({ where: { orgId, ...at("visit"), status: "WAITING" } });
+      jobs["visitorsInside"] = db.visit.count({ where: { orgId, ...at("visit"), status: "INSIDE" } });
+      jobs["openIncidents"] = db.incident.count({
         where: { orgId, ...at("incident"), status: { notIn: ["CLOSED", "RESOLVED"] } },
       });
     }
     if (may("finance")) {
-      jobs.unpaidInvoices = db.invoice.count({
+      jobs["unpaidInvoices"] = db.invoice.count({
         where: { orgId, status: { in: ["SENT", "PART_PAID", "OVERDUE"] } },
       });
-      jobs.overdueInvoices = db.invoice.count({ where: { orgId, status: "OVERDUE" } });
+      jobs["overdueInvoices"] = db.invoice.count({ where: { orgId, status: "OVERDUE" } });
     }
 
     const keys = Object.keys(jobs);
@@ -678,9 +794,9 @@ guarded.get("/summary", async (req, res, next) => {
     const counts = Object.fromEntries(keys.map((k, i) => [k, values[i]]));
 
     res.json({
-      organization: { id: orgId, name: req.actor.orgName },
-      role: req.actor.role,
-      products: req.actor.products,
+      organization: { id: orgId, name: actorOf(req).orgName },
+      role: actorOf(req).role,
+      products: actorOf(req).products,
       counts,
     });
   } catch (e) { next(e); }
@@ -704,7 +820,7 @@ guarded.post("/channels/:id/sync", async (req, res, next) => {
   try {
     need(req, "hotel", "update", "channels");
 
-    const channel = await own("channel", req.params.id, req.actor.orgId);
+    const channel = await own("channel", req.params.id, actorOf(req).orgId);
     if (channel.status === "PAUSED") {
       throw conflict(
         `${channel.name} is paused. Resume it before syncing, or it will be ` +
@@ -738,7 +854,7 @@ guarded.post("/channels/sync", async (req, res, next) => {
     need(req, "hotel", "update", "channels");
 
     const rows = await db.channel.findMany({
-      where: { orgId: req.actor.orgId, status: "LIVE" },
+      where: { orgId: actorOf(req).orgId, status: "LIVE" },
       orderBy: { name: "asc" },
     });
     if (!rows.length) {
@@ -758,9 +874,9 @@ guarded.post("/channels/sync", async (req, res, next) => {
         /* One channel refusing must not hide the other eleven. The failure is
            recorded against that channel and the loop continues. */
         await db.channel.update({
-          where: { id: channel.id }, data: { status: "ERROR", note: e.message },
+          where: { id: channel.id }, data: { status: "ERROR", note: messageOf(e) },
         }).catch(() => {});
-        results.push({ id: channel.id, name: channel.name, ok: false, why: e.message });
+        results.push({ id: channel.id, name: channel.name, ok: false, why: messageOf(e) });
       }
     }
 
@@ -808,17 +924,25 @@ guarded.get("/connect/rollup", async (req, res, next) => {
 
     const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 365);
     const since = new Date(Date.now() - days * 86_400_000);
-    const countable = { notIn: ["CANCELLED", "NO_SHOW"] };
+    /*
+     * Typed as Prisma's own filter, so the two strings are checked against
+     * ReservationStatus rather than being a widened string[]. A reservation
+     * that was cancelled or never turned up is not a booking a channel earned
+     * commission on — and a typo in either name would silently count them.
+     */
+    const countable: Prisma.EnumReservationStatusFilter = {
+      notIn: ["CANCELLED", "NO_SHOW"],
+    };
 
     const [channels, grouped, loose] = await Promise.all([
       db.channel.findMany({
-        where: { orgId: req.actor.orgId },
+        where: { orgId: actorOf(req).orgId },
         orderBy: { name: "asc" },
       }),
       db.reservation.groupBy({
         by: ["channelId"],
         where: {
-          orgId: req.actor.orgId,
+          orgId: actorOf(req).orgId,
           createdAt: { gte: since },
           status: countable,
           channelId: { not: null },
@@ -828,7 +952,7 @@ guarded.get("/connect/rollup", async (req, res, next) => {
       }),
       db.reservation.count({
         where: {
-          orgId: req.actor.orgId,
+          orgId: actorOf(req).orgId,
           createdAt: { gte: since },
           status: countable,
           channelId: null,
@@ -853,7 +977,12 @@ guarded.get("/connect/rollup", async (req, res, next) => {
         total: c.total || 0,
         lastSyncAt: c.lastSyncAt,
         note: c.note || "",
-        reservations: g?._count?._all || 0,
+        /*
+         * groupBy with `_count: { _all: true }` yields `_all`; Prisma's type
+         * for `_count` is the union of "true" and the per-column shape, so it
+         * is read through the shape that was actually asked for.
+         */
+        reservations: countOf(g),
         revenueMinor: revenue,
         commissionMinor: Math.round((revenue * (c.commissionBps || 0)) / 10_000),
         commissionBps: c.commissionBps || 0,
@@ -897,7 +1026,7 @@ guarded.get("/storage/status", (req, res, next) => {
        see this company's documents has no business knowing how they are
        stored — and routing.test.js is right to insist every hand-written
        endpoint answers the question rather than assuming it is harmless. */
-    need(req, "documents", "read", "documents");
+    need(req, "documents", "get", "documents");
     /* Whether uploads work, without naming a missing environment variable to a
        customer — they cannot act on one. An operator reads describe(). */
     res.json({ storage: storagePublicDescribe() });
@@ -906,8 +1035,8 @@ guarded.get("/storage/status", (req, res, next) => {
 
 guarded.post("/documents/:id/upload-url", async (req, res, next) => {
   try {
-    need(req, "documents", "write", "documents");
-    const orgId = req.actor.orgId;
+    need(req, "documents", "update", "documents");
+    const orgId = actorOf(req).orgId;
     const doc = await own("document", String(req.params.id), orgId);
 
     const out = presignUpload({
@@ -916,7 +1045,7 @@ guarded.post("/documents/:id/upload-url", async (req, res, next) => {
       contentType: req.body?.contentType,
       bytes: req.body?.bytes,
     });
-    if (!out.ok) throw badRequest(out.why);
+    if (!out.ok) throw badRequest(out.why ?? "That upload could not be prepared.");
 
     /*
      * The key is recorded NOW, before the upload, so a file that lands in
@@ -931,7 +1060,7 @@ guarded.post("/documents/:id/upload-url", async (req, res, next) => {
       data: { storageKey: out.storageKey, bytes: 0, checksum: "", mimeType: "" },
     });
     await audit(req, "document.upload.begin", "document", doc.id,
-      { filename: out.headers["Content-Type"] });
+      { filename: out.headers?.["Content-Type"] });
 
     res.json({
       upload: {
@@ -946,13 +1075,13 @@ guarded.post("/documents/:id/upload-url", async (req, res, next) => {
 
 guarded.post("/documents/:id/attached", async (req, res, next) => {
   try {
-    need(req, "documents", "write", "documents");
-    const orgId = req.actor.orgId;
+    need(req, "documents", "update", "documents");
+    const orgId = actorOf(req).orgId;
     const doc = await own("document", String(req.params.id), orgId);
     if (!doc.storageKey) throw badRequest("No upload was started for this document.");
 
     const found = await storageHead({ storageKey: doc.storageKey, orgId });
-    if (!found.ok) throw badRequest(found.why);
+    if (!found.ok) throw badRequest(found.why ?? "That upload could not be confirmed.");
 
     const row = await db.document.update({
       where: { id: doc.id },
@@ -966,8 +1095,8 @@ guarded.post("/documents/:id/attached", async (req, res, next) => {
 
 guarded.get("/documents/:id/download-url", async (req, res, next) => {
   try {
-    need(req, "documents", "read", "documents");
-    const orgId = req.actor.orgId;
+    need(req, "documents", "get", "documents");
+    const orgId = actorOf(req).orgId;
     const doc = await own("document", String(req.params.id), orgId);
 
     /*
@@ -977,7 +1106,7 @@ guarded.get("/documents/:id/download-url", async (req, res, next) => {
      * escaped its tenant is the failure that would be silent.
      */
     const out = presignDownload({ storageKey: doc.storageKey, orgId, filename: doc.name });
-    if (!out.ok) throw badRequest(out.why);
+    if (!out.ok) throw badRequest(out.why ?? "That upload could not be prepared.");
 
     /* Reading somebody's title deed is a thing that should be answerable
        later, so it is recorded at the time. */
