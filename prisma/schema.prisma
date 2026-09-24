@@ -342,6 +342,8 @@ model Organization {
   authorityRecords  PropertyAuthorityRecord[]
   authorityRequests AuthorityRequest[]
   Contract          Contract[]
+  ProjectPhase      ProjectPhase[]
+  Milestone         Milestone[]
 }
 
 model Subscription {
@@ -1080,17 +1082,100 @@ model Project {
   spent    BigInt       @default(0)
   currency String       @default("KES")
 
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
   CapitalCall CapitalCall[]
   offerings   Offering[]
   /// The units this project actually holds, as rows.
   unitRows    Unit[]
   /// The sale agreements written against it.
   contracts   Contract[]
+  /// The stages of work this development is built in.
+  phases      ProjectPhase[]
+  /// Its dated commitments, whether or not they belong to a phase.
+  milestones  Milestone[]
 
   @@index([orgId])
   @@index([orgId, stage])
+}
+
+/// A STAGE OF WORK INSIDE A DEVELOPMENT.
+///
+/// `Project.built` is a single percentage somebody types, and it was the only
+/// structure a development had: a forty-storey tower and a pair of villas both
+/// reduced to one number with nothing behind it. A phase is the unit a
+/// construction programme is actually run in — foundations, superstructure,
+/// fit-out — each with its own dates and its own progress.
+///
+/// WEIGHT, BECAUSE PHASES ARE NOT EQUAL. Ten per cent of the superstructure is
+/// not ten per cent of the job. `weight` lets a project's real progress be the
+/// weighted average of its phases; where no weights are set they count
+/// equally and the average is the plain one.
+model ProjectPhase {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId String
+  /// Cascade, unlike most references here: a phase has no meaning without its
+  /// project, and leaving orphans would make every progress figure wrong.
+  project   Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  name     String
+  /// Where it sits in the programme. Two phases may share a position — work
+  /// genuinely runs in parallel — so this orders rather than identifies.
+  position Int         @default(0)
+  status   PhaseStatus @default(NOT_STARTED)
+  /// 0-100, this phase only.
+  progress Int         @default(0)
+  /// How much of the project this phase represents. 0 means "count it equally".
+  weight   Int         @default(0)
+
+  startsOn DateTime?
+  endsOn   DateTime?
+  note     String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  milestones Milestone[]
+
+  @@index([orgId])
+  @@index([orgId, projectId])
+  @@index([orgId, status])
+}
+
+/// A DATED COMMITMENT — the thing a developer is actually held to.
+///
+/// Attached to a project always, and to a phase where it belongs to one, so
+/// "what is due this month across every development" and "what is left in the
+/// fit-out" are both one query.
+model Milestone {
+  id        String        @id @default(cuid())
+  orgId     String
+  org       Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  projectId String
+  project   Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phaseId   String?
+  /// SetNull rather than Cascade: reorganising the programme must not delete
+  /// the commitments that were made under it.
+  phase     ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+
+  name   String
+  status MilestoneStatus @default(PENDING)
+  dueOn  DateTime?
+  /// When it was actually met. Kept apart from `dueOn` so a slipped milestone
+  /// that was delivered still reads as slipped.
+  doneOn DateTime?
+  owner  String          @default("")
+  note   String          @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, projectId])
+  @@index([orgId, dueOn])
+  @@index([orgId, status])
 }
 
 /// A SALE AGREEMENT FOR ONE UNIT.
@@ -1165,6 +1250,32 @@ enum ContractStatus {
   RESERVED
   SOLD
   COMPLETED
+  CANCELLED
+}
+
+/// Where a phase of a development has got to.
+///
+/// Deliberately smaller than ProjectStage: a project passes through planning,
+/// approvals, groundwork and the rest ONCE, while a phase is simply not
+/// started, running, done or stopped — and a tower has many phases running at
+/// different times.
+enum PhaseStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  DONE
+  ON_HOLD
+}
+
+/// A dated commitment inside a project.
+///
+/// MISSED is its own state rather than something a screen works out from the
+/// date, because a milestone that slipped and was then delivered is a
+/// different fact from one delivered on time, and an audit of a development
+/// asks about exactly that.
+enum MilestoneStatus {
+  PENDING
+  DONE
+  MISSED
   CANCELLED
 }
 

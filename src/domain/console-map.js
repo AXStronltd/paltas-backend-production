@@ -149,6 +149,28 @@ export const CONSOLE_FORMS = {
    * text "Golden Park Phase 2" would sit in the list looking correct and be
    * counted against nothing.
    */
+  /*
+   * The programme. `n` is `name` here as it is on every other form that has a
+   * name, which is what keeps aliasesFor() from throwing.
+   */
+  pm_phases: {
+    resource: "project-phases",
+    label: "＋ Add a phase",
+    fields: {
+      project: "projectId", n: "name", pos: "position", st: "status",
+      pct: "progress", weight: "weight", from: "startsOn", to: "endsOn",
+    },
+  },
+
+  pm_milestones: {
+    resource: "milestones",
+    label: "＋ Add a milestone",
+    fields: {
+      project: "projectId", phase: "phaseId", n: "name", st: "status",
+      due: "dueOn", owner: "owner",
+    },
+  },
+
   pm_contracts: {
     resource: "contracts",
     label: "＋ New sale",

@@ -342,7 +342,13 @@ async function referenceTo(model) {
 
   const body = {};
   for (const name of resource.required || []) {
-    body[name] = valueForKind(resource.fields[name], name);
+    const kind = resource.fields[name];
+    /* A required field can itself be a reference — a project phase needs a
+       project. Recursing is the only way to build the chain, and the cache
+       above stops it looping on a resource that referenced itself. */
+    body[name] = kind.startsWith("id:")
+      ? await referenceTo(kind.slice(3))
+      : valueForKind(kind, name);
   }
   const res = await post(`/${slug}`, body);
   assert.equal(res.status, 201,

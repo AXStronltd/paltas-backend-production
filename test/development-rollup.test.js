@@ -220,3 +220,95 @@ test("another company's sales are never counted into these", { skip }, async () 
   assert.equal(json.projects[0].revenue, 1_000_000,
     "the other company's sale reached this company's rollup");
 });
+
+/* ====================================================================== *
+ * HOW FAR BUILT — from the programme, where there is one
+ * ====================================================================== */
+
+let phaseSeq = 0;
+function phase(orgId, projectId, progress, weight) {
+  return db.projectPhase.create({
+    data: { orgId, projectId, name: `Phase ${++phaseSeq}`, progress, weight, status: "IN_PROGRESS" },
+  });
+}
+
+test("a project with no phases keeps the figure somebody typed", { skip }, async () => {
+  const { org, cookie } = await company();
+  const p = await db.project.create({ data: { orgId: org.id, name: "Typed only", built: 42 } });
+
+  const { json } = await get("/projects", cookie);
+  const row = json.projects.find((x) => x.id === p.id);
+  assert.equal(row.phases, 0);
+  assert.equal(row.progress, 42, "a project with no programme lost the figure it had");
+  assert.equal(row.built, 42, "the typed figure was overwritten");
+});
+
+test("phases of equal weight average plainly", { skip }, async () => {
+  const { org, cookie } = await company();
+  const p = await db.project.create({ data: { orgId: org.id, name: "Even", built: 0 } });
+  await phase(org.id, p.id, 100, 0);
+  await phase(org.id, p.id, 50, 0);
+  await phase(org.id, p.id, 0, 0);
+
+  const { json } = await get("/projects", cookie);
+  const row = json.projects.find((x) => x.id === p.id);
+  assert.equal(row.phases, 3);
+  assert.equal(row.progress, 50, "three phases at 100, 50 and 0 are half done");
+});
+
+test("weight decides how much a phase counts", { skip }, async () => {
+  /*
+   * THE REASON WEIGHT EXISTS. Ten per cent of the superstructure is not ten
+   * per cent of the job. A finished ground survey and an untouched tower are
+   * not a half-built development, and a plain average says they are.
+   */
+  const { org, cookie } = await company();
+  const p = await db.project.create({ data: { orgId: org.id, name: "Weighted", built: 0 } });
+  await phase(org.id, p.id, 100, 10);   // the survey, done
+  await phase(org.id, p.id, 0, 90);     // the tower, not started
+
+  const { json } = await get("/projects", cookie);
+  const row = json.projects.find((x) => x.id === p.id);
+  assert.equal(row.progress, 10, "a plain average called this half built");
+});
+
+test("the typed figure and the programme are both reported", { skip }, async () => {
+  /*
+   * Not overwritten, deliberately. A project manager who entered 80 and a
+   * programme that comes to 25 needs to see both — one silently replacing the
+   * other is how a development reports progress nobody stands behind.
+   */
+  const { org, cookie } = await company();
+  const p = await db.project.create({ data: { orgId: org.id, name: "Disagreeing", built: 80 } });
+  await phase(org.id, p.id, 25, 0);
+
+  const { json } = await get("/projects", cookie);
+  const row = json.projects.find((x) => x.id === p.id);
+  assert.equal(row.built, 80, "the typed figure was lost");
+  assert.equal(row.progress, 25, "the programme was ignored");
+});
+
+test("one project's phases never count toward another", { skip }, async () => {
+  const { org, cookie } = await company();
+  const a = await db.project.create({ data: { orgId: org.id, name: "A", built: 0 } });
+  const b = await db.project.create({ data: { orgId: org.id, name: "B", built: 0 } });
+  await phase(org.id, a.id, 100, 0);
+
+  const { json } = await get("/projects", cookie);
+  assert.equal(json.projects.find((x) => x.id === a.id).progress, 100);
+  assert.equal(json.projects.find((x) => x.id === b.id).progress, 0,
+    "a phase leaked into a project it does not belong to");
+});
+
+test("deleting a project takes its programme with it", { skip }, async () => {
+  /* Cascade, unlike most references here — an orphan phase would make some
+     other project's progress wrong, or none at all. */
+  const { org } = await company();
+  const p = await db.project.create({ data: { orgId: org.id, name: "Cancelled", built: 0 } });
+  await phase(org.id, p.id, 60, 0);
+  await db.milestone.create({ data: { orgId: org.id, projectId: p.id, name: "Handover" } });
+
+  await db.project.delete({ where: { id: p.id } });
+  assert.equal(await db.projectPhase.count({ where: { projectId: p.id } }), 0);
+  assert.equal(await db.milestone.count({ where: { projectId: p.id } }), 0);
+});

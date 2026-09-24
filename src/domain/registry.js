@@ -356,10 +356,92 @@ export const RESOURCES = {
         by.set(c.projectId, acc);
       }
 
+      /*
+       * AND HOW FAR BUILT, FROM THE PHASES WHERE THERE ARE ANY.
+       *
+       * `built` is a number somebody types, and it was the only structure a
+       * development had. Where a project has phases, its real progress is the
+       * WEIGHTED average of them — ten per cent of the superstructure is not
+       * ten per cent of the job — and where no weights are set they count
+       * equally.
+       *
+       * The typed figure is not overwritten. It is returned as `built` and the
+       * derived one as `progress`, because a project manager who has entered a
+       * number and a programme that disagrees with it needs to see both rather
+       * than have one silently replace the other.
+       */
+      const phases = await db.projectPhase.findMany({
+        where: { orgId, projectId: { in: rows.map((r) => r.id) } },
+        select: { projectId: true, progress: true, weight: true },
+      });
+      const byProject = new Map();
+      for (const ph of phases) {
+        const acc = byProject.get(ph.projectId) || { weighted: 0, weight: 0, count: 0 };
+        const w = ph.weight > 0 ? ph.weight : 1;
+        acc.weighted += (ph.progress || 0) * w;
+        acc.weight += w;
+        acc.count += 1;
+        byProject.set(ph.projectId, acc);
+      }
+
       return rows.map((r) => {
         const a = by.get(r.id) || { sold: 0, reserved: 0, revenue: 0n };
-        return { ...r, sold: a.sold, reserved: a.reserved, revenue: a.revenue };
+        const ph = byProject.get(r.id);
+        return {
+          ...r,
+          sold: a.sold, reserved: a.reserved, revenue: a.revenue,
+          phases: ph ? ph.count : 0,
+          progress: ph && ph.weight ? Math.round(ph.weighted / ph.weight) : r.built,
+        };
       });
+    },
+  },
+
+  /*
+   * THE PROGRAMME A DEVELOPMENT IS BUILT TO.
+   *
+   * A phase is the unit construction is actually run in. Cascade on the
+   * project, because a phase without its project is a progress figure
+   * attached to nothing.
+   */
+  "project-phases": {
+    model: "projectPhase", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "project phases",
+    fields: {
+      projectId: "id:project", name: "string", position: "int",
+      status: "enum:PhaseStatus", progress: "int", weight: "int",
+      startsOn: "date", endsOn: "date", note: "text",
+    },
+    /* projectId as well as a name: the column is NOT NULL with no default, so
+       a create without it would reach the database and come back a 500
+       instead of naming the field that was missing. */
+    required: ["projectId", "name"],
+    search: ["name", "note"],
+    order: [{ position: "asc" }],
+    include: { project: { select: { id: true, name: true } } },
+  },
+
+  /*
+   * THE DATES A DEVELOPER IS HELD TO.
+   *
+   * `doneOn` is kept apart from `dueOn` so a milestone that slipped and was
+   * then delivered still reads as slipped — which is the thing anybody
+   * reviewing a development actually asks about.
+   */
+  milestones: {
+    model: "milestone", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "milestones",
+    fields: {
+      projectId: "id:project", phaseId: "id:projectPhase", name: "string",
+      status: "enum:MilestoneStatus", dueOn: "date", doneOn: "date",
+      owner: "string", note: "text",
+    },
+    required: ["projectId", "name"],
+    search: ["name", "owner", "note"],
+    order: [{ dueOn: "asc" }],
+    include: {
+      project: { select: { id: true, name: true } },
+      phase: { select: { id: true, name: true } },
     },
   },
 
