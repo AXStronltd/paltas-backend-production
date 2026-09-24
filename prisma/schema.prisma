@@ -344,6 +344,7 @@ model Organization {
   Contract          Contract[]
   ProjectPhase      ProjectPhase[]
   Milestone         Milestone[]
+  Offer             Offer[]
 }
 
 model Subscription {
@@ -823,6 +824,7 @@ model Unit {
   listings    Listing[]
   OpsTask     OpsTask[]
   contracts   Contract[]
+  offers      Offer[]
   PricingRule PricingRule[]
   offerings   Offering[]
 
@@ -893,6 +895,8 @@ model Party {
   leases       Lease[]        @relation("LeaseTenant")
   /// The unit sales this person is the buyer on.
   purchases    Contract[]     @relation("ContractBuyer")
+  /// And the offers made to them, accepted or not.
+  offers       Offer[]        @relation("OfferBuyer")
   deals        Deal[]
   viewings     Viewing[]
   reservations Reservation[]
@@ -1094,9 +1098,80 @@ model Project {
   phases      ProjectPhase[]
   /// Its dated commitments, whether or not they belong to a phase.
   milestones  Milestone[]
+  offers      Offer[]
 
   @@index([orgId])
   @@index([orgId, stage])
+}
+
+/// AN OFFER ON A UNIT — the step before a reservation.
+///
+/// The sales chain a developer runs on is lead → offer → reservation →
+/// invoice → payment, and the first arrow had nothing behind it: a price
+/// quoted to a buyer lived in somebody's email until it became a signed
+/// contract, so "what have we offered, to whom, and is it still open" could
+/// not be asked at all.
+///
+/// ── IT IS NOT A DRAFT CONTRACT ─────────────────────────────────────────
+///
+/// A Contract is an agreement that exists. An Offer is a proposal that may
+/// expire, be rejected or be beaten by another — most never become anything.
+/// Modelling them as draft contracts would put failed negotiations into the
+/// sales book and into the ledger's view of committed stock. Accepting an
+/// offer CREATES a contract; both rows stay.
+model Offer {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Per-company number — OFF-0007. Allocated by the framework.
+  ref String
+
+  buyerId   String?
+  buyer     Party?   @relation("OfferBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  unitId    String?
+  unit      Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  /// Minor units, like every amount in this schema.
+  price    BigInt @default(0)
+  /// Taken off the price. Held apart from it so what was ASKED and what was
+  /// CONCEDED are both still readable a year later.
+  discount BigInt @default(0)
+  deposit  BigInt @default(0)
+  currency String @default("KES")
+
+  /// How the balance is to be paid — "30/70 on completion", "24 months".
+  /// Free text because a payment plan is commercial rather than structural,
+  /// and a schedule model would be a second thing to keep in step with the
+  /// invoice that eventually bills it.
+  paymentPlan String @default("")
+  terms       String @default("")
+
+  status     OfferStatus @default(DRAFT)
+  /// Not acceptable after this. Null means open until withdrawn.
+  validUntil DateTime?
+
+  sentAt        DateTime?
+  viewedAt      DateTime?
+  decidedAt     DateTime?
+  /// Why it was turned down. Kept, because the reason a buyer walked away is
+  /// worth more than the fact that they did.
+  declineReason String    @default("")
+  note          String    @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /// The reservation it became, if it was accepted.
+  contract Contract?
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, unitId])
+  @@index([orgId, buyerId])
 }
 
 /// A STAGE OF WORK INSIDE A DEVELOPMENT.
@@ -1212,6 +1287,14 @@ model Contract {
   /// not delete the company's record of a sale.
   buyerId   String?
   buyer     Party?   @relation("ContractBuyer", fields: [buyerId], references: [id], onDelete: SetNull)
+  /// The offer this reservation came from, where it came from one.
+  ///
+  /// The chain the business runs on is buyer → offer → reservation → invoice
+  /// → payment, and without this the first link is lost the moment the
+  /// reservation exists. Unique, because one accepted offer makes one
+  /// reservation — accepting twice would otherwise sell the same unit twice.
+  offerId   String?  @unique
+  offer     Offer?   @relation(fields: [offerId], references: [id], onDelete: SetNull)
 
   /// Minor units, like every amount in this schema.
   price    BigInt @default(0)
@@ -1246,6 +1329,24 @@ model Contract {
 ///
 /// CANCELLED rather than deleting the row: a reservation that fell through is
 /// the reason a unit came back to the market, and erasing it loses that.
+/// Where an offer on a unit has got to.
+///
+/// VIEWED sits between SENT and a decision on purpose: a developer chasing a
+/// buyer needs to know whether the offer was opened at all, and "sent and
+/// silent" is a different problem from "read and thinking".
+///
+/// EXPIRED is set by the service when the validity date passes, not inferred
+/// on a screen — an expired offer has to stop being acceptable everywhere at
+/// once, rather than look expired in one place and be acceptable in another.
+enum OfferStatus {
+  DRAFT
+  SENT
+  VIEWED
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
 enum ContractStatus {
   RESERVED
   SOLD

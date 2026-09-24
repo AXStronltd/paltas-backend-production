@@ -97,6 +97,36 @@ const NEVER_WRITABLE = {
  */
 const NOT_WRITABLE_HERE = {
   /*
+   * AN OFFER IS MOVED BY AN ACT, NEVER BY A FIELD.
+   *
+   * Every column below is set by routes/offers.js — send, view, accept,
+   * reject — because each move has consequences beyond the row. Accepting
+   * reserves the unit, opens a reservation and expires every rival offer on
+   * that flat, all in one transaction.
+   *
+   * A writable `status` is that state machine with the door left open: a
+   * caller could PATCH an offer to ACCEPTED and leave the unit on the market,
+   * no reservation anywhere, and two buyers each still holding a live offer.
+   * The sale would look complete on one screen and have happened on none.
+   */
+  offers: {
+    status: "moved by POST /offers/:id/{send,view,accept,reject} — accepting " +
+            "also reserves the unit and opens a reservation, and a settable " +
+            "field would do the first without the rest",
+    sentAt: "stamped when the offer is actually sent, not claimed by the caller",
+    viewedAt: "stamped the first time the buyer opens it, and never overwritten",
+    decidedAt: "stamped when it is accepted, rejected or expires",
+    declineReason: "given to POST /offers/:id/reject, which requires one",
+  },
+
+  contracts: {
+    offerId: "written by POST /offers/:id/accept, which is the only thing that " +
+             "turns an offer into a reservation — a settable link would let a " +
+             "reservation claim an offer nobody accepted",
+  },
+
+
+  /*
    * A DOCUMENT'S FILE IS DESCRIBED BY STORAGE, NOT BY THE UPLOADER.
    *
    * All four were writable, so any caller could PATCH a document to claim any

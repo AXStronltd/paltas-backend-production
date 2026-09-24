@@ -25,6 +25,7 @@ import { formRoutes } from "./routes/forms.js";
 import { marketRoutes } from "./routes/market.js";
 import { ledgerRoutes } from "./routes/ledger.js";
 import { companyRoutes } from "./routes/company.js";
+import { offerRoutes } from "./routes/offers.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
 import { paymentRoutes } from "./routes/payments.js";
@@ -267,6 +268,16 @@ export function createApp() {
    * the id "expiring".
    */
   app.use(companyRoutes);
+
+  /*
+   * MOVING AN OFFER — send, view, accept, reject. Above productRoutes because
+   * `/offers/:id/accept` would otherwise reach the offers RESOURCE router and
+   * be read as an update to an offer called ":id/accept".
+   *
+   * The resource itself still creates and edits them; only the acts with
+   * consequences live here.
+   */
+  app.use(offerRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

@@ -398,6 +398,43 @@ export const RESOURCES = {
   },
 
   /*
+   * OFFERS ON UNITS.
+   *
+   * Created and edited here like any resource; MOVED only through
+   * routes/offers.js, because a status change has consequences — an accepted
+   * offer reserves a unit and opens a reservation, and a caller that could
+   * PATCH `status` directly would do the first without the second.
+   */
+  offers: {
+    model: "offer", area: "agent", product: null,
+    label: "offers",
+    fields: {
+      buyerId: "id:party", projectId: "id:project", unitId: "id:unit",
+      price: "money", discount: "money", deposit: "money", currency: "string",
+      paymentPlan: "string", terms: "text",
+      validUntil: "date", note: "text",
+    },
+    /*
+     * `status` IS NOT A WRITABLE FIELD, and that is the whole design.
+     *
+     * Send, view, accept and reject are acts with consequences, each with its
+     * own route and its own rules about what may follow what. A field a
+     * client can set is a state machine anybody can step around — accepting
+     * an offer by PATCH would leave the unit unreserved and no reservation
+     * anywhere, which is exactly the silent half-completed sale this models.
+     */
+    required: ["price"], numbered: "ref", prefix: "OFF",
+    search: ["ref", "note", "terms"],
+    order: [{ createdAt: "desc" }],
+    include: {
+      buyer: { select: { id: true, name: true, email: true, phone: true } },
+      project: { select: { id: true, name: true } },
+      unit: { select: { id: true, ref: true, status: true } },
+      contract: { select: { id: true, ref: true, status: true } },
+    },
+  },
+
+  /*
    * THE PROGRAMME A DEVELOPMENT IS BUILT TO.
    *
    * A phase is the unit construction is actually run in. Cascade on the

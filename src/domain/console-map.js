@@ -153,6 +153,17 @@ export const CONSOLE_FORMS = {
    * The programme. `n` is `name` here as it is on every other form that has a
    * name, which is what keeps aliasesFor() from throwing.
    */
+  /* An offer on a unit. The references are real pickers — see forms.js. */
+  pm_offers: {
+    resource: "offers",
+    label: "＋ New offer",
+    fields: {
+      buyer: "buyerId", project: "projectId", unit: "unitId",
+      price: "price", disc: "discount", dep: "deposit",
+      plan: "paymentPlan", valid: "validUntil", terms: "terms",
+    },
+  },
+
   pm_phases: {
     resource: "project-phases",
     label: "＋ Add a phase",

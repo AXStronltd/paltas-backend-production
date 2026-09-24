@@ -315,7 +315,7 @@ const EXPECTED_UNNARROWABLE = [
   "audit-tasks", "capital-calls", "channels", "contracts", "conversations",
   "deals", "distributions", "documents", "group-bookings", "guest-requests",
   "investment-orders", "investor-profiles", "investors", "invoices", "leads",
-  "leases", "listings", "messages", "milestones", "ops-tasks", "parties", "payments",
+  "leases", "listings", "messages", "milestones", "offers", "ops-tasks", "parties", "payments",
   "project-phases",
   "payouts", "pricing-rules", "rate-rules", "reservations",
   "token-holdings", "viewings",
