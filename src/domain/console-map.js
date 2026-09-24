@@ -220,6 +220,20 @@ export const CONSOLE_FORMS = {
   },
 
   /*
+   * HANDOVER. No form offers a status, either name, or the refusal reason:
+   * completing reads the defect register first, and the two names are the
+   * record that a real afternoon happened.
+   */
+  pm_handover: {
+    resource: "handovers",
+    label: "＋ Book a handover",
+    fields: {
+      project: "projectId", unit: "unitId", contract: "contractId",
+      party: "partyId", to: "toName", on: "scheduledOn", notes: "notes",
+    },
+  },
+
+  /*
    * BEFORE ANYBODY BUILDS. No form offers a status, a decision, an agreed
    * price or an authority's reference — every one of those is a move that
    * checks something first.

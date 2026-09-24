@@ -339,6 +339,10 @@ const EXPECTED_UNNARROWABLE = [
   /* Land the company has not bought yet belongs to no site — that is what
      buying it would create. Drawings and permits hang off a project. */
   "acquisitions", "feasibilities", "drawings", "permits",
+  /* A handover hangs off a unit and a team off a project, both of which reach
+     a site only through a join the scope filter does not do — the same
+     documented limitation as `contracts`. */
+  "handovers", "project-team",
   "token-holdings", "viewings",
 ].sort();
 

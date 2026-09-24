@@ -164,6 +164,7 @@ model User {
   propertyScans     PropertyScan[]
   Task              Task[]
   Dispatch          Dispatch[]
+  projectRoles      ProjectMember[]         @relation("ProjectMemberUser")
 
   @@index([googleSub])
 }
@@ -357,6 +358,9 @@ model Organization {
   Dispatch           Dispatch[]
   DispatchEvent      DispatchEvent[]
   Campaign           Campaign[]
+  Handover           Handover[]
+  HandoverItem       HandoverItem[]
+  ProjectMember      ProjectMember[]
   Acquisition        Acquisition[]
   DiligenceItem      DiligenceItem[]
   Feasibility        Feasibility[]
@@ -861,6 +865,7 @@ model Unit {
   Task        Task[]
   inspections Inspection[]
   defects     Defect[]
+  handovers   Handover[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -949,6 +954,8 @@ model Party {
   quotedOn           Quote[]                @relation("QuoteVendor")
   purchaseOrders     PurchaseOrder[]        @relation("PurchaseVendor")
   landSales          Acquisition[]          @relation("AcquisitionSeller")
+  handoversTo        Handover[]             @relation("HandoverTo")
+  projectRoles       ProjectMember[]        @relation("ProjectMemberParty")
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -1144,6 +1151,8 @@ model Project {
   Task          Task[]
   Dispatch      Dispatch[]
   Campaign      Campaign[]
+  Handover      Handover[]
+  team          ProjectMember[]
   Acquisition   Acquisition[]
   Feasibility   Feasibility[]
   Drawing       Drawing[]
@@ -1372,6 +1381,8 @@ model Contract {
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
   changeOrders ChangeOrder[]
+  handovers    Handover[]
+  Invoice      Invoice[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -2361,6 +2372,18 @@ model Invoice {
   /// What it is for, when it is rent. Other sources hang off `source`.
   leaseId String?
   lease   Lease?  @relation(fields: [leaseId], references: [id], onDelete: SetNull)
+
+  /**
+   * THE SALE IT IS AN INSTALMENT OF.
+   * A unit sale is invoiced in instalments and the instalments are paid, so
+   * the only path from money to a contract runs through here. Without it,
+   * "how much has this buyer actually paid" could only be answered from
+   * Contract.deposit — which is what was taken at reservation, and is wrong
+   * for every buyer past their first payment.
+   * Optional, because most invoices are rent and belong to a lease instead.
+   */
+  contractId String?
+  contract   Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
 
   /// Human-facing and unique per organization: INV-2026-0041.
   ref      String
@@ -6283,4 +6306,165 @@ model PermitEvent {
 
   @@index([orgId])
   @@index([permitId])
+}
+
+/**
+ * ====================================================================== *
+ * HANDING IT OVER, AND WHO WAS ON IT.
+ * ── THE RULE HANDOVER EXISTS FOR ───────────────────────────────────────
+ * A flat cannot be handed over with a critical or major defect still open
+ * against it. That is the moment a snagging list either meant something or
+ * did not, and it is the moment the pressure to ignore it is greatest: the
+ * buyer is in the car park, the keys are in somebody's hand, and the defect
+ * is "being sorted". Every company that has ever handed over anyway has the
+ * same story about what it cost.
+ * So the check is in the route, reading the SAME defect register the site
+ * uses. Not a copy, not a checkbox somebody ticks — the actual rows.
+ * ── AND WHAT A PROJECT TEAM IS FOR ─────────────────────────────────────
+ * Not an org chart. It is the answer to "who do I ring about the cladding",
+ * and the reason somebody's tasks do not silently become nobody's when they
+ * leave the job.
+ * ======================================================================
+ */
+
+enum HandoverStatus {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  /// The buyer refused to take it. A real and common outcome, and one a
+  /// scheduled/completed pair cannot express.
+  REFUSED
+  CANCELLED
+}
+
+enum HandoverItemStatus {
+  PENDING
+  DONE
+  /// Present but not acceptable — a meter that will not read, a manual that
+  /// is missing pages.
+  ISSUE
+  NOT_APPLICABLE
+}
+
+model Handover {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId  String?
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  /// What is being handed over. A unit, usually — and the column the defect
+  /// check reads.
+  unitId     String?
+  unit       Unit?     @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  contractId String?
+  contract   Contract? @relation(fields: [contractId], references: [id], onDelete: SetNull)
+
+  partyId String?
+  party   Party?  @relation("HandoverTo", fields: [partyId], references: [id], onDelete: SetNull)
+  toName  String  @default("")
+
+  status HandoverStatus @default(SCHEDULED)
+
+  scheduledOn DateTime?
+  startedOn   DateTime?
+  completedOn DateTime?
+
+  /// Who handed over and who received. Two names, like a defect's — a
+  /// handover recorded by one person is one person's account of it.
+  handedBy   String @default("")
+  receivedBy String @default("")
+
+  /// Why the buyer would not take it. Required when they refuse, because it
+  /// is what has to be fixed before the next attempt.
+  refusedReason String @default("")
+
+  notes String @default("")
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  items HandoverItem[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, unitId])
+}
+
+/// Keys, meters, manuals, warranties. The things that are actually handed
+/// over, as opposed to the flat.
+model HandoverItem {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  handoverId String
+  handover   Handover @relation(fields: [handoverId], references: [id], onDelete: Cascade)
+
+  title String
+  /// Keys, meter, document, warranty, appliance. Free text.
+  kind  String @default("")
+
+  status  HandoverItemStatus @default(PENDING)
+  /// A meter reading, a key count, a serial number. One column because they
+  /// are all "what was the number", and three would be three mostly-empty ones.
+  reading String             @default("")
+  note    String             @default("")
+
+  position Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([handoverId])
+}
+
+/// Who is on a job, and what they answer for.
+model ProjectMember {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// A login where they have one. Most of a project team does not: the
+  /// architect, the QS and the main contractor are other companies.
+  userId  String?
+  user    User?   @relation("ProjectMemberUser", fields: [userId], references: [id], onDelete: SetNull)
+  /// Or a party, where they are one of this company's contacts.
+  partyId String?
+  party   Party?  @relation("ProjectMemberParty", fields: [partyId], references: [id], onDelete: SetNull)
+
+  name    String
+  company String @default("")
+  email   String @default("")
+  phone   String @default("")
+
+  /// Project manager, architect, QS, main contractor, M&E. Free text — every
+  /// project draws these differently, and an enum would be one firm's list.
+  role        String
+  /// THE ONE THAT MATTERS. What this person answers for, in their own words.
+  /// "Who do I ring about the cladding" is the question a team list exists for.
+  responsible String @default("")
+
+  /// LEAVING IS A DATE, NOT A DELETION. Somebody who was on the job in March
+  /// was on the job in March, and a team list that forgets them cannot answer
+  /// who approved something in March.
+  joinedOn DateTime?
+  leftOn   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([projectId])
+  @@index([orgId, projectId, leftOn])
 }

@@ -31,6 +31,7 @@ import { commsRoutes } from "./routes/comms.js";
 import { siteRoutes } from "./routes/site.js";
 import { procurementRoutes } from "./routes/procurement.js";
 import { predevRoutes } from "./routes/predevelopment.js";
+import { handoverRoutes } from "./routes/handover.js";
 import { commsWebhookRoutes } from "./routes/comms-webhook.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
@@ -334,6 +335,13 @@ export function createApp() {
    * would otherwise be read as a drawing called "current".
    */
   app.use(predevRoutes);
+
+  /*
+   * HANDING IT OVER, THE SALE THAT PRECEDES IT, AND THE TEAM. Above
+   * productRoutes: `/contracts/:id/balance` and `/projects/:id/team` would
+   * otherwise be swallowed by their own resource routers.
+   */
+  app.use(handoverRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

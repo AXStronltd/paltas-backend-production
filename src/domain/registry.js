@@ -454,6 +454,76 @@ export const RESOURCES = {
    * meeting, deciding something and finishing a task all have consequences
    * beyond their own row.
    */
+  /* --------------------------------------- HANDING IT OVER, AND WHO */
+  handovers: {
+    model: "handover", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "handovers",
+    fields: {
+      projectId: "id:project", unitId: "id:unit", contractId: "id:contract",
+      partyId: "id:party", toName: "string", scheduledOn: "date", notes: "text",
+    },
+    /* `status`, both names and the refusal reason are written by
+       routes/handover.js, which is the only thing that reads the defect
+       register first. */
+    required: ["toName"], numbered: "ref", prefix: "HOV",
+    search: ["ref", "toName", "handedBy", "receivedBy"],
+    order: [{ scheduledOn: "desc" }],
+    onRead: (row) => ({
+      canComplete: !["COMPLETED", "CANCELLED"].includes(row.status),
+      means: row.status === "COMPLETED"
+        ? "Handed over. What was handed over that day does not change afterwards."
+        : row.status === "REFUSED"
+          ? "The buyer would not take it. The reason is what has to be put right."
+          : "Not yet handed over. Serious defects against the unit will stop it.",
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      unit: { select: { id: true, ref: true, status: true } },
+      contract: { select: { id: true, ref: true, status: true } },
+      items: {
+        select: { id: true, title: true, kind: true, status: true,
+                  reading: true, note: true, position: true },
+        orderBy: { position: "asc" },
+      },
+    },
+  },
+
+  "project-team": {
+    model: "projectMember", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "project team",
+    /*
+     * `noCreate`, not `ownCreate`: there is no POST /project-team, and there
+     * should not be. Somebody joins A PROJECT — that is the whole shape of the
+     * thing — so the create hangs off the project, where the userId can be
+     * checked against this company's own membership.
+     */
+    noCreate:
+      "Somebody joins a project, so the create hangs off one: POST " +
+      "/projects/:id/team in routes/handover.js. A team member may be a login, " +
+      "a contact, or just a name — most of a project team works for other " +
+      "companies — and a userId is checked against this company's membership " +
+      "before it is believed.",
+    fields: {
+      projectId: "id:project", userId: "id:user", partyId: "id:party",
+      name: "string", role: "string", company: "string",
+      email: "string", phone: "string", responsible: "text",
+      joinedOn: "date",
+    },
+    required: ["projectId", "name", "role"],
+    search: ["name", "role", "company", "responsible"],
+    order: [{ role: "asc" }],
+    onRead: (row) => ({
+      current: !row.leftOn,
+      /* Somebody in a role with nothing said about what they answer for is a
+         name, not a contact. */
+      stated: !!row.responsible,
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      user: { select: { id: true, name: true, email: true } },
+    },
+  },
+
   /* ------------------------------------------- BEFORE ANYBODY BUILDS */
   acquisitions: {
     model: "acquisition", area: "finance", product: "PROPERTY_MANAGEMENT",
@@ -1480,7 +1550,12 @@ export const RESOURCES = {
      * every write. A client that can name its own total can name zero.
      */
     fields: {
-      partyId: "id:party", leaseId: "id:lease", source: "string",
+      partyId: "id:party", leaseId: "id:lease",
+      /* The sale this is an instalment of, where it is one. It is the only
+         path from money to a contract — a payment settles an invoice, and
+         without this an instalment belongs to nothing. */
+      contractId: "id:contract",
+      source: "string",
       sourceId: "string", currency: "string",
       issuedOn: "date", dueOn: "date", status: "enum:InvoiceStatus", note: "text",
     },

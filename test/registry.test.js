@@ -161,6 +161,31 @@ const NOT_WRITABLE_HERE = {
   },
 
   /*
+   * HANDING IT OVER, AND WHO WAS ON IT.
+   */
+  handovers: {
+    status: "moved by POST /handovers/:id/{complete,refuse}. Completing reads " +
+            "the DEFECT REGISTER and refuses while a critical or major defect " +
+            "is open against the unit — that is the moment a snagging list " +
+            "either meant something or did not",
+    startedOn: "stamped when it begins",
+    completedOn: "stamped when it completes, which is the move that checks",
+    handedBy: "who handed over",
+    receivedBy: "who took it. Required, because without it there is no record " +
+                "that anybody actually received the keys",
+    refusedReason: "why the buyer would not take it — what has to be put right " +
+                   "before anybody drives over again",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  "project-team": {
+    leftOn: "leaving is a DATE, not a deletion, and it is stamped by POST " +
+            "/projects/:id/team/:memberId/leave — which also says what the " +
+            "person was carrying, because tasks do not leave with people",
+  },
+
+  /*
    * BEFORE ANYBODY BUILDS. Land, feasibility, drawings, permits.
    */
   acquisitions: {
