@@ -49,6 +49,21 @@ import { nextFor } from "./decisions.js";
  * Carried on the row rather than written into the console, so one sentence
  * answers for both and neither can drift into something more flattering.
  */
+/*
+ * APPROVED AS NOTED is the outcome everybody misreads, and reading it as a
+ * rejection stops work that could have carried on. Said in words beside the
+ * row rather than left to a console to interpret.
+ */
+const SUBMITTAL_MEANS = {
+  DRAFT: "Being prepared. Nobody has been asked to look at it.",
+  SUBMITTED: "With the reviewer, waiting.",
+  UNDER_REVIEW: "Being looked at now.",
+  APPROVED: "Build to this.",
+  APPROVED_AS_NOTED: "Build to this, with the corrections marked on it. Work may continue.",
+  REVISE_RESUBMIT: "Sent back. The next revision is open — build to nothing until it returns.",
+  REJECTED: "Not acceptable. Start again.",
+};
+
 const DISPATCH_MEANS = {
   DRAFT: "Written, not released. Nobody is trying to send it.",
   QUEUED: "Waiting for something to carry it. Nothing has been sent.",
@@ -426,6 +441,170 @@ export const RESOURCES = {
    * meeting, deciding something and finishing a task all have consequences
    * beyond their own row.
    */
+  /* ------------------------------------------------- SITE OPERATIONS */
+  /*
+   * Five registers. Every status below is absent from `fields` and moved by
+   * routes/site.js, because each move is a rule a column cannot hold: an RFI
+   * cannot be closed unanswered, a submittal sent back opens the next
+   * revision, a defect cannot be verified by whoever fixed it.
+   */
+  rfis: {
+    model: "rfi", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "RFIs",
+    fields: {
+      projectId: "id:project", phaseId: "id:projectPhase",
+      subject: "string", question: "text", discipline: "string",
+      raisedByName: "string", toName: "string", dueOn: "date",
+    },
+    required: ["subject"], numbered: "ref", prefix: "RFI",
+    search: ["ref", "subject", "question", "discipline", "toName"],
+    order: [{ createdAt: "desc" }],
+    onRead: (row) => ({
+      /* Overdue is a fact about now, so it is worked out on the way out
+         rather than stored and left to go stale overnight. */
+      overdue: row.status === "OPEN" && !!row.dueOn && new Date(row.dueOn) < new Date(),
+      canAnswer: row.status !== "VOID" && row.status !== "CLOSED",
+      canClose: row.status === "ANSWERED",
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      events: {
+        select: { id: true, action: true, detail: true, byName: true, at: true },
+        orderBy: { at: "asc" },
+      },
+    },
+  },
+
+  submittals: {
+    model: "submittal", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "submittals",
+    fields: {
+      projectId: "id:project", title: "string", specRef: "string",
+      discipline: "string", contractor: "string", dueOn: "date",
+    },
+    /* `revision` and `previousId` are set when a review sends one back. A
+       caller choosing its own revision number could file rev 5 before rev 2. */
+    required: ["title"], numbered: "ref", prefix: "SUB",
+    search: ["ref", "title", "specRef", "discipline", "contractor"],
+    order: [{ createdAt: "desc" }],
+    onRead: (row) => ({
+      canSubmit: row.status === "DRAFT",
+      canReview: ["SUBMITTED", "UNDER_REVIEW"].includes(row.status),
+      /* Said out loud: approved-as-noted is the outcome everybody misreads,
+         and reading it as a rejection stops work that could continue. */
+      means: SUBMITTAL_MEANS[row.status] || "",
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      previous: { select: { id: true, ref: true, revision: true, status: true } },
+      next: { select: { id: true, ref: true, revision: true, status: true } },
+      events: {
+        select: { id: true, action: true, detail: true, byName: true, at: true },
+        orderBy: { at: "asc" },
+      },
+    },
+  },
+
+  inspections: {
+    model: "inspection", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "inspections",
+    fields: {
+      projectId: "id:project", unitId: "id:unit", title: "string",
+      kind: "string", area: "string", scheduledOn: "date",
+      inspectorName: "string",
+    },
+    required: ["title"], numbered: "ref", prefix: "INS",
+    search: ["ref", "title", "kind", "area", "inspectorName"],
+    order: [{ scheduledOn: "desc" }],
+    onRead: (row) => ({ canRecord: row.status === "SCHEDULED" }),
+    include: {
+      project: { select: { id: true, name: true } },
+      unit: { select: { id: true, ref: true } },
+      defects: { select: { id: true, ref: true, title: true, severity: true, status: true } },
+      events: {
+        select: { id: true, action: true, detail: true, byName: true, at: true },
+        orderBy: { at: "asc" },
+      },
+    },
+  },
+
+  defects: {
+    model: "defect", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "defects",
+    fields: {
+      projectId: "id:project", unitId: "id:unit", inspectionId: "id:inspection",
+      title: "string", description: "text", location: "string", trade: "string",
+      severity: "enum:DefectSeverity", assigneeName: "string", dueOn: "date",
+    },
+    required: ["title"], numbered: "ref", prefix: "DEF",
+    search: ["ref", "title", "description", "location", "trade", "assigneeName"],
+    order: [{ createdAt: "desc" }],
+    onRead: (row) => ({
+      overdue: ["OPEN", "IN_PROGRESS"].includes(row.status)
+        && !!row.dueOn && new Date(row.dueOn) < new Date(),
+      canFix: !["VERIFIED", "CLOSED", "REJECTED"].includes(row.status),
+      canVerify: row.status === "FIXED",
+      /* FIXED is the state everybody reads as finished. It is not. */
+      means: row.status === "FIXED"
+        ? `${row.fixedByName || "Somebody"} says it is done. It is not closed until ` +
+          `somebody else checks it.`
+        : "",
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      unit: { select: { id: true, ref: true } },
+      inspection: { select: { id: true, ref: true, title: true } },
+      events: {
+        select: { id: true, action: true, detail: true, byName: true, at: true },
+        orderBy: { at: "asc" },
+      },
+    },
+  },
+
+  "site-diary": {
+    model: "siteDiary", area: "property", product: "PROPERTY_MANAGEMENT",
+    label: "site diary",
+    /*
+     * ownCreate AND ownUpdate: three of this table's rules are about WHICH DAY
+     * an entry is for — one per project per day, never a day that has not
+     * happened, and fixed once the day is over — and the framework has no
+     * opinion about days. See routes/site.js.
+     */
+    ownCreate:
+      "Three of this table's rules are about WHICH DAY an entry is for — one " +
+      "per project per day, never a day that has not happened yet — and the " +
+      "framework has no opinion about days. See POST /site-diary in routes/site.js.",
+    ownUpdate:
+      "A diary entry is fixed once the day it records is over, which is the " +
+      "whole reason anybody keeps one. The framework's PATCH would happily " +
+      "rewrite last March. See PATCH /site-diary/:id in routes/site.js.",
+    fields: {
+      projectId: "id:project", on: "date", weather: "string",
+      temperature: "string", labourCount: "int", contractors: "text",
+      equipment: "text", workDone: "text", delays: "text",
+      visitors: "text", safetyNotes: "text", materials: "text",
+    },
+    /* The DAY is required, not defaulted, so the form asks for it. A diary
+       whose date is whatever the server thought at the time is a diary that
+       records the wrong Tuesday whenever somebody writes one up late. */
+    required: ["projectId", "on"], numbered: "ref", prefix: "SD",
+    search: ["ref", "workDone", "delays", "contractors"],
+    order: [{ on: "desc" }],
+    onRead: (row) => ({
+      locked: !!row.lockedAt,
+      means: row.lockedAt
+        ? "The day is over, so this entry is fixed. Corrections are appended as amendments."
+        : "Still today — this entry can be edited until the day is out.",
+    }),
+    include: {
+      project: { select: { id: true, name: true } },
+      events: {
+        select: { id: true, action: true, detail: true, byName: true, at: true },
+        orderBy: { at: "asc" },
+      },
+    },
+  },
+
   /*
    * COMMUNICATIONS. `status`, `provider`, `providerRef` and every timestamp
    * are absent from `fields` deliberately — a dispatch's state is the record

@@ -220,6 +220,60 @@ export const CONSOLE_FORMS = {
   },
 
   /*
+   * THE FIVE SITE REGISTERS. No form offers a status, an answer, a review
+   * outcome, a fix or a lock — every one of those is a move with consequences,
+   * and a field somebody types into would record the word without them.
+   */
+  pm_rfis: {
+    resource: "rfis",
+    label: "＋ Raise an RFI",
+    fields: {
+      project: "projectId", phase: "phaseId", subject: "subject",
+      question: "question", discipline: "discipline",
+      raisedBy: "raisedByName", to: "toName", due: "dueOn",
+    },
+  },
+
+  pm_submittals: {
+    resource: "submittals",
+    label: "＋ New submittal",
+    fields: {
+      project: "projectId", title: "title", spec: "specRef",
+      discipline: "discipline", contractor: "contractor", due: "dueOn",
+    },
+  },
+
+  pm_inspections: {
+    resource: "inspections",
+    label: "＋ Book an inspection",
+    fields: {
+      project: "projectId", unit: "unitId", title: "title",
+      kind: "kind", area: "area", on: "scheduledOn", who: "inspectorName",
+    },
+  },
+
+  pm_defects: {
+    resource: "defects",
+    label: "＋ Raise a defect",
+    fields: {
+      project: "projectId", unit: "unitId", inspection: "inspectionId",
+      title: "title", description: "description", loc: "location",
+      trade: "trade", sev: "severity", who: "assigneeName", due: "dueOn",
+    },
+  },
+
+  pm_diary: {
+    resource: "site-diary",
+    label: "＋ Write up a day",
+    fields: {
+      project: "projectId", on: "on", weather: "weather",
+      temp: "temperature", labour: "labourCount", contractors: "contractors",
+      equipment: "equipment", work: "workDone", delays: "delays",
+      visitors: "visitors", safety: "safetyNotes", materials: "materials",
+    },
+  },
+
+  /*
    * COMMUNICATIONS. Neither form offers a status: what a message's state is
    * depends on what a carrier did with it, and a field somebody can type into
    * would let a person record a delivery that never happened.

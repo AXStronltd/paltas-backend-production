@@ -46,10 +46,36 @@ const schema = readFileSync(join(ROOT, "prisma", "schema.prisma"), "utf8");
 
 /* ---------------------------------------------------------------- */
 
-/** Every hand-written endpoint: `guarded.post("/payments", …)`. */
+/**
+ * Every hand-written endpoint, in every router that has any.
+ *
+ * It read products.js alone until a resource kept its own create in a
+ * DIFFERENT file — the site diary, whose create and update live in site.js
+ * because three of its rules are about which day an entry is for. The test
+ * then reported that POST /site-diary did not exist, which was wrong and was
+ * also the correct shape of alarm: a resource told the framework not to build
+ * one, so if nothing else does, the path really is gone.
+ *
+ * So it reads all of them. `guarded.` in products.js, `<name>Routes.` in the
+ * routers mounted above it — which is the convention every one of them
+ * follows.
+ */
+const HAND_WRITTEN_FILES = [
+  "products.js", "offers.js", "workflow.js", "comms.js", "site.js",
+  "ledger.js", "company.js", "investments.js", "dna.js",
+];
+
 function handWritten() {
-  return [...products.matchAll(/^guarded\.(get|post|patch|delete)\("([^"]+)"/gm)]
-    .map((m) => ({ verb: m[1].toUpperCase(), path: m[2] }));
+  const out = [];
+  for (const file of HAND_WRITTEN_FILES) {
+    let text;
+    try { text = readFileSync(join(ROOT, "src", "routes", file), "utf8"); }
+    catch { continue; }                  /* a router that has been renamed */
+    for (const m of text.matchAll(/^\s*(?:guarded|\w+Routes)\.(get|post|patch|delete)\(\s*"([^"]+)"/gm)) {
+      out.push({ verb: m[1].toUpperCase(), path: m[2], file });
+    }
+  }
+  return out;
 }
 
 /** What the framework registers for a resource, as verb + path pattern. */
@@ -58,10 +84,10 @@ function generic(slug) {
   const out = [
     { verb: "GET", path: `/${slug}` },
     { verb: "GET", path: `/${slug}/:id` },
-    { verb: "PATCH", path: `/${slug}/:id` },
     { verb: "DELETE", path: `/${slug}/:id` },
   ];
   if (!r.ownCreate) out.push({ verb: "POST", path: `/${slug}` });
+  if (!r.ownUpdate) out.push({ verb: "PATCH", path: `/${slug}/:id` });
   return out;
 }
 
@@ -82,28 +108,86 @@ function sameShape(a, b) {
 
 /* ================================================================ */
 
+/**
+ * Where a hand-written route is mounted decides whether it runs at all, and
+ * there are two arrangements in this service:
+ *
+ *   IN products.js, beside the generated routers. The generated ones are
+ *   registered first, so `GET /payments/history` never runs — `/payments/:id`
+ *   claims it and answers with a payment called "history". These are
+ *   collisions, and the fix is in the DECLARATION.
+ *
+ *   IN ITS OWN ROUTER, mounted above productRoutes in server.js. Then the
+ *   hand-written one wins, which is the whole point of putting it there. The
+ *   risk moves: it is no longer collision, it is somebody moving the mount.
+ *
+ * So the same path is checked two different ways depending on where it lives,
+ * and the second check reads server.js rather than trusting a comment in it.
+ */
+const ABOVE_PRODUCTS = readFileSync(join(ROOT, "src", "server.js"), "utf8");
+
+function mountedAboveProducts(file) {
+  /*
+   * The router's name is READ FROM THE FILE, never guessed from its name.
+   * Guessing gave `offersRoutes` for offers.js, which exports `offerRoutes` —
+   * so the search found nothing and the test reported a correctly-mounted
+   * router as missing. A test that is wrong about where something is mounted
+   * is worse than no test, because the next person fixes the code.
+   */
+  let text;
+  try { text = readFileSync(join(ROOT, "src", "routes", file), "utf8"); }
+  catch { return false; }
+  const named = text.match(/export const (\w+) = Router\(\)/);
+  if (!named) return false;
+
+  const mine = ABOVE_PRODUCTS.search(new RegExp(`app\\.use\\(\\s*${named[1]}\\s*\\)`));
+  const products = ABOVE_PRODUCTS.search(/app\.use\("\/",\s*productRoutes\)/);
+  return mine >= 0 && products >= 0 && mine < products;
+}
+
 test("no hand-written endpoint is shadowed by a generated one", () => {
   const collisions = [];
+  const unmounted = [];
 
   for (const own of handWritten()) {
     for (const slug of Object.keys(RESOURCES)) {
       for (const gen of generic(slug)) {
         if (gen.verb !== own.verb) continue;
         if (!sameShape(gen.path, own.path)) continue;
+
+        /*
+         * A router of its own, mounted first, is the arrangement that works —
+         * so the only thing to check is that it really IS mounted first. A
+         * comment saying so is not evidence; server.js is.
+         */
+        if (own.file !== "products.js") {
+          if (!mountedAboveProducts(own.file)) {
+            unmounted.push(
+              `${own.verb} ${own.path} lives in routes/${own.file}, which server.js does ` +
+              `NOT mount above productRoutes. The framework's ${gen.verb} ${gen.path} ` +
+              `claims it first, so this endpoint never runs.`);
+          }
+          continue;
+        }
+
         collisions.push(
-          `${own.verb} ${own.path} (routes/products.js) is also registered by the ` +
+          `${own.verb} ${own.path} (routes/${own.file}) is also registered by the ` +
           `framework as ${gen.verb} ${gen.path}. The resource routers are mounted ` +
-          `FIRST, so the generated one wins and the hand-written one never runs.`);
+          `FIRST inside this file, so the generated one wins and the hand-written ` +
+          `one never runs.`);
       }
     }
   }
 
+  assert.deepEqual(unmounted, [],
+    "Endpoints in a router that is mounted too late:\n    " + unmounted.join("\n    ") +
+    "\n\n  Move the app.use() for that router above app.use(\"/\", productRoutes) in server.js.");
+
   assert.deepEqual(collisions, [],
-    "Two routes claim one path:\n  " + collisions.join("\n  ") +
-    "\n\nFix it in the DECLARATION, not by reordering mounts: set `ownCreate` " +
-    "(or the matching flag) on the resource in domain/registry.js so the " +
-    "framework does not register that verb at all. Reordering works until " +
-    "somebody reorders it back.");
+    "Two routes claim one path:\n    " + collisions.join("\n    ") +
+    "\n\n  Fix it in the DECLARATION, not by reordering mounts: set `ownCreate` " +
+    "(or the matching flag) on the resource in domain/registry.js so the framework " +
+    "does not register that verb at all. Reordering works until somebody reorders it back.");
 });
 
 test("a resource that keeps its own create has one, and the framework skips it", () => {
@@ -138,8 +222,21 @@ test("a resource that keeps its own create has one, and the framework skips it",
       `${slug}.ownCreate must say WHY, in a sentence a reviewer can check`);
     assert.ok(
       own.some((o) => o.verb === "POST" && o.path === `/${slug}`),
-      `${slug} declares ownCreate, but routes/products.js has no POST /${slug}. ` +
+      `${slug} declares ownCreate, and no router writes a POST /${slug}. ` +
       `The framework has been told not to build one, so that path now 404s.`);
+  }
+
+  /* `ownUpdate` is the same bargain for edits, and carries the same risk: a
+     resource that opts out of the generated PATCH and then never writes one
+     has quietly become read-only, which nothing else would notice. */
+  for (const [slug, r] of Object.entries(RESOURCES)) {
+    if (!r.ownUpdate) continue;
+    assert.ok(typeof r.ownUpdate === "string" && r.ownUpdate.length > 30,
+      `${slug}.ownUpdate must say WHY, in a sentence a reviewer can check`);
+    assert.ok(
+      own.some((o) => o.verb === "PATCH" && sameShape(o.path, `/${slug}/:id`)),
+      `${slug} declares ownUpdate, and no router writes a PATCH /${slug}/:id. ` +
+      `It has silently become read-only.`);
   }
 });
 

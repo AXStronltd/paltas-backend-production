@@ -160,6 +160,71 @@ const NOT_WRITABLE_HERE = {
     createdByName: "taken from the session at create time",
   },
 
+  /*
+   * THE FIVE SITE REGISTERS. Each status below is moved by routes/site.js,
+   * because each move is a rule a column cannot hold.
+   */
+  rfis: {
+    status: "moved by POST /rfis/:id/{answer,close,void}. An RFI register whose " +
+            "questions can be closed unanswered is a register that empties itself",
+    answer: "written by the answer route, with a name and a date beside it — an " +
+            "answer from nobody on no date is indistinguishable from no answer",
+    answeredOn: "stamped when it is answered",
+    answeredBy: "stamped when it is answered",
+    costImpact: "sent WITH the answer, because it is the answer that has a " +
+                "consequence. An RFI whose impact can be edited afterwards is " +
+                "one where the consequence drifts from the reply that caused it",
+    timeImpact: "same as costImpact — part of the answer, not a field beside it",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  submittals: {
+    status: "moved by POST /submittals/:id/{submit,review}. Revise-and-resubmit " +
+            "OPENS THE NEXT REVISION rather than editing this one — somebody " +
+            "built to rev 1 and will need to know what rev 1 said",
+    revision: "set when a review sends one back. A caller choosing its own could " +
+              "file rev 5 before rev 2",
+    previousId: "the chain between revisions, written when the next one is opened",
+    submittedOn: "stamped when it is submitted",
+    reviewedOn: "stamped when it is reviewed",
+    reviewerName: "the person who actually looked at it",
+    comments: "the reviewer's own words. A submittal sent back with no comments " +
+              "is a contractor guessing",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  inspections: {
+    status: "moved by POST /inspections/:id/record, which raises the defects it " +
+            "found in the same transaction. An inspection passed with defects " +
+            "that produced no defects is an inspection that passed",
+    inspectedOn: "stamped when it is recorded",
+    notes: "written when the result is",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  defects: {
+    status: "moved by POST /defects/:id/{assign,fixed,verify,reject}",
+    fixedByName: "who said it was done",
+    fixedOn: "stamped when somebody said so",
+    verifiedByName: "who AGREED — and it may not be the same person. A defect " +
+                    "signed off by whoever caused it is not signed off",
+    verifiedOn: "stamped when it was checked",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
+  "site-diary": {
+    lockedAt: "a diary entry is fixed once the day it records is over. If a " +
+              "caller could clear this, the lock would be a suggestion — and a " +
+              "contemporaneous record that can be rewritten months later is " +
+              "worth nothing in the dispute it exists for",
+    createdById: "the session's own user, not a field a caller supplies",
+    createdByName: "taken from the session at create time",
+  },
+
   campaigns: {
     status: "written by POST /campaigns/:id/{send,cancel}. PARTIAL in " +
             "particular is computed from what actually happened to each " +

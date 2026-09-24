@@ -28,6 +28,7 @@ import { companyRoutes } from "./routes/company.js";
 import { offerRoutes } from "./routes/offers.js";
 import { workflowRoutes } from "./routes/workflow.js";
 import { commsRoutes } from "./routes/comms.js";
+import { siteRoutes } from "./routes/site.js";
 import { commsWebhookRoutes } from "./routes/comms-webhook.js";
 import { marketplaceRoutes } from "./routes/marketplace.js";
 import { stayRoutes } from "./routes/stays.js";
@@ -305,6 +306,18 @@ export function createApp() {
    * dispatch with the id "outbox".
    */
   app.use(commsRoutes);
+
+  /*
+   * THE SITE REGISTERS — above productRoutes for the usual reason.
+   * `/rfis/overdue` and `/defects/outstanding` would otherwise reach their
+   * own resource routers and be read as an RFI called "overdue".
+   *
+   * It also carries the site diary's OWN create and update, which is why it
+   * must be here rather than after: the diary resource declares ownCreate and
+   * ownUpdate, so the framework registers neither, and a request landing on
+   * productRoutes first would find nothing.
+   */
+  app.use(siteRoutes);
 
   /* The six products. Every path under here is organization-scoped and
      permission-checked by construction — see http/resource.js. */

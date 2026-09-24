@@ -328,6 +328,11 @@ const EXPECTED_UNNARROWABLE = [
   "project-phases",
   "payouts", "pricing-rules", "rate-rules", "reservations",
   "dispatches",
+  /* The five site registers hang off a PROJECT, and a project hangs off a
+     site — but reaching it means a join the scope filter does not do for any
+     other resource, exactly as `contracts` above. Same documented limitation,
+     not a new one. */
+  "rfis", "submittals", "inspections", "defects", "site-diary",
   "token-holdings", "viewings",
 ].sort();
 

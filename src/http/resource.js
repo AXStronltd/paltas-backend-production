@@ -361,6 +361,18 @@ export function resourceRouter(slug) {
   /* ---------------------------------------------------------------- *
    * PATCH /:id
    * ---------------------------------------------------------------- */
+  /*
+   * `ownUpdate` — the same arrangement as `ownCreate` above, for a resource
+   * whose edit rules the framework cannot express.
+   *
+   * The site diary is the first: three of its rules are about WHICH DAY an
+   * entry is for — one per project per day, never a day that has not
+   * happened, and fixed once the day is over — and the framework has no
+   * opinion about days. Registering both would not be a tie; whichever mounts
+   * first wins silently and the other becomes dead code that still reads as
+   * correct, which is exactly what routing.test.js exists to catch.
+   */
+  if (!resource.ownUpdate) {
   router.patch("/:id", may("update"), async (req, res, next) => {
     try {
       const before = await model().findFirst({
@@ -417,6 +429,8 @@ export function resourceRouter(slug) {
       })) });
     } catch (e) { next(e); }
   });
+
+  }
 
   /* ---------------------------------------------------------------- *
    * DELETE /:id

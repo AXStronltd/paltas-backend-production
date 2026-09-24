@@ -357,6 +357,12 @@ model Organization {
   Dispatch           Dispatch[]
   DispatchEvent      DispatchEvent[]
   Campaign           Campaign[]
+  Rfi                Rfi[]
+  Submittal          Submittal[]
+  Inspection         Inspection[]
+  Defect             Defect[]
+  SiteDiary          SiteDiary[]
+  SiteEvent          SiteEvent[]
 }
 
 model Subscription {
@@ -840,6 +846,8 @@ model Unit {
   PricingRule PricingRule[]
   offerings   Offering[]
   Task        Task[]
+  inspections Inspection[]
+  defects     Defect[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -1119,6 +1127,11 @@ model Project {
   Task        Task[]
   Dispatch    Dispatch[]
   Campaign    Campaign[]
+  Rfi         Rfi[]
+  Submittal   Submittal[]
+  Inspection  Inspection[]
+  Defect      Defect[]
+  SiteDiary   SiteDiary[]
 
   @@index([orgId])
   @@index([orgId, stage])
@@ -1233,6 +1246,7 @@ model ProjectPhase {
   updatedAt DateTime @updatedAt
 
   milestones Milestone[]
+  rfis       Rfi[]
 
   @@index([orgId])
   @@index([orgId, projectId])
@@ -5210,4 +5224,356 @@ model Campaign {
   @@unique([orgId, ref])
   @@index([orgId])
   @@index([orgId, status])
+}
+
+/**
+ * ====================================================================== *
+ * WHAT HAPPENS ON A SITE, AND WHO HAS TO ANSWER FOR IT.
+ * Five registers that a construction project is actually run on, and every
+ * one of them exists because somebody will later be asked a question they
+ * cannot answer from a spreadsheet:
+ * RFI          "we asked the architect in March and never heard back"
+ * Submittal    "which revision of the cladding did you approve?"
+ * Inspection   "who checked the third floor before it was covered up?"
+ * Defect       "who signed this off as fixed?"
+ * SiteDiary    "how many people were on site the week it slipped?"
+ * The rules in routes/site.js are what make them registers rather than
+ * tables: an RFI cannot be closed unanswered, a submittal marked
+ * revise-and-resubmit opens the next revision rather than being edited, a
+ * defect cannot be verified by whoever fixed it, and a day's diary stops
+ * being editable once the day is over.
+ * ======================================================================
+ */
+
+enum RfiStatus {
+  OPEN
+  ANSWERED
+  /// The answer was received and accepted. Closing is a separate act from
+  /// answering because plenty of answers raise another question.
+  CLOSED
+  /// Withdrawn — the question stopped mattering. Kept, because "we asked and
+  /// then it went away" is itself an answer somebody may need.
+  VOID
+}
+
+enum SubmittalStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  APPROVED
+  /// Usable, with corrections marked on it. A real and distinct outcome: the
+  /// contractor may proceed, which APPROVED and REVISE_RESUBMIT bracket.
+  APPROVED_AS_NOTED
+  REVISE_RESUBMIT
+  REJECTED
+}
+
+enum InspectionStatus {
+  SCHEDULED
+  PASSED
+  /// Passed, with defects raised against it. The work may continue and the
+  /// snags are tracked — which is what actually happens on a site, and what a
+  /// pass/fail pair cannot express.
+  PASSED_WITH_DEFECTS
+  FAILED
+  CANCELLED
+}
+
+enum DefectStatus {
+  OPEN
+  IN_PROGRESS
+  /// Somebody says it is done. NOT the end — see VERIFIED.
+  FIXED
+  /// Somebody ELSE agrees. The two are separate states on purpose: a defect
+  /// closed by the person who caused it is not a closed defect.
+  VERIFIED
+  /// Not a defect after all, with the reasoning kept.
+  REJECTED
+  CLOSED
+}
+
+enum DefectSeverity {
+  /// Cosmetic. Fix before handover.
+  MINOR
+  /// Affects use. Fix before the next stage.
+  MAJOR
+  /// Stops work or endangers somebody. Fix now.
+  CRITICAL
+}
+
+model Rfi {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId String?
+  project   Project?      @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  phaseId   String?
+  phase     ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+
+  subject    String
+  question   String @default("")
+  /// What it is about — structural, mechanical, facade. Free text, because
+  /// every project draws its disciplines differently.
+  discipline String @default("")
+
+  /// Who is being asked. A name rather than a user: the architect is usually
+  /// not somebody with a login here.
+  raisedByName String @default("")
+  toName       String @default("")
+
+  status     RfiStatus @default(OPEN)
+  /// When an answer is needed by. The whole reason an RFI register exists is
+  /// that unanswered questions stop work, so this is the column that matters.
+  dueOn      DateTime?
+  answer     String    @default("")
+  answeredOn DateTime?
+  answeredBy String    @default("")
+
+  /// What the answer costs. Recorded as words rather than money: an RFI that
+  /// changes the price becomes a change order, and THAT carries the figure.
+  /// A second money column here would be a number nobody reconciles.
+  costImpact String @default("")
+  timeImpact String @default("")
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events SiteEvent[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+  @@index([orgId, dueOn])
+}
+
+model Submittal {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  title      String
+  /// Which clause of the specification it answers. The handle everybody on a
+  /// site actually uses to find one.
+  specRef    String @default("")
+  discipline String @default("")
+  contractor String @default("")
+
+  status     SubmittalStatus @default(DRAFT)
+  /// Revisions are SEPARATE ROWS, chained. Rev 2 does not overwrite rev 1 —
+  /// somebody built to rev 1 and will need to know what it said.
+  revision   Int             @default(0)
+  previousId String?         @unique
+  previous   Submittal?      @relation("SubmittalRevisions", fields: [previousId], references: [id], onDelete: SetNull)
+  next       Submittal?      @relation("SubmittalRevisions")
+
+  dueOn        DateTime?
+  submittedOn  DateTime?
+  reviewedOn   DateTime?
+  reviewerName String    @default("")
+  comments     String    @default("")
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events SiteEvent[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+}
+
+model Inspection {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  unitId    String?
+  unit      Unit?    @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  title String
+  /// Structural, electrical, fire, handover. Free text for the same reason
+  /// the RFI's discipline is.
+  kind  String @default("")
+  area  String @default("")
+
+  status        InspectionStatus @default(SCHEDULED)
+  scheduledOn   DateTime?
+  inspectedOn   DateTime?
+  inspectorName String           @default("")
+  notes         String           @default("")
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  defects Defect[]
+  events  SiteEvent[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+}
+
+model Defect {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId    String?
+  project      Project?    @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  unitId       String?
+  unit         Unit?       @relation(fields: [unitId], references: [id], onDelete: SetNull)
+  /// The inspection that found it, where one did. Defects are also reported
+  /// by residents and spotted in passing, so this is optional.
+  inspectionId String?
+  inspection   Inspection? @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+
+  title       String
+  description String @default("")
+  location    String @default("")
+  trade       String @default("")
+
+  severity DefectSeverity @default(MINOR)
+  status   DefectStatus   @default(OPEN)
+
+  assigneeName String    @default("")
+  dueOn        DateTime?
+
+  /// WHO SAID IT WAS FIXED, AND WHO AGREED. Two names, never one — a defect
+  /// signed off by whoever caused it is not signed off.
+  fixedByName    String    @default("")
+  fixedOn        DateTime?
+  verifiedByName String    @default("")
+  verifiedOn     DateTime?
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events SiteEvent[]
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, projectId])
+  @@index([orgId, inspectionId])
+}
+
+model SiteDiary {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  ref String
+
+  projectId String
+  project   Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  /// The DAY it records. One per project per day, enforced below — two diaries
+  /// for one Tuesday is two accounts of the same Tuesday, and a record that
+  /// contradicts itself is not evidence.
+  on DateTime
+
+  weather     String @default("")
+  temperature String @default("")
+  /// How many people were on site. The number that answers "why did the
+  /// programme slip in March".
+  labourCount Int    @default(0)
+  contractors String @default("")
+  equipment   String @default("")
+
+  workDone    String @default("")
+  delays      String @default("")
+  visitors    String @default("")
+  safetyNotes String @default("")
+  materials   String @default("")
+
+  /// LOCKED ONCE THE DAY IS OVER.
+  ///
+  /// A site diary is a contemporaneous record, and one that can be rewritten
+  /// months later is worth nothing in a dispute — which is the only time
+  /// anybody reads it. After it closes, corrections are appended as amendments
+  /// rather than edited in, so both what was written and what was corrected
+  /// survive.
+  lockedAt DateTime?
+
+  createdById   String?
+  createdByName String  @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  events SiteEvent[]
+
+  @@unique([orgId, ref])
+  @@unique([projectId, on])
+  @@index([orgId])
+  @@index([orgId, projectId, on])
+}
+
+/// Every move any of the five registers makes, in one append-only table.
+///
+/// ONE TABLE RATHER THAN FIVE because they are all the same shape — what
+/// happened, to what, who said so, when — and five near-identical event
+/// tables is five places to remember to write to. The `entity` column says
+/// which register, and exactly one of the five ids is set.
+model SiteEvent {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// "rfi", "submittal", "inspection", "defect", "diary".
+  entity String
+  /// What it moved to, or what was done. Free text rather than an enum: five
+  /// registers with five state machines cannot share one.
+  action String
+  detail String @default("")
+  byName String @default("")
+
+  rfiId        String?
+  rfi          Rfi?        @relation(fields: [rfiId], references: [id], onDelete: Cascade)
+  submittalId  String?
+  submittal    Submittal?  @relation(fields: [submittalId], references: [id], onDelete: Cascade)
+  inspectionId String?
+  inspection   Inspection? @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  defectId     String?
+  defect       Defect?     @relation(fields: [defectId], references: [id], onDelete: Cascade)
+  diaryId      String?
+  diary        SiteDiary?  @relation(fields: [diaryId], references: [id], onDelete: Cascade)
+
+  at DateTime @default(now())
+
+  @@index([orgId])
+  @@index([rfiId])
+  @@index([submittalId])
+  @@index([inspectionId])
+  @@index([defectId])
+  @@index([diaryId])
 }

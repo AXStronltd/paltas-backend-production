@@ -236,7 +236,19 @@ test("a delete rule and its column's nullability agree", () => {
           wrong.push(`${model}.${f.name} is onDelete: SetNull but ${model}.${col} is required — ` +
                      `the delete would fail rather than null the column`);
         }
-        if (f.onDelete === "Cascade" && c.optional && model !== "Session") {
+        /*
+         * SiteEvent is one row pointing at ONE of five registers — an RFI, a
+         * submittal, an inspection, a defect or a diary — with the other four
+         * columns null. Every one of them is therefore optional, and every one
+         * of them must still cascade: an event about a deleted RFI, with its
+         * rfiId nulled, is a row saying that something happened to something.
+         *
+         * The guard's reasoning — optional means the row can stand alone — is
+         * right for an ordinary parent and wrong for a discriminated union,
+         * where "optional" means "not THIS one" rather than "none".
+         */
+        if (f.onDelete === "Cascade" && c.optional
+            && model !== "Session" && model !== "SiteEvent") {
           wrong.push(`${model}.${f.name} cascades on an optional column ${model}.${col} — ` +
                      `if it is optional the row can stand alone, so Cascade deletes rows ` +
                      `that did not have to die`);
@@ -318,6 +330,16 @@ test("every model has an id and timestamps, or says why not", () => {
      * would only offer a second clock to disagree with the first.
      */
     "DispatchEvent",
+    /*
+     * EVERY MOVE ANY OF THE FIVE SITE REGISTERS MAKES.
+     *
+     * One table rather than five because they are the same shape — what
+     * happened, to what, who said so, when — and five near-identical event
+     * tables is five places to remember to write to. It is what somebody
+     * reads in a dispute, so there is no PATCH for one and nothing an
+     * updatedAt could record.
+     */
+    "SiteEvent",
     /*
      * ONE SIDE OF ONE POSTED JOURNAL ENTRY.
      *
