@@ -87,22 +87,30 @@ async function audit(
  * neither can the test. Four functions that each name their table are worth
  * more than one that names none.
  */
-/**
- * One meeting of this company's, with whatever relations the caller asked for.
- *
- * `extra` is a Prisma argument — an `include` today, an `orderBy` tomorrow —
- * and the generic is what carries the shape of what was included back to the
- * caller, so a handler that asks for participants can read them.
- */
-async function ownMeeting<T extends Omit<Prisma.MeetingFindFirstArgs, "where">>(
-  req: Request, id: string, extra?: T,
-) {
+/** One meeting of this company's. */
+async function ownMeeting(req: Request, id: string) {
   const row = await db.meeting.findFirst({
     where: { id, orgId: actorOf(req, "a workflow route").orgId },
-    ...(extra ?? {}),
-  } as Prisma.MeetingFindFirstArgs & T);
+  });
   if (!row) throw hidden();
-  return row as Prisma.MeetingGetPayload<T>;
+  return row;
+}
+
+/**
+ * The same meeting, with its participants.
+ *
+ * A separate function rather than an `extra` argument, for the same reason
+ * ownOrderWithLines() in routes/procurement.ts is one: the handler that
+ * needs the participants reads a name and an email off each, and an options
+ * bag hands back a row whose relations the compiler knows nothing about.
+ */
+async function ownMeetingWithParticipants(req: Request, id: string) {
+  const row = await db.meeting.findFirst({
+    where: { id, orgId: actorOf(req, "a workflow route").orgId },
+    include: { participants: { select: { id: true, name: true, email: true, partyId: true } } },
+  });
+  if (!row) throw hidden();
+  return row;
 }
 async function ownDecision(req: Request, id: string) {
   const row = await db.decision.findFirst({ where: { id, orgId: actorOf(req, "a workflow route").orgId } });
@@ -224,9 +232,7 @@ workflowRoutes.post("/meetings/:id/cancel", route(async (req, res) => {
  */
 workflowRoutes.post("/meetings/:id/minutes", route(async (req, res) => {
   need(req, "update", "meetings");
-  const meeting = await ownMeeting(req, req.params.id, {
-    include: { participants: { select: { id: true, name: true, email: true, partyId: true } } },
-  });
+  const meeting = await ownMeetingWithParticipants(req, req.params.id);
 
   const minutes = text(req.body?.minutes, 20000);
   if (!minutes) throw badRequest("Minutes need something in them.");

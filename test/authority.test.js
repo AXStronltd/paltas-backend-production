@@ -21,7 +21,7 @@ import {
 import { normalisePath, contains, mayDataset, whyNotDataset } from "../src/modules/authority/domain/jurisdiction.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceText, handlerText } from "./src-files.js";
 
 const HERE = fileURLToPath(new URL("..", import.meta.url));
 const schema = readFileSync(join(HERE, "prisma/schema.prisma"), "utf8");
@@ -223,27 +223,8 @@ test("a company cannot file an official record against its own property", () => 
     "a filed record no longer says the authority verified it");
 });
 
-/*
- * ONE HANDLER, FROM ITS FIRST LINE TO ITS LAST.
- *
- * The slices below were character counts — `handler.slice(0, 1800)` — which
- * is a bound that has nothing to do with where the handler ends. Adding six
- * lines of validation to a route pushed the sentence this test checks past
- * 1800 characters, and the test reported that the response no longer says
- * something it says three lines further down.
- *
- * A handler ends where the next route begins. That is the bound.
- */
-function handlerFor(text, declaration) {
-  const from = text.indexOf(declaration);
-  assert.notEqual(from, -1, `${declaration} is gone`);
-  const rest = text.slice(from + declaration.length);
-  const next = rest.indexOf("\nauthorityRoutes.");
-  return declaration + (next === -1 ? rest : rest.slice(0, next));
-}
-
 test("a request grants nothing, and a grant cannot exceed the ask", () => {
-  const decide = handlerFor(routes, 'authorityRoutes.post("/authority/requests/:id/decide"');
+  const decide = handlerText(routes, "/authority/requests/:id/decide", "authorityRoutes");
   assert.match(decide, /const extra = granted\.filter\(\(d\) => !found\.datasets\.includes\(d\)\)/,
     "a company can grant a dataset the authority never asked for");
   assert.match(decide, /PARTIALLY_APPROVED/,
@@ -265,7 +246,7 @@ test("a request grants nothing, and a grant cannot exceed the ask", () => {
   assert.doesNotMatch(decide, /orgId:\s*(String\()?req\.(body|params|query)/,
     "the request is looked up by an organization the caller sent");
 
-  const submit = handlerFor(routes, 'authorityRoutes.post("/authority/requests"');
+  const submit = handlerText(routes, '"/authority/requests"', "authorityRoutes");
   assert.match(submit, /status: "SUBMITTED"/,
     "a submitted request starts in a state that already grants something");
   assert.match(submit, /This grants no access/,

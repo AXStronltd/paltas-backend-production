@@ -289,12 +289,30 @@ export interface AiContextInput {
   readonly site?: {
     name?: string; kind?: string; city?: string; country?: string;
   } | null;
-  readonly timeline: readonly { class?: string; [key: string]: unknown }[];
+  /*
+   * Rows from the timeline table AND rows derived from leases and work
+   * orders, merged. `class` is what the clearance filter reads; the five
+   * below are what reaches the model. Nothing else does.
+   */
+  readonly timeline: readonly {
+    class?: string;
+    at: Date;
+    kind: string;
+    title: string;
+    detail: string;
+    source: string;
+  }[];
   readonly assets?: readonly {
     name?: string; kind?: string; status?: string;
     servicedOn?: Date | null; nextServiceOn?: Date | null;
   }[] | null;
-  readonly ownership: readonly { class?: string; [key: string]: unknown }[];
+  readonly ownership: readonly {
+    class?: string;
+    holder: string;
+    shareBp: number | null;
+    active?: boolean;
+    source: string;
+  }[];
   readonly clearance: Clearance;
 }
 

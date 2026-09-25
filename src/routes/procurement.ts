@@ -26,6 +26,14 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+
+/** One line of a purchase order, as this file reads one back. */
+type PurchaseLineRow = NonNullable<Awaited<ReturnType<typeof db.purchaseLine.findFirst>>>;
 import { whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { numberFor } from "../http/resource.ts";
@@ -45,20 +53,24 @@ procurementRoutes.use(requireSession(), requireOrganization(), requireOpenSubscr
  * person who may raise one is the person who may be trusted with that. A site
  * manager who may record a defect must not be able to order £200,000 of steel.
  */
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, "finance", act, label);
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a procurement route"), "finance", act, label);
   if (why) throw forbidden(why);
 }
 
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(e); }
-};
+/** One handler, with its `try`/`catch` written once. */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(e); }
+  };
 
-const who = (req) => req.view?.user?.name || req.view?.user?.email || "";
-const text = (v, max) => String(v == null ? "" : v).trim().slice(0, max);
+const who = (req: Request): string =>
+  req.view?.user?.name || req.view?.user?.email || "";
+const text = (v: unknown, max: number): string =>
+  String(v == null ? "" : v).trim().slice(0, max);
 
 /** A whole number of minor units. Never a float — see PurchaseLine.quantity. */
-function money(v) {
+function money(v: unknown): bigint | null {
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
   if (!Number.isSafeInteger(Math.trunc(n))) return null;
@@ -66,54 +78,76 @@ function money(v) {
 }
 
 /** Thousandths. 1.5 tonnes is sent as 1500. */
-function qty(v, fallback) {
+function qty(v: unknown, fallback: number): number {
   const n = Number(v);
   if (!Number.isFinite(n)) return fallback;
   return Math.max(0, Math.trunc(n));
 }
 
 /** Thousandths × minor units, back to minor units, rounded down to the unit. */
-function lineTotal(quantity, unitPrice) {
+function lineTotal(quantity: number, unitPrice: bigint): bigint {
   return (BigInt(quantity) * unitPrice) / 1000n;
 }
 
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request, action: string, entity: string,
+  entityId?: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId, actorId: req.session.userId, actorName: who(req),
+        orgId: actorOf(req, "a procurement route").orgId, actorId: sessionOf(req, "a procurement route").userId, actorName: who(req),
         action, entity, entityId: entityId || "", detail: detail || undefined,
         ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, e.message); }
+  } catch (e) { console.error("audit write failed", action, messageOf(e)); }
 }
 
 /* One lookup per table, named, so the scoping scanner can read them. */
-async function ownRfq(req, id) {
-  const row = await db.rfq.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownRfq(req: Request, id: string) {
+  const row = await db.rfq.findFirst({ where: { id, orgId: actorOf(req, "a procurement route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownQuote(req, id) {
-  const row = await db.quote.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownQuote(req: Request, id: string) {
+  const row = await db.quote.findFirst({ where: { id, orgId: actorOf(req, "a procurement route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownOrder(req, id, extra) {
+/** One order of this company's. */
+async function ownOrder(req: Request, id: string) {
   const row = await db.purchaseOrder.findFirst({
-    where: { id, orgId: req.actor.orgId }, ...(extra || {}),
+    where: { id, orgId: actorOf(req, "a procurement route").orgId },
   });
   if (!row) throw hidden();
   return row;
 }
-async function ownChange(req, id) {
-  const row = await db.changeOrder.findFirst({ where: { id, orgId: req.actor.orgId } });
+
+/**
+ * The same order, with its lines.
+ *
+ * A separate function rather than an `extra` argument. The three handlers
+ * that need the lines need them TYPED — they read a quantity and a
+ * description off each one — and an options bag hands back a row whose
+ * relations the compiler knows nothing about.
+ */
+async function ownOrderWithLines(req: Request, id: string) {
+  const row = await db.purchaseOrder.findFirst({
+    where: { id, orgId: actorOf(req, "a procurement route").orgId },
+    include: { lines: true },
+  });
   if (!row) throw hidden();
   return row;
 }
-async function ownContract(req, id) {
-  const row = await db.contract.findFirst({ where: { id, orgId: req.actor.orgId } });
+
+async function ownChange(req: Request, id: string) {
+  const row = await db.changeOrder.findFirst({ where: { id, orgId: actorOf(req, "a procurement route").orgId } });
+  if (!row) throw hidden();
+  return row;
+}
+async function ownContract(req: Request, id: string) {
+  const row = await db.contract.findFirst({ where: { id, orgId: actorOf(req, "a procurement route").orgId } });
   if (!row) throw hidden();
   return row;
 }
@@ -151,7 +185,7 @@ procurementRoutes.post("/rfqs/:id/issue", route(async (req, res) => {
 procurementRoutes.post("/rfqs/:id/award", route(async (req, res) => {
   need(req, "create", "purchase-orders");
   const rfq = await ownRfq(req, req.params.id);
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a procurement route").orgId;
 
   if (rfq.status === "AWARDED") {
     throw conflict(`${rfq.ref} has already been awarded. Awarding twice would buy it twice.`);
@@ -196,7 +230,7 @@ procurementRoutes.post("/rfqs/:id/award", route(async (req, res) => {
            actually quoted for. */
         subtotal: quote.amount, tax: 0n, total: quote.amount,
         currency: quote.currency, status: "DRAFT",
-        createdById: req.session.userId, createdByName: who(req),
+        createdById: sessionOf(req, "a procurement route").userId, createdByName: who(req),
       },
     }),
   ]);
@@ -225,7 +259,7 @@ procurementRoutes.post("/rfqs/:id/award", route(async (req, res) => {
  * it is the kind of belt that costs nothing and the kind of braces that has
  * saved somebody's data before.
  */
-async function retotal(orgId, orderId, tax) {
+async function retotal(orgId: string, orderId: string, tax?: bigint) {
   const lines = await db.purchaseLine.findMany({ where: { orgId, orderId } });
   const subtotal = lines.reduce((t, l) => t + l.total, 0n);
   const t = tax === undefined ? undefined : tax;
@@ -261,12 +295,12 @@ procurementRoutes.post("/purchase-orders/:id/lines", route(async (req, res) => {
   const count = await db.purchaseLine.count({ where: { orderId: order.id } });
   const line = await db.purchaseLine.create({
     data: {
-      orgId: req.actor.orgId, orderId: order.id, position: count + 1,
+      orgId: actorOf(req, "a procurement route").orgId, orderId: order.id, position: count + 1,
       description, quantity, unit: text(req.body?.unit, 40),
       unitPrice, total: lineTotal(quantity, unitPrice),
     },
   });
-  const out = await retotal(req.actor.orgId, order.id, order.tax);
+  const out = await retotal(actorOf(req, "a procurement route").orgId, order.id, order.tax);
   await audit(req, "purchase.line", "purchaseOrder", order.id, { ref: order.ref });
   res.status(201).json({ line, order: out });
 }));
@@ -279,10 +313,10 @@ procurementRoutes.delete("/purchase-orders/:id/lines/:lineId", route(async (req,
     throw conflict(`${order.ref} has been issued. Its lines are what was ordered.`);
   }
   const removed = await db.purchaseLine.deleteMany({
-    where: { orgId: req.actor.orgId, orderId: order.id, id: req.params.lineId },
+    where: { orgId: actorOf(req, "a procurement route").orgId, orderId: order.id, id: req.params.lineId },
   });
   if (!removed.count) throw hidden();
-  const out = await retotal(req.actor.orgId, order.id, order.tax);
+  const out = await retotal(actorOf(req, "a procurement route").orgId, order.id, order.tax);
   /* Adding a line was audited and removing one was not, which is the worse
      half to miss: taking something off an order changes what is being bought
      and leaves nothing behind to say it was ever on it. */
@@ -300,7 +334,7 @@ procurementRoutes.delete("/purchase-orders/:id/lines/:lineId", route(async (req,
  */
 procurementRoutes.post("/purchase-orders/:id/issue", route(async (req, res) => {
   need(req, "update", "purchase-orders");
-  const order = await ownOrder(req, req.params.id, { include: { lines: true } });
+  const order = await ownOrderWithLines(req, req.params.id);
 
   if (order.status !== "DRAFT") throw conflict(`${order.ref} has already been issued.`);
   if (!order.lines.length && order.total === 0n) {
@@ -314,7 +348,9 @@ procurementRoutes.post("/purchase-orders/:id/issue", route(async (req, res) => {
 
   const tax = req.body?.tax === undefined ? undefined : money(req.body.tax);
   if (req.body?.tax !== undefined && tax === null) throw badRequest("Tax must be a whole number of minor units.");
-  if (tax !== undefined) await retotal(req.actor.orgId, order.id, tax);
+  if (tax !== undefined && tax !== null) {
+    await retotal(actorOf(req, "a procurement route").orgId, order.id, tax);
+  }
 
   const out = await db.purchaseOrder.update({
     where: { id: order.id },
@@ -344,8 +380,8 @@ procurementRoutes.post("/purchase-orders/:id/issue", route(async (req, res) => {
  */
 procurementRoutes.post("/purchase-orders/:id/receive", route(async (req, res) => {
   need(req, "update", "purchase-orders");
-  const order = await ownOrder(req, req.params.id, { include: { lines: true } });
-  const orgId = req.actor.orgId;
+  const order = await ownOrderWithLines(req, req.params.id);
+  const orgId = actorOf(req, "a procurement route").orgId;
 
   if (!["ISSUED", "PARTIALLY_RECEIVED"].includes(order.status)) {
     throw conflict(
@@ -357,8 +393,11 @@ procurementRoutes.post("/purchase-orders/:id/receive", route(async (req, res) =>
   if (!sent.length) throw badRequest("A delivery needs at least one line.");
 
   const byId = new Map(order.lines.map((l) => [l.id, l]));
-  const over = [];
-  const accepted = [];
+  const over: string[] = [];
+  /* One delivery line the order can actually take, with what was checked. */
+  const accepted: {
+    line: PurchaseLineRow; quantity: number; condition: string; note: string;
+  }[] = [];
   for (const s of sent) {
     const line = byId.get(text(s?.lineId, 60));
     if (!line) throw badRequest("One of those lines is not on this order.");
@@ -455,7 +494,7 @@ procurementRoutes.post("/purchase-orders/:id/invoice", route(async (req, res) =>
 
   const expense = await db.expense.create({
     data: {
-      orgId: req.actor.orgId, partyId: order.vendorId,
+      orgId: actorOf(req, "a procurement route").orgId, partyId: order.vendorId,
       detail: `${order.ref} — ${order.title}`,
       category: "Procurement",
       amount, currency: order.currency,
@@ -487,7 +526,7 @@ procurementRoutes.post("/purchase-orders/:id/invoice", route(async (req, res) =>
 /** POST /purchase-orders/:id/cancel — before anything arrives. */
 procurementRoutes.post("/purchase-orders/:id/cancel", route(async (req, res) => {
   need(req, "update", "purchase-orders");
-  const order = await ownOrder(req, req.params.id, { include: { lines: true } });
+  const order = await ownOrderWithLines(req, req.params.id);
   if (order.expenseId) {
     throw conflict(`${order.ref} has been invoiced. Cancelling it would not unspend the money.`);
   }
@@ -510,15 +549,18 @@ procurementRoutes.post("/purchase-orders/:id/cancel", route(async (req, res) => 
 /** GET /purchase-orders/committed — what the company owes but has not spent. */
 procurementRoutes.get("/purchase-orders/committed", route(async (req, res) => {
   need(req, "list", "purchase-orders");
-  const orgId = req.actor.orgId;
-  const live = { in: ["ISSUED", "PARTIALLY_RECEIVED", "RECEIVED"] };
+  const orgId = actorOf(req, "a procurement route").orgId;
+  /* Money already committed. Annotated rather than inferred: an object
+     literal widens the strings and Prisma demands the enum. */
+  const live: Prisma.EnumPurchaseStatusFilter =
+    { in: ["ISSUED", "PARTIALLY_RECEIVED", "RECEIVED"] };
   const rows = await db.purchaseOrder.findMany({
     where: { orgId, status: live }, orderBy: { issuedOn: "asc" }, take: 300,
     include: { project: { select: { id: true, name: true } } },
   });
   /* Grouped by currency, because adding shillings to pounds is how a
      commitment figure becomes nonsense. */
-  const byCurrency = {};
+  const byCurrency: Record<string, bigint> = {};
   for (const r of rows) {
     byCurrency[r.currency] = (byCurrency[r.currency] || 0n) + r.total;
   }
@@ -619,7 +661,15 @@ procurementRoutes.post("/change-orders/:id/withdraw", route(async (req, res) => 
   res.json({ changeOrder: out });
 }));
 
-const fmt = (minor, currency) =>
+/*
+ * A money amount for a sentence a person reads.
+ *
+ * Accepts a string as well as a number, because contractValue() below returns
+ * its figures already stringified — money is BigInt in this service and a
+ * BigInt does not survive JSON.stringify, so the value that reaches here has
+ * been through String() on purpose.
+ */
+const fmt = (minor: bigint | number | string, currency: string): string =>
   `${currency} ${(Number(minor) / 100).toFixed(2)}`;
 
 /**
@@ -629,8 +679,8 @@ const fmt = (minor, currency) =>
  * kept in step with the variations, and the day it drifts is the day the
  * contract says one thing and its own history says another.
  */
-async function contractValue(req, contractId) {
-  const orgId = req.actor.orgId;
+async function contractValue(req: Request, contractId: string) {
+  const orgId = actorOf(req, "a procurement route").orgId;
   const contract = await db.contract.findFirst({ where: { id: contractId, orgId } });
   if (!contract) return null;
   const variations = await db.changeOrder.findMany({

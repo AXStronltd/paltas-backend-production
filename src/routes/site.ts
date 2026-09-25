@@ -23,6 +23,16 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { $Enums, Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+import { enumParam } from "../http/errors.ts";
+
+/** Read one field off a caller's object without asserting its shape. */
+const at = (v: unknown, key: string): unknown =>
+  (typeof v === "object" && v !== null) ? (v as Record<string, unknown>)[key] : undefined;
 import { whyNotArea } from "../domain/access.ts";
 import { aliasesFor } from "../domain/console-map.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
@@ -37,17 +47,21 @@ siteRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription(
 
 /* The site registers are property work — the same area the programme,
    phases and milestones live in. */
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, "property", act, label);
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a site route"), "property", act, label);
   if (why) throw forbidden(why);
 }
 
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(e); }
-};
+/** One handler, with its `try`/`catch` written once. */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(e); }
+  };
 
-const who = (req) => req.view?.user?.name || req.view?.user?.email || "";
-const text = (v, max) => String(v == null ? "" : v).trim().slice(0, max);
+const who = (req: Request): string =>
+  req.view?.user?.name || req.view?.user?.email || "";
+const text = (v: unknown, max: number): string =>
+  String(v == null ? "" : v).trim().slice(0, max);
 
 /**
  * THE CONSOLE'S OWN NAMES FOR THESE FIELDS.
@@ -65,8 +79,8 @@ const text = (v, max) => String(v == null ? "" : v).trim().slice(0, max);
  */
 const DIARY_ALIASES = aliasesFor("site-diary");
 
-function consoleNames(body) {
-  const out = { ...(body || {}) };
+function consoleNames(body: unknown): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...(body as object || {}) };
   for (const [from, to] of Object.entries(DIARY_ALIASES)) {
     if (out[from] !== undefined && out[to] === undefined) out[to] = out[from];
   }
@@ -74,63 +88,73 @@ function consoleNames(body) {
 }
 
 /** A date sent as a day, read as that day and not as the epoch. */
-function day(v) {
+function day(v: unknown): Date | null {
   if (!v) return null;
-  const d = new Date(v);
-  return isNaN(d) ? null : d;
+  const d = new Date(v as string | number | Date);
+  return Number.isNaN(d.getTime()) ? null : d;
 }
 
 /** Midnight of a date, so "one diary per day" is a comparison that works. */
-function midnight(d) {
+function midnight(d: Date | string | number): Date {
   const x = new Date(d);
   x.setUTCHours(0, 0, 0, 0);
   return x;
 }
 
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request, action: string, entity: string,
+  entityId?: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId, actorId: req.session.userId, actorName: who(req),
+        orgId: actorOf(req, "a site route").orgId, actorId: sessionOf(req, "a site route").userId, actorName: who(req),
         action, entity, entityId: entityId || "", detail: detail || undefined,
         ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, e.message); }
+  } catch (e) { console.error("audit write failed", action, messageOf(e)); }
 }
 
 /* One lookup per table, written out, so the scoping scanner can read them. */
-async function ownRfi(req, id) {
-  const row = await db.rfi.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownRfi(req: Request, id: string) {
+  const row = await db.rfi.findFirst({ where: { id, orgId: actorOf(req, "a site route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownSubmittal(req, id) {
-  const row = await db.submittal.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownSubmittal(req: Request, id: string) {
+  const row = await db.submittal.findFirst({ where: { id, orgId: actorOf(req, "a site route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownInspection(req, id) {
-  const row = await db.inspection.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownInspection(req: Request, id: string) {
+  const row = await db.inspection.findFirst({ where: { id, orgId: actorOf(req, "a site route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownDefect(req, id) {
-  const row = await db.defect.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownDefect(req: Request, id: string) {
+  const row = await db.defect.findFirst({ where: { id, orgId: actorOf(req, "a site route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownDiary(req, id) {
-  const row = await db.siteDiary.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownDiary(req: Request, id: string) {
+  const row = await db.siteDiary.findFirst({ where: { id, orgId: actorOf(req, "a site route").orgId } });
   if (!row) throw hidden();
   return row;
 }
 
 /** The append-only line every move leaves. One table, five registers. */
-function event(req, entity, ids, action, detail) {
+function event(
+  req: Request,
+  entity: string,
+  /* Whichever register this belongs to — one column is set, the rest null. */
+  ids: Record<string, string>,
+  action: string,
+  detail?: unknown,
+) {
   return db.siteEvent.create({
     data: {
-      orgId: req.actor.orgId, entity, action,
+      orgId: actorOf(req, "a site route").orgId, entity, action,
       detail: text(detail, 1000), byName: who(req), ...ids,
     },
   });
@@ -231,7 +255,7 @@ siteRoutes.post("/rfis/:id/void", route(async (req, res) => {
  */
 siteRoutes.get("/rfis/overdue", route(async (req, res) => {
   need(req, "list", "rfis");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a site route").orgId;
   const now = new Date();
   const [rows, open, overdue, answered] = await Promise.all([
     db.rfi.findMany({
@@ -253,7 +277,8 @@ siteRoutes.get("/rfis/overdue", route(async (req, res) => {
  * SUBMITTALS
  * ====================================================================== */
 
-const SUBMITTAL_DECIDED = ["APPROVED", "APPROVED_AS_NOTED", "REVISE_RESUBMIT", "REJECTED"];
+const SUBMITTAL_DECIDED: readonly $Enums.SubmittalStatus[] =
+  ["APPROVED", "APPROVED_AS_NOTED", "REVISE_RESUBMIT", "REJECTED"];
 
 /** POST /submittals/:id/submit — DRAFT becomes a thing somebody must look at. */
 siteRoutes.post("/submittals/:id/submit", route(async (req, res) => {
@@ -294,9 +319,10 @@ siteRoutes.post("/submittals/:id/review", route(async (req, res) => {
       `A second opinion on the same revision is a new revision.`);
   }
 
-  const outcome = String(req.body?.outcome || "").toUpperCase();
+  const outcome = enumParam("SubmittalStatus", req.body?.outcome, "review outcome");
+  if (!outcome) throw badRequest("Which outcome? Send `outcome`.");
   if (!SUBMITTAL_DECIDED.includes(outcome)) {
-    throw badRequest(`"${req.body?.outcome}" is not a review outcome.`, SUBMITTAL_DECIDED);
+    throw badRequest(`"${outcome}" is not a review outcome.`, [...SUBMITTAL_DECIDED]);
   }
   const reviewer = text(req.body?.reviewerName, 160) || who(req);
   const comments = text(req.body?.comments, 20000);
@@ -325,12 +351,12 @@ siteRoutes.post("/submittals/:id/review", route(async (req, res) => {
   if (outcome === "REVISE_RESUBMIT") {
     nextRev = await db.submittal.create({
       data: {
-        orgId: req.actor.orgId, ref: await numberFor("submittals", req.actor.orgId),
+        orgId: actorOf(req, "a site route").orgId, ref: await numberFor("submittals", actorOf(req, "a site route").orgId),
         projectId: s.projectId, title: s.title, specRef: s.specRef,
         discipline: s.discipline, contractor: s.contractor,
         status: "DRAFT", revision: s.revision + 1, previousId: s.id,
         dueOn: s.dueOn,
-        createdById: req.session.userId, createdByName: who(req),
+        createdById: sessionOf(req, "a site route").userId, createdByName: who(req),
       },
     });
     await event(req, "submittal", { submittalId: nextRev.id }, "OPENED",
@@ -351,7 +377,8 @@ siteRoutes.post("/submittals/:id/review", route(async (req, res) => {
  * INSPECTIONS AND DEFECTS
  * ====================================================================== */
 
-const INSPECTION_RESULTS = ["PASSED", "PASSED_WITH_DEFECTS", "FAILED"];
+const INSPECTION_RESULTS: readonly $Enums.InspectionStatus[] =
+  ["PASSED", "PASSED_WITH_DEFECTS", "FAILED"];
 
 /**
  * POST /inspections/:id/record
@@ -371,9 +398,10 @@ siteRoutes.post("/inspections/:id/record", route(async (req, res) => {
       `Re-inspecting is a new inspection, so the first result stays readable.`);
   }
 
-  const result = String(req.body?.result || "").toUpperCase();
+  const result = enumParam("InspectionStatus", req.body?.result, "inspection result");
+  if (!result) throw badRequest("Which result? Send `result`.");
   if (!INSPECTION_RESULTS.includes(result)) {
-    throw badRequest(`"${req.body?.result}" is not an inspection result.`, INSPECTION_RESULTS);
+    throw badRequest(`"${result}" is not an inspection result.`, [...INSPECTION_RESULTS]);
   }
   const inspector = text(req.body?.inspectorName, 160) || who(req);
   const found = Array.isArray(req.body?.defects) ? req.body.defects : [];
@@ -386,12 +414,12 @@ siteRoutes.post("/inspections/:id/record", route(async (req, res) => {
     throw badRequest("A failed inspection needs either the defects found or a note saying why.");
   }
 
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a site route").orgId;
   const now = new Date();
 
   /* The numbers first: nextNumber is a counter upsert and cannot run inside
      the transaction below without holding it open for each one. */
-  const refs = [];
+  const refs: string[] = [];
   for (let i = 0; i < found.length; i += 1) refs.push(await numberFor("defects", orgId));
 
   const [out] = await db.$transaction([
@@ -401,18 +429,17 @@ siteRoutes.post("/inspections/:id/record", route(async (req, res) => {
               notes: text(req.body?.notes, 20000) || ins.notes },
     }),
     ...(found.length ? [db.defect.createMany({
-      data: found.map((d, i) => ({
-        orgId, ref: refs[i], projectId: ins.projectId, unitId: ins.unitId,
+      data: found.map((d: unknown, i: number) => ({
+        orgId, ref: String(refs[i]), projectId: ins.projectId, unitId: ins.unitId,
         inspectionId: ins.id,
-        title: text(d?.title, 300) || "Untitled defect",
-        description: text(d?.description, 20000),
-        location: text(d?.location, 300) || ins.area,
-        trade: text(d?.trade, 160),
-        severity: ["MINOR", "MAJOR", "CRITICAL"].includes(String(d?.severity).toUpperCase())
-          ? String(d.severity).toUpperCase() : "MINOR",
-        assigneeName: text(d?.assigneeName, 160),
-        dueOn: day(d?.dueOn),
-        createdById: req.session.userId, createdByName: who(req),
+        title: text(at(d, "title"), 300) || "Untitled defect",
+        description: text(at(d, "description"), 20000),
+        location: text(at(d, "location"), 300) || ins.area,
+        trade: text(at(d, "trade"), 160),
+        severity: enumParam("DefectSeverity", at(d, "severity"), "severity") ?? "MINOR",
+        assigneeName: text(at(d, "assigneeName"), 160),
+        dueOn: day(at(d, "dueOn")),
+        createdById: sessionOf(req, "a site route").userId, createdByName: who(req),
       })),
     })] : []),
     event(req, "inspection", { inspectionId: ins.id }, result,
@@ -541,8 +568,10 @@ siteRoutes.post("/defects/:id/reject", route(async (req, res) => {
  */
 siteRoutes.get("/defects/outstanding", route(async (req, res) => {
   need(req, "list", "defects");
-  const orgId = req.actor.orgId;
-  const open = { in: ["OPEN", "IN_PROGRESS", "FIXED"] };
+  const orgId = actorOf(req, "a site route").orgId;
+  /* Everything not yet closed. Annotated rather than inferred: an object
+     literal widens the strings and Prisma demands the enum. */
+  const open: Prisma.EnumDefectStatusFilter = { in: ["OPEN", "IN_PROGRESS", "FIXED"] };
   const [rows, critical, major, minor, awaiting, late] = await Promise.all([
     db.defect.findMany({
       where: { orgId, status: open },
@@ -582,7 +611,7 @@ siteRoutes.get("/defects/outstanding", route(async (req, res) => {
  */
 siteRoutes.post("/site-diary", route(async (req, res) => {
   need(req, "create", "site-diary");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a site route").orgId;
   const b = consoleNames(req.body);
 
   const projectId = text(b.projectId, 60);
@@ -616,7 +645,7 @@ siteRoutes.post("/site-diary", route(async (req, res) => {
       /* A diary for a day that is already over is locked as it is written.
          There is no window in which yesterday's page is editable. */
       lockedAt: on < today ? new Date() : null,
-      createdById: req.session.userId, createdByName: who(req),
+      createdById: sessionOf(req, "a site route").userId, createdByName: who(req),
     },
   });
   await event(req, "diary", { diaryId: diary.id }, "WRITTEN", "");
@@ -658,14 +687,14 @@ siteRoutes.patch("/site-diary/:id", route(async (req, res) => {
   }
 
   const b = consoleNames(req.body);
-  const data = {};
+  const data: Record<string, unknown> = {};
   for (const [k, max] of [["weather", 160], ["temperature", 40], ["contractors", 4000],
                           ["equipment", 4000], ["workDone", 20000], ["delays", 20000],
                           ["visitors", 4000], ["safetyNotes", 20000], ["materials", 20000]]) {
-    if (b[k] !== undefined) data[k] = text(b[k], max);
+    if (b[String(k)] !== undefined) data[String(k)] = text(b[String(k)], Number(max));
   }
-  if (b.labourCount !== undefined) {
-    data.labourCount = Math.max(0, Math.trunc(Number(b.labourCount) || 0));
+  if (b["labourCount"] !== undefined) {
+    data["labourCount"] = Math.max(0, Math.trunc(Number(b["labourCount"]) || 0));
   }
   if (!Object.keys(data).length) throw badRequest("Nothing to change.");
 
@@ -695,7 +724,7 @@ siteRoutes.post("/site-diary/:id/amend", route(async (req, res) => {
   await audit(req, "diary.amend", "siteDiary", diary.id, { ref: diary.ref });
 
   const events = await db.siteEvent.findMany({
-    where: { orgId: req.actor.orgId, diaryId: diary.id }, orderBy: { at: "asc" },
+    where: { orgId: actorOf(req, "a site route").orgId, diaryId: diary.id }, orderBy: { at: "asc" },
   });
   res.json({
     siteDiary: diary, amendments: events.filter((e) => e.action === "AMENDED"),

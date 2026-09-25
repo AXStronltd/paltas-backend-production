@@ -26,7 +26,7 @@ import {
 import { refFor, SUCCESSION_NEXT, SUCCESSION_TERMINAL, mayAdvance } from "../src/domain/dna.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceText, handlerText } from "./src-files.js";
 
 /* fileURLToPath, not .pathname: this repository's directory name contains a
    space, and .pathname hands back "paltas-backend%202". */
@@ -281,10 +281,24 @@ test("the person who opens a case cannot also approve it", () => {
    * where two different people are required, and it is required because the
    * outcome is a record about somebody's estate.
    */
-  const guard = routes.slice(routes.indexOf("succession/:caseId/advance"));
-  assert.match(guard.slice(0, 1600), /found\.openedById === req\.session\.userId/,
+  const guard = handlerText(routes, "succession/:caseId/advance", "dnaRoutes");
+
+  /*
+   * THE OPENER IS COMPARED AGAINST THE SIGNED-IN PERSON.
+   *
+   * This matched the literal `found.openedById === req.session.userId` and
+   * broke when the handler read the session through a helper — a test
+   * failing over punctuation while the rule it guards was untouched.
+   *
+   * What matters is the pair: the comparison is against the SESSION's user,
+   * and it is not against anybody the request named. A handler comparing
+   * the opener to a user id out of the body would let one person do both.
+   */
+  assert.match(guard, /found\.openedById === (req\.)?session(Of\([^)]*\))?\.userId/,
     "the opener of a succession case is no longer stopped from approving it");
-  assert.match(guard.slice(0, 1600), /"APPROVED"[\s\S]{0,60}"COMPLETED"/,
+  assert.doesNotMatch(guard, /found\.openedById === (String\()?req\.(body|params|query)/,
+    "the opener is compared against a user id the caller sent");
+  assert.match(guard, /"APPROVED"[\s\S]{0,60}"COMPLETED"/,
     "the two-person rule no longer covers both approving and completing");
 });
 

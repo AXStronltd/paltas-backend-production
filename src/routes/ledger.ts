@@ -40,6 +40,13 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+import { enumParam } from "../http/errors.ts";
+import type { JournalLineInput } from "../domain/ledger.ts";
 import { whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {
@@ -62,8 +69,8 @@ ledgerRoutes.use(requireSession(), requireOrganization(), requireOpenSubscriptio
  * ---------------------------------------------------------------- */
 
 /** The books are the finance area. Read to look, write to post, manage to close. */
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, "finance", act, label || "the ledger");
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a ledger route"), "finance", act, label || "the ledger");
   if (why) throw forbidden(why);
 }
 
@@ -75,29 +82,33 @@ function need(req, act, label) {
  * ledger has no business knowing what a status code is, and the same rules
  * are used by a background posting path that has no request at all.
  */
-const STATE = new Set(["PERIOD_CLOSED", "ALREADY_REVERSED", "NOT_POSTED"]);
+const STATE: ReadonlySet<string> = new Set(["PERIOD_CLOSED", "ALREADY_REVERSED", "NOT_POSTED"]);
 /* These name a row. Answering 404 rather than 400 keeps the reply from
    confirming that somebody else's account id exists. */
-const UNSEEN = new Set(["ACCOUNT_UNKNOWN", "ENTRY_UNKNOWN", "CROSS_ORG_ACCOUNT"]);
+const UNSEEN: ReadonlySet<string> = new Set(["ACCOUNT_UNKNOWN", "ENTRY_UNKNOWN", "CROSS_ORG_ACCOUNT"]);
 
-function translate(e) {
+function translate(e: unknown): unknown {
   if (!(e instanceof LedgerError)) return e;
-  if (STATE.has(e.code)) return conflict(`${e.message}`);
+  if (STATE.has(e.code)) return conflict(`${messageOf(e)}`);
   if (UNSEEN.has(e.code)) return hidden();
-  return badRequest(e.message, [e.code, ...Object.entries(e.detail || {}).map(([k, v]) => `${k}: ${v}`)]);
+  return badRequest(messageOf(e), [e.code, ...Object.entries(e.detail || {}).map(([k, v]) => `${k}: ${v}`)]);
 }
 
 /** Every handler is the same shape: do the work, translate what it throws. */
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(translate(e)); }
-};
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(translate(e)); }
+  };
 
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request, action: string, entity: string,
+  entityId?: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId,
-        actorId: req.session.userId,
+        orgId: actorOf(req, "a ledger route").orgId,
+        actorId: sessionOf(req, "a ledger route").userId,
         actorName: req.view?.user?.name || req.view?.user?.email || "",
         /* entityId is NOT NULL with a "" default — a null here is rejected by
            Prisma, and the rejection is swallowed by the catch below, so the
@@ -106,7 +117,7 @@ async function audit(req, action, entity, entityId, detail) {
         action, entity, entityId: entityId || "", detail: detail || undefined, ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, entity, e.message); }
+  } catch (e) { console.error("audit write failed", action, entity, messageOf(e)); }
 }
 
 /* ---------------------------------------------------------------- *
@@ -114,7 +125,7 @@ async function audit(req, action, entity, entityId, detail) {
  * ---------------------------------------------------------------- */
 
 /** A whole number of minor units, or a refusal naming the field. */
-function minor(v, field) {
+function minor(v: unknown, field: string): number {
   if (v === undefined || v === null || v === "") return 0;
   const n = typeof v === "number" ? v : Number(String(v).trim());
   if (!Number.isFinite(n) || !Number.isInteger(n)) {
@@ -125,12 +136,14 @@ function minor(v, field) {
 }
 
 /** A date the caller sent, or a refusal. `null` where one is optional. */
-function when(v, field, { required = false } = {}) {
+function when(
+  v: unknown, field: string, { required = false }: { required?: boolean } = {},
+): Date | null {
   if (v === undefined || v === null || v === "") {
     if (required) throw badRequest(`${field} is required.`);
     return null;
   }
-  const d = new Date(v);
+  const d = new Date(v as string | number | Date);
   if (Number.isNaN(d.getTime())) throw badRequest(`${field} is not a date this service can read.`, [String(v)]);
   return d;
 }
@@ -142,7 +155,7 @@ function when(v, field, { required = false } = {}) {
  * the marketplace prices in. Explicit beats derived, because an accountant
  * reporting in a currency other than their own country's is ordinary.
  */
-async function reportingCurrency(orgId, stated) {
+async function reportingCurrency(orgId: string, stated?: unknown): Promise<string> {
   if (stated) {
     const code = String(stated).trim().toUpperCase();
     if (!/^[A-Z]{3}$/.test(code)) throw badRequest(`"${stated}" is not a three-letter currency code.`);
@@ -165,7 +178,7 @@ async function reportingCurrency(orgId, stated) {
  * numbers: a counter row per company per series, incremented inside the
  * upsert, so two requests at once cannot be handed the same number.
  */
-async function nextRef(orgId, series, prefix) {
+async function nextRef(orgId: string, series: string, prefix: string): Promise<string> {
   const name = `${series}:${orgId}`;
   const row = await db.counter.upsert({
     where: { name },
@@ -190,10 +203,14 @@ ledgerRoutes.get("/ledger/accounts", route(async (req, res) => {
   need(req, "list", "the chart of accounts");
   const { type, active, q } = req.query;
 
-  const where = { orgId: req.actor.orgId };
-  if (type) {
-    const t = String(type).toUpperCase();
-    if (!NORMAL_BALANCE[t]) throw badRequest(`"${type}" is not an account type.`, Object.keys(NORMAL_BALANCE));
+  const where: Prisma.LedgerAccountWhereInput = {
+    orgId: actorOf(req, "a ledger route").orgId,
+  };
+  const t = enumParam("AccountType", type, "account type");
+  if (t) {
+    if (!NORMAL_BALANCE[t]) {
+      throw badRequest(`"${type}" is not an account type.`, Object.keys(NORMAL_BALANCE));
+    }
     where.type = t;
   }
   if (active === "true") where.active = true;
@@ -219,7 +236,7 @@ ledgerRoutes.get("/ledger/accounts", route(async (req, res) => {
  */
 ledgerRoutes.post("/ledger/accounts/seed", route(async (req, res) => {
   need(req, "create", "the chart of accounts");
-  const created = await seedChartOfAccounts(db, req.actor.orgId);
+  const created = await seedChartOfAccounts(db, actorOf(req, "a ledger route").orgId);
   if (created.length) await audit(req, "ledger.chart.seed", "ledgerAccount", "", { created: created.length });
   res.status(created.length ? 201 : 200).json({
     accounts: created,
@@ -234,16 +251,16 @@ ledgerRoutes.post("/ledger/accounts/seed", route(async (req, res) => {
 /** POST /ledger/accounts — one account the client's accountant wants. */
 ledgerRoutes.post("/ledger/accounts", route(async (req, res) => {
   need(req, "create", "the chart of accounts");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a ledger route").orgId;
   const b = req.body || {};
 
   const code = String(b.code || "").trim();
   const name = String(b.name || "").trim();
-  const type = String(b.type || "").trim().toUpperCase();
+  const type = enumParam("AccountType", b.type, "account type");
 
   if (!code) throw badRequest("An account needs a code.");
   if (!name) throw badRequest("An account needs a name.");
-  if (!NORMAL_BALANCE[type]) {
+  if (!type || !NORMAL_BALANCE[type]) {
     throw badRequest(`"${b.type}" is not an account type.`, Object.keys(NORMAL_BALANCE));
   }
 
@@ -286,7 +303,7 @@ ledgerRoutes.post("/ledger/accounts", route(async (req, res) => {
  */
 ledgerRoutes.patch("/ledger/accounts/:id", route(async (req, res) => {
   need(req, "update", "the chart of accounts");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a ledger route").orgId;
   const account = await db.ledgerAccount.findFirst({ where: { id: req.params.id, orgId } });
   if (!account) throw hidden();
 
@@ -299,7 +316,7 @@ ledgerRoutes.patch("/ledger/accounts/:id", route(async (req, res) => {
     }
   }
 
-  const data = {};
+  const data: Prisma.LedgerAccountUpdateInput = {};
   if (b.name !== undefined) {
     const name = String(b.name).trim();
     if (!name) throw badRequest("An account needs a name.");
@@ -319,7 +336,7 @@ ledgerRoutes.patch("/ledger/accounts/:id", route(async (req, res) => {
 ledgerRoutes.get("/ledger/accounts/:id/balance", route(async (req, res) => {
   need(req, "get", "the ledger");
   const balance = await accountBalance(db, {
-    orgId: req.actor.orgId,
+    orgId: actorOf(req, "a ledger route").orgId,
     accountId: req.params.id,
     from: when(req.query.from, "from"),
     to: when(req.query.to, "to"),
@@ -334,7 +351,7 @@ ledgerRoutes.get("/ledger/accounts/:id/balance", route(async (req, res) => {
 ledgerRoutes.get("/ledger/periods", route(async (req, res) => {
   need(req, "list", "financial periods");
   const periods = await db.financialPeriod.findMany({
-    where: { orgId: req.actor.orgId },
+    where: { orgId: actorOf(req, "a ledger route").orgId },
     orderBy: { opensAt: "desc" },
   });
   res.json({ periods, count: periods.length });
@@ -342,13 +359,16 @@ ledgerRoutes.get("/ledger/periods", route(async (req, res) => {
 
 ledgerRoutes.post("/ledger/periods", route(async (req, res) => {
   need(req, "create", "financial periods");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a ledger route").orgId;
   const b = req.body || {};
 
   const label = String(b.label || "").trim();
   if (!label) throw badRequest("A period needs a label — “March 2026”, “FY26 Q1”.");
+  /* `required: true` means when() throws rather than returning null; the
+     guard is what tells the compiler so, without a `!` on each use below. */
   const opensAt = when(b.opensAt, "opensAt", { required: true });
   const closesAt = when(b.closesAt, "closesAt", { required: true });
+  if (!opensAt || !closesAt) throw badRequest("A period needs both dates.");
   if (closesAt < opensAt) throw badRequest("A period cannot close before it opens.");
 
   /* Overlapping periods make "which period is this entry in" ambiguous, and
@@ -376,14 +396,14 @@ ledgerRoutes.post("/ledger/periods", route(async (req, res) => {
  */
 ledgerRoutes.post("/ledger/periods/:id/close", route(async (req, res) => {
   need(req, "delete", "closing a financial period");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a ledger route").orgId;
   const period = await db.financialPeriod.findFirst({ where: { id: req.params.id, orgId } });
   if (!period) throw hidden();
   if (period.status === "CLOSED") throw conflict(`“${period.label}” is already closed.`);
 
   const closed = await db.financialPeriod.update({
     where: { id: period.id },
-    data: { status: "CLOSED", closedAt: new Date(), closedById: req.session.userId },
+    data: { status: "CLOSED", closedAt: new Date(), closedById: sessionOf(req, "a ledger route").userId },
   });
   await audit(req, "ledger.period.close", "financialPeriod", period.id, { label: period.label });
   res.json({ period: closed });
@@ -399,7 +419,7 @@ ledgerRoutes.post("/ledger/periods/:id/close", route(async (req, res) => {
  */
 ledgerRoutes.post("/ledger/periods/:id/reopen", route(async (req, res) => {
   need(req, "delete", "reopening a financial period");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a ledger route").orgId;
   const reason = String((req.body || {}).reason || "").trim();
   if (!reason) {
     throw badRequest("Reopening a closed period needs a reason. It changes figures that have already been reported.");
@@ -412,7 +432,7 @@ ledgerRoutes.post("/ledger/periods/:id/reopen", route(async (req, res) => {
     where: { id: period.id },
     data: {
       status: "OPEN", reopenedAt: new Date(),
-      reopenedById: req.session.userId, reopenReason: reason,
+      reopenedById: sessionOf(req, "a ledger route").userId, reopenReason: reason,
     },
   });
   await audit(req, "ledger.period.reopen", "financialPeriod", period.id, { label: period.label, reason });
@@ -426,7 +446,7 @@ ledgerRoutes.post("/ledger/periods/:id/reopen", route(async (req, res) => {
 /** GET /ledger/entries — the journal, newest first. */
 ledgerRoutes.get("/ledger/entries", route(async (req, res) => {
   need(req, "list", "the journal");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a ledger route").orgId;
   const { status, sourceType, accountId } = req.query;
 
   const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
@@ -435,9 +455,9 @@ ledgerRoutes.get("/ledger/entries", route(async (req, res) => {
   const from = when(req.query.from, "from");
   const to = when(req.query.to, "to");
 
-  const where = { orgId };
+  const where: Prisma.JournalEntryWhereInput = { orgId };
   if (from || to) where.date = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
-  if (status) where.status = String(status).toUpperCase();
+  where.status = enumParam("JournalStatus", status, "entry status");
   if (sourceType) where.sourceType = String(sourceType);
   /* "every entry that touched this account" is the question a person asks
      after clicking a figure in a report. */
@@ -473,7 +493,7 @@ ledgerRoutes.get("/ledger/entries", route(async (req, res) => {
 ledgerRoutes.get("/ledger/entries/:id", route(async (req, res) => {
   need(req, "get", "the journal");
   const entry = await db.journalEntry.findFirst({
-    where: { id: req.params.id, orgId: req.actor.orgId },
+    where: { id: req.params.id, orgId: actorOf(req, "a ledger route").orgId },
     include: {
       lines: {
         include: { account: { select: { id: true, code: true, name: true, type: true, normal: true } } },
@@ -487,12 +507,12 @@ ledgerRoutes.get("/ledger/entries/:id", route(async (req, res) => {
   const [reverses, reversedBy] = await Promise.all([
     entry.reversesId
       ? db.journalEntry.findFirst({
-          where: { id: entry.reversesId, orgId: req.actor.orgId },
+          where: { id: entry.reversesId, orgId: actorOf(req, "a ledger route").orgId },
           select: { id: true, ref: true, date: true, memo: true },
         })
       : null,
     db.journalEntry.findFirst({
-      where: { reversesId: entry.id, orgId: req.actor.orgId },
+      where: { reversesId: entry.id, orgId: actorOf(req, "a ledger route").orgId },
       select: { id: true, ref: true, date: true, reversalReason: true },
     }),
   ]);
@@ -513,7 +533,7 @@ ledgerRoutes.get("/ledger/entries/:id", route(async (req, res) => {
  */
 ledgerRoutes.post("/ledger/entries", route(async (req, res) => {
   need(req, "create", "the journal");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a ledger route").orgId;
   const b = req.body || {};
 
   if (b.ref) {
@@ -529,20 +549,24 @@ ledgerRoutes.post("/ledger/entries", route(async (req, res) => {
 
   /* Shapes only. Whether they BALANCE is the domain's question, and asking
      it here as well is how the two answers drift. */
-  const lines = b.lines.map((l, i) => {
-    if (!l || typeof l !== "object") throw badRequest(`Line ${i + 1} is not a line.`);
-    const out = {
-      accountId: String(l.accountId || "").trim(),
-      debit: minor(l.debit, `line ${i + 1} debit`),
-      credit: minor(l.credit, `line ${i + 1} credit`),
-      memo: l.memo ? String(l.memo).slice(0, 500) : "",
-      siteId: l.siteId || null, buildingId: l.buildingId || null,
-      unitId: l.unitId || null, leaseId: l.leaseId || null, partyId: l.partyId || null,
+  const lines: JournalLineInput[] = b.lines.map((raw: unknown, i: number) => {
+    if (!raw || typeof raw !== "object") throw badRequest(`Line ${i + 1} is not a line.`);
+    const l = raw as Record<string, unknown>;
+    const out: JournalLineInput & { baseDebit?: number; baseCredit?: number } = {
+      accountId: String(l["accountId"] || "").trim(),
+      debit: minor(l["debit"], `line ${i + 1} debit`),
+      credit: minor(l["credit"], `line ${i + 1} credit`),
+      memo: l["memo"] ? String(l["memo"]).slice(0, 500) : "",
+      siteId: (l["siteId"] as string) || null,
+      buildingId: (l["buildingId"] as string) || null,
+      unitId: (l["unitId"] as string) || null,
+      leaseId: (l["leaseId"] as string) || null,
+      partyId: (l["partyId"] as string) || null,
     };
     /* Sent only when they differ, so an entry in one currency is not made to
        restate the same figure twice. */
-    if (l.baseDebit !== undefined) out.baseDebit = minor(l.baseDebit, `line ${i + 1} baseDebit`);
-    if (l.baseCredit !== undefined) out.baseCredit = minor(l.baseCredit, `line ${i + 1} baseCredit`);
+    if (l["baseDebit"] !== undefined) out.baseDebit = minor(l["baseDebit"], `line ${i + 1} baseDebit`);
+    if (l["baseCredit"] !== undefined) out.baseCredit = minor(l["baseCredit"], `line ${i + 1} baseCredit`);
     return out;
   });
 
@@ -558,7 +582,7 @@ ledgerRoutes.post("/ledger/entries", route(async (req, res) => {
     fxAt: when(b.fxAt, "fxAt"),
     sourceType: b.sourceType ? String(b.sourceType) : null,
     sourceId: b.sourceId ? String(b.sourceId) : null,
-    postedById: req.session.userId,
+    postedById: sessionOf(req, "a ledger route").userId,
   });
 
   await audit(req, "ledger.entry.post", "journalEntry", entry.id, {
@@ -576,7 +600,7 @@ ledgerRoutes.post("/ledger/entries", route(async (req, res) => {
  */
 ledgerRoutes.post("/ledger/entries/:id/reverse", route(async (req, res) => {
   need(req, "create", "the journal");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a ledger route").orgId;
   const b = req.body || {};
 
   const reason = String(b.reason || "").trim();
@@ -596,7 +620,7 @@ ledgerRoutes.post("/ledger/entries/:id/reverse", route(async (req, res) => {
     orgId, entryId: original.id, ref,
     date: when(b.date, "date") || new Date(),
     reason,
-    postedById: req.session.userId,
+    postedById: sessionOf(req, "a ledger route").userId,
   });
 
   await audit(req, "ledger.entry.reverse", "journalEntry", entry.id, {
@@ -620,7 +644,7 @@ ledgerRoutes.post("/ledger/entries/:id/reverse", route(async (req, res) => {
 ledgerRoutes.get("/ledger/trial-balance", route(async (req, res) => {
   need(req, "list", "the ledger");
   const tb = await trialBalance(db, {
-    orgId: req.actor.orgId,
+    orgId: actorOf(req, "a ledger route").orgId,
     from: when(req.query.from, "from"),
     to: when(req.query.to, "to"),
   });
@@ -644,7 +668,7 @@ ledgerRoutes.get("/ledger/trial-balance", route(async (req, res) => {
 ledgerRoutes.get("/ledger/period-for", route(async (req, res) => {
   need(req, "get", "financial periods");
   const date = when(req.query.date, "date") || new Date();
-  const period = await periodFor(db, req.actor.orgId, date);
+  const period = await periodFor(db, actorOf(req, "a ledger route").orgId, date);
   res.json({
     date,
     period: period || null,
@@ -671,7 +695,7 @@ ledgerRoutes.get("/ledger/period-for", route(async (req, res) => {
 ledgerRoutes.get("/ledger/balance-sheet", route(async (req, res) => {
   need(req, "list", "the ledger");
   const sheet = await balanceSheet(db, {
-    orgId: req.actor.orgId,
+    orgId: actorOf(req, "a ledger route").orgId,
     asAt: when(req.query.asAt, "asAt"),
   });
   /*
@@ -715,7 +739,7 @@ ledgerRoutes.get("/ledger/balance-sheet", route(async (req, res) => {
 ledgerRoutes.get("/ledger/income-statement", route(async (req, res) => {
   need(req, "list", "the ledger");
   const pl = await incomeStatement(db, {
-    orgId: req.actor.orgId,
+    orgId: actorOf(req, "a ledger route").orgId,
     from: when(req.query.from, "from"),
     to: when(req.query.to, "to"),
   });
@@ -747,7 +771,7 @@ ledgerRoutes.get("/ledger/income-statement", route(async (req, res) => {
 ledgerRoutes.get("/ledger/cash-movement", route(async (req, res) => {
   need(req, "list", "the ledger");
   const cash = await cashMovement(db, {
-    orgId: req.actor.orgId,
+    orgId: actorOf(req, "a ledger route").orgId,
     from: when(req.query.from, "from"),
     to: when(req.query.to, "to"),
   });
@@ -777,20 +801,20 @@ ledgerRoutes.get("/ledger/statement", route(async (req, res) => {
   /* Asked here so an id belonging to another company answers 404 rather than
      an empty statement, which reads as "they owe nothing". */
   if (partyId) {
-    const p = await db.party.findFirst({ where: { id: String(partyId), orgId: req.actor.orgId }, select: { id: true } });
+    const p = await db.party.findFirst({ where: { id: String(partyId), orgId: actorOf(req, "a ledger route").orgId }, select: { id: true } });
     if (!p) throw hidden();
   }
   if (siteId) {
-    const site = await db.site.findFirst({ where: { id: String(siteId), orgId: req.actor.orgId }, select: { id: true } });
+    const site = await db.site.findFirst({ where: { id: String(siteId), orgId: actorOf(req, "a ledger route").orgId }, select: { id: true } });
     if (!site) throw hidden();
   }
   if (unitId) {
-    const unit = await db.unit.findFirst({ where: { id: String(unitId), orgId: req.actor.orgId }, select: { id: true } });
+    const unit = await db.unit.findFirst({ where: { id: String(unitId), orgId: actorOf(req, "a ledger route").orgId }, select: { id: true } });
     if (!unit) throw hidden();
   }
 
   const st = await entityStatement(db, {
-    orgId: req.actor.orgId,
+    orgId: actorOf(req, "a ledger route").orgId,
     partyId: partyId ? String(partyId) : null,
     siteId: siteId ? String(siteId) : null,
     unitId: unitId ? String(unitId) : null,

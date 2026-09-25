@@ -170,3 +170,57 @@ export function sameSource(a, b) {
 export function baseName(name) {
   return String(name).replace(/\.(js|ts)$/, "");
 }
+
+/* ====================================================================== *
+ * ONE HANDLER, FROM ITS FIRST LINE TO ITS LAST.
+ *
+ * Several tests here read a route's source and assert something about it.
+ * They used to bound the read with a character count — `text.slice(0, 1600)`
+ * — which is a number with nothing to do with where the handler ends.
+ *
+ * That bound fails silently in the worst direction: adding six lines of
+ * validation to a route pushes a later line past it, and the test reports
+ * that the code no longer does something it does three lines further down.
+ * It happened twice in one evening, in two different files.
+ *
+ * A handler ends where the next route on the same router begins. That is
+ * the bound, and it is written once.
+ * ====================================================================== */
+
+/**
+ * The text of one route handler.
+ *
+ * `declaration` is any distinctive slice of its first line — the path is
+ * usually enough. `router` is the identifier the file registers routes on,
+ * which is what marks where the next one starts.
+ */
+export function handlerText(source, declaration, router) {
+  const text = String(source);
+
+  /*
+   * THE ANCHOR HAS TO BE THE REGISTRATION, NOT A MENTION OF IT.
+   *
+   * A path appears twice in these files: once in the doc comment above the
+   * route and once in the route itself. `indexOf` finds the comment, the
+   * slice then ends at the registration three lines later, and the test
+   * asserts things about three hundred characters of prose.
+   *
+   * That is exactly the silent-truncation failure this function exists to
+   * remove, so the search starts from the router's own registration.
+   */
+  const at = text.indexOf(`${router}.`, 0) === -1 ? -1 : (() => {
+    for (const m of text.matchAll(new RegExp(`\\b${router}\\.[a-z]+\\([^\\n]*`, "g"))) {
+      if (m[0].includes(declaration)) return m.index;
+    }
+    return -1;
+  })();
+  if (at === -1) {
+    throw new Error(
+      `no ${router} route matching "${declaration}" — it is gone, renamed, or the ` +
+      `anchor matches only the comment above it`);
+  }
+
+  const rest = text.slice(at);
+  const next = rest.slice(1).indexOf(`\n${router}.`);
+  return next === -1 ? rest : rest.slice(0, next + 1);
+}

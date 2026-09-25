@@ -9,7 +9,7 @@
  * ── THE SHAPE OF EVERY HANDLER ──────────────────────────────────────────
  *
  *   1. requireSession / organization / subscription   (the router's guards)
- *   2. load the property, scoped to req.actor.orgId   — tenant isolation
+ *   2. load the property, scoped to actorOf(req, "a dna route").orgId   — tenant isolation
  *   3. load THIS person's relationships to it         — standing, not role
  *   4. compute a clearance                            — role ∪ relationship
  *   5. refuse, or redact                              — server side, always
@@ -22,9 +22,41 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
 import { requireSession, requireOrganization, requireOpenSubscription } from "../http/session.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { clean } from "../domain/input.ts";
+import type { $Enums } from "@prisma/client";
+import type { DerivedEvent } from "../domain/dna.ts";
+
+/**
+ * A timeline row, from either source.
+ *
+ * `actorName`, `verification` and `derived` are the three that only one of
+ * the two has — a filed event carries the first two, a derived one carries
+ * the third — so all three are optional and the reader treats them that way.
+ */
+interface TimelineRow {
+  readonly id: string;
+  readonly kind: string;
+  readonly at: Date;
+  readonly title: string;
+  readonly detail: string;
+  readonly entity: string;
+  readonly entityId: string;
+  readonly source: string;
+  readonly class?: string;
+  /** Only a filed event has one — nobody filed a derived row. */
+  readonly actorName?: string;
+  /** Only a filed event has one — nobody has checked a derived row. */
+  readonly verification?: string;
+  /** Only a derived row has one, and it is always true. */
+  readonly derived?: boolean;
+}
 import { whyNotArea } from "../domain/access.ts";
 import {
   clearanceFor, mayRead, visibleRows, redact, withheldSummary,
@@ -35,6 +67,24 @@ import {
   SUCCESSION_NEXT,
 } from "../domain/dna.ts";
 import { context, gate, audit } from "../modules/property-dna/domain/context.ts";
+import type { AuthenticatedRequest } from "../http/request.ts";
+import { enumParam } from "../http/errors.ts";
+import { cleanDate, cleanText } from "../domain/input.ts";
+
+/**
+ * The same request, once the guards above have run.
+ *
+ * Every route in this file is mounted behind requireSession(),
+ * requireOrganization() and requireOpenSubscription(), and context() and
+ * audit() name that invariant in their own signatures. The check is on the
+ * line before, and it is here rather than at each of the twenty-eight call
+ * sites.
+ */
+const guarded = (req: Request): AuthenticatedRequest => {
+  actorOf(req, "a Property DNA route");
+  sessionOf(req, "a Property DNA route");
+  return req as AuthenticatedRequest;
+};
 
 export const dnaRoutes = Router();
 dnaRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription());
@@ -60,7 +110,7 @@ dnaRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription()
  */
 dnaRoutes.get("/properties/:siteId/dna", async (req, res, next) => {
   try {
-    const { orgId, dna, site, clearance } = await context(req);
+    const { orgId, dna, site, clearance } = await context(guarded(req));
 
     const [ownership, heritage, cases, scans] = await Promise.all([
       db.propertyOwnershipRecord.findMany({ where: { orgId, dnaId: dna.id }, select: { class: true } }),
@@ -113,7 +163,7 @@ dnaRoutes.get("/properties/:siteId/dna", async (req, res, next) => {
  */
 dnaRoutes.get("/properties/:siteId/permissions", async (req, res, next) => {
   try {
-    const { clearance, relations } = await context(req);
+    const { clearance, relations } = await context(guarded(req));
     res.json({
       clearance: clearance.label,
       via: clearance.via,
@@ -130,7 +180,7 @@ dnaRoutes.get("/properties/:siteId/permissions", async (req, res, next) => {
 
 dnaRoutes.get("/properties/:siteId/timeline", async (req, res, next) => {
   try {
-    const { orgId, dna, site, clearance } = await context(req);
+    const { orgId, dna, site, clearance } = await context(guarded(req));
     const take = Math.min(Number(req.query.limit) || 60, 200);
 
     const [own, derived] = await Promise.all([
@@ -140,8 +190,16 @@ dnaRoutes.get("/properties/:siteId/timeline", async (req, res, next) => {
       derivedEvents(orgId, site.id),
     ]);
 
-    const merged = visibleRows([...own, ...derived], clearance)
-      .sort((a, b) => new Date(b.at) - new Date(a.at))
+    /*
+     * ONE TIMELINE FROM TWO SOURCES.
+     *
+     * Rows written to the timeline table carry an actor and a verification
+     * state; rows derived from a lease or a work order do not — they were
+     * never filed by anybody and nobody has checked them. Read through a
+     * single shape that says which fields only one of the two has.
+     */
+    const merged = visibleRows<TimelineRow>([...own, ...derived], clearance)
+      .sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime())
       .slice(0, take)
       .map((e) => ({
         id: e.id, kind: e.kind, at: e.at, title: e.title, detail: e.detail,
@@ -165,7 +223,7 @@ dnaRoutes.get("/properties/:siteId/timeline", async (req, res, next) => {
  */
 dnaRoutes.post("/properties/:siteId/timeline", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     const why = whyNotArea(req.actor, "property", "create", "this property's record");
     if (why) throw forbidden(why);
 
@@ -173,26 +231,27 @@ dnaRoutes.post("/properties/:siteId/timeline", async (req, res, next) => {
       kind: "string", title: "string", detail: "text", at: "date",
       entity: "string", entityId: "string", class: "string",
     } }, req.body, { partial: true });
-    if (!body.title) throw badRequest("An event needs a title.");
+    const title = cleanText(body, "title");
+    if (!title) throw badRequest("An event needs a title.");
 
-    const cls = body.class || "INTERNAL";
+    const cls = cleanText(body, "class") || "INTERNAL";
     if (!ALL_CLASSES.includes(cls)) throw badRequest(`“${cls}” is not a classification.`);
     /* Nobody may file a record they could not then read: it would vanish from
        their own view the moment it was written. */
     gate(clearance, cls, "an event at that classification");
 
     const made = await remember(orgId, dna.id, {
-      kind: body.kind || "NOTE",
-      title: body.title,
-      detail: body.detail || "",
-      at: body.at || undefined,
-      entity: body.entity || "",
-      entityId: body.entityId || "",
-      actorId: req.session.userId,
+      kind: enumParam("TimelineKind", body["kind"], "kind of event") ?? "NOTE",
+      title,
+      detail: cleanText(body, "detail"),
+      at: cleanDate(body, "at") ?? undefined,
+      entity: cleanText(body, "entity"),
+      entityId: cleanText(body, "entityId"),
+      actorId: sessionOf(req, "a dna route").userId,
       actorName: req.view?.user?.name || "",
-      class: cls,
+      class: cls as $Enums.DataClass,
     });
-    await audit(req, "dna.timeline.append", "propertyDna", dna.id, { kind: made.kind, class: cls });
+    await audit(guarded(req), "dna.timeline.append", "propertyDna", dna.id, { kind: made.kind, class: cls });
     res.status(201).json({ event: { id: made.id, kind: made.kind, at: made.at, title: made.title } });
   } catch (e) { next(e); }
 });
@@ -217,7 +276,7 @@ const OWNERSHIP_SPEC = {
 
 dnaRoutes.get("/properties/:siteId/ownership", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     const rows = await db.propertyOwnershipRecord.findMany({
       where: { orgId, dnaId: dna.id }, orderBy: { fromOn: "desc" },
     });
@@ -226,7 +285,7 @@ dnaRoutes.get("/properties/:siteId/ownership", async (req, res, next) => {
     /* Reading an ownership record is itself a thing worth being able to prove
        later, so it is audited — the read, not only the write. */
     if (allowed.length) {
-      await audit(req, "dna.ownership.read", "propertyDna", dna.id, { rows: allowed.length });
+      await audit(guarded(req), "dna.ownership.read", "propertyDna", dna.id, { rows: allowed.length });
     }
     res.json({
       records: allowed.map((r) => redact(r, OWNERSHIP_SPEC, clearance)),
@@ -237,20 +296,32 @@ dnaRoutes.get("/properties/:siteId/ownership", async (req, res, next) => {
 
 dnaRoutes.post("/properties/:siteId/ownership", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     gate(clearance, "OWNER_ONLY", "recording an ownership record");
 
     const body = clean({ fields: {
       holder: "string", holderKind: "string", shareBp: "int",
       fromOn: "date", toOn: "date", basis: "string", note: "text",
     } }, req.body, { partial: true });
-    if (!body.holder) throw badRequest("An ownership record needs a holder.");
-    if (body.shareBp != null && (body.shareBp < 0 || body.shareBp > 10000)) {
+    const holder = cleanText(body, "holder");
+    if (!holder) throw badRequest("An ownership record needs a holder.");
+    const shareBp = typeof body["shareBp"] === "number" ? body["shareBp"] : null;
+    if (shareBp !== null && (shareBp < 0 || shareBp > 10000)) {
       throw badRequest("A share is in basis points, 0 to 10000.");
     }
 
     const made = await db.propertyOwnershipRecord.create({
-      data: { orgId, dnaId: dna.id, ...body, source: "OWNER_SUPPLIED", class: "OWNER_ONLY" },
+      data: {
+        orgId, dnaId: dna.id,
+        holder,
+        holderKind: cleanText(body, "holderKind"),
+        ...(shareBp === null ? {} : { shareBp }),
+        fromOn: cleanDate(body, "fromOn"),
+        toOn: cleanDate(body, "toOn"),
+        basis: cleanText(body, "basis"),
+        note: cleanText(body, "note"),
+        source: "OWNER_SUPPLIED", class: "OWNER_ONLY",
+      },
     });
     await remember(orgId, dna.id, {
       kind: "OWNERSHIP_RECORDED",
@@ -259,10 +330,10 @@ dnaRoutes.post("/properties/:siteId/ownership", async (req, res, next) => {
          timeline is read at RESTRICTED by managers. */
       detail: "",
       entity: "ownership", entityId: made.id,
-      actorId: req.session.userId, actorName: req.view?.user?.name || "",
+      actorId: sessionOf(req, "a dna route").userId, actorName: req.view?.user?.name || "",
       class: "CONFIDENTIAL",
     });
-    await audit(req, "dna.ownership.create", "propertyDna", dna.id, { id: made.id });
+    await audit(guarded(req), "dna.ownership.create", "propertyDna", dna.id, { id: made.id });
     res.status(201).json({ record: redact(made, OWNERSHIP_SPEC, clearance) });
   } catch (e) { next(e); }
 });
@@ -273,7 +344,7 @@ dnaRoutes.post("/properties/:siteId/ownership", async (req, res, next) => {
 
 dnaRoutes.get("/properties/:siteId/heritage", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     const rows = await db.propertyHeritageRecord.findMany({
       where: { orgId, dnaId: dna.id }, orderBy: [{ year: "asc" }, { on: "asc" }],
     });
@@ -290,19 +361,29 @@ dnaRoutes.get("/properties/:siteId/heritage", async (req, res, next) => {
 
 dnaRoutes.post("/properties/:siteId/heritage", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     gate(clearance, "OWNER_ONLY", "the family's record of this property");
 
     const body = clean({ fields: {
       year: "int", on: "date", title: "string", story: "text",
       family: "string", publicOk: "bool",
     } }, req.body, { partial: true });
-    if (!body.title) throw badRequest("A heritage entry needs a title.");
+    const heritageTitle = cleanText(body, "title");
+    if (!heritageTitle) throw badRequest("A heritage entry needs a title.");
 
     const made = await db.propertyHeritageRecord.create({
-      data: { orgId, dnaId: dna.id, ...body, class: "OWNER_ONLY", source: "OWNER_SUPPLIED" },
+      data: {
+        orgId, dnaId: dna.id,
+        title: heritageTitle,
+        ...(typeof body["year"] === "number" ? { year: body["year"] } : {}),
+        on: cleanDate(body, "on"),
+        story: cleanText(body, "story"),
+        family: cleanText(body, "family"),
+        ...(typeof body["publicOk"] === "boolean" ? { publicOk: body["publicOk"] } : {}),
+        class: "OWNER_ONLY", source: "OWNER_SUPPLIED",
+      },
     });
-    await audit(req, "dna.heritage.create", "propertyDna", dna.id, { id: made.id });
+    await audit(guarded(req), "dna.heritage.create", "propertyDna", dna.id, { id: made.id });
     res.status(201).json({ record: { id: made.id, title: made.title, year: made.year } });
   } catch (e) { next(e); }
 });
@@ -313,7 +394,7 @@ dnaRoutes.post("/properties/:siteId/heritage", async (req, res, next) => {
 
 dnaRoutes.get("/properties/:siteId/succession", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     gate(clearance, "LEGAL_RESTRICTED", "succession on this property");
 
     const cases = await db.successionCase.findMany({
@@ -324,7 +405,7 @@ dnaRoutes.get("/properties/:siteId/succession", async (req, res, next) => {
         steps: { orderBy: { at: "asc" } },
       },
     });
-    await audit(req, "dna.succession.read", "propertyDna", dna.id, { cases: cases.length });
+    await audit(guarded(req), "dna.succession.read", "propertyDna", dna.id, { cases: cases.length });
 
     res.json({
       cases: cases.map((c) => ({
@@ -357,7 +438,7 @@ dnaRoutes.get("/properties/:siteId/succession", async (req, res, next) => {
 
 dnaRoutes.post("/properties/:siteId/succession", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     gate(clearance, "LEGAL_RESTRICTED", "opening a succession case");
 
     const open = await db.successionCase.findFirst({
@@ -379,11 +460,11 @@ dnaRoutes.post("/properties/:siteId/succession", async (req, res, next) => {
       data: {
         orgId, dnaId: dna.id, ref: successionRef(n + 1),
         status: "DRAFT",
-        jurisdiction: body.jurisdiction || "",
-        representative: body.representative || "",
-        reason: body.reason || "",
-        note: body.note || "",
-        openedById: req.session.userId,
+        jurisdiction: cleanText(body, "jurisdiction"),
+        representative: cleanText(body, "representative"),
+        reason: cleanText(body, "reason"),
+        note: cleanText(body, "note"),
+        openedById: sessionOf(req, "a dna route").userId,
         openedName: req.view?.user?.name || "",
         class: "LEGAL_RESTRICTED",
       },
@@ -392,7 +473,7 @@ dnaRoutes.post("/properties/:siteId/succession", async (req, res, next) => {
       data: {
         orgId, caseId: made.id, from: null, to: "DRAFT",
         why: "Case opened.",
-        actorId: req.session.userId, actorName: req.view?.user?.name || "",
+        actorId: sessionOf(req, "a dna route").userId, actorName: req.view?.user?.name || "",
       },
     });
     await remember(orgId, dna.id, {
@@ -400,17 +481,17 @@ dnaRoutes.post("/properties/:siteId/succession", async (req, res, next) => {
       title: "A succession case was opened",
       detail: "",
       entity: "succession", entityId: made.id,
-      actorId: req.session.userId, actorName: req.view?.user?.name || "",
+      actorId: sessionOf(req, "a dna route").userId, actorName: req.view?.user?.name || "",
       class: "CONFIDENTIAL",
     });
-    await audit(req, "dna.succession.open", "successionCase", made.id, { ref: made.ref });
+    await audit(guarded(req), "dna.succession.open", "successionCase", made.id, { ref: made.ref });
     res.status(201).json({ case: { id: made.id, ref: made.ref, status: made.status } });
   } catch (e) { next(e); }
 });
 
 dnaRoutes.post("/properties/:siteId/succession/:caseId/beneficiaries", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     gate(clearance, "LEGAL_RESTRICTED", "recording a beneficiary");
 
     const found = await db.successionCase.findFirst({
@@ -424,20 +505,22 @@ dnaRoutes.post("/properties/:siteId/succession/:caseId/beneficiaries", async (re
     const body = clean({ fields: {
       name: "string", relation: "string", shareBp: "int", contact: "string", note: "text",
     } }, req.body, { partial: true });
-    if (!body.name) throw badRequest("A beneficiary needs a name.");
-    if (body.shareBp != null && (body.shareBp < 0 || body.shareBp > 10000)) {
+    const name = cleanText(body, "name");
+    if (!name) throw badRequest("A beneficiary needs a name.");
+    const share = typeof body["shareBp"] === "number" ? body["shareBp"] : null;
+    if (share !== null && (share < 0 || share > 10000)) {
       throw badRequest("A share is in basis points, 0 to 10000.");
     }
 
     const made = await db.successionBeneficiary.create({
       data: {
-        orgId, caseId: found.id, name: body.name,
-        relation: body.relation || "BENEFICIARY",
-        shareBp: body.shareBp ?? null,
-        contact: body.contact || "", note: body.note || "",
+        orgId, caseId: found.id, name,
+        relation: enumParam("PropertyRelation", body["relation"], "relation") ?? "BENEFICIARY",
+        shareBp: share,
+        contact: cleanText(body, "contact"), note: cleanText(body, "note"),
       },
     });
-    await audit(req, "dna.succession.beneficiary.add", "successionCase", found.id, { id: made.id });
+    await audit(guarded(req), "dna.succession.beneficiary.add", "successionCase", found.id, { id: made.id });
 
     /*
      * Shares are RECORDED, not adjudicated, and they are not required to add
@@ -474,7 +557,7 @@ dnaRoutes.post("/properties/:siteId/succession/:caseId/beneficiaries", async (re
  */
 dnaRoutes.post("/properties/:siteId/succession/:caseId/advance", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     gate(clearance, "LEGAL_RESTRICTED", "moving a succession case");
 
     const body = clean({ fields: { to: "string", why: "text" } }, req.body, { partial: true });
@@ -488,33 +571,43 @@ dnaRoutes.post("/properties/:siteId/succession/:caseId/advance", async (req, res
     /* Approving or completing is not something the person who opened the case
        should be able to do alone. Two people, or it does not move. */
     if ((body.to === "APPROVED" || body.to === "COMPLETED") &&
-        found.openedById && found.openedById === req.session.userId) {
+        found.openedById && found.openedById === sessionOf(req, "a dna route").userId) {
       throw forbidden(
         "The person who opened a succession case cannot also approve it. " +
         "Another authorised person has to make this decision."
       );
     }
 
-    const moved = await advanceCase(
-      orgId, found.id, body.to,
-      { userId: req.session.userId, name: req.view?.user?.name || "" },
-      body.why || ""
-    );
-    if (moved.error === "notFound") throw hidden();
-    if (moved.error === "transition") throw conflict(moved.why);
+    const to = enumParam("SuccessionStatus", body["to"], "succession status");
+    if (!to) throw badRequest("Which status? Send `to`.");
 
-    if (body.to === "COMPLETED") {
+    const moved = await advanceCase(
+      orgId, found.id, to,
+      { userId: sessionOf(req, "a dna route").userId, name: req.view?.user?.name || "" },
+      cleanText(body, "why")
+    );
+    /*
+     * The three answers advanceCase() can give, narrowed by the one field
+     * that separates them. A union rather than an object with everything
+     * optional is what makes `moved.case` below reachable only once the two
+     * refusals have been handled.
+     */
+    if ("error" in moved && moved.error === "notFound") throw hidden();
+    if ("error" in moved && moved.error === "transition") throw conflict(moved.why);
+    if ("error" in moved) throw conflict("That case could not be moved.");
+
+    if (to === "COMPLETED") {
       await remember(orgId, dna.id, {
         kind: "SUCCESSION_COMPLETED",
         title: "A succession case concluded",
         detail: "",
         entity: "succession", entityId: found.id,
-        actorId: req.session.userId, actorName: req.view?.user?.name || "",
+        actorId: sessionOf(req, "a dna route").userId, actorName: req.view?.user?.name || "",
         class: "CONFIDENTIAL",
       });
     }
-    await audit(req, "dna.succession.advance", "successionCase", found.id, {
-      from: moved.from, to: body.to,
+    await audit(guarded(req), "dna.succession.advance", "successionCase", found.id, {
+      from: moved.from, to,
     });
 
     res.json({
@@ -534,7 +627,7 @@ dnaRoutes.post("/properties/:siteId/succession/:caseId/advance", async (req, res
 
 dnaRoutes.get("/properties/:siteId/scan", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     const rows = await db.propertyScan.findMany({
       where: { orgId, dnaId: dna.id },
       orderBy: { createdAt: "desc" }, take: 50,
@@ -569,7 +662,7 @@ dnaRoutes.get("/properties/:siteId/scan", async (req, res, next) => {
  */
 dnaRoutes.post("/properties/:siteId/scan", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     const why = whyNotArea(req.actor, "property", "create", "a property scan");
     if (why) throw forbidden(why);
     gate(clearance, "RESTRICTED", "adding a scan");
@@ -579,10 +672,12 @@ dnaRoutes.post("/properties/:siteId/scan", async (req, res, next) => {
     const made = await db.propertyScan.create({
       data: {
         orgId, dnaId: dna.id,
-        kind: body.kind || "PHOTO",
-        storageKey: body.storageKey || "",
-        note: body.note || "",
-        uploadedById: req.session.userId,
+        /* A free-text column on purpose — a scan kind is not an enum in
+           this schema, so it stays what the caller wrote. */
+        kind: cleanText(body, "kind") || "PHOTO",
+        storageKey: cleanText(body, "storageKey"),
+        note: cleanText(body, "note"),
+        uploadedById: sessionOf(req, "a dna route").userId,
         uploadedName: req.view?.user?.name || "",
         state: "PENDING",
         class: "RESTRICTED",
@@ -591,10 +686,10 @@ dnaRoutes.post("/properties/:siteId/scan", async (req, res, next) => {
     await remember(orgId, dna.id, {
       kind: "SCAN_RECORDED", title: "A scan was added",
       entity: "scan", entityId: made.id,
-      actorId: req.session.userId, actorName: req.view?.user?.name || "",
+      actorId: sessionOf(req, "a dna route").userId, actorName: req.view?.user?.name || "",
       source: "MANAGER_SUPPLIED", class: "INTERNAL",
     });
-    await audit(req, "dna.scan.create", "propertyDna", dna.id, { id: made.id });
+    await audit(guarded(req), "dna.scan.create", "propertyDna", dna.id, { id: made.id });
 
     res.status(201).json({
       scan: { id: made.id, kind: made.kind, state: made.state },
@@ -616,7 +711,7 @@ dnaRoutes.post("/properties/:siteId/scan", async (req, res, next) => {
  */
 dnaRoutes.post("/properties/:siteId/scan/:scanId/findings/:findingId", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     gate(clearance, "RESTRICTED", "confirming a scan finding");
 
     const body = clean({ fields: { decision: "string", label: "string" } }, req.body, { partial: true });
@@ -646,7 +741,7 @@ dnaRoutes.post("/properties/:siteId/scan/:scanId/findings/:findingId", async (re
         source: decision === "confirm" ? "VERIFIED" : finding.source,
       },
     });
-    await audit(req, "dna.scan.finding." + decision, "propertyScan", scan.id, { id: finding.id });
+    await audit(guarded(req), "dna.scan.finding." + decision, "propertyScan", scan.id, { id: finding.id });
     res.json({
       finding: {
         id: finding.id,
@@ -664,14 +759,16 @@ dnaRoutes.post("/properties/:siteId/scan/:scanId/findings/:findingId", async (re
 
 dnaRoutes.post("/properties/:siteId/verification", async (req, res, next) => {
   try {
-    const { orgId, dna, clearance } = await context(req);
+    const { orgId, dna, clearance } = await context(guarded(req));
     gate(clearance, "CONFIDENTIAL", "the property's verification state");
-    const why = whyNotArea(req.actor, "property", "update", "this property");
+    const why = whyNotArea(actorOf(req, "a Property DNA route"), "property", "update", "this property");
     if (why) throw forbidden(why);
 
     const body = clean({ fields: { state: "string", note: "text" } }, req.body, { partial: true });
-    const STATES = ["UNVERIFIED", "SUBMITTED", "UNDER_REVIEW", "VERIFIED", "REJECTED"];
-    if (!STATES.includes(body.state)) {
+    const STATES: readonly $Enums.VerificationState[] =
+      ["UNVERIFIED", "SUBMITTED", "UNDER_REVIEW", "VERIFIED", "REJECTED"];
+    const state = enumParam("VerificationState", body["state"], "verification state");
+    if (!state || !STATES.includes(state)) {
       throw badRequest(`state must be one of ${STATES.join(", ")}.`);
     }
     /*
@@ -697,10 +794,10 @@ dnaRoutes.post("/properties/:siteId/verification", async (req, res, next) => {
      */
     await db.propertyDna.updateMany({
       where: { id: dna.id, orgId },
-      data: { verification: body.state, verifiedNote: body.note || "" },
+      data: { verification: state, verifiedNote: cleanText(body, "note") },
     });
-    await audit(req, "dna.verification.set", "propertyDna", dna.id, { state: body.state });
-    res.json({ verification: body.state });
+    await audit(guarded(req), "dna.verification.set", "propertyDna", dna.id, { state });
+    res.json({ verification: state });
   } catch (e) { next(e); }
 });
 
@@ -721,7 +818,7 @@ dnaRoutes.post("/properties/:siteId/verification", async (req, res, next) => {
  */
 dnaRoutes.post("/properties/:siteId/ai/context", async (req, res, next) => {
   try {
-    const { orgId, dna, site, clearance } = await context(req);
+    const { orgId, dna, site, clearance } = await context(guarded(req));
 
     const [own, derived, assets, ownership] = await Promise.all([
       db.propertyTimelineEvent.findMany({ where: { orgId, dnaId: dna.id }, orderBy: { at: "desc" }, take: 200 }),
@@ -731,10 +828,14 @@ dnaRoutes.post("/properties/:siteId/ai/context", async (req, res, next) => {
     ]);
 
     const context_ = aiContext(
-      { dna, site, timeline: [...own, ...derived], assets, ownership, clearance },
+      {
+        dna, site,
+        timeline: [...own, ...derived],
+        assets, ownership, clearance,
+      },
       { visibleRows }
     );
-    await audit(req, "dna.ai.context", "propertyDna", dna.id, { clearance: clearance.label });
+    await audit(guarded(req), "dna.ai.context", "propertyDna", dna.id, { clearance: clearance.label });
 
     res.json({
       context: context_,
@@ -762,7 +863,7 @@ dnaRoutes.post("/properties/:siteId/ai/context", async (req, res, next) => {
  */
 dnaRoutes.get("/properties/:siteId/public", async (req, res, next) => {
   try {
-    const { dna, site } = await context(req);
+    const { dna, site } = await context(guarded(req));
     const profile = publicProfile(dna, site);
     if (!profile) {
       return res.json({
