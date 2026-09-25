@@ -449,9 +449,37 @@ handoverRoutes.post("/contracts/:id/status", route(async (req, res) => {
     }
   }
 
+  /*
+   * A COMPLETED SALE TAKES THE UNIT OFF THE MARKET.
+   *
+   * It had stayed RESERVED for ever: reserving was the only thing that ever
+   * moved a unit forward, and nothing moved it at the end. A flat that was
+   * sold, paid for and handed over still read as merely reserved, so it
+   * never left the pipeline and never counted as sold.
+   *
+   * OFF_MARKET rather than a new status. The unit is no longer available to
+   * let or to sell, which is precisely what OFF_MARKET has always meant here
+   * — and if the new owner later lets it through PALTAS, the lease hook in
+   * domain/occupancy.ts deliberately refuses to move it, so an owner's
+   * letting cannot quietly put a sold unit back on the developer's market.
+   */
+  let sold = null;
+  if (to === "COMPLETED" && c.unitId) {
+    const unit = await db.unit.findFirst({ where: { id: c.unitId, orgId } });
+    if (unit && unit.status === "RESERVED") {
+      sold = await db.unit.update({
+        where: { id: unit.id }, data: { status: "OFF_MARKET" },
+      });
+    }
+  }
+
   const out = await db.contract.update({ where: { id: c.id }, data });
   await audit(req, "contract.status", "contract", c.id,
     { ref: c.ref, to, owed: String(balance.owed) });
+  if (sold) {
+    await audit(req, "unit.occupancy", "unit", sold.id,
+      { from: "RESERVED", to: "OFF_MARKET", because: c.ref });
+  }
 
   res.json({
     contract: out,
@@ -460,6 +488,7 @@ handoverRoutes.post("/contracts/:id/status", route(async (req, res) => {
       owed: String(balance.owed),
     },
     releasedUnit: released ? { id: released.id, ref: released.ref, status: released.status } : null,
+    soldUnit: sold ? { id: sold.id, ref: sold.ref, status: sold.status } : null,
     said: to === "COMPLETED"
       ? balance.owed > 0n
         ? `${c.ref} completed with ${c.currency} ${(Number(balance.owed) / 100).toFixed(2)} ` +

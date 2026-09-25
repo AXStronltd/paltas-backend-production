@@ -36,6 +36,7 @@
  *             expose it in.
  * ====================================================================== */
 
+import type { $Enums } from "@prisma/client";
 import type { Registry, ResourceDeclaration } from "./registry-types.ts";
 import { bigOf, dateOf, isPast, isSet, numberOf, statusOf, textOf } from "./registry-types.ts";
 
@@ -92,6 +93,7 @@ const DISPATCH_MEANS: Readonly<Record<string, string>> = {
 import { db } from "../db.ts";
 import { aliasesFor } from "./console-map.ts";
 import { postForExpense, postForInvoice } from "./posting.ts";
+import { syncUnitToLease } from "./occupancy.ts";
 
 /* Field kinds:
      string · text · int · money · float · bool · date · json
@@ -353,6 +355,46 @@ const DECLARATIONS = {
     include: {
       unit: { select: { id: true, ref: true } },
       tenant: { select: { id: true, name: true, phone: true } },
+    },
+
+    /*
+     * THE UNIT FOLLOWS THE LEASE.
+     *
+     * Runs on create as well as update: a lease is very often written
+     * ACTIVE in one go rather than drafted first, and a flat occupied by
+     * that lease must not depend on somebody editing the row afterwards.
+     *
+     * The reason a unit was left alone is returned rather than dropped, so
+     * "this lease did not occupy its unit" is answerable from the response
+     * and from the audit trail instead of being inferred later from a
+     * vacancy figure that looks wrong. See domain/occupancy.ts.
+     */
+    async afterWrite({ row, req, db }) {
+      const unitId = textOf(row, "unitId");
+      if (!unitId) return {};
+
+      const moved = await syncUnitToLease(db, {
+        orgId: req.actor.orgId,
+        unitId,
+        status: statusOf(row) as $Enums.LeaseStatus,
+      });
+
+      if (moved.changed) {
+        await db.auditEvent.create({
+          data: {
+            orgId: req.actor.orgId, actorId: req.session.userId,
+            actorName: req.view?.user?.name || req.view?.user?.email || "",
+            action: "unit.occupancy", entity: "unit", entityId: unitId,
+            detail: { from: moved.from, to: moved.to, because: textOf(row, "ref") },
+            ip: req.ip || "",
+          },
+        });
+      }
+      return {
+        occupancy: moved.changed
+          ? { unitId, from: moved.from, to: moved.to }
+          : (moved.why ? { unitId, unchanged: moved.why } : null),
+      };
     },
   },
 

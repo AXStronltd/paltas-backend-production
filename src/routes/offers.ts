@@ -31,6 +31,7 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import { liveLeaseOn } from "../domain/occupancy.ts";
 import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
@@ -220,6 +221,27 @@ offerRoutes.post("/offers/:id/accept", route(async (req, res) => {
     throw conflict(
       `That unit is already ${held.status.toLowerCase()} under ${held.ref}. ` +
       `Release that reservation before accepting another offer on it.`);
+  }
+
+  /*
+   * A SALE MAY NOT BE AGREED OVER A SITTING TENANT.
+   *
+   * The contract check above only sees other SALES. Before leases moved the
+   * unit at all, a let flat read as VACANT — so this whole path was open on
+   * a property somebody was living in, and accepting the offer would have
+   * reserved it out from under them without a word to anyone.
+   *
+   * The lease row is the evidence rather than the unit's status, because a
+   * signed agreement is the thing that gives the tenant their claim; if the
+   * two ever disagree, the agreement is the one that must win here.
+   */
+  const tenanted = await liveLeaseOn(db, orgId, offer.unitId);
+  if (tenanted) {
+    throw conflict(
+      `That unit is let under ${tenanted.ref}` +
+      `${tenanted.status === "NOTICE" ? ", which is under notice" : ""}. ` +
+      `End the lease before selling the unit, or sell it with the tenant in ` +
+      `place by recording that on the contract.`);
   }
 
   const ref = await nextContractRef(orgId);
