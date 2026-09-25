@@ -17,12 +17,23 @@ import type { ErrorRequestHandler } from "express";
 /**
  * The extra lines under the sentence.
  *
- * Always strings, because they are read by a person: `clean()` produces one
- * per refused field, and the create routes produce one per missing reference.
- * Typing it as `unknown` would let an object through, and an object rendered
- * into a response body is how internal shapes leak.
+ * STRINGS, because they are read by a person: `clean()` produces one per
+ * refused field, and the create routes produce one per missing reference.
+ *
+ * ── AND ONE NAMED LIST ─────────────────────────────────────────────────
+ *
+ * `POST /investments/offerings/:id/submit` sends `{ outstanding: [...] }`
+ * rather than a bare array, and the offerings screen reads
+ * `details.outstanding` to draw a checklist beside the form.
+ * test/investments.test.js asserts exactly that, which is how the shape was
+ * found: this type said `string[]`, the route sent an object, and the type
+ * was the thing that was wrong.
+ *
+ * Named rather than widened to `unknown`. An object rendered into a response
+ * body is how internal shapes leak, and the way to allow the one that is
+ * deliberate is to write it down — not to allow every one.
  */
-export type ErrorDetails = string[];
+export type ErrorDetails = string[] | { readonly outstanding: readonly string[] };
 
 export class ApiError extends Error {
   readonly status: number;

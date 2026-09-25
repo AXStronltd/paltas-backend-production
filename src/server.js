@@ -41,7 +41,7 @@ import { stripeWebhookRoutes } from "./routes/stripe-webhook.ts";
 import { register as registerProcessor, fromEnv as stripeFromEnv, status as payStatus } from "./payments/stripe.ts";
 import { guestRoutes } from "./routes/guest.ts";
 import { platformRoutes } from "./routes/platform.ts";
-import { investmentRoutes } from "./routes/investments.js";
+import { investmentRoutes } from "./routes/investments.ts";
 import { dnaRoutes } from "./routes/dna.ts";
 import { authorityRoutes } from "./modules/authority/api/routes.ts";
 import { register as registerSupplier, status as supplierStatus } from "./domain/supply.ts";

@@ -116,10 +116,31 @@ export const notConnected = {
  * `mint` is the one register() insists on; the rest is what status() reads if
  * it is there. Named so that a half-built provider fails where it is written.
  */
+/**
+ * What a provider says it minted.
+ *
+ * `providerRef` and `units` are what PALTAS stores against the holding and
+ * are the two it cannot do without. Everything else is carried when the
+ * provider gives it and left empty when it does not — nothing here is
+ * invented on a provider's behalf.
+ */
+export interface MintResult {
+  readonly providerRef: string;
+  readonly units: number;
+  readonly txRef?: string;
+  readonly contractRef?: string;
+  readonly chain?: string;
+  readonly custodian?: string;
+  readonly custodianRef?: string;
+  readonly walletRef?: string;
+  /** When the PROVIDER says it happened, if it says. */
+  readonly asAt?: Date | string | null;
+}
+
 export interface TokenisationProvider {
   readonly name?: string;
   readonly sandbox?: boolean;
-  mint(...args: never[]): unknown;
+  mint(request: MintRequest): Promise<MintResult> | MintResult;
   describe?(): {
     name?: string;
     sandbox?: boolean;

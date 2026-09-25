@@ -37,6 +37,39 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+import { enumParam } from "../http/errors.ts";
+import type { MintResult } from "../domain/tokenisation.ts";
+import type { $Enums } from "@prisma/client";
+
+/**
+ * Read one field off an unknown throw without asserting its shape.
+ *
+ * Named `field` rather than `at`, which is a local date variable further
+ * down this file.
+ */
+const field = (v: unknown, key: string): unknown =>
+  (typeof v === "object" && v !== null) ? (v as Record<string, unknown>)[key] : undefined;
+
+/** An offering, as this file reads one back. */
+type OfferingRow = NonNullable<Awaited<ReturnType<typeof db.offering.findFirst>>>;
+
+/**
+ * An offering on its way to the wire.
+ *
+ * The three relations are OPTIONAL because a list of forty offerings does not
+ * carry four hundred party rows — only one offering's own screen asks for
+ * them, and offeringWire() includes each only when it is there.
+ */
+type OfferingWireable = OfferingRow & {
+  parties?: unknown;
+  documents?: unknown;
+  _count?: unknown;
+};
 import {
   badRequest, conflict, forbidden, hidden, unavailable,
 } from "../http/errors.ts";
@@ -57,8 +90,8 @@ guarded.use(requireSession(), requireOrganization(), requireOpenSubscription());
 investmentRoutes.use(guarded);
 
 /** The `investments` area, at the level this verb needs. For the COMPANY side. */
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, "investments", act, label || "investments");
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "an investments route"), "investments", act, label || "investments");
   if (why) throw forbidden(why);
 }
 
@@ -75,8 +108,8 @@ function need(req, act, label) {
  * Either gate is enough, and neither widens the other: a customer passes on the
  * area, a reviewer on the `queue` right, and nobody else holds either.
  */
-function needRead(req, act, label) {
-  if (canOffering(req.actor, "queue")) return;
+function needRead(req: Request, act: Act, label?: string): void {
+  if (canOffering(actorOf(req, "an investments route"), "queue")) return;
   need(req, act, label);
 }
 
@@ -86,8 +119,10 @@ function needRead(req, act, label) {
  * Returns the profile, because every caller wants it — `jurisdictions` bounds
  * what an offering may name, and the licence reference belongs on the screen.
  */
-async function issuer(req, { mustBeApproved = true } = {}) {
-  const profile = await db.issuerProfile.findUnique({ where: { orgId: req.actor.orgId } });
+async function issuer(
+  req: Request, { mustBeApproved = true }: { mustBeApproved?: boolean } = {},
+) {
+  const profile = await db.issuerProfile.findUnique({ where: { orgId: actorOf(req, "an investments route").orgId } });
   if (!mustBeApproved) return profile;
   if (!profile || profile.status !== "APPROVED") {
     /*
@@ -123,22 +158,56 @@ async function issuer(req, { mustBeApproved = true } = {}) {
  * customer role holds it. So this widens nothing for a customer: the cross-org
  * path exists only for an actor who already had to be PALTAS staff.
  */
-async function ownOffering(req, id, extra) {
-  const reviewer = canOffering(req.actor, "queue");
+/** Who may see this offering, and therefore how the query is narrowed. */
+function offeringScope(req: Request, id: string): Prisma.OfferingWhereInput {
+  const reviewer = canOffering(actorOf(req, "an investments route"), "queue");
+  return {
+    id: String(id),
+    /* Narrowed for a customer; unnarrowed only for a reviewer. */
+    ...(reviewer ? {} : { orgId: actorOf(req, "an investments route").orgId }),
+  };
+}
+
+async function ownOffering(req: Request, id: string) {
+  const row = await db.offering.findFirst({ where: offeringScope(req, id) });
+  if (!row) throw hidden();
+  return row;
+}
+
+/**
+ * The same offering, with its parties and its documents.
+ *
+ * A separate function rather than an `extra` argument, for the reason
+ * ownOrderWithLines() in routes/procurement.ts is one: submissionGaps()
+ * reads a role off each party and each document, and an options bag hands
+ * back a row whose relations the compiler knows nothing about.
+ */
+async function ownOfferingWithFile(req: Request, id: string) {
   const row = await db.offering.findFirst({
-    where: {
-      id: String(id),
-      /* Narrowed for a customer; unnarrowed only for a reviewer. */
-      ...(reviewer ? {} : { orgId: req.actor.orgId }),
+    where: offeringScope(req, id),
+    include: { parties: true, documents: true },
+  });
+  if (!row) throw hidden();
+  return row;
+}
+
+/** The same again, with everything one offering's own screen shows. */
+async function ownOfferingFull(req: Request, id: string) {
+  const row = await db.offering.findFirst({
+    where: offeringScope(req, id),
+    include: {
+      parties: { orderBy: { role: "asc" } },
+      documents: { include: { document: { select: { id: true, name: true, kind: true } } } },
+      _count: { select: { orders: true, holdings: true } },
+      project: { select: { id: true, name: true } },
     },
-    ...(extra || {}),
   });
   if (!row) throw hidden();
   return row;
 }
 
 /** The next reference for this company, atomically. */
-async function nextRef(prefix, orgId) {
+async function nextRef(prefix: string, orgId: string): Promise<string> {
   const name = `${prefix}:${orgId}`;
   const row = await db.counter.upsert({
     where: { name }, create: { name, value: 1 },
@@ -147,12 +216,15 @@ async function nextRef(prefix, orgId) {
   return `${prefix}-${String(row.value).padStart(4, "0")}`;
 }
 
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request, action: string, entity: string,
+  entityId?: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId, actorId: req.session.userId,
-        actorName: req.actor.userName || "", action, entity,
+        orgId: actorOf(req, "an investments route").orgId, actorId: sessionOf(req, "an investments route").userId,
+        actorName: actorOf(req, "an investments route").userName || "", action, entity,
         entityId: String(entityId || ""), detail: detail || undefined,
         ip: req.ip || "",
       },
@@ -161,7 +233,8 @@ async function audit(req, action, entity, entityId, detail) {
 }
 
 /** Money as the rest of this service stores it. */
-const big = (v) => (typeof v === "bigint" ? v : BigInt(Math.round(Number(v) || 0)));
+const big = (v: unknown): bigint =>
+  (typeof v === "bigint" ? v : BigInt(Math.round(Number(v) || 0)));
 
 /**
  * The wire shape of an offering.
@@ -169,7 +242,7 @@ const big = (v) => (typeof v === "bigint" ? v : BigInt(Math.round(Number(v) || 0
  * `raised` is included; `parties` and `documents` only when asked for, because
  * a list of forty offerings does not need four hundred party rows.
  */
-function offeringWire(o) {
+function offeringWire(o: OfferingWireable) {
   return {
     id: o.id, ref: o.ref, title: o.title, summary: o.summary,
     structure: o.structure, status: o.status, sandbox: o.sandbox,
@@ -233,13 +306,16 @@ guarded.get("/investments/offerings", async (req, res, next) => {
      * wrong list. The same choice routes/promotions.js makes.
      */
     const wantsQueue = String(req.query.queue) === "true";
-    if (wantsQueue && !canOffering(req.actor, "queue")) {
+    if (wantsQueue && !canOffering(actorOf(req, "an investments route"), "queue")) {
       throw forbidden("Only PALTAS staff read the review queue.");
     }
 
-    const where = wantsQueue ? {} : { orgId: req.actor.orgId };
+    const where: Prisma.OfferingWhereInput = wantsQueue
+      ? {}
+      : { orgId: actorOf(req, "an investments route").orgId };
     if (wantsQueue) where.status = { in: ["SUBMITTED", "UNDER_REVIEW"] };
-    if (req.query.status) where.status = String(req.query.status).toUpperCase();
+    const asked = enumParam("OfferingStatus", req.query["status"], "offering status");
+    if (asked) where.status = asked;
     /*
      * SANDBOX IS EXCLUDED UNLESS ASKED FOR.
      *
@@ -265,14 +341,7 @@ guarded.get("/investments/offerings", async (req, res, next) => {
 guarded.get("/investments/offerings/:id", async (req, res, next) => {
   try {
     needRead(req, "get", "offerings");
-    const o = await ownOffering(req, req.params.id, {
-      include: {
-        parties: { orderBy: { role: "asc" } },
-        documents: { include: { document: { select: { id: true, name: true, kind: true } } } },
-        _count: { select: { orders: true, holdings: true } },
-        project: { select: { id: true, name: true } },
-      },
-    });
+  const o = await ownOfferingFull(req, req.params.id);
     const profile = await issuer(req, { mustBeApproved: false });
     res.json({
       offering: offeringWire(o),
@@ -295,9 +364,9 @@ guarded.post("/investments/offerings", async (req, res, next) => {
   try {
     need(req, "create", "offerings");
     const profile = await issuer(req);
-    const b = req.body || {};
+    const b = (req.body as Record<string, unknown> | undefined) ?? {};
 
-    const title = String(b.title || "").trim();
+    const title = String(b["title"] || "").trim();
     if (!title) throw badRequest("An offering needs a title.");
 
     /* Exactly one subject, and it must be ours. */
@@ -308,7 +377,7 @@ guarded.post("/investments/offerings", async (req, res, next) => {
         "site or unit this offering is raised against.");
     }
     const key = subjects[0];
-    const scope = { id: String(b[key]), orgId: req.actor.orgId };
+    const scope = { id: String(b[key]), orgId: actorOf(req, "an investments route").orgId };
 
     /*
      * THREE EXPLICIT QUERIES, NOT `db[model]`.
@@ -334,8 +403,8 @@ guarded.post("/investments/offerings", async (req, res, next) => {
     if (!owned) throw badRequest(`That ${what} is not one of this company's.`);
 
     /* Jurisdictions may not exceed the licence. */
-    const wanted = splitCodes(b.jurisdictions);
-    const allowed = splitCodes(profile.jurisdictions);
+    const wanted = splitCodes(b["jurisdictions"]);
+    const allowed = splitCodes(profile?.jurisdictions);
     const outside = allowed.length ? wanted.filter((c) => !allowed.includes(c)) : [];
     if (outside.length) {
       throw badRequest(
@@ -343,28 +412,28 @@ guarded.post("/investments/offerings", async (req, res, next) => {
         `Its licence covers: ${allowed.join(", ")}.`);
     }
 
-    const sandbox = b.sandbox === true;
-    const ref = await nextRef(sandbox ? "SBX" : "OFF", req.actor.orgId);
+    const sandbox = b["sandbox"] === true;
+    const ref = await nextRef(sandbox ? "SBX" : "OFF", actorOf(req, "an investments route").orgId);
 
     const row = await db.offering.create({
       data: {
-        orgId: req.actor.orgId,
+        orgId: actorOf(req, "an investments route").orgId,
         [key]: String(b[key]),
         ref, title,
-        summary: String(b.summary || ""),
-        structure: b.structure ? String(b.structure).toUpperCase() : undefined,
-        currency: String(b.currency || "KES"),
-        targetRaise: big(b.targetRaise),
-        tokenUnits: Number(b.tokenUnits) || 0,
-        unitPrice: big(b.unitPrice),
-        minInvestment: big(b.minInvestment),
-        minUnits: Number(b.minUnits) || 1,
-        eligibility: b.eligibility ? String(b.eligibility).toUpperCase() : undefined,
+        summary: String(b["summary"] || ""),
+        structure: enumParam("OfferingStructure", b["structure"], "structure"),
+        currency: String(b["currency"] || "KES"),
+        targetRaise: big(b["targetRaise"]),
+        tokenUnits: Number(b["tokenUnits"]) || 0,
+        unitPrice: big(b["unitPrice"]),
+        minInvestment: big(b["minInvestment"]),
+        minUnits: Number(b["minUnits"]) || 1,
+        eligibility: enumParam("InvestorEligibility", b["eligibility"], "eligibility rule"),
         jurisdictions: wanted.join(","),
-        distributionRule: String(b.distributionRule || ""),
-        targetYieldBps: Number(b.targetYieldBps) || 0,
-        opensOn: b.opensOn ? new Date(b.opensOn) : null,
-        closesOn: b.closesOn ? new Date(b.closesOn) : null,
+        distributionRule: String(b["distributionRule"] || ""),
+        targetYieldBps: Number(b["targetYieldBps"]) || 0,
+        opensOn: b["opensOn"] ? new Date(b["opensOn"] as string) : null,
+        closesOn: b["closesOn"] ? new Date(b["closesOn"] as string) : null,
         sandbox,
         /* status stays DRAFT. There is no way to create one in any other state,
            which is the first half of "cannot go live without approval". */
@@ -388,26 +457,34 @@ guarded.patch("/investments/offerings/:id", async (req, res, next) => {
         `Terms can only change while it is a draft, or after a reviewer has asked for changes.`);
     }
 
-    const b = req.body || {};
-    const data = {};
-    if (b.title !== undefined) data.title = String(b.title).trim();
-    if (b.summary !== undefined) data.summary = String(b.summary);
-    if (b.structure !== undefined) data.structure = String(b.structure).toUpperCase();
-    if (b.currency !== undefined) data.currency = String(b.currency);
-    if (b.targetRaise !== undefined) data.targetRaise = big(b.targetRaise);
-    if (b.tokenUnits !== undefined) data.tokenUnits = Number(b.tokenUnits) || 0;
-    if (b.unitPrice !== undefined) data.unitPrice = big(b.unitPrice);
-    if (b.minInvestment !== undefined) data.minInvestment = big(b.minInvestment);
-    if (b.minUnits !== undefined) data.minUnits = Number(b.minUnits) || 1;
-    if (b.eligibility !== undefined) data.eligibility = String(b.eligibility).toUpperCase();
-    if (b.distributionRule !== undefined) data.distributionRule = String(b.distributionRule);
-    if (b.targetYieldBps !== undefined) data.targetYieldBps = Number(b.targetYieldBps) || 0;
-    if (b.opensOn !== undefined) data.opensOn = b.opensOn ? new Date(b.opensOn) : null;
-    if (b.closesOn !== undefined) data.closesOn = b.closesOn ? new Date(b.closesOn) : null;
+    const b = (req.body as Record<string, unknown> | undefined) ?? {};
+    const data: Prisma.OfferingUpdateInput = {};
+    if (b["title"] !== undefined) data.title = String(b["title"]).trim();
+    if (b["summary"] !== undefined) data.summary = String(b["summary"]);
+    if (b["structure"] !== undefined) {
+      data.structure = enumParam("OfferingStructure", b["structure"], "structure");
+    }
+    if (b["currency"] !== undefined) data.currency = String(b["currency"]);
+    if (b["targetRaise"] !== undefined) data.targetRaise = big(b["targetRaise"]);
+    if (b["tokenUnits"] !== undefined) data.tokenUnits = Number(b["tokenUnits"]) || 0;
+    if (b["unitPrice"] !== undefined) data.unitPrice = big(b["unitPrice"]);
+    if (b["minInvestment"] !== undefined) data.minInvestment = big(b["minInvestment"]);
+    if (b["minUnits"] !== undefined) data.minUnits = Number(b["minUnits"]) || 1;
+    if (b["eligibility"] !== undefined) {
+      data.eligibility = enumParam("InvestorEligibility", b["eligibility"], "eligibility rule");
+    }
+    if (b["distributionRule"] !== undefined) data.distributionRule = String(b["distributionRule"]);
+    if (b["targetYieldBps"] !== undefined) data.targetYieldBps = Number(b["targetYieldBps"]) || 0;
+    if (b["opensOn"] !== undefined) {
+      data.opensOn = b["opensOn"] ? new Date(b["opensOn"] as string) : null;
+    }
+    if (b["closesOn"] !== undefined) {
+      data.closesOn = b["closesOn"] ? new Date(b["closesOn"] as string) : null;
+    }
 
-    if (b.jurisdictions !== undefined) {
-      const wanted = splitCodes(b.jurisdictions);
-      const allowed = splitCodes(profile.jurisdictions);
+    if (b["jurisdictions"] !== undefined) {
+      const wanted = splitCodes(b["jurisdictions"]);
+      const allowed = splitCodes(profile?.jurisdictions);
       const outside = allowed.length ? wanted.filter((c) => !allowed.includes(c)) : [];
       if (outside.length) {
         throw badRequest(`This company is not licensed to offer in: ${outside.join(", ")}.`);
@@ -439,7 +516,7 @@ guarded.patch("/investments/offerings/:id", async (req, res, next) => {
 guarded.post("/investments/offerings/:id/:action", async (req, res, next) => {
   try {
     const action = String(req.params.action);
-    const rule = OFFERING_TRANSITIONS[action];
+    const rule = OFFERING_TRANSITIONS[action as keyof typeof OFFERING_TRANSITIONS];
     /* Not a lifecycle action — let the more specific routes below try. */
     if (!rule) return next();
 
@@ -457,12 +534,10 @@ guarded.post("/investments/offerings/:id/:action", async (req, res, next) => {
      * the only gate on a transition is offeringRefusal(), which checks the
      * named right — and no customer role holds `approve` or `goLive`.
      */
-    const o = await ownOffering(req, req.params.id, {
-      include: { parties: true, documents: true },
-    });
+    const o = await ownOfferingWithFile(req, req.params.id);
     const reason = String((req.body && (req.body.reason || req.body.note)) || "");
 
-    const refusal = offeringRefusal(req.actor, action, o, { reason });
+    const refusal = offeringRefusal(actorOf(req, "an investments route"), action, o, { reason });
     if (refusal) throw forbidden(refusal);
 
     /*
@@ -479,23 +554,28 @@ guarded.post("/investments/offerings/:id/:action", async (req, res, next) => {
       if (gaps.length) {
         throw badRequest(
           "This offering is not ready to submit. It still needs: " + gaps.join("; ") + ".",
+          /* Named, not a bare array: the offerings screen reads
+             `details.outstanding` to draw a checklist beside the form. */
           { outstanding: gaps });
       }
     }
 
     const now = new Date();
-    const stamp = {
+    /* Which timestamp this move writes. Annotated so the union of five
+       different shapes is one update the compiler can check. */
+    const STAMP: Readonly<Record<string, Prisma.OfferingUpdateInput>> = {
       submit: { submittedAt: now, decisionNote: "" },
       claim: { reviewedAt: now },
       approve: { approvedAt: now },
       goLive: { liveAt: now },
       close: { closedAt: now },
-    }[action] || {};
+    };
+    const stamp = STAMP[action] ?? {};
 
-    const data = {
-      status: rule.to,
+    const data: Prisma.OfferingUpdateInput = {
+      status: rule.to as $Enums.OfferingStatus,
       ...stamp,
-      ...(rule.needsReason ? { decisionNote: reason, decidedBy: req.actor.userName || "" } : {}),
+      ...(rule.needsReason ? { decisionNote: reason, decidedBy: actorOf(req, "an investments route").userName || "" } : {}),
     };
 
     const row = await db.offering.update({ where: { id: o.id }, data });
@@ -515,7 +595,7 @@ guarded.post("/investments/offerings/:id/:action", async (req, res, next) => {
 guarded.get("/investments/offerings/:id/parties", async (req, res, next) => {
   try {
     needRead(req, "get", "offering parties");
-    const o = await ownOffering(req, req.params.id, { select: { id: true } });
+    const o = await ownOffering(req, req.params.id);
     const parties = await db.offeringParty.findMany({
       where: { offeringId: o.id }, orderBy: [{ role: "asc" }, { legalName: "asc" }],
     });
@@ -533,20 +613,20 @@ guarded.post("/investments/offerings/:id/parties", async (req, res, next) => {
         "The parties to an offering cannot change once it has been submitted. " +
         "Who the issuer and the custodian are is part of what a reviewer approved.");
     }
-    const b = req.body || {};
-    const role = String(b.role || "").toUpperCase();
-    const legalName = String(b.legalName || "").trim();
+    const b = (req.body as Record<string, unknown> | undefined) ?? {};
+    const role = enumParam("PartyRole", b["role"], "party role");
+    const legalName = String(b["legalName"] || "").trim();
     if (!role) throw badRequest("Say what part this entity plays — its role.");
     if (!legalName) throw badRequest("A party needs its legal name, as registered.");
 
     const row = await db.offeringParty.create({
       data: {
         offeringId: o.id, role, legalName,
-        registration: String(b.registration || ""),
-        jurisdiction: String(b.jurisdiction || "").toUpperCase(),
-        regulator: String(b.regulator || ""),
-        contact: String(b.contact || ""),
-        note: String(b.note || ""),
+        registration: String(b["registration"] || ""),
+        jurisdiction: String(b["jurisdiction"] || "").toUpperCase(),
+        regulator: String(b["regulator"] || ""),
+        contact: String(b["contact"] || ""),
+        note: String(b["note"] || ""),
       },
     }).catch((e) => {
       if (String(e && e.code) === "P2002") {
@@ -562,7 +642,7 @@ guarded.post("/investments/offerings/:id/parties", async (req, res, next) => {
 guarded.delete("/investments/offerings/:id/parties/:partyId", async (req, res, next) => {
   try {
     need(req, "delete", "offering parties");
-    const o = await ownOffering(req, req.params.id, { select: { id: true, status: true } });
+    const o = await ownOffering(req, req.params.id);
     if (!EDITABLE_STATES.has(o.status)) {
       throw conflict("The parties to a submitted offering cannot be removed.");
     }
@@ -582,7 +662,7 @@ guarded.delete("/investments/offerings/:id/parties/:partyId", async (req, res, n
 guarded.get("/investments/offerings/:id/documents", async (req, res, next) => {
   try {
     needRead(req, "get", "offering documents");
-    const o = await ownOffering(req, req.params.id, { select: { id: true } });
+    const o = await ownOffering(req, req.params.id);
     const rows = await db.offeringDocument.findMany({
       where: { offeringId: o.id },
       include: {
@@ -605,13 +685,13 @@ guarded.post("/investments/offerings/:id/documents", async (req, res, next) => {
   try {
     need(req, "create", "offering documents");
     await issuer(req);
-    const o = await ownOffering(req, req.params.id, { select: { id: true } });
-    const b = req.body || {};
+    const o = await ownOffering(req, req.params.id);
+    const b = (req.body as Record<string, unknown> | undefined) ?? {};
 
     /* The document must already exist, and be this company's. Uploading is the
        existing documents capability; this only attaches one. */
     const doc = await db.document.findFirst({
-      where: { id: String(b.documentId || ""), orgId: req.actor.orgId },
+      where: { id: String(b["documentId"] || ""), orgId: actorOf(req, "an investments route").orgId },
       select: { id: true, name: true },
     });
     if (!doc) throw badRequest("That document is not one of this company's.");
@@ -619,8 +699,8 @@ guarded.post("/investments/offerings/:id/documents", async (req, res, next) => {
     const row = await db.offeringDocument.create({
       data: {
         offeringId: o.id, documentId: doc.id,
-        role: b.role ? String(b.role).toUpperCase() : undefined,
-        required: b.required === true,
+        role: enumParam("OfferingDocRole", b["role"], "document role"),
+        required: b["required"] === true,
       },
     }).catch((e) => {
       if (String(e && e.code) === "P2002") {
@@ -648,15 +728,15 @@ guarded.post("/investments/offerings/:id/orders", async (req, res, next) => {
     need(req, "create", "investment orders");
     await issuer(req);
     const o = await ownOffering(req, req.params.id);
-    const b = req.body || {};
+    const b = (req.body as Record<string, unknown> | undefined) ?? {};
 
     const investor = await db.investor.findFirst({
-      where: { id: String(b.investorId || ""), orgId: req.actor.orgId },
+      where: { id: String(b["investorId"] || ""), orgId: actorOf(req, "an investments route").orgId },
       include: { investorProfile: true },
     });
     if (!investor) throw badRequest("That investor is not on this company's register.");
 
-    const units = Number(b.units) || 0;
+    const units = Number(b["units"]) || 0;
     if (units <= 0) throw badRequest("An order needs a number of units above zero.");
     if (units < o.minUnits) {
       throw badRequest(`The minimum for this offering is ${o.minUnits} units.`);
@@ -682,11 +762,11 @@ guarded.post("/investments/offerings/:id/orders", async (req, res, next) => {
     }
 
     const refusal = eligibilityRefusal(o, investor.investorProfile);
-    const ref = await nextRef(o.sandbox ? "SBXORD" : "ORD", req.actor.orgId);
+    const ref = await nextRef(o.sandbox ? "SBXORD" : "ORD", actorOf(req, "an investments route").orgId);
 
     const row = await db.investmentOrder.create({
       data: {
-        orgId: req.actor.orgId, offeringId: o.id, investorId: investor.id,
+        orgId: actorOf(req, "an investments route").orgId, offeringId: o.id, investorId: investor.id,
         ref, units, amount, currency: o.currency,
         /*
          * A failed compliance check is a HOLD with a reason, not a rejection
@@ -726,7 +806,7 @@ guarded.post("/investments/orders/:id/cancel", async (req, res, next) => {
     if (!reason) throw badRequest("Say why this order is being cancelled.");
 
     const order = await db.investmentOrder.findFirst({
-      where: { id: String(req.params.id), orgId: req.actor.orgId },
+      where: { id: String(req.params.id), orgId: actorOf(req, "an investments route").orgId },
     });
     if (!order) throw hidden();
     if (["SETTLED", "ALLOCATED", "CANCELLED", "REFUNDED"].includes(order.status)) {
@@ -762,7 +842,7 @@ guarded.get("/tokenization/status", async (req, res, next) => {
 guarded.post("/tokenization/offerings/:id/issue", async (req, res, next) => {
   try {
     need(req, "update", "tokenisation");
-    if (!canOffering(req.actor, "tokenise")) {
+    if (!canOffering(actorOf(req, "an investments route"), "tokenise")) {
       throw forbidden("Your role cannot issue units.");
     }
     await issuer(req);
@@ -774,7 +854,7 @@ guarded.post("/tokenization/offerings/:id/issue", async (req, res, next) => {
      * ownership that was never bought.
      */
     const order = await db.investmentOrder.findFirst({
-      where: { id: String((req.body && req.body.orderId) || ""), orgId: req.actor.orgId, offeringId: o.id },
+      where: { id: String((req.body && req.body.orderId) || ""), orgId: actorOf(req, "an investments route").orgId, offeringId: o.id },
       include: { investor: { select: { id: true, name: true } } },
     });
     if (!order) throw badRequest("Name a settled order on this offering.");
@@ -802,20 +882,20 @@ guarded.post("/tokenization/offerings/:id/issue", async (req, res, next) => {
      * a bare throw became a 500, which would have said this service failed when
      * in fact it declined, correctly, to invent a token.
      */
-    let result;
+    let result: MintResult;
     try {
       result = await p.mint({
         offeringRef: o.ref, investorRef: order.investorId, units: order.units,
       });
     } catch (e) {
-      if (e && e.name === "TokenisationUnavailable") throw unavailable(e.message);
+      if (field(e, "name") === "TokenisationUnavailable") throw unavailable(messageOf(e));
       throw e;
     }
 
     const at = new Date();
     const holding = await db.tokenHolding.create({
       data: {
-        orgId: req.actor.orgId, offeringId: o.id, investorId: order.investorId,
+        orgId: actorOf(req, "an investments route").orgId, offeringId: o.id, investorId: order.investorId,
         orderId: order.id, units: result.units,
         provider: p.name || "", providerRef: result.providerRef,
         custodian: result.custodian || "", custodianRef: result.custodianRef || "",
@@ -830,7 +910,7 @@ guarded.post("/tokenization/offerings/:id/issue", async (req, res, next) => {
 
     await db.tokenEvent.create({
       data: {
-        orgId: req.actor.orgId, offeringId: o.id, kind: "MINT",
+        orgId: actorOf(req, "an investments route").orgId, offeringId: o.id, kind: "MINT",
         units: result.units, provider: p.name || "",
         externalRef: result.providerRef, txRef: result.txRef || "",
         detail: { orderRef: order.ref }, at, sandbox: o.sandbox,
@@ -861,7 +941,7 @@ guarded.post("/tokenization/offerings/:id/issue", async (req, res, next) => {
 guarded.get("/investments/mine", async (req, res, next) => {
   try {
     const mine = await db.investor.findMany({
-      where: { userId: req.session.userId },
+      where: { userId: sessionOf(req, "an investments route").userId },
       select: { id: true, orgId: true, name: true, currency: true },
     });
     if (!mine.length) {
@@ -937,7 +1017,7 @@ guarded.get("/investments/mine", async (req, res, next) => {
 guarded.get("/investments/summary", async (req, res, next) => {
   try {
     need(req, "list", "investments");
-    const orgId = req.actor.orgId;
+    const orgId = actorOf(req, "an investments route").orgId;
     const live = { orgId, sandbox: false };
 
     const [offerings, byStatus, investors, pending, held, raised, holdings, distributed] =
