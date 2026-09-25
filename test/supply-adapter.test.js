@@ -44,7 +44,7 @@ import {
 import {
   expediaRapid, signature, authorizationHeader, nightsBetween, lowestTotal,
   redact, fromEnv,
-} from "../src/suppliers/expedia-rapid.js";
+} from "../src/suppliers/expedia-rapid.ts";
 
 test.afterEach(() => clear());
 
@@ -510,7 +510,7 @@ test("notConnected is the default and cannot be searched into existence", async 
  * ================================================================ */
 
 const { bookingDemand, priceOf, fromEnv: bookingFromEnv, redact: bookingRedact } =
-  await import("../src/suppliers/booking-demand.js");
+  await import("../src/suppliers/booking-demand.ts");
 
 const B_SEARCH = { data: [
   { id: 111, price: { gross_amount: { value: "700.00", currency: "USD" },
@@ -665,7 +665,7 @@ test("Booking needs both a token and an affiliate id, or it refuses", () => {
  * ================================================================ */
 
 const { sampleCatalogue, fromEnv: sampleFromEnv, DISCLOSURE } =
-  await import("../src/suppliers/sample-catalogue.js");
+  await import("../src/suppliers/sample-catalogue.ts");
 
 test("the sample catalogue is off unless somebody switches it on", () => {
   /*
@@ -854,7 +854,7 @@ test("fromEnv carries the forced sandbox through", () => {
 const {
   liteApi, cheapestRate, refundableFrom, ratingOf,
   fromEnv: liteFromEnv, redact: liteRedact,
-} = await import("../src/suppliers/liteapi.js");
+} = await import("../src/suppliers/liteapi.ts");
 
 const L_RATES = { data: [
   { hotelId: "lp1897", roomTypes: [{ rates: [
@@ -1078,7 +1078,7 @@ test("LiteAPI outranks the other suppliers and the sample catalogue", async () =
  * ================================================================ */
 
 const { offersFor, cancellationFrom, newClientReference, wireBooking } =
-  await import("../src/suppliers/liteapi.js");
+  await import("../src/suppliers/liteapi.ts");
 
 const L_HOTEL = {
   hotelId: "lp1",

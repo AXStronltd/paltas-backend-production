@@ -51,6 +51,20 @@
  * ====================================================================== */
 
 import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
+import type {
+  AccommodationSupplier, RawOffer, SupplierDescription, SupplyQuery, SupplyResult,
+} from "../domain/supply.ts";
+import { messageOf } from "../http/errors.ts";
+
+/** A JSON value from LiteAPI. Narrowed where read, never trusted on arrival. */
+type Json = Record<string, unknown>;
+
+/** Read one property off an unknown object without asserting its shape. */
+const at = (v: unknown, key: string): unknown =>
+  (typeof v === "object" && v !== null) ? (v as Json)[key] : undefined;
+
+/** The same, for a list. Anything that is not an array reads as empty. */
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
 /** Where LiteAPI lives. Overridable so a proxy or a future host is config. */
 export const DEFAULT_BASE = "https://api.liteapi.travel/v3.0";
@@ -82,18 +96,34 @@ export const STRIPE_JS_URL = "https://js.stripe.com/v3/";
  * suggested selling price is a markup recommendation. Showing the latter would
  * inflate every supplier room against the PALTAS listings beside it.
  */
-export function cheapestRate(hotel) {
-  let best = null;
-  for (const rt of hotel.roomTypes || []) {
-    for (const rate of rt.rates || []) {
-      const total = rate.retailRate && rate.retailRate.total;
+/** The cheapest bookable rate at one hotel, and what it takes to book it. */
+export interface CheapestRate {
+  readonly price: number;
+  readonly currency: string;
+  readonly refundable: boolean | null;
+  /** The identifier /rates/prebook takes. Lives on the ROOM TYPE, not the rate. */
+  readonly offerId: string | null;
+  readonly rateId: string | null;
+  readonly roomName: string;
+  readonly boardName: string;
+  readonly maxOccupancy: number | null;
+}
+
+export function cheapestRate(hotel: unknown): CheapestRate | null {
+  let best: CheapestRate | null = null;
+  for (const rt of list(at(hotel, "roomTypes"))) {
+    for (const rate of list(at(rt, "rates"))) {
+      const total = at(at(rate, "retailRate"), "total");
       const first = Array.isArray(total) ? total[0] : total;
       if (!first) continue;
-      const minor = toMinor(first.amount);
+      const minor = toMinor(at(first, "amount") as number | string);
       if (minor === null) continue;
-      const currency = String(first.currency || "").toUpperCase();
+      const currency = String(at(first, "currency") || "").toUpperCase();
       if (!currency) continue;
       if (!best || minor < best.price) {
+        const offerId = at(rt, "offerId");
+        const rateId = at(rate, "rateId");
+        const maxOccupancy = at(rate, "maxOccupancy");
         best = {
           price: minor,
           currency,
@@ -107,14 +137,14 @@ export function cheapestRate(hotel) {
            * undefined and prebook fails with a validation error that says
            * nothing about where the id was supposed to come from.
            */
-          offerId: rt.offerId ? String(rt.offerId) : null,
-          rateId: rate.rateId ? String(rate.rateId) : null,
+          offerId: offerId ? String(offerId) : null,
+          rateId: rateId ? String(rateId) : null,
           /* What the room actually is, which a guest choosing between two rates
              at the same hotel needs to see. */
-          roomName: rt.name || rate.name || "",
-          boardName: rate.boardName || rate.boardType || "",
-          maxOccupancy: Number.isFinite(Number(rate.maxOccupancy))
-            ? Number(rate.maxOccupancy) : null,
+          roomName: String(at(rt, "name") || at(rate, "name") || ""),
+          boardName: String(at(rate, "boardName") || at(rate, "boardType") || ""),
+          maxOccupancy: Number.isFinite(Number(maxOccupancy))
+            ? Number(maxOccupancy) : null,
         };
       }
     }
@@ -133,25 +163,34 @@ export function cheapestRate(hotel) {
  * An offer with no offerId is omitted: it cannot be prebooked, so showing it
  * would be offering something that cannot be taken.
  */
-export function offersFor(hotel) {
-  const out = [];
-  for (const rt of hotel.roomTypes || []) {
-    if (!rt.offerId) continue;
-    for (const rate of rt.rates || []) {
-      const total = rate.retailRate && rate.retailRate.total;
+/** One bookable offer, plus the deadlines it can be cancelled against. */
+export interface BookableOffer extends Omit<CheapestRate, "offerId"> {
+  readonly offerId: string;
+  readonly cancellation: readonly CancellationTerm[];
+}
+
+export function offersFor(hotel: unknown): BookableOffer[] {
+  const out: BookableOffer[] = [];
+  for (const rt of list(at(hotel, "roomTypes"))) {
+    const offerId = at(rt, "offerId");
+    if (!offerId) continue;
+    for (const rate of list(at(rt, "rates"))) {
+      const total = at(at(rate, "retailRate"), "total");
       const first = Array.isArray(total) ? total[0] : total;
       if (!first) continue;
-      const minor = toMinor(first.amount);
+      const minor = toMinor(at(first, "amount") as number | string);
       if (minor === null) continue;
-      const currency = String(first.currency || "").toUpperCase();
+      const currency = String(at(first, "currency") || "").toUpperCase();
       if (!currency) continue;
+      const rateId = at(rate, "rateId");
+      const maxOccupancy = at(rate, "maxOccupancy");
       out.push({
-        offerId: String(rt.offerId),
-        rateId: rate.rateId ? String(rate.rateId) : null,
-        roomName: rt.name || rate.name || "",
-        boardName: rate.boardName || rate.boardType || "",
-        maxOccupancy: Number.isFinite(Number(rate.maxOccupancy))
-          ? Number(rate.maxOccupancy) : null,
+        offerId: String(offerId),
+        rateId: rateId ? String(rateId) : null,
+        roomName: String(at(rt, "name") || at(rate, "name") || ""),
+        boardName: String(at(rate, "boardName") || at(rate, "boardType") || ""),
+        maxOccupancy: Number.isFinite(Number(maxOccupancy))
+          ? Number(maxOccupancy) : null,
         price: minor,
         currency,
         refundable: refundableFrom(rate),
@@ -173,8 +212,8 @@ export function offersFor(hotel) {
    * board, price or refundability survives as its own row, because those are
    * the things somebody is actually choosing between.
    */
-  const seen = new Set();
-  const distinct = [];
+  const seen = new Set<string>();
+  const distinct: BookableOffer[] = [];
   for (const o of out.sort((a, b) => a.price - b.price)) {
     const key = [o.roomName, o.boardName, o.price, o.currency, o.refundable].join("|");
     if (seen.has(key)) continue;
@@ -191,17 +230,26 @@ export function offersFor(hotel) {
  * the supplier did not send comes back as an empty array rather than as "free
  * cancellation", because the absence of a policy is not a generous one.
  */
-export function cancellationFrom(rate) {
-  const cp = rate && rate.cancellationPolicies;
-  const infos = (cp && Array.isArray(cp.cancelPolicyInfos)) ? cp.cancelPolicyInfos : [];
-  return infos.map((i) => ({
+/** One cancellation deadline and what it costs after it. */
+export interface CancellationTerm {
+  readonly until: string | null;
+  readonly timezone: string | null;
+  readonly amount: number | null;
+  readonly currency: string | null;
+  readonly type?: string | null;
+}
+
+export function cancellationFrom(rate: unknown): CancellationTerm[] {
+  const cp = at(rate, "cancellationPolicies");
+  const infos = list(at(cp, "cancelPolicyInfos"));
+  return infos.map((i: unknown) => ({
     /* Verbatim from the supplier; never reformatted into a local timezone,
        because the timezone is part of the deadline. */
-    until: i.cancelTime ? String(i.cancelTime) : null,
-    timezone: i.timezone ? String(i.timezone) : null,
-    amount: toMinor(i.amount),
-    currency: i.currency ? String(i.currency).toUpperCase() : null,
-    type: i.type ? String(i.type) : null,
+    until: at(i, "cancelTime") ? String(at(i, "cancelTime")) : null,
+    timezone: at(i, "timezone") ? String(at(i, "timezone")) : null,
+    amount: toMinor(at(i, "amount") as number | string),
+    currency: at(i, "currency") ? String(at(i, "currency")).toUpperCase() : null,
+    type: at(i, "type") ? String(at(i, "type")) : null,
   })).filter((i) => i.until || i.amount !== null);
 }
 
@@ -213,8 +261,8 @@ export function cancellationFrom(rate) {
  * "Non-refundable" on the supplier's behalf about a booking whose terms nobody
  * here actually read.
  */
-export function refundableFrom(rate) {
-  const tag = rate && rate.cancellationPolicies && rate.cancellationPolicies.refundableTag;
+export function refundableFrom(rate: unknown): boolean | null {
+  const tag = at(at(rate, "cancellationPolicies"), "refundableTag");
   if (tag === "RFN") return true;
   if (tag === "NRFN") return false;
   return null;
@@ -228,7 +276,7 @@ export function refundableFrom(rate) {
  * meaning it would be guessing at — a 92 shown as "92/10" is nonsense and a 92
  * quietly divided by ten is a fabrication.
  */
-export function ratingOf(value) {
+export function ratingOf(value: unknown): number | null {
   const n = typeof value === "string" ? Number(value) : value;
   if (typeof n !== "number" || !Number.isFinite(n)) return null;
   if (n <= 0 || n > 10) return null;
@@ -243,6 +291,69 @@ export function ratingOf(value) {
  *   fetchImpl     injected for tests
  *   timeoutMs     a supplier that hangs must not hang the homepage
  */
+/** How this adapter is configured. */
+export interface LiteApiConfig {
+  readonly apiKey?: string;
+  /** Overridable base, for a proxy or a future host. */
+  readonly baseUrl?: string;
+  /**
+   * An EXPLICIT environment, when one is given. The key's prefix stays
+   * authoritative; a declared value that DISAGREES is refused rather than
+   * resolved, because the two ways of being wrong are "test rates shown as
+   * real" and "real money taken in a test flow".
+   */
+  readonly environment?: string;
+  readonly currency?: string;
+  /** ISO-2 guest nationality; LiteAPI prices against it. */
+  readonly nationality?: string;
+  /** LiteAPI's own Stripe publishable keys — public values, but theirs. */
+  readonly stripePkTest?: string;
+  readonly stripePkLive?: string;
+  /** Injected for tests. */
+  readonly fetchImpl?: typeof globalThis.fetch;
+  /** A supplier that hangs must not hang the homepage. */
+  readonly timeoutMs?: number;
+}
+
+/** What one call to LiteAPI is. */
+interface CallOptions {
+  readonly method?: string;
+  readonly body?: Json | null;
+  readonly params?: readonly (readonly [string, string])[] | null;
+}
+
+/** Who the booking is in the name of. All three names are required. */
+export interface BookingHolder {
+  readonly firstName?: string;
+  readonly lastName?: string;
+  readonly email?: string;
+  readonly phone?: string;
+}
+
+/** One guest on the booking. Falls back to the holder where a field is blank. */
+export interface BookingGuest {
+  readonly occupancyNumber?: number;
+  readonly firstName?: string;
+  readonly lastName?: string;
+  readonly email?: string;
+  readonly phone?: string;
+  readonly remarks?: string;
+}
+
+/**
+ * What taking a held rate needs.
+ *
+ * `transactionId` is what separates a booking the guest paid for from one
+ * PALTAS would be charged for — see the refusal in book() below.
+ */
+export interface BookRequest {
+  readonly prebookId?: string;
+  readonly holder?: BookingHolder;
+  readonly guests?: readonly BookingGuest[];
+  readonly clientReference?: string;
+  readonly transactionId?: string;
+}
+
 export function liteApi({
   apiKey,
   /** Overridable base, for a proxy or a future host. */
@@ -269,12 +380,16 @@ export function liteApi({
   stripePkLive = "",
   fetchImpl,
   timeoutMs = 7000,
-} = {}) {
+}: LiteApiConfig = {}) {
   if (!apiKey) {
     throw new SupplyUnavailable(
       "LiteAPI cannot be registered without LITEAPI_KEY. Nothing is connected, " +
       "and PALTAS will show only its own listings.");
   }
+  /* Captured after the guard above: a destructured parameter is a mutable
+     binding, so the check does not narrow it inside call(). */
+  const key = apiKey;
+
   const http = fetchImpl || globalThis.fetch;
   if (typeof http !== "function") {
     throw new SupplyUnavailable("No fetch implementation is available for LiteAPI.");
@@ -320,19 +435,21 @@ export function liteApi({
   }
   const sandbox = keySaysSandbox;
 
-  async function call(path, { method = "GET", body = null, params = null } = {}) {
+  async function call(
+    path: string, { method = "GET", body = null, params = null }: CallOptions = {},
+  ): Promise<unknown> {
     const url = new URL(baseUrl + path);
     if (params) for (const [k, v] of params) url.searchParams.append(k, String(v));
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res;
+    let res: Response;
     try {
       res = await http(url.toString(), {
         method,
         signal: controller.signal,
         headers: {
-          "X-API-Key": apiKey,
+          "X-API-Key": key,
           Accept: "application/json",
           ...(body ? { "Content-Type": "application/json" } : {}),
         },
@@ -340,9 +457,9 @@ export function liteApi({
       });
     } catch (e) {
       clearTimeout(timer);
-      throw new SupplyUnavailable(e && e.name === "AbortError"
+      throw new SupplyUnavailable(at(e, "name") === "AbortError"
         ? `LiteAPI did not answer within ${timeoutMs}ms.`
-        : `LiteAPI could not be reached: ${redact(String(e && e.message))}`);
+        : `LiteAPI could not be reached: ${redact(messageOf(e))}`);
     }
     clearTimeout(timer);
 
@@ -468,13 +585,14 @@ export function liteApi({
         },
       });
 
-      const rows = (rated && Array.isArray(rated.data)) ? rated.data : [];
-      const priced = [];
+      const rows = list(at(rated, "data"));
+      const priced: (CheapestRate & { id: string })[] = [];
       for (const h of rows) {
-        if (!h || !h.hotelId) continue;
+        const hotelIdOf = at(h, "hotelId");
+        if (!hotelIdOf) continue;
         const best = cheapestRate(h);
         if (!best) continue;
-        priced.push({ id: String(h.hotelId), ...best });
+        priced.push({ id: String(hotelIdOf), ...best });
         if (priced.length >= take * 2) break;
       }
       if (!priced.length) {
@@ -490,39 +608,41 @@ export function liteApi({
         ],
       });
 
-      const byId = new Map();
-      for (const d of (content && Array.isArray(content.data) ? content.data : [])) {
-        if (d && d.id !== undefined) byId.set(String(d.id), d);
+      const byId = new Map<string, unknown>();
+      for (const d of list(at(content, "data"))) {
+        const id = at(d, "id");
+        if (id !== undefined) byId.set(String(id), d);
       }
 
-      const offers = [];
+      const offers: RawOffer[] = [];
       for (const p of priced) {
         const d = byId.get(p.id);
+        const name = at(d, "name");
         /* No name means no card. */
-        if (!d || !d.name) continue;
+        if (!d || !name) continue;
 
         offers.push({
           supplierRef: p.id,
-          title: String(d.name),
-          city: String(d.city || city || ""),
-          country: String(d.country || cc).toUpperCase(),
-          place: String(d.address || ""),
+          title: String(name),
+          city: String(at(d, "city") || city || ""),
+          country: String(at(d, "country") || cc).toUpperCase(),
+          place: String(at(d, "address") || ""),
           price: p.price,
           currency: p.currency,
           nights,
           refundable: p.refundable,
           /* The guest review score, and only if it is on the 0–10 scale the
              card renders. */
-          rating: ratingOf(d.rating),
-          ratingCount: Number.isFinite(Number(d.reviewCount))
-            ? Math.round(Number(d.reviewCount)) : null,
+          rating: ratingOf(at(d, "rating")),
+          ratingCount: Number.isFinite(Number(at(d, "reviewCount")))
+            ? Math.round(Number(at(d, "reviewCount"))) : null,
           /* Served from LiteAPI's own host, never re-hosted. */
-          image: d.main_photo ? String(d.main_photo)
-               : (d.thumbnail ? String(d.thumbnail) : null),
+          image: at(d, "main_photo") ? String(at(d, "main_photo"))
+               : (at(d, "thumbnail") ? String(at(d, "thumbnail")) : null),
           deepLink: null,
           /* The hotel's own star rating, which is a different thing from a guest
              score. Carried because it is real; the card does not render it yet. */
-          stars: Number.isFinite(Number(d.stars)) ? Number(d.stars) : null,
+          stars: Number.isFinite(Number(at(d, "stars"))) ? Number(at(d, "stars")) : null,
           /*
            * What a guest would prebook to take this price. Carried on the card's
            * offer so selecting a room does not need the search run again — and
@@ -578,8 +698,8 @@ export function liteApi({
         },
       });
 
-      const hotel = (rated && Array.isArray(rated.data) ? rated.data : [])
-        .find((h) => h && String(h.hotelId) === String(hotelId));
+      const hotel = list(at(rated, "data"))
+        .find((h: unknown) => String(at(h, "hotelId")) === String(hotelId));
       if (!hotel) return { hotelId: String(hotelId), nights: Math.round((b - a) / 86_400_000), offers: [] };
 
       return {
@@ -609,7 +729,8 @@ export function liteApi({
      *
      * `countryCode` is not optional — /data/hotels demands it.
      */
-    async hotel({ hotelId = "", countryCode = "" } = {}) {
+    async hotel({ hotelId = "", countryCode = "" }:
+      { hotelId?: string; countryCode?: string } = {}) {
       if (!hotelId) throw new SupplyUnavailable("A hotel id is needed.");
       const cc = String(countryCode || "").toUpperCase();
       if (!/^[A-Z]{2}$/.test(cc)) {
@@ -618,19 +739,21 @@ export function liteApi({
       const r = await call("/data/hotels", {
         params: [["countryCode", cc], ["hotelIds", String(hotelId)], ["limit", "1"]],
       });
-      const d = (Array.isArray(r && r.data) ? r.data : [])
-        .find((x) => x && String(x.id) === String(hotelId));
+      const d = list(at(r, "data"))
+        .find((x: unknown) => String(at(x, "id")) === String(hotelId));
       if (!d) return null;
       return {
-        hotelId: String(d.id),
-        name: d.name ? String(d.name) : null,
-        city: d.city ? String(d.city) : null,
-        country: d.country ? String(d.country) : cc,
-        stars: Number.isFinite(Number(d.stars)) && Number(d.stars) > 0 ? Number(d.stars) : null,
+        hotelId: String(at(d, "id")),
+        name: at(d, "name") ? String(at(d, "name")) : null,
+        city: at(d, "city") ? String(at(d, "city")) : null,
+        country: at(d, "country") ? String(at(d, "country")) : cc,
+        stars: Number.isFinite(Number(at(d, "stars"))) && Number(at(d, "stars")) > 0
+          ? Number(at(d, "stars")) : null,
       };
     },
 
-    async prebook({ offerId = "", usePaymentSdk = false } = {}) {
+    async prebook({ offerId = "", usePaymentSdk = false }:
+      { offerId?: string; usePaymentSdk?: boolean } = {}) {
       if (!offerId) throw new SupplyUnavailable("An offer id is needed to hold a rate.");
 
       /*
@@ -652,29 +775,31 @@ export function liteApi({
         method: "POST",
         body: { offerId: String(offerId), usePaymentSdk: Boolean(usePaymentSdk) },
       });
-      const d = (r && r.data) || {};
-      if (!d.prebookId) {
+      const d = at(r, "data") ?? {};
+      const prebookId = at(d, "prebookId");
+      if (!prebookId) {
         throw new SupplyUnavailable("LiteAPI held no rate — it returned no prebookId.");
       }
 
-      const total = d.price !== undefined ? toMinor(d.price) : null;
+      const total = at(d, "price") !== undefined
+        ? toMinor(at(d, "price") as number | string) : null;
       return {
-        prebookId: String(d.prebookId),
-        offerId: d.offerId ? String(d.offerId) : String(offerId),
-        hotelId: d.hotelId ? String(d.hotelId) : null,
-        checkIn: d.checkin || null,
-        checkOut: d.checkout || null,
+        prebookId: String(prebookId),
+        offerId: at(d, "offerId") ? String(at(d, "offerId")) : String(offerId),
+        hotelId: at(d, "hotelId") ? String(at(d, "hotelId")) : null,
+        checkIn: at(d, "checkin") ?? null,
+        checkOut: at(d, "checkout") ?? null,
         price: total,
-        currency: d.currency ? String(d.currency).toUpperCase() : null,
+        currency: at(d, "currency") ? String(at(d, "currency")).toUpperCase() : null,
         /*
          * Anything other than 0 means the price moved. Surfaced verbatim so a
          * caller can stop and re-confirm rather than book at a number the guest
          * never agreed to.
          */
-        priceDifferencePercent: Number.isFinite(Number(d.priceDifferencePercent))
-          ? Number(d.priceDifferencePercent) : 0,
-        cancellationChanged: Boolean(d.cancellationChanged),
-        boardChanged: Boolean(d.boardChanged),
+        priceDifferencePercent: Number.isFinite(Number(at(d, "priceDifferencePercent")))
+          ? Number(at(d, "priceDifferencePercent")) : 0,
+        cancellationChanged: Boolean(at(d, "cancellationChanged")),
+        boardChanged: Boolean(at(d, "boardChanged")),
         sandbox,
 
         /*
@@ -696,8 +821,8 @@ export function liteApi({
              * platform. It belongs in the browser — that is what a client secret
              * is for — and it is scoped to this one payment.
              */
-            clientSecret: d.secretKey ? String(d.secretKey) : null,
-            transactionId: d.transactionId ? String(d.transactionId) : null,
+            clientSecret: at(d, "secretKey") ? String(at(d, "secretKey")) : null,
+            transactionId: at(d, "transactionId") ? String(at(d, "transactionId")) : null,
             /*
              * LiteAPI's OWN Stripe publishable key, for the environment this key
              * belongs to.
@@ -730,7 +855,7 @@ export function liteApi({
      * connected. Booking for free against a live key is somebody else's money.
      */
     async book({ prebookId = "", holder = {}, guests = [], clientReference = "",
-                 transactionId = "" } = {}) {
+                 transactionId = "" }: BookRequest = {}) {
       if (!prebookId) throw new SupplyUnavailable("A prebook id is needed to book.");
 
       /*
@@ -754,7 +879,7 @@ export function liteApi({
           "than the guest's. Hold the rate with usePaymentSdk, let the guest pay, " +
           "and pass the transactionId back.");
       }
-      for (const f of ["firstName", "lastName", "email"]) {
+      for (const f of ["firstName", "lastName", "email"] as const) {
         if (!holder[f]) throw new SupplyUnavailable(`The booking holder needs a ${f}.`);
       }
 
@@ -786,7 +911,7 @@ export function liteApi({
           guests: (guests.length ? guests : [{
             occupancyNumber: 1,
             firstName: holder.firstName, lastName: holder.lastName, email: holder.email,
-          }]).map((g, i) => ({
+          } satisfies BookingGuest]).map((g: BookingGuest, i: number) => ({
             occupancyNumber: Number(g.occupancyNumber) || i + 1,
             firstName: String(g.firstName || holder.firstName),
             lastName: String(g.lastName || holder.lastName),
@@ -803,14 +928,14 @@ export function liteApi({
             : { method: "ACC_CREDIT_CARD" },
         },
       });
-      return wireBooking(r && r.data, sandbox);
+      return wireBooking(at(r, "data"), sandbox);
     },
 
     /** What the supplier currently says about a booking. */
-    async booking({ bookingId = "" } = {}) {
+    async booking({ bookingId = "" }: { bookingId?: string } = {}) {
       if (!bookingId) throw new SupplyUnavailable("A booking id is needed.");
       const r = await call(`/bookings/${encodeURIComponent(String(bookingId))}`);
-      return wireBooking(r && r.data, sandbox);
+      return wireBooking(at(r, "data"), sandbox);
     },
 
     /**
@@ -821,18 +946,20 @@ export function liteApi({
      * the whole value of this call, so it is returned rather than flattened into
      * "cancelled".
      */
-    async cancel({ bookingId = "" } = {}) {
+    async cancel({ bookingId = "" }: { bookingId?: string } = {}) {
       if (!bookingId) throw new SupplyUnavailable("A booking id is needed to cancel.");
       const r = await call(`/bookings/${encodeURIComponent(String(bookingId))}`, { method: "PUT" });
-      const d = (r && r.data) || {};
+      const d = at(r, "data") ?? {};
+      const fee = at(d, "cancellation_fee");
+      const refund = at(d, "refund_amount");
       return {
-        bookingId: d.bookingId ? String(d.bookingId) : String(bookingId),
-        status: d.status ? String(d.status) : null,
+        bookingId: at(d, "bookingId") ? String(at(d, "bookingId")) : String(bookingId),
+        status: at(d, "status") ? String(at(d, "status")) : null,
         /* Charged anyway, and said so. */
-        charged: d.status === "CANCELLED_WITH_CHARGES",
-        cancellationFee: d.cancellation_fee !== undefined ? toMinor(d.cancellation_fee) : null,
-        refund: d.refund_amount !== undefined ? toMinor(d.refund_amount) : null,
-        currency: d.currency ? String(d.currency).toUpperCase() : null,
+        charged: at(d, "status") === "CANCELLED_WITH_CHARGES",
+        cancellationFee: fee !== undefined ? toMinor(fee as number | string) : null,
+        refund: refund !== undefined ? toMinor(refund as number | string) : null,
+        currency: at(d, "currency") ? String(at(d, "currency")).toUpperCase() : null,
         sandbox,
       };
     },
@@ -855,44 +982,47 @@ export function newClientReference() {
  * because a sandbox booking is not a booking — nobody is arriving — and anything
  * that stores or displays one has to be able to tell.
  */
-export function wireBooking(d, sandbox) {
-  if (!d || !d.bookingId) {
+export function wireBooking(d: unknown, sandbox: boolean) {
+  const bookingId = at(d, "bookingId");
+  if (!d || !bookingId) {
     throw new SupplyUnavailable("LiteAPI returned no booking.");
   }
+  const hotel = at(d, "hotel");
+  const policies = at(d, "cancellationPolicies");
+  const tag = at(policies, "refundableTag");
   return {
-    bookingId: String(d.bookingId),
-    clientReference: d.clientReference ? String(d.clientReference) : null,
-    status: d.status ? String(d.status) : null,
+    bookingId: String(bookingId),
+    clientReference: at(d, "clientReference") ? String(at(d, "clientReference")) : null,
+    status: at(d, "status") ? String(at(d, "status")) : null,
     /* What the guest shows at the desk. */
-    hotelConfirmationCode: d.hotelConfirmationCode ? String(d.hotelConfirmationCode) : null,
-    hotelId: (d.hotel && d.hotel.hotelId) ? String(d.hotel.hotelId)
-           : (d.hotelId ? String(d.hotelId) : null),
-    hotelName: (d.hotel && d.hotel.name) ? String(d.hotel.name) : null,
-    checkIn: d.checkin || null,
-    checkOut: d.checkout || null,
-    price: d.price !== undefined ? toMinor(d.price) : null,
-    currency: d.currency ? String(d.currency).toUpperCase() : null,
-    refundable: d.cancellationPolicies
-      ? (d.cancellationPolicies.refundableTag === "RFN" ? true
-        : d.cancellationPolicies.refundableTag === "NRFN" ? false : null)
+    hotelConfirmationCode: at(d, "hotelConfirmationCode")
+      ? String(at(d, "hotelConfirmationCode")) : null,
+    hotelId: at(hotel, "hotelId") ? String(at(hotel, "hotelId"))
+           : (at(d, "hotelId") ? String(at(d, "hotelId")) : null),
+    hotelName: at(hotel, "name") ? String(at(hotel, "name")) : null,
+    checkIn: at(d, "checkin") ?? null,
+    checkOut: at(d, "checkout") ?? null,
+    price: at(d, "price") !== undefined ? toMinor(at(d, "price") as number | string) : null,
+    currency: at(d, "currency") ? String(at(d, "currency")).toUpperCase() : null,
+    refundable: policies
+      ? (tag === "RFN" ? true : tag === "NRFN" ? false : null)
       : null,
-    cancellation: d.cancellationPolicies && Array.isArray(d.cancellationPolicies.cancelPolicyInfos)
-      ? d.cancellationPolicies.cancelPolicyInfos.map((i) => ({
-          until: i.cancelTime ? String(i.cancelTime) : null,
-          timezone: i.timezone ? String(i.timezone) : null,
-          amount: toMinor(i.amount),
-          currency: i.currency ? String(i.currency).toUpperCase() : null,
-        }))
-      : [],
-    createdAt: d.createdAt || null,
-    supplierBookingId: d.supplierBookingId ? String(d.supplierBookingId) : null,
+    cancellation: list(at(policies, "cancelPolicyInfos")).map((i: unknown) => ({
+      until: at(i, "cancelTime") ? String(at(i, "cancelTime")) : null,
+      timezone: at(i, "timezone") ? String(at(i, "timezone")) : null,
+      amount: toMinor(at(i, "amount") as number | string),
+      currency: at(i, "currency") ? String(at(i, "currency")).toUpperCase() : null,
+    })),
+    createdAt: at(d, "createdAt") ?? null,
+    supplierBookingId: at(d, "supplierBookingId")
+      ? String(at(d, "supplierBookingId")) : null,
     source: "liteapi",
     sandbox: Boolean(sandbox),
   };
 }
 
 /** Scrub the key from anything about to be thrown or logged. */
-export function redact(s) {
+export function redact(s: unknown): string {
   return String(s || "")
     .replace(/\b(?:sand|prod)_[A-Za-z0-9-]+/gi, "[redacted-key]")
     .replace(/(X-API-Key"?\s*[:=]\s*"?)[^",\s}]+/gi, "$1[redacted]")

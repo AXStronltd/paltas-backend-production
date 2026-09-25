@@ -84,6 +84,15 @@ export interface SupplierDescription {
   readonly disclosure?: string;
   readonly canTakePayment?: boolean;
   readonly paymentEnvironment?: string;
+  /*
+   * A SUPPLIER MAY SAY MORE ABOUT ITSELF THAN THIS LIST NAMES.
+   *
+   * Booking.com reports how many city ids it has mapped; another adapter will
+   * want to report something else. Extra keys are safe because status() below
+   * is a WHITELIST — it copies the fields named above and nothing else, so
+   * anything additional reaches an operator's log and never a response.
+   */
+  readonly [key: string]: unknown;
 }
 
 /** What a supplier is asked. `travellerIp` is passed through, never stored. */

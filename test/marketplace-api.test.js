@@ -466,7 +466,7 @@ test("a sandbox supplier is marked on every room it returns", { skip }, async ()
 test("no supplier credential can reach a browser", { skip }, async () => {
   /* The status route and the marketplace envelope both describe the supplier.
      Neither may carry the key, and there is no field in the shape that could. */
-  const { expediaRapid } = await import("../src/suppliers/expedia-rapid.js");
+  const { expediaRapid } = await import("../src/suppliers/expedia-rapid.ts");
   supply.register(expediaRapid({
     apiKey: "LIVEKEY-should-never-appear", sharedSecret: "LIVESECRET-should-never-appear",
   }));

@@ -57,6 +57,9 @@
  * ====================================================================== */
 
 import { SupplyUnavailable } from "../domain/supply.ts";
+import type {
+  AccommodationSupplier, SupplierDescription, SupplyQuery, SupplyResult,
+} from "../domain/supply.ts";
 
 /**
  * The shapes of property a marketplace shows, with a plausible nightly figure
@@ -66,7 +69,18 @@ import { SupplyUnavailable } from "../domain/supply.ts";
  * are round numbers on purpose: an invented price that looks precise ("$147.50")
  * invites more belief than one that obviously does not.
  */
-const SHAPES = [
+/**
+ * One sample shape: what it is, what it costs a night in USD minor units,
+ * how many beds, the invented rating and how many invented reviews.
+ *
+ * A tuple rather than an object because the list reads as a table, and a
+ * table of eight rows is easier to check by eye than eight objects.
+ */
+type Shape = readonly [
+  shape: string, perNight: number, beds: number, rating: number, reviews: number,
+];
+
+const SHAPES: readonly Shape[] = [
   ["Beachfront apartment",      18000, 2, 8.6, 214],
   ["City-centre studio",         9000, 1, 8.1, 402],
   ["Garden villa with pool",    42000, 4, 9.2, 97],
@@ -81,13 +95,20 @@ const DISCLOSURE =
   "This is sample content used to demonstrate the PALTAS marketplace. " +
   "It is not a real property, the price is not a real rate, and it cannot be booked.";
 
-/**
- * @param {object} cfg
- *   count   how many sample properties to return per search (1–8)
- *   cities  optional allow-list; when empty the sample answers for any city,
- *           because a demo that only works in Mombasa is not much of a demo
- */
-export function sampleCatalogue({ count = 6, cities = [] } = {}) {
+/** How much sample inventory, and where it is allowed to appear. */
+export interface SampleConfig {
+  /** How many sample properties to return per search (1–8). */
+  readonly count?: number;
+  /**
+   * Optional allow-list. When empty the sample answers for any city, because
+   * a demo that only works in Mombasa is not much of a demo.
+   */
+  readonly cities?: readonly string[];
+}
+
+export function sampleCatalogue(
+  { count = 6, cities = [] }: SampleConfig = {},
+): AccommodationSupplier {
   const n = Math.min(SHAPES.length, Math.max(1, Number(count) || 6));
   const allow = new Set((cities || []).map((c) => String(c).toLowerCase().trim()));
 
@@ -98,7 +119,7 @@ export function sampleCatalogue({ count = 6, cities = [] } = {}) {
     /* The flag that makes the frontend stamp every card unbookable. */
     sandbox: true,
 
-    describe() {
+    describe(): SupplierDescription {
       return {
         name: "paltas-sample",
         label: "PALTAS sample catalogue (not real inventory)",
@@ -115,7 +136,9 @@ export function sampleCatalogue({ count = 6, cities = [] } = {}) {
       };
     },
 
-    async search({ city = "", country = "", checkIn = "", checkOut = "", limit = 12 } = {}) {
+    async search(
+      { city = "", country = "", checkIn = "", checkOut = "", limit = 12 }: SupplyQuery = {},
+    ): Promise<SupplyResult> {
       /*
        * Dates if there are any, one night if not.
        *
@@ -137,7 +160,7 @@ export function sampleCatalogue({ count = 6, cities = [] } = {}) {
 
       const where = city || "your selected city";
       return {
-        offers: SHAPES.slice(0, Math.min(n, Math.max(1, limit))).map((sh, i) => {
+        offers: SHAPES.slice(0, Math.min(n, Math.max(1, limit))).map((sh: Shape, i: number) => {
           const [shape, perNight, beds, rating, reviews] = sh;
           return {
             supplierRef: `sample-${i + 1}`,
@@ -177,7 +200,7 @@ export function sampleCatalogue({ count = 6, cities = [] } = {}) {
  * variable was left at its default is how demonstration data ends up on a live
  * marketplace without anybody deciding that it should.
  */
-export function fromEnv(env = process.env) {
+export function fromEnv(env: NodeJS.ProcessEnv = process.env): AccommodationSupplier | null {
   if (env.PALTAS_SAMPLE_SUPPLY !== "1") return null;
   const count = Number(env.PALTAS_SAMPLE_COUNT) || 6;
   const cities = String(env.PALTAS_SAMPLE_CITIES || "")

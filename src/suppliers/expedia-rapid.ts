@@ -69,6 +69,20 @@
 
 import { createHash } from "node:crypto";
 import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
+import type {
+  AccommodationSupplier, RawOffer, SupplierDescription, SupplyQuery, SupplyResult,
+} from "../domain/supply.ts";
+import { messageOf } from "../http/errors.ts";
+
+/** A JSON value from Rapid. Narrowed field by field where it is read. */
+type Json = Record<string, unknown>;
+
+/** Read one property off an unknown object without asserting its shape. */
+const at = (v: unknown, key: string): unknown =>
+  (typeof v === "object" && v !== null) ? (v as Json)[key] : undefined;
+
+/** The same, for a list. Anything that is not an array reads as empty. */
+const list = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
 
 const BASE = "https://api.ean.com/v3";
 
@@ -82,7 +96,9 @@ const BASE = "https://api.ean.com/v3";
  *
  * Exported so it can be tested without a network, an account or a real secret.
  */
-export function signature(apiKey, sharedSecret, unixSeconds) {
+export function signature(
+  apiKey: string, sharedSecret: string, unixSeconds: number,
+): string {
   if (!apiKey || !sharedSecret) {
     throw new SupplyUnavailable("Expedia Rapid is missing its API key or shared secret.");
   }
@@ -95,7 +111,9 @@ export function signature(apiKey, sharedSecret, unixSeconds) {
 }
 
 /** The full header value, in the exact order and spelling Rapid parses. */
-export function authorizationHeader(apiKey, sharedSecret, unixSeconds) {
+export function authorizationHeader(
+  apiKey: string, sharedSecret: string, unixSeconds: number,
+): string {
   const sig = signature(apiKey, sharedSecret, unixSeconds);
   return `EAN APIKey=${apiKey},Signature=${sig},timestamp=${unixSeconds}`;
 }
@@ -108,7 +126,7 @@ export function authorizationHeader(apiKey, sharedSecret, unixSeconds) {
  * over how many nights", which is worse to display and better than a wrong
  * per-night figure.
  */
-export function nightsBetween(checkIn, checkOut) {
+export function nightsBetween(checkIn: string, checkOut: string): number | null {
   const a = Date.parse(`${checkIn}T00:00:00Z`);
   const b = Date.parse(`${checkOut}T00:00:00Z`);
   if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null;
@@ -116,8 +134,8 @@ export function nightsBetween(checkIn, checkOut) {
 }
 
 /** `{"mombasa,ke": "6054439"}` -> a lookup that tolerates case and spacing. */
-function regionIndex(map) {
-  const out = new Map();
+function regionIndex(map: Readonly<Record<string, unknown>> | null | undefined): Map<string, string> {
+  const out = new Map<string, string>();
   for (const [k, v] of Object.entries(map || {})) {
     out.set(String(k).toLowerCase().replace(/\s+/g, ""), String(v));
   }
@@ -134,27 +152,36 @@ function regionIndex(map) {
  * exclusive one is lower and not what a guest pays. Showing `exclusive` would
  * undercut every PALTAS listing beside it with a number that is not the price.
  */
-export function lowestTotal(property) {
-  let best = null;
-  for (const room of property.rooms || []) {
-    for (const rate of room.rates || []) {
-      const pricing = rate.occupancy_pricing || {};
-      for (const occ of Object.keys(pricing)) {
-        const billable = pricing[occ]
-          && pricing[occ].totals
-          && pricing[occ].totals.inclusive
-          && pricing[occ].totals.inclusive.billable_currency;
-        if (!billable) continue;
-        const minor = toMinor(billable.value);
+/** The cheapest inclusive total found on one property, and how it is sold. */
+export interface LowestTotal {
+  readonly price: number;
+  readonly currency: string;
+  /** Null means the supplier did not say — not the same as non-refundable. */
+  readonly refundable: boolean | null;
+  readonly rateId: string | null;
+}
+
+export function lowestTotal(property: unknown): LowestTotal | null {
+  let best: LowestTotal | null = null;
+  for (const room of list(at(property, "rooms"))) {
+    for (const rate of list(at(room, "rates"))) {
+      const pricing = at(rate, "occupancy_pricing") ?? {};
+      for (const occ of Object.keys(pricing as Json)) {
+        const billable = at(at(at(pricing, occ), "totals"), "inclusive");
+        const money = at(billable, "billable_currency");
+        if (!money) continue;
+        const minor = toMinor(at(money, "value") as number | string);
         if (minor === null) continue;
         if (!best || minor < best.price) {
+          const refundable = at(rate, "refundable");
+          const rateId = at(rate, "id");
           best = {
             price: minor,
-            currency: String(billable.currency || "").toUpperCase(),
+            currency: String(at(money, "currency") || "").toUpperCase(),
             /* Rapid marks a rate refundable with this flag. Absent means the
                supplier did not say, which is not the same as non-refundable. */
-            refundable: typeof rate.refundable === "boolean" ? rate.refundable : null,
-            rateId: rate.id || null,
+            refundable: typeof refundable === "boolean" ? refundable : null,
+            rateId: rateId ? String(rateId) : null,
           };
         }
       }
@@ -176,6 +203,22 @@ export function lowestTotal(property) {
  *   timeoutMs              a supplier that hangs must not hang the homepage
  *   now                    injected clock, so the signature is testable
  */
+/** How this adapter is configured. */
+export interface ExpediaRapidConfig {
+  readonly apiKey?: string;
+  readonly sharedSecret?: string;
+  /** Sends Rapid's `Test: standard` header, and marks every offer sandbox. */
+  readonly test?: boolean;
+  /** `{ "city,cc": "region_id" }` — Rapid prices by opaque region id. */
+  readonly regions?: Readonly<Record<string, unknown>>;
+  /** Injected for tests; defaults to global fetch. */
+  readonly fetchImpl?: typeof globalThis.fetch;
+  /** A supplier that hangs must not hang the homepage. */
+  readonly timeoutMs?: number;
+  /** Injected clock, so the signature is testable. */
+  readonly now?: () => number;
+}
+
 export function expediaRapid({
   apiKey,
   sharedSecret,
@@ -184,13 +227,23 @@ export function expediaRapid({
   fetchImpl,
   timeoutMs = 6000,
   now = () => Date.now(),
-} = {}) {
+}: ExpediaRapidConfig = {}): AccommodationSupplier {
   if (!apiKey || !sharedSecret) {
     throw new SupplyUnavailable(
       "Expedia Rapid cannot be registered without EXPEDIA_RAPID_API_KEY and " +
       "EXPEDIA_RAPID_SECRET. Nothing is connected, and PALTAS will show only " +
       "its own listings.");
   }
+
+  /*
+   * The credentials, captured after the guard above.
+   *
+   * A destructured parameter is a mutable binding, so the check three lines up
+   * does not narrow it away from `string | undefined` inside call() below.
+   * Copying into a const is what makes the guard visible to the signer.
+   */
+  const key = apiKey;
+  const secret = sharedSecret;
 
   const http = fetchImpl || globalThis.fetch;
   if (typeof http !== "function") {
@@ -199,20 +252,22 @@ export function expediaRapid({
   const index = regionIndex(regions);
 
   /** Every Rapid call: signed, timed out, and parsed without trusting it. */
-  async function call(path, params, travellerIp) {
+  async function call(
+    path: string, params: readonly (readonly [string, string])[], travellerIp?: string,
+  ): Promise<unknown> {
     const unix = Math.floor(now() / 1000);
     const url = new URL(BASE + path);
     for (const [k, v] of params) url.searchParams.append(k, String(v));
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res;
+    let res: Response;
     try {
       res = await http(url.toString(), {
         method: "GET",
         signal: controller.signal,
         headers: {
-          Authorization: authorizationHeader(apiKey, sharedSecret, unix),
+          Authorization: authorizationHeader(key, secret, unix),
           Accept: "application/json",
           "Accept-Encoding": "gzip",
           /*
@@ -229,9 +284,9 @@ export function expediaRapid({
     } catch (e) {
       clearTimeout(timer);
       /* An abort is a timeout, and saying so is more useful than "aborted". */
-      const why = e && e.name === "AbortError"
+      const why = at(e, "name") === "AbortError"
         ? `Expedia Rapid did not answer within ${timeoutMs}ms.`
-        : `Expedia Rapid could not be reached: ${redact(String(e && e.message))}`;
+        : `Expedia Rapid could not be reached: ${redact(messageOf(e))}`;
       throw new SupplyUnavailable(why);
     }
     clearTimeout(timer);
@@ -248,7 +303,7 @@ export function expediaRapid({
     }
     try {
       return JSON.parse(text);
-    } catch (e) {
+    } catch {
       throw new SupplyUnavailable("Expedia Rapid returned a body that is not JSON.");
     }
   }
@@ -259,7 +314,7 @@ export function expediaRapid({
        everywhere — a visitor cannot be shown a test rate as a real one. */
     sandbox: Boolean(test),
 
-    describe() {
+    describe(): SupplierDescription {
       return {
         name: "expedia-rapid",
         connected: true,
@@ -278,7 +333,7 @@ export function expediaRapid({
     async search({
       city = "", country = "", checkIn = "", checkOut = "", guests = 2,
       limit = 12, currency = "USD", travellerIp = "",
-    } = {}) {
+    }: SupplyQuery = {}): Promise<SupplyResult> {
       /*
        * Rapid prices a STAY, so it cannot be asked "what have you got" with no
        * dates. A marketplace browsing with no dates chosen gets nothing from
@@ -326,15 +381,17 @@ export function expediaRapid({
         ["rate_plan_count", "1"],
       ], travellerIp);
 
-      const properties = Array.isArray(avail) ? avail : [];
-      const priced = [];
+      const properties = list(avail);
+      const priced: { id: string; total: LowestTotal; links: unknown }[] = [];
       for (const p of properties) {
-        if (!p || !p.property_id) continue;
+        const propertyId = at(p, "property_id");
+        if (!propertyId) continue;
         /* Rapid marks sold-out properties in the same array. */
-        if (p.status && p.status !== "available") continue;
+        const status = at(p, "status");
+        if (status && status !== "available") continue;
         const total = lowestTotal(p);
         if (!total || !total.currency) continue;
-        priced.push({ id: String(p.property_id), total, links: p.links || null });
+        priced.push({ id: String(propertyId), total, links: at(p, "links") ?? null });
         if (priced.length >= Math.min(250, Math.max(1, limit) * 3)) break;
       }
       if (!priced.length) return { offers: [], note: "Expedia Rapid priced nothing for those dates." };
@@ -344,32 +401,35 @@ export function expediaRapid({
        * availability does not carry them. Keyed object, property_id -> content.
        */
       const content = await call("/properties/content", [
-        ...priced.map((p) => ["property_id", p.id]),
+        ...priced.map((p) => ["property_id", p.id] as const),
         ["language", "en-US"],
       ], travellerIp);
 
-      const offers = [];
+      const offers: RawOffer[] = [];
       for (const p of priced) {
-        const c = content && content[p.id];
+        const c = at(content, p.id);
+        const name = at(c, "name");
         /* No content means no name and no city. A card cannot be drawn from a
            price and an opaque id, so it is dropped rather than half-drawn. */
-        if (!c || !c.name) continue;
+        if (!c || !name) continue;
 
-        const addr = c.address || {};
-        const guest = (c.ratings && c.ratings.guest) || {};
-        const overall = guest.overall !== undefined ? Number(guest.overall) : NaN;
-        const count = guest.count !== undefined ? Number(guest.count) : NaN;
-        const firstImage = Array.isArray(c.images) && c.images.length
-          ? ((c.images[0].links && c.images[0].links["350px"] &&
-              c.images[0].links["350px"].href) || null)
+        const addr = at(c, "address");
+        const guest = at(at(c, "ratings"), "guest");
+        const rawOverall = at(guest, "overall");
+        const rawCount = at(guest, "count");
+        const overall = rawOverall !== undefined ? Number(rawOverall) : NaN;
+        const count = rawCount !== undefined ? Number(rawCount) : NaN;
+        const images = list(at(c, "images"));
+        const firstImage = images.length
+          ? (at(at(at(images[0], "links"), "350px"), "href") ?? null)
           : null;
 
         offers.push({
           supplierRef: p.id,
-          title: c.name,
-          city: addr.city || "",
-          country: addr.country_code || "",
-          place: [addr.line_1, addr.city].filter(Boolean).join(", "),
+          title: String(name),
+          city: String(at(addr, "city") || ""),
+          country: String(at(addr, "country_code") || ""),
+          place: [at(addr, "line_1"), at(addr, "city")].filter(Boolean).join(", "),
           price: p.total.price,
           currency: p.total.currency,
           nights,
@@ -379,7 +439,7 @@ export function expediaRapid({
              rating. NaN becomes null rather than 0. */
           rating: Number.isFinite(overall) ? overall : null,
           ratingCount: Number.isFinite(count) ? Math.round(count) : null,
-          image: firstImage,
+          image: firstImage === null ? null : String(firstImage),
           deepLink: null,
         });
         if (offers.length >= limit) break;
@@ -397,7 +457,7 @@ export function expediaRapid({
  * Authorization header — so this runs on every error path rather than at the
  * one place a key seemed likely to appear.
  */
-export function redact(s) {
+export function redact(s: unknown): string {
   return String(s || "")
     .replace(/APIKey=[^,\s"]+/gi, "APIKey=[redacted]")
     .replace(/Signature=[^,\s"]+/gi, "Signature=[redacted]")
@@ -413,14 +473,14 @@ export function redact(s) {
  * supplier configured" is the NORMAL state of this installation and must not
  * stop the service from booting.
  */
-export function fromEnv(env = process.env) {
+export function fromEnv(env: NodeJS.ProcessEnv = process.env): AccommodationSupplier | null {
   if (!env.EXPEDIA_RAPID_API_KEY || !env.EXPEDIA_RAPID_SECRET) return null;
 
-  let regions = {};
+  let regions: Record<string, unknown> = {};
   if (env.EXPEDIA_RAPID_REGIONS) {
     try {
       regions = JSON.parse(env.EXPEDIA_RAPID_REGIONS);
-    } catch (e) {
+    } catch {
       /* A malformed map is a configuration error worth surfacing, but it must
          not take the supplier down: an empty map means every city politely
          returns no supplier offers with a reason. */

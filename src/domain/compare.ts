@@ -40,9 +40,16 @@ import { messageOf } from "../http/errors.ts";
  * they are read rather than trusted where they arrive.
  */
 export interface CompareProvider {
+  /** What other sellers are asking for one hotel on one set of dates. */
   compare(query: Record<string, unknown>): Promise<CompareAnswer> | CompareAnswer;
-  searchHomes?(query: Record<string, unknown>): Promise<CompareAnswer> | CompareAnswer;
+  /**
+   * Whole-home listings elsewhere. Optional AT THE TYPE LEVEL and checked
+   * again at the call site, because a provider that only compares prices is
+   * a legitimate one and findHomes() must say so rather than crash.
+   */
+  search?(query: Record<string, unknown>): Promise<CompareAnswer> | CompareAnswer;
   describe?(): { name?: string; label?: string; [key: string]: unknown };
+  readonly name?: string;
   [key: string]: unknown;
 }
 

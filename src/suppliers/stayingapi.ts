@@ -72,7 +72,26 @@ export const PLATFORMS = ["airbnb", "booking", "vrbo", "expedia", "hotels", "goo
  * that is how a test run bills a live plan, so there is no flag: the key is the
  * answer, the same rule LiteAPI's `sand_` prefix already follows here.
  */
-export function environmentOf(apiKey) {
+/** A JSON value from StayingAPI. Narrowed where it is read, never trusted. */
+type Json = Record<string, unknown>;
+
+/** Read one property off an unknown object without asserting its shape. */
+const at = (v: unknown, key: string): unknown =>
+  (typeof v === "object" && v !== null) ? (v as Json)[key] : undefined;
+
+/** Money as the rest of PALTAS speaks it: integer minor units and a code. */
+export interface Money {
+  readonly amountMinor: number | null;
+  readonly currency: string;
+}
+
+/** Which environment a key belongs to, and whether the prefix said so. */
+export interface KeyEnvironment {
+  readonly sandbox: boolean;
+  readonly known: boolean;
+}
+
+export function environmentOf(apiKey: unknown): KeyEnvironment {
   const k = String(apiKey || "");
   if (k.startsWith("stay_test_")) return { sandbox: true, known: true };
   if (k.startsWith("stay_live_")) return { sandbox: false, known: true };
@@ -80,7 +99,7 @@ export function environmentOf(apiKey) {
 }
 
 /** Money, in the integer minor units the rest of PALTAS speaks. */
-function moneyFrom(amount, currency) {
+function moneyFrom(amount: unknown, currency: unknown): Money | null {
   if (amount == null || amount === "") return null;
   const n = Number(amount);
   if (!Number.isFinite(n) || n < 0) return null;
@@ -104,13 +123,69 @@ function moneyFrom(amount, currency) {
  * 4.8 shown as though out of 10 is a bad hotel, and out of 5 is an excellent
  * one, from the same true number.
  */
-function ratingFrom(score, scale) {
+/** A rating on the scale the service stated, never one inferred. */
+export interface Rating {
+  readonly score: number;
+  readonly outOf: number;
+}
+
+function ratingFrom(score: unknown, scale: unknown): Rating | null {
   const n = Number(score);
   const outOf = Number(scale);
   if (!Number.isFinite(n) || n <= 0) return null;
   if (!Number.isFinite(outOf) || outOf <= 0) return null;
   if (n > outOf) return null;
   return { score: Math.round(n * 10) / 10, outOf };
+}
+
+/** How this adapter is configured. */
+export interface StayingApiConfig {
+  readonly apiKey?: string;
+  readonly baseUrl?: string;
+  readonly currency?: string;
+  readonly timeoutMs?: number;
+  /** A live scrape answers 202 and a job id; these bound the wait. */
+  readonly pollMs?: number;
+  readonly maxPolls?: number;
+  /** Injected for tests; defaults to global fetch. */
+  readonly fetchImpl?: typeof globalThis.fetch;
+}
+
+/** What a multi-platform search is asked for. */
+export interface StayingSearch {
+  readonly location?: string;
+  readonly checkIn?: string;
+  readonly checkOut?: string;
+  readonly adults?: number;
+  readonly children?: number;
+  readonly rooms?: number;
+  /** Narrowed to the platforms this adapter knows; anything else is dropped. */
+  readonly platforms?: readonly string[];
+  /** PER PLATFORM — three platforms at ten is thirty results and thirty credits. */
+  readonly limit?: number;
+  readonly sort?: string;
+  readonly cursor?: string;
+}
+
+/** One listing's live price on one platform. */
+export interface StayingPrice {
+  readonly platform?: string;
+  readonly id?: string;
+  readonly checkIn?: string;
+  readonly checkOut?: string;
+  readonly adults?: number;
+}
+
+/** What a price comparison is asked for. One of the three identifiers is required. */
+export interface StayingCompare {
+  readonly name?: string;
+  readonly location?: string;
+  readonly googleHotelId?: string;
+  readonly checkIn?: string;
+  readonly checkOut?: string;
+  readonly adults?: number;
+  readonly children?: number;
+  readonly currency?: string;
 }
 
 export function stayingApi({
@@ -123,11 +198,14 @@ export function stayingApi({
   pollMs = 900,
   maxPolls = 12,
   fetchImpl,
-} = {}) {
-  apiKey = String(apiKey || "").trim();
-  if (!apiKey) throw new SupplyUnavailable("StayingAPI needs an API key.");
+}: StayingApiConfig = {}) {
+  /* A const, not the parameter reassigned: the trim is the value everything
+     below uses, and a destructured parameter stays `string | undefined` to
+     the closures that read it. */
+  const key = String(apiKey || "").trim();
+  if (!key) throw new SupplyUnavailable("StayingAPI needs an API key.");
 
-  const env = environmentOf(apiKey);
+  const env = environmentOf(key);
   if (!env.known) {
     throw new SupplyUnavailable(
       "A StayingAPI key must begin with stay_test_ or stay_live_. PALTAS will " +
@@ -137,8 +215,11 @@ export function stayingApi({
   const sandbox = env.sandbox;
   const base = String(baseUrl).replace(/\/+$/, "");
 
-  const http = fetchImpl || (typeof fetch === "function" ? fetch : null);
-  if (!http) throw new SupplyUnavailable("No fetch implementation is available for StayingAPI.");
+  const chosen = fetchImpl || (typeof fetch === "function" ? fetch : null);
+  if (!chosen) throw new SupplyUnavailable("No fetch implementation is available for StayingAPI.");
+  /* Copied after the guard: `once()` below is a hoisted function declaration,
+     and the check above does not narrow into one. */
+  const http = chosen;
 
   /*
    * THE ASYNC JOB PROTOCOL, WHICH IS WHERE THE PAYLOAD ACTUALLY LIVES.
@@ -161,7 +242,9 @@ export function stayingApi({
    * So the unwrapping is done here, once, and every caller below receives the
    * same shape whether the work was synchronous or took four polls.
    */
-  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+  function sleep(ms: number): Promise<void> {
+    return new Promise((r) => setTimeout(r, ms));
+  }
 
   /*
    * MY PATHS ARE RELATIVE TO THE BASE. THE SERVICE'S ARE NOT.
@@ -182,8 +265,8 @@ export function stayingApi({
   const apiRoot = new URL(base);
   const basePath = apiRoot.pathname.replace(/\/+$/, "");
 
-  function urlFor(path, params = {}) {
-    let full;
+  function urlFor(path: string, params: Readonly<Record<string, unknown>> = {}): string {
+    let full: string;
     if (/^https?:/i.test(path)) {
       full = path;
     } else if (basePath && (path === basePath || path.startsWith(basePath + "/"))) {
@@ -200,10 +283,12 @@ export function stayingApi({
   }
 
   /** One request. Returns the parsed body plus what the headers asked for. */
-  async function once(url) {
+  async function once(
+    url: string,
+  ): Promise<{ status: number; body: unknown; retryAfter: number }> {
     const stop = new AbortController();
     const t = setTimeout(() => stop.abort(), timeoutMs);
-    let res;
+    let res: Response;
     try {
       res = await http(url, {
         method: "GET",
@@ -211,19 +296,19 @@ export function stayingApi({
         headers: {
           /* The key travels in the header and appears in no URL, so it cannot
              end up in an access log, a referrer or an error message. */
-          Authorization: "Bearer " + apiKey,
+          Authorization: "Bearer " + key,
           Accept: "application/json",
         },
       });
     } catch (e) {
-      throw new SupplyUnavailable(e && e.name === "AbortError"
+      throw new SupplyUnavailable(at(e, "name") === "AbortError"
         ? "StayingAPI did not answer in time."
         : "StayingAPI could not be reached.");
     } finally {
       clearTimeout(t);
     }
 
-    let body;
+    let body: unknown;
     try { body = await res.json(); }
     catch { throw new SupplyUnavailable("StayingAPI returned a body that is not JSON."); }
 
@@ -234,7 +319,8 @@ export function stayingApi({
     if (res.status === 402) throw new SupplyUnavailable("This StayingAPI account is out of credits.");
 
     if (!res.ok && res.status !== 202) {
-      const why = (body && (body.message || body.error)) || `StayingAPI answered ${res.status}.`;
+      const why = String(at(body, "message") || at(body, "error") || "") ||
+        `StayingAPI answered ${res.status}.`;
       /* Whatever it said, it is not repeated verbatim: an upstream error can
          carry an echo of the request, key included. */
       throw new SupplyUnavailable(
@@ -254,36 +340,48 @@ export function stayingApi({
     return { status: res.status, body, retryAfter: after };
   }
 
-  async function call(path, params = {}) {
+  async function call(
+    path: string, params: Readonly<Record<string, unknown>> = {},
+  ): Promise<unknown> {
     let { body, retryAfter } = await once(urlFor(path, params));
 
     for (let i = 0; i < maxPolls; i++) {
-      const d = (body && body.data) || {};
+      const d = at(body, "data") ?? {};
+      const jobId = at(d, "jobId");
       /* A synchronous answer has no jobId and is already the payload. */
-      if (!d.jobId) break;
+      if (!jobId) break;
 
-      if (d.status === "completed") break;
-      if (d.status === "failed") {
-        const why = (d.error && (d.error.message || d.error.code)) || "the platform could not be read";
+      const status = at(d, "status");
+      if (status === "completed") break;
+      if (status === "failed") {
+        const err = at(d, "error");
+        const why = String(at(err, "message") || at(err, "code") || "") ||
+          "the platform could not be read";
         throw new SupplyUnavailable("StayingAPI could not complete the request: " + why);
       }
       /* pending or running — both mean keep waiting. */
       await sleep(retryAfter || pollMs);
-      const next = await once(urlFor(d.pollUrl || `/jobs/${encodeURIComponent(d.jobId)}`));
+      const pollUrl = at(d, "pollUrl");
+      const next = await once(urlFor(
+        pollUrl ? String(pollUrl) : `/jobs/${encodeURIComponent(String(jobId))}`));
       body = next.body;
       retryAfter = next.retryAfter;
     }
 
-    const d = (body && body.data) || {};
-    if (d.jobId && d.status === "completed") {
+    const d = at(body, "data") ?? {};
+    const jobId = at(d, "jobId");
+    const status = at(d, "status");
+    if (jobId && status === "completed") {
       /* THE PAYLOAD. The same shape a synchronous call returns. */
-      return { ...body, data: d.result };
+      return { ...(body as Json), data: at(d, "result") };
     }
-    if (d.jobId && d.status === "failed") {
-      const why = (d.error && (d.error.message || d.error.code)) || "the platform could not be read";
+    if (jobId && status === "failed") {
+      const err = at(d, "error");
+      const why = String(at(err, "message") || at(err, "code") || "") ||
+        "the platform could not be read";
       throw new SupplyUnavailable("StayingAPI could not complete the request: " + why);
     }
-    if (d.jobId) {
+    if (jobId) {
       throw new SupplyUnavailable("StayingAPI is still working; PALTAS stopped waiting.");
     }
     return body;
@@ -298,32 +396,37 @@ export function stayingApi({
    * data and was actually three wrong names. The real shape is `name`,
    * `location.city`, `price.totalPrice` and `guestRating` + `ratingScale`.
    */
-  function normalise(row, platform) {
+  function normalise(row: unknown, platform?: string) {
     if (!row || typeof row !== "object") return null;
-    const p = String(row.platform || platform || "").toLowerCase();
-    const id = row.platformListingId || row.id;
+    const p = String(at(row, "platform") || platform || "").toLowerCase();
+    const id = at(row, "platformListingId") ?? at(row, "id");
     if (!id) return null;
 
-    const loc = row.location || {};
-    const pr = row.price || {};
+    const loc = at(row, "location");
+    const pr = at(row, "price");
     /* The TOTAL for the stay, which is what a visitor compares. A nightly rate
        beside another site's total is a factor of however many nights. */
-    const price = moneyFrom(pr.totalPrice, pr.currency);
+    const price = moneyFrom(at(pr, "totalPrice"), at(pr, "currency"));
 
     return {
       id: `${p}:${id}`,
-      title: String(row.name || "").trim() || null,
-      city: loc.city || null,
-      country: loc.country || null,
-      image: Array.isArray(row.images) && row.images.length ? row.images[0] : null,
+      title: String(at(row, "name") || "").trim() || null,
+      city: at(loc, "city") ?? null,
+      country: at(loc, "country") ?? null,
+      image: (() => {
+        const images = at(row, "images");
+        return Array.isArray(images) && images.length ? images[0] : null;
+      })(),
       price,
       /* Per-night, ONLY as the platform stated it — never divided out of a
          total, because what a total includes differs per platform. */
-      perNight: moneyFrom(pr.nightlyPrice, pr.currency),
-      rating: ratingFrom(row.guestRating, row.ratingScale),
-      reviewCount: Number.isFinite(Number(row.reviewCount)) ? Number(row.reviewCount) : null,
-      bedrooms: Number.isFinite(Number(row.bedrooms)) ? Number(row.bedrooms) : null,
-      propertyType: row.propertyType ? String(row.propertyType) : null,
+      perNight: moneyFrom(at(pr, "nightlyPrice"), at(pr, "currency")),
+      rating: ratingFrom(at(row, "guestRating"), at(row, "ratingScale")),
+      reviewCount: Number.isFinite(Number(at(row, "reviewCount")))
+        ? Number(at(row, "reviewCount")) : null,
+      bedrooms: Number.isFinite(Number(at(row, "bedrooms")))
+        ? Number(at(row, "bedrooms")) : null,
+      propertyType: at(row, "propertyType") ? String(at(row, "propertyType")) : null,
       /*
        * THE THREE FIELDS THAT KEEP THIS HONEST.
        *
@@ -335,7 +438,7 @@ export function stayingApi({
        */
       bookable: false,
       via: p || null,
-      url: row.url || null,
+      url: at(row, "url") ?? null,
       source: "stayingapi",
       paltasOwned: false,
     };
@@ -368,12 +471,12 @@ export function stayingApi({
 
     async account() {
       const r = await call("/account");
-      const d = (r && r.data) || r || {};
+      const d = at(r, "data") ?? r ?? {};
       /* Deliberately narrow. A plan object may carry an account identifier and
          there is no reason for one to travel further than this. */
       return {
-        plan: d.plan || d.tier || null,
-        credits: Number.isFinite(Number(d.credits)) ? Number(d.credits) : null,
+        plan: at(d, "plan") ?? at(d, "tier") ?? null,
+        credits: Number.isFinite(Number(at(d, "credits"))) ? Number(at(d, "credits")) : null,
         sandbox,
       };
     },
@@ -384,7 +487,8 @@ export function stayingApi({
      * hard ceiling of the API's own 40.
      */
     async search({ location, checkIn, checkOut, adults = 2, children = 0, rooms = 1,
-                   platforms = [], limit = 10, sort = "recommended", cursor = "" } = {}) {
+                   platforms = [], limit = 10, sort = "recommended", cursor = "" }:
+                 StayingSearch = {}) {
       if (!location) throw new SupplyUnavailable("StayingAPI needs somewhere to search.");
       const asked = (platforms || []).filter((p) => PLATFORMS.includes(p));
       const r = await call("/search", {
@@ -394,26 +498,28 @@ export function stayingApi({
         limit: Math.max(1, Math.min(40, Number(limit) || 10)),
         sort, cursor,
       });
-      const d = (r && r.data) || {};
-      const rows = d.results || d.listings || (Array.isArray(d) ? d : []);
+      const d = at(r, "data") ?? {};
+      const rows = at(d, "results") ?? at(d, "listings") ?? (Array.isArray(d) ? d : []);
+      const used = at(r, "creditsUsed");
       return {
-        results: (Array.isArray(rows) ? rows : []).map((x) => normalise(x)).filter(Boolean),
-        cursor: d.cursor || d.nextCursor || "",
-        creditsUsed: Number.isFinite(Number(r && r.creditsUsed)) ? Number(r.creditsUsed) : null,
+        results: (Array.isArray(rows) ? rows : [])
+          .map((x: unknown) => normalise(x)).filter(Boolean),
+        cursor: String(at(d, "cursor") || at(d, "nextCursor") || ""),
+        creditsUsed: Number.isFinite(Number(used)) ? Number(used) : null,
       };
     },
 
-    async price({ platform, id, checkIn, checkOut, adults = 2 } = {}) {
+    async price({ platform, id, checkIn, checkOut, adults = 2 }: StayingPrice = {}) {
       if (!platform || !id) throw new SupplyUnavailable("StayingAPI needs a platform and a listing id.");
       const r = await call("/price", { platform, id, checkIn, checkOut, adults, currency });
-      const d = (r && r.data) || {};
+      const d = at(r, "data") ?? {};
       return {
-        price: moneyFrom(d.total ?? d.price, d.currency || currency),
+        price: moneyFrom(at(d, "total") ?? at(d, "price"), at(d, "currency") || currency),
         /* What each platform includes differs — Airbnb reports cleaning and
            service, Booking.com reports taxes only — so the breakdown is passed
            through rather than summed into a number that means nothing. */
-        breakdown: d.breakdown || null,
-        bookable: d.bookable === true,
+        breakdown: at(d, "breakdown") ?? null,
+        bookable: at(d, "bookable") === true,
         via: platform,
       };
     },
@@ -442,7 +548,7 @@ export function stayingApi({
      * page can say the comparison is partial rather than implying it is whole.
      */
     async compare({ name, location, googleHotelId, checkIn, checkOut,
-                    adults = 2, children = 0, currency: want = "" } = {}) {
+                    adults = 2, children = 0, currency: want = "" }: StayingCompare = {}) {
       if (!checkIn || !checkOut) {
         throw new SupplyUnavailable("A price comparison needs a check-in and a check-out date.");
       }
@@ -454,33 +560,39 @@ export function stayingApi({
       const r = await call("/price-compare", {
         name, location, googleHotelId, checkIn, checkOut, adults, children, currency: cur,
       });
-      const d = (r && r.data) || {};
-      const raw = Array.isArray(d.offers) ? d.offers : [];
+      const d = at(r, "data") ?? {};
+      const rawOffers = at(d, "offers");
+      const raw: unknown[] = Array.isArray(rawOffers) ? rawOffers : [];
 
-      const offers = raw.map((o) => ({
+      const offers = raw.map((o: unknown) => ({
         /* In Google mode this is the seller's name as Google reported it. It is
            displayed, so it is trimmed and never invented. */
-        ota: String(o.ota || "").trim() || null,
-        price: moneyFrom(o.totalPrice, o.currency),
-        url: o.url || null,
+        ota: String(at(o, "ota") || "").trim() || null,
+        price: moneyFrom(at(o, "totalPrice"), at(o, "currency")),
+        url: at(o, "url") ?? null,
         bookable: false,
       })).filter((o) => o.ota && o.price && o.price.currency === cur);
 
       /* Cheapest and median come from the API already excluding other
          currencies, so they agree with the list above rather than contradicting
          it. Recomputed from what survived only if it did not send them. */
-      const totals = offers.map((o) => o.price.amountMinor).sort((x, y) => x - y);
+      const totals = offers
+        .map((o) => o.price?.amountMinor)
+        .filter((n): n is number => typeof n === "number")
+        .sort((x, y) => x - y);
       const median = totals.length
-        ? totals[Math.floor((totals.length - 1) / 2)] : null;
+        ? totals[Math.floor((totals.length - 1) / 2)] ?? null : null;
 
       return {
-        property: d.property || name || null,
-        checkIn: d.checkIn || checkIn,
-        checkOut: d.checkOut || checkOut,
+        property: at(d, "property") ?? name ?? null,
+        checkIn: at(d, "checkIn") ?? checkIn,
+        checkOut: at(d, "checkOut") ?? checkOut,
         currency: cur,
         offers,
-        min: moneyFrom(d.min, cur) || (totals.length ? { amountMinor: totals[0], currency: cur } : null),
-        median: moneyFrom(d.median, cur) || (median !== null ? { amountMinor: median, currency: cur } : null),
+        min: moneyFrom(at(d, "min"), cur)
+          || (totals.length ? { amountMinor: totals[0] ?? null, currency: cur } : null),
+        median: moneyFrom(at(d, "median"), cur)
+          || (median !== null ? { amountMinor: median, currency: cur } : null),
         /* Said out loud: a comparison missing three of five sellers is a
            different fact from one that found two. */
         dropped: Math.max(0, raw.length - offers.length),
@@ -519,18 +631,18 @@ export function stayingApi({
  * preferring either means the service runs on a key its operator believes they
  * replaced — which is worse than not starting the feature at all.
  */
-export const KEY_NAMES = ["STAYINGAPI_KEY", "STAYING_API_KEY"];
+export const KEY_NAMES: readonly string[] = ["STAYINGAPI_KEY", "STAYING_API_KEY"];
 
 /** Built only when a key is present, so a missing one degrades to nothing. */
-export function fromEnv(env = process.env) {
+export function fromEnv(env: NodeJS.ProcessEnv = process.env) {
   /*
    * TRIMMED, and a blank value counts as ABSENT. Pasting a key into a dashboard
    * field is how one acquires a trailing newline, and an untrimmed key is sent
    * to the API in an Authorization header where it fails as a credential rather
    * than as a configuration mistake — a 401 that looks like a revoked key.
    */
-  const found = KEY_NAMES
-    .map((n) => [n, String(env[n] || "").trim()])
+  const found: readonly (readonly [string, string])[] = KEY_NAMES
+    .map((n) => [n, String(env[n] || "").trim()] as const)
     .filter(([, v]) => v);
 
   if (!found.length) return null;
@@ -545,7 +657,7 @@ export function fromEnv(env = process.env) {
   }
 
   return stayingApi({
-    apiKey: found[0][1],
+    apiKey: found[0]![1],
     baseUrl: env.STAYINGAPI_BASE_URL || env.STAYING_API_BASE_URL || DEFAULT_BASE,
     currency: env.STAYINGAPI_CURRENCY || env.STAYING_API_CURRENCY || "USD",
   });

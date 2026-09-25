@@ -45,12 +45,12 @@ import { investmentRoutes } from "./routes/investments.js";
 import { dnaRoutes } from "./routes/dna.js";
 import { authorityRoutes } from "./modules/authority/api/routes.js";
 import { register as registerSupplier, status as supplierStatus } from "./domain/supply.ts";
-import { fromEnv as liteApiFromEnv } from "./suppliers/liteapi.js";
-import { fromEnv as stayingApiFromEnv, KEY_NAMES as STAYING_KEYS } from "./suppliers/stayingapi.js";
+import { fromEnv as liteApiFromEnv } from "./suppliers/liteapi.ts";
+import { fromEnv as stayingApiFromEnv, KEY_NAMES as STAYING_KEYS } from "./suppliers/stayingapi.ts";
 import { registerCompare, compareStatus, noteCompareUnavailable } from "./domain/compare.ts";
-import { fromEnv as expediaRapidFromEnv } from "./suppliers/expedia-rapid.js";
-import { fromEnv as bookingDemandFromEnv } from "./suppliers/booking-demand.js";
-import { fromEnv as sampleCatalogueFromEnv } from "./suppliers/sample-catalogue.js";
+import { fromEnv as expediaRapidFromEnv } from "./suppliers/expedia-rapid.ts";
+import { fromEnv as bookingDemandFromEnv } from "./suppliers/booking-demand.ts";
+import { fromEnv as sampleCatalogueFromEnv } from "./suppliers/sample-catalogue.ts";
 
 const log = {
   info: (...a) => console.log(new Date().toISOString(), ...a),

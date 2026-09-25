@@ -47,19 +47,33 @@
  * ====================================================================== */
 
 import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
+import type {
+  AccommodationSupplier, RawOffer, SupplierDescription, SupplyQuery, SupplyResult,
+} from "../domain/supply.ts";
+import { messageOf } from "../http/errors.ts";
+
+/**
+ * A JSON body from Booking.com. Everything below narrows it field by field,
+ * because nothing arriving over that wire has been checked by anybody here.
+ */
+type Json = Record<string, unknown>;
+
+/** Read one property off an unknown object without asserting its shape. */
+const at = (v: unknown, key: string): unknown =>
+  (typeof v === "object" && v !== null) ? (v as Json)[key] : undefined;
 
 const BASE = "https://demandapi.booking.com/3.1";
 
 /** Nights between two ISO dates; null for anything that is not a real stay. */
-export function nightsBetween(checkIn, checkOut) {
+export function nightsBetween(checkIn: string, checkOut: string): number | null {
   const a = Date.parse(`${checkIn}T00:00:00Z`);
   const b = Date.parse(`${checkOut}T00:00:00Z`);
   if (!Number.isFinite(a) || !Number.isFinite(b) || b <= a) return null;
   return Math.round((b - a) / 86_400_000);
 }
 
-function cityIndex(map) {
-  const out = new Map();
+function cityIndex(map: Readonly<Record<string, unknown>> | null | undefined): Map<string, string> {
+  const out = new Map<string, string>();
   for (const [k, v] of Object.entries(map || {})) {
     out.set(String(k).toLowerCase().replace(/\s+/g, ""), String(v));
   }
@@ -75,26 +89,33 @@ function cityIndex(map) {
  * guest pays. Showing net would undercut every PALTAS listing beside it with a
  * number nobody will be charged.
  */
-export function priceOf(result) {
-  const p = result && result.price;
+export function priceOf(result: unknown): { price: number; currency: string } | null {
+  const p = at(result, "price");
   if (!p) return null;
-  const pick = p.gross_amount || p.total || p.amount || null;
+  const pick = at(p, "gross_amount") || at(p, "total") || at(p, "amount") || null;
   if (!pick) return null;
-  const minor = toMinor(pick.value !== undefined ? pick.value : pick);
+  const value = at(pick, "value");
+  const minor = toMinor((value !== undefined ? value : pick) as number | string);
   if (minor === null) return null;
-  const currency = String(pick.currency || p.currency || "").toUpperCase();
+  const currency = String(at(pick, "currency") || at(p, "currency") || "").toUpperCase();
   if (!currency) return null;
   return { price: minor, currency };
 }
 
-/**
- * @param {object} cfg
- *   token, affiliateId   from the environment
- *   test                 marks every offer SANDBOX
- *   cities               { "city,cc": "booking_city_id" }
- *   fetchImpl            injected for tests
- *   timeoutMs            a supplier that hangs must not hang the homepage
- */
+/** How this adapter is configured. */
+export interface BookingDemandConfig {
+  readonly token?: string;
+  readonly affiliateId?: string;
+  /** Marks every offer SANDBOX. A sandbox token forces it on regardless. */
+  readonly test?: boolean;
+  /** `{ "city,cc": "booking_city_id" }` — Booking prices by city id, not name. */
+  readonly cities?: Readonly<Record<string, unknown>>;
+  /** Injected for tests. */
+  readonly fetchImpl?: typeof globalThis.fetch;
+  /** A supplier that hangs must not hang the homepage. */
+  readonly timeoutMs?: number;
+}
+
 export function bookingDemand({
   token,
   affiliateId,
@@ -102,7 +123,7 @@ export function bookingDemand({
   cities = {},
   fetchImpl,
   timeoutMs = 6000,
-} = {}) {
+}: BookingDemandConfig = {}): AccommodationSupplier {
   if (!token || !affiliateId) {
     throw new SupplyUnavailable(
       "Booking.com Demand cannot be registered without BOOKING_DEMAND_TOKEN and " +
@@ -132,10 +153,10 @@ export function bookingDemand({
   }
   const index = cityIndex(cities);
 
-  async function call(path, body, travellerIp) {
+  async function call(path: string, body: Json, travellerIp?: string): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res;
+    let res: Response;
     try {
       res = await http(BASE + path, {
         method: "POST",
@@ -153,9 +174,9 @@ export function bookingDemand({
       });
     } catch (e) {
       clearTimeout(timer);
-      throw new SupplyUnavailable(e && e.name === "AbortError"
+      throw new SupplyUnavailable(at(e, "name") === "AbortError"
         ? `Booking.com did not answer within ${timeoutMs}ms.`
-        : `Booking.com could not be reached: ${redact(String(e && e.message))}`);
+        : `Booking.com could not be reached: ${redact(messageOf(e))}`);
     }
     clearTimeout(timer);
 
@@ -177,7 +198,7 @@ export function bookingDemand({
     label: "Booking.com",
     sandbox,
 
-    describe() {
+    describe(): SupplierDescription {
       return {
         name: "booking-demand",
         label: "Booking.com",
@@ -206,7 +227,7 @@ export function bookingDemand({
     async search({
       city = "", country = "", checkIn = "", checkOut = "", guests = 2,
       limit = 12, currency = "USD", travellerIp = "",
-    } = {}) {
+    }: SupplyQuery = {}): Promise<SupplyResult> {
       const nights = nightsBetween(checkIn, checkOut);
       if (!nights) {
         return {
@@ -245,13 +266,15 @@ export function bookingDemand({
         rows: Math.min(100, Math.max(1, limit) * 3),
       }, travellerIp);
 
-      const results = (found && Array.isArray(found.data)) ? found.data : [];
-      const priced = [];
+      const foundData = at(found, "data");
+      const results: unknown[] = Array.isArray(foundData) ? foundData : [];
+      const priced: { id: string; price: number; currency: string }[] = [];
       for (const r of results) {
-        if (!r || r.id === undefined || r.id === null) continue;
+        const id = at(r, "id");
+        if (id === undefined || id === null) continue;
         const p = priceOf(r);
         if (!p) continue;
-        priced.push({ id: String(r.id), ...p });
+        priced.push({ id: String(id), ...p });
         if (priced.length >= Math.min(100, Math.max(1, limit) * 3)) break;
       }
       if (!priced.length) return { offers: [], note: "Booking.com priced nothing for those dates." };
@@ -263,31 +286,40 @@ export function bookingDemand({
         extras: ["photos", "description"],
       }, travellerIp);
 
-      const byId = new Map();
-      for (const d of (details && Array.isArray(details.data) ? details.data : [])) {
-        if (d && d.id !== undefined) byId.set(String(d.id), d);
+      const detailData = at(details, "data");
+      const byId = new Map<string, unknown>();
+      for (const d of (Array.isArray(detailData) ? detailData : [])) {
+        const id = at(d, "id");
+        if (id !== undefined) byId.set(String(id), d);
       }
 
-      const offers = [];
+      const offers: RawOffer[] = [];
       for (const p of priced) {
         const d = byId.get(p.id);
+        const name = at(d, "name");
         /* No name means no card. Dropped rather than drawn half-blank. */
-        if (!d || !d.name) continue;
+        if (!d || !name) continue;
 
-        const review = d.reviews || d.review_scores || {};
-        const score = review.score !== undefined ? Number(review.score) : NaN;
-        const count = review.count !== undefined ? Number(review.count) : NaN;
-        const photo = Array.isArray(d.photos) && d.photos.length
-          ? (d.photos[0].url || (d.photos[0].urls && d.photos[0].urls.url) || null)
+        const review = at(d, "reviews") || at(d, "review_scores") || {};
+        const rawScore = at(review, "score");
+        const rawCount = at(review, "count");
+        const score = rawScore !== undefined ? Number(rawScore) : NaN;
+        const count = rawCount !== undefined ? Number(rawCount) : NaN;
+        const photos = at(d, "photos");
+        const firstPhoto = Array.isArray(photos) && photos.length ? photos[0] : null;
+        const photo = firstPhoto
+          ? (at(firstPhoto, "url") || at(at(firstPhoto, "urls"), "url") || null)
           : null;
+        const location = at(d, "location");
+        const address = at(d, "address");
+        const url = at(d, "url");
 
         offers.push({
           supplierRef: p.id,
-          title: typeof d.name === "string" ? d.name : (d.name && d.name["en-gb"]) || "",
-          city: (d.location && d.location.city) || (d.address && d.address.city) || "",
-          country: ((d.location && d.location.country) ||
-                    (d.address && d.address.country) || "").toUpperCase(),
-          place: (d.address && d.address.address) || "",
+          title: typeof name === "string" ? name : String(at(name, "en-gb") || ""),
+          city: String(at(location, "city") || at(address, "city") || ""),
+          country: String(at(location, "country") || at(address, "country") || "").toUpperCase(),
+          place: String(at(address, "address") || ""),
           price: p.price,
           currency: p.currency,
           nights,
@@ -299,8 +331,8 @@ export function bookingDemand({
           /* Booking scores out of 10, like Rapid. Real guest data, attributed. */
           rating: Number.isFinite(score) ? score : null,
           ratingCount: Number.isFinite(count) ? Math.round(count) : null,
-          image: photo,
-          deepLink: (d.url && String(d.url)) || null,
+          image: photo === null ? null : String(photo),
+          deepLink: url ? String(url) : null,
         });
         if (offers.length >= limit) break;
       }
@@ -311,7 +343,7 @@ export function bookingDemand({
 }
 
 /** Scrub anything credential-shaped before it is thrown or logged. */
-export function redact(s) {
+export function redact(s: unknown): string {
   return String(s || "")
     .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
     .replace(/("?(?:token|access_token|affiliate[_-]?id|secret)"?\s*[:=]\s*"?)[^",\s}]+/gi,
@@ -320,12 +352,12 @@ export function redact(s) {
 }
 
 /** Build from the environment, or null when this installation has no token. */
-export function fromEnv(env = process.env) {
+export function fromEnv(env: NodeJS.ProcessEnv = process.env): AccommodationSupplier | null {
   if (!env.BOOKING_DEMAND_TOKEN || !env.BOOKING_DEMAND_AFFILIATE) return null;
 
-  let cities = {};
+  let cities: Record<string, unknown> = {};
   if (env.BOOKING_DEMAND_CITIES) {
-    try { cities = JSON.parse(env.BOOKING_DEMAND_CITIES); } catch (e) { cities = {}; }
+    try { cities = JSON.parse(env.BOOKING_DEMAND_CITIES); } catch { cities = {}; }
   }
   return bookingDemand({
     token: env.BOOKING_DEMAND_TOKEN,

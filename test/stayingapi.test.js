@@ -8,7 +8,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { stayingApi, environmentOf, fromEnv, PLATFORMS, DEFAULT_BASE } from "../src/suppliers/stayingapi.js";
+import { stayingApi, environmentOf, fromEnv, PLATFORMS, DEFAULT_BASE } from "../src/suppliers/stayingapi.ts";
 import { SupplyUnavailable } from "../src/domain/supply.ts";
 
 const TEST_KEY = "stay_test_" + "f".repeat(20);
