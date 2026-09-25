@@ -49,15 +49,105 @@
  * the moment money moves, and then it is somebody's holiday.
  * ====================================================================== */
 
-/** Thrown when a supplier was asked to do something it cannot. */
-export class SupplyUnavailable extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "SupplyUnavailable";
-    /* 503, not 500: nothing is broken, a capability is absent. */
-    this.status = 503;
-    this.expose = true;
+import { ExposableFailure } from "../http/errors.ts";
+import { messageOf } from "../http/errors.ts";
+
+/**
+ * Thrown when a supplier was asked to do something it cannot.
+ *
+ * 503, not 500: nothing is broken, a capability is absent — which is also why
+ * it is exposable. The message names a missing integration, never a key.
+ */
+export class SupplyUnavailable extends ExposableFailure {
+  constructor(message: string) {
+    super("SupplyUnavailable", 503, message);
   }
+}
+
+/**
+ * WHAT A SUPPLIER SAYS ABOUT ITSELF.
+ *
+ * The prose above this is the contract; this is the same contract in types.
+ * Every field is optional but `connected`, because an adapter that cannot
+ * answer a question must be able to stay silent rather than invent a value —
+ * and status() already falls back for each one.
+ */
+export interface SupplierDescription {
+  readonly connected: boolean;
+  readonly name?: string;
+  readonly label?: string;
+  readonly publicLabel?: string;
+  readonly publicName?: string;
+  readonly sandbox?: boolean;
+  readonly capabilities?: readonly string[];
+  readonly why?: string;
+  readonly disclosure?: string;
+  readonly canTakePayment?: boolean;
+  readonly paymentEnvironment?: string;
+}
+
+/** What a supplier is asked. `travellerIp` is passed through, never stored. */
+export interface SupplyQuery {
+  readonly city?: string;
+  readonly country?: string;
+  readonly checkIn?: string;
+  readonly checkOut?: string;
+  readonly guests?: number;
+  readonly limit?: number;
+  readonly currency?: string;
+  readonly travellerIp?: string;
+  readonly [key: string]: unknown;
+}
+
+/**
+ * ONE OFFER AS THE SUPPLIER GIVES IT, before normalisation.
+ *
+ * Everything here is somebody else's data, so everything is optional and
+ * loosely typed — normaliseOffer() below is exactly the place each field is
+ * checked, and it is the only place that trusts one.
+ */
+export interface RawOffer {
+  readonly supplierRef?: string | number;
+  readonly title?: unknown;
+  readonly city?: unknown;
+  readonly country?: unknown;
+  readonly place?: unknown;
+  readonly price?: number | string | null;
+  readonly currency?: unknown;
+  readonly nights?: number;
+  readonly refundable?: unknown;
+  readonly rating?: unknown;
+  readonly ratingCount?: unknown;
+  readonly image?: unknown;
+  readonly deepLink?: unknown;
+  readonly offerId?: unknown;
+  readonly roomName?: unknown;
+  readonly boardName?: unknown;
+  readonly stars?: unknown;
+}
+
+/** What a supplier answers a search with. */
+export interface SupplyResult {
+  readonly offers?: readonly RawOffer[];
+  readonly partial?: boolean;
+  readonly note?: string;
+}
+
+/**
+ * THE INTERFACE A SUPPLIER MUST IMPLEMENT, as a type.
+ *
+ * `search` and `name` are the two an adapter cannot omit — register() below
+ * refuses one that does, at runtime, for adapters that arrive from
+ * configuration and were never type-checked against this.
+ */
+export interface AccommodationSupplier {
+  readonly name: string;
+  readonly label?: string;
+  readonly publicLabel?: string;
+  readonly publicName?: string;
+  readonly sandbox?: boolean;
+  describe?(): SupplierDescription;
+  search(query: SupplyQuery): Promise<SupplyResult>;
 }
 
 /**
@@ -131,11 +221,11 @@ export class SupplyUnavailable extends Error {
 /* ---------------------------------------------------------------- *
  * THE SUPPLIER IN USE WHEN THERE IS NONE.
  * ---------------------------------------------------------------- */
-export const notConnected = {
+export const notConnected: AccommodationSupplier = {
   name: "",
   sandbox: false,
 
-  describe() {
+  describe(): SupplierDescription {
     return {
       name: "",
       label: "",
@@ -175,9 +265,9 @@ export const notConnected = {
  * allow an array.
  * ---------------------------------------------------------------- */
 
-let current = notConnected;
+let current: AccommodationSupplier = notConnected;
 
-export function register(supplier) {
+export function register(supplier: AccommodationSupplier): AccommodationSupplier {
   if (!supplier || typeof supplier.search !== "function") {
     throw new Error("An accommodation supplier must implement search().");
   }
@@ -190,11 +280,11 @@ export function register(supplier) {
   return current;
 }
 
-export const supplier = () => current;
-export const isConnected = () => current !== notConnected && Boolean(current.name);
+export const supplier = (): AccommodationSupplier => current;
+export const isConnected = (): boolean => current !== notConnected && Boolean(current.name);
 
 /** Reset to nothing. For tests, and for disabling a supplier deliberately. */
-export function clear() {
+export function clear(): void {
   current = notConnected;
 }
 
@@ -208,7 +298,7 @@ export function clear() {
  */
 export function status() {
   try {
-    const d = current.describe ? current.describe() : {};
+    const d: Partial<SupplierDescription> = current.describe ? current.describe() : {};
     const name = d.name || current.name || "";
     return {
       connected: isConnected(),
@@ -264,7 +354,7 @@ export function status() {
       paymentWhy: "The supplier could not describe itself, so whether it can " +
                   "take a payment is unknown.",
       why: "The configured accommodation supplier could not describe itself: " +
-           String(e && e.message).slice(0, 160),
+           messageOf(e).slice(0, 160),
     };
   }
 }
@@ -345,7 +435,7 @@ export function publicStatus() {
  * as "0" reads as free, which is the worst possible way to be wrong about a
  * hotel room.
  */
-export function toMinor(amount) {
+export function toMinor(amount: number | string | null | undefined): number | null {
   const n = typeof amount === "string" ? Number(amount) : amount;
   if (typeof n !== "number" || !Number.isFinite(n) || n < 0) return null;
   return Math.round(n * 100);
@@ -358,9 +448,24 @@ export function toMinor(amount) {
  * the offer — so an adapter cannot return `source: "paltas"` by accident or
  * otherwise, and supplier inventory cannot end up wearing PALTAS's name.
  */
-export function normaliseOffer(offer, { name, sandbox, label, disclosure }) {
-  const nights = Number.isInteger(offer.nights) && offer.nights > 0 ? offer.nights : null;
-  const price = Number.isInteger(offer.price) ? offer.price : toMinor(offer.price);
+/** The provenance stamped onto every row, chosen here and not by the adapter. */
+export interface OfferProvenance {
+  readonly name: string;
+  readonly sandbox?: boolean;
+  readonly label?: string;
+  readonly disclosure?: string;
+}
+
+export function normaliseOffer(
+  offer: RawOffer,
+  { name, sandbox, label, disclosure }: OfferProvenance,
+) {
+  const nights: number | null =
+    typeof offer.nights === "number" && Number.isInteger(offer.nights) && offer.nights > 0
+      ? offer.nights : null;
+  const price: number | null =
+    typeof offer.price === "number" && Number.isInteger(offer.price)
+      ? offer.price : toMinor(offer.price ?? null);
 
   return {
     /* Namespaced, so a supplier id can never collide with a PALTAS listing id
@@ -445,7 +550,7 @@ export function normaliseOffer(offer, { name, sandbox, label, disclosure }) {
  * supplier is connected — and empty when there are offers and nothing to
  * explain.
  */
-export async function searchSupply(query = {}) {
+export async function searchSupply(query: SupplyQuery = {}) {
   const s = current;
   const sandbox = Boolean(s.sandbox);
   const st0 = status();
@@ -479,8 +584,8 @@ export async function searchSupply(query = {}) {
     const offers = raw
       /* An offer with no id or no price cannot be shown or booked. Dropped
          rather than rendered with a blank where the price goes. */
-      .filter((o) => o && o.supplierRef)
-      .map((o) => normaliseOffer(o, { name, sandbox, label, disclosure }))
+      .filter((o: RawOffer) => o && o.supplierRef)
+      .map((o: RawOffer) => normaliseOffer(o, { name, sandbox, label, disclosure }))
       .filter((o) => o.price !== null && o.currency);
 
     return {
@@ -510,7 +615,7 @@ export async function searchSupply(query = {}) {
        * request, no headers — a supplier error can carry the echoed request
        * and that is where a key would be.
        */
-      why: String((e && e.message) || "The supplier could not be reached.").slice(0, 200),
+      why: (messageOf(e) || "The supplier could not be reached.").slice(0, 200),
     };
   }
 }

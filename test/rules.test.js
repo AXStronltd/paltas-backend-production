@@ -27,7 +27,7 @@ import {
   CREATIVE_RULES, PUBLIC_STATES, TRANSITIONS, cleanPromotionInput,
   contentCheck, creativeCheck, isPubliclyVisible, isPublicState,
   publicWhere, toPublicWire, toWire,
-} from "../src/domain/promotions.js";
+} from "../src/domain/promotions.ts";
 
 const ALL_STATES = [
   "DRAFT", "SUBMITTED", "UNDER_REVIEW", "CHANGES_REQUESTED", "RESUBMITTED",

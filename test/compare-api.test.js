@@ -34,8 +34,8 @@ if (!skip) {
     ({ default: pg } = await import("pg"));
     ({ db } = await import("../src/db.ts"));
     ({ createApp } = await import("../src/server.js"));
-    supply = await import("../src/domain/supply.js");
-    compare = await import("../src/domain/compare.js");
+    supply = await import("../src/domain/supply.ts");
+    compare = await import("../src/domain/compare.ts");
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
     const m = String(e && e.message);

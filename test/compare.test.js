@@ -22,7 +22,7 @@ process.env.APP_URL ||= "http://127.0.0.1:8899";
 process.env.DATABASE_URL ||= "postgresql://unused@127.0.0.1:1/none";
 import {
   registerCompare, clearCompare, compareStatus, comparePrices, forgetComparisons,
-} from "../src/domain/compare.js";
+} from "../src/domain/compare.ts";
 
 const HOTEL = { hotelId: "lp1a2b", name: "Al Marwa Rayhaan by Rotana", city: "Makkah", country: "SA", stars: 5 };
 const supplierThatSells = { hotel: async () => HOTEL };
@@ -176,7 +176,7 @@ test("status never carries a credential", () => {
 });
 
 test("'not connected' says WHICH absence it is, and never with a key", async () => {
-  const { noteCompareUnavailable } = await import("../src/domain/compare.js");
+  const { noteCompareUnavailable } = await import("../src/domain/compare.ts");
 
   /*
    * Three situations wear the same words otherwise: nobody configured it,
@@ -269,7 +269,7 @@ test("health says which build is answering, and since when", async () => {
 });
 
 test("homes are never searched without a destination", async () => {
-  const { findHomes, forgetHomes } = await import("../src/domain/compare.js");
+  const { findHomes, forgetHomes } = await import("../src/domain/compare.ts");
   const log = [];
   clearCompare(); forgetHomes();
   registerCompare({
@@ -301,7 +301,7 @@ test("homes are never searched without a destination", async () => {
 });
 
 test("homes ask only for the platforms LiteAPI does not cover", async () => {
-  const { findHomes, forgetHomes } = await import("../src/domain/compare.js");
+  const { findHomes, forgetHomes } = await import("../src/domain/compare.ts");
   const log = [];
   clearCompare(); forgetHomes();
   registerCompare({
@@ -335,7 +335,7 @@ test("homes ask only for the platforms LiteAPI does not cover", async () => {
 });
 
 test("the same destination is searched once", async () => {
-  const { findHomes, forgetHomes } = await import("../src/domain/compare.js");
+  const { findHomes, forgetHomes } = await import("../src/domain/compare.ts");
   const log = [];
   clearCompare(); forgetHomes();
   registerCompare({
@@ -355,7 +355,7 @@ test("the same destination is searched once", async () => {
 });
 
 test("a provider that fails leaves the shelf as it was", async () => {
-  const { findHomes, forgetHomes } = await import("../src/domain/compare.js");
+  const { findHomes, forgetHomes } = await import("../src/domain/compare.ts");
   clearCompare(); forgetHomes();
   registerCompare({
     describe: () => ({ name: "stayingapi", sandbox: false }),

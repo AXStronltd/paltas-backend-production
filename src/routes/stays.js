@@ -44,8 +44,8 @@ import { db } from "../db.ts";
 import { badRequest, unavailable, notFound } from "../http/errors.ts";
 import { rateLimit } from "../http/rate-limit.ts";
 import { requireSession } from "../http/session.ts";
-import { supplier, isConnected, status as supplyStatus, publicStatus } from "../domain/supply.js";
-import { comparePrices, compareStatus, findHomes } from "../domain/compare.js";
+import { supplier, isConnected, status as supplyStatus, publicStatus } from "../domain/supply.ts";
+import { comparePrices, compareStatus, findHomes } from "../domain/compare.ts";
 
 export const stayRoutes = Router();
 

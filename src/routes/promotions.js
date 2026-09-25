@@ -29,7 +29,7 @@ import { can, whyNot } from "../domain/rights.ts";
 import {
   TRANSITIONS, cleanPromotionInput, contentCheck, creativeCheck,
   isPubliclyVisible, publicWhere, toPublicWire, toWire, transitionRefusal,
-} from "../domain/promotions.js";
+} from "../domain/promotions.ts";
 
 export const promotionRoutes = Router();
 

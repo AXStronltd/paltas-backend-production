@@ -33,7 +33,7 @@ import {
 import {
   dnaFor, remember, derivedEvents, advanceCase, successionRef, aiContext,
   SUCCESSION_NEXT,
-} from "../domain/dna.js";
+} from "../domain/dna.ts";
 import { context, gate, audit } from "../modules/property-dna/domain/context.js";
 
 export const dnaRoutes = Router();

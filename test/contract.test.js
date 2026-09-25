@@ -231,18 +231,57 @@ test("§4b's public rule is the rule the server applies", { skip }, async () => 
   assert.match(text, /`SCHEDULED`, `MARKETING_APPROVED` and `FINAL_APPROVED` are \*\*not\*\*\s*\n?> public/,
     "§4b no longer says SCHEDULED / MARKETING_APPROVED / FINAL_APPROVED are not public");
 
-  /* One Set, one member. */
-  const set = promo.match(/PUBLIC_STATES = new Set\(\[([^\]]*)\]\)/);
-  assert.ok(set, "PUBLIC_STATES is gone");
-  const members = [...set[1].matchAll(/"(\w+)"/g)].map((m) => m[1]);
-  assert.deepEqual(members, ["PUBLISHED"],
-    `PUBLIC_STATES holds ${JSON.stringify(members)} and the contract allows only PUBLISHED`);
+  /*
+   * ONE SET, ONE MEMBER — ASKED OF THE MODULE, NOT OF ITS SPELLING.
+   *
+   * This read the source text for `PUBLIC_STATES = new Set([...])`, which
+   * stopped matching the moment the file carried a type annotation — a test
+   * failing over punctuation while the rule it guards was untouched. The
+   * module is imported and the real Set read instead, which is the stronger
+   * check: a constant built any other way is still checked.
+   */
+  const { PUBLIC_STATES, isPubliclyVisible } = await import("../src/domain/promotions.ts");
+  assert.deepEqual([...PUBLIC_STATES], ["PUBLISHED"],
+    `PUBLIC_STATES holds ${JSON.stringify([...PUBLIC_STATES])} and the contract allows only PUBLISHED`);
 
   /* And all three conditions are applied by the server itself, not taken on
      the client's word — §4b says so in as many words. */
   assert.match(text, /must apply all three conditions itself/i);
-  assert.match(promo, /function isPubliclyVisible[\s\S]*?startDate[\s\S]*?endDate[\s\S]*?headline[\s\S]*?ctaLabel/,
-    "isPubliclyVisible does not check all three conditions");
+
+  /*
+   * Each condition removed in turn, and the answer has to change.
+   *
+   * Reading the function's source for the four field names proved only that
+   * the words appear in it. Calling it proves it acts on them.
+   */
+  const day = 24 * 60 * 60 * 1000;
+  const today = new Date("2026-06-15T12:00:00Z");
+  const visible = {
+    status: "PUBLISHED",
+    startDate: new Date(today.getTime() - day),
+    endDate: new Date(today.getTime() + day),
+    headline: "A headline",
+    ctaLabel: "Book",
+  };
+  assert.equal(isPubliclyVisible(visible, today), true,
+    "a published, in-date promotion with something to show is not public");
+
+  for (const [field, broken] of [
+    ["status", "SCHEDULED"],
+    ["startDate", new Date(today.getTime() + day)],
+    ["endDate", new Date(today.getTime() - day)],
+    ["headline", ""],
+    ["ctaLabel", ""],
+  ]) {
+    assert.equal(isPubliclyVisible({ ...visible, [field]: broken }, today), false,
+      `isPubliclyVisible stopped checking ${field}`);
+  }
+
+  /* The three states §4b names explicitly. */
+  for (const state of ["SCHEDULED", "MARKETING_APPROVED", "FINAL_APPROVED"]) {
+    assert.equal(isPubliclyVisible({ ...visible, status: state }, today), false,
+      `${state} reached the public feed`);
+  }
 });
 
 test("the intake §4b names is the one the pushed homepage exposes", { skip }, async () => {
@@ -346,26 +385,31 @@ function fieldsTheHomepageReads() {
 
 test("this API sends every field the pushed homepage reads", { skip: skipIndex }, async () => {
   const wanted = fieldsTheHomepageReads();
-  const promo = src("domain/promotions.js");
-  const wire = promo.match(/export function toPublicWire\(p\) \{([\s\S]*?)\n\}/);
-  assert.ok(wire, "toPublicWire is gone");
 
   /*
-   * Fields the public wire builds, directly or through targeting().
+   * THE FIELDS THE WIRE ACTUALLY CARRIES, BUILT RATHER THAN READ.
    *
-   * Matched anywhere on a line, not just at its start: several are written
-   * two to a line (`type: p.type, offer: p.offer,`) and an anchored pattern
-   * silently misses the second one — which is a test reporting a bug that is
-   * not there, and the most expensive kind.
+   * This used to regex `toPublicWire`'s and `targeting`'s bodies out of the
+   * source and collect anything key-shaped — which meant it broke on a
+   * parameter's type annotation, and would have counted a key inside a
+   * string. Calling the function with every field populated and reading the
+   * result's own keys answers the same question about the running code.
    */
-  const targeting = promo.match(/function targeting\(p\) \{([\s\S]*?)\n\}/);
-  const keys = (s) => [
-    /* Comments first — this file explains at length why one field is
-       deliberately absent, and a key-shaped phrase inside that explanation
-       must not count as the field being present. */
-    ...String(s).replace(/\/\*[\s\S]*?\*\//g, "").matchAll(/(?:^|[{,])\s*(\w+)\s*:/gm),
-  ].map((m) => m[1]);
-  const sends = new Set([...keys(wire[1]), ...keys(targeting ? targeting[1] : "")]);
+  const { toPublicWire } = await import("../src/domain/promotions.ts");
+  const everything = {
+    id: "x", ref: "PRM-0001", orgId: "o1", org: { name: "A company" },
+    title: "t", headline: "h", subtitle: "s", description: "d",
+    type: "DISCOUNT", offer: "10%",
+    startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31"),
+    destination: "/somewhere", ctaLabel: "Go", ctaDestination: "/there",
+    terms: "terms", image: "https://example.test/i.jpg", imageMeta: {},
+    placement: "HOMEPAGE", audience: "all", language: "en", priority: 5,
+    status: "PUBLISHED", aiDrafted: false,
+    countries: ["KE"], excludeCountries: ["TZ"], regions: ["Coast"],
+    cities: ["Mombasa"], currencies: ["KES"], languages: ["en"],
+    requiresPayment: "MPESA", requiresService: "STAYS", requiresProduct: "HOTEL",
+  };
+  const sends = new Set(Object.keys(toPublicWire(everything)));
 
   /* `audience` is deliberately withheld — see the comment in toPublicWire. */
   const withheld = new Set(["audience"]);
@@ -400,13 +444,22 @@ test("an empty targeting list never reaches the carousel as a filter", { skip: s
    * market — and the customer would see an approved, published promotion
    * appear on no page, with nothing to explain it.
    */
-  const promo = src("domain/promotions.js");
-  const t = promo.match(/function targeting\(p\) \{([\s\S]*?)\n\}/);
-  assert.ok(t, "targeting() is gone");
-  for (const f of ["countries", "excludeCountries", "regions", "cities", "currencies", "languages"]) {
-    assert.match(t[1], new RegExp(`${f}: p\\.${f} && p\\.${f}\\.length \\? p\\.${f} : null`),
-      `${f} could reach the carousel as an empty array`);
+  const { toPublicWire } = await import("../src/domain/promotions.ts");
+  const fields = ["countries", "excludeCountries", "regions", "cities", "currencies", "languages"];
+
+  /* Every list cleared at once, which is exactly what a customer who emptied
+     the targeting form sends. */
+  const wire = toPublicWire(Object.fromEntries(fields.map((f) => [f, []])));
+  for (const f of fields) {
+    assert.equal(wire[f], null,
+      `${f} reached the carousel as an empty array, which matches no market at all`);
   }
+
+  /* And a list with something in it still survives, or this would pass by
+     sending null for everything. */
+  const targeted = toPublicWire({ countries: ["KE"], cities: ["Mombasa"] });
+  assert.deepEqual(targeted.countries, ["KE"], "a real country list was dropped");
+  assert.deepEqual(targeted.cities, ["Mombasa"], "a real city list was dropped");
 });
 
 test("the homepage re-applies the public rule to whatever it is handed", { skip: skipIndex }, async () => {

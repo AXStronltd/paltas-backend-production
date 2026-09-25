@@ -54,6 +54,8 @@ import { fileURLToPath } from "node:url";
 export interface CountryEntry {
   readonly code: string;
   readonly langs: readonly string[];
+  /** The market's own currency. Named because the books are kept in it. */
+  readonly currency?: string;
   readonly [key: string]: unknown;
 }
 

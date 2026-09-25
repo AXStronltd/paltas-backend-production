@@ -8,6 +8,7 @@
  * ====================================================================== */
 
 import { badRequest } from "../http/errors.ts";
+import type { PromotionAct } from "./rights.ts";
 
 /* ------------------------------------------------------- the public gate */
 
@@ -23,12 +24,23 @@ import { badRequest } from "../http/errors.ts";
  *   2. today is inside startDate–endDate
  *   3. it has a headline and a call to action — something to show, somewhere to go
  */
-export const PUBLIC_STATES = new Set(["PUBLISHED"]);
+/** The twelve states a promotion moves through. */
+export type PromotionState =
+  | "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "CHANGES_REQUESTED" | "RESUBMITTED"
+  | "MARKETING_APPROVED" | "FINAL_APPROVED" | "SCHEDULED" | "PUBLISHED"
+  | "PAUSED" | "EXPIRED" | "REJECTED";
 
-export const isPublicState = (status) => PUBLIC_STATES.has(String(status));
+/** The ten moves between them. */
+export type PromotionTransition =
+  | "submit" | "claim" | "approveMarketing" | "requestChanges" | "reject"
+  | "publish" | "schedule" | "pause" | "approveFinal" | "expire";
+
+export const PUBLIC_STATES: ReadonlySet<string> = new Set(["PUBLISHED"]);
+
+export const isPublicState = (status: unknown): boolean => PUBLIC_STATES.has(String(status));
 
 /** Given a date, the Prisma `where` that answers "what may the world see". */
-export function publicWhere(today) {
+export function publicWhere(today?: Date | null) {
   const day = startOfDay(today || new Date());
   return {
     status: "PUBLISHED",
@@ -49,7 +61,19 @@ export function publicWhere(today) {
  * a null that Postgres compared differently than expected — the strict one
  * wins, and what leaks is nothing rather than somebody's draft.
  */
-export function isPubliclyVisible(p, today) {
+/** A promotion as the visibility rules read it. */
+export interface VisibilityFields {
+  readonly status?: unknown;
+  readonly startDate?: Date | string | null;
+  readonly endDate?: Date | string | null;
+  readonly headline?: string | null;
+  readonly ctaLabel?: string | null;
+}
+
+export function isPubliclyVisible(
+  p: VisibilityFields | null | undefined,
+  today?: Date | null,
+): boolean {
   if (!p || !isPublicState(p.status)) return false;
   const day = startOfDay(today || new Date());
   if (p.startDate && startOfDay(p.startDate) > day) return false;
@@ -57,12 +81,12 @@ export function isPubliclyVisible(p, today) {
   return Boolean(p.headline && p.ctaLabel);
 }
 
-const startOfDay = (d) => {
+const startOfDay = (d: Date | string | number): Date => {
   const x = new Date(d);
   x.setUTCHours(0, 0, 0, 0);
   return x;
 };
-const endOfDay = (d) => {
+const endOfDay = (d: Date | string | number): Date => {
   const x = new Date(d);
   x.setUTCHours(23, 59, 59, 999);
   return x;
@@ -77,12 +101,22 @@ const endOfDay = (d) => {
  * Anything not listed is refused, which means a promotion cannot go from DRAFT
  * to PUBLISHED however the request is crafted — there is no arrow.
  */
-export const TRANSITIONS = {
+/** One arrow: where it may start, where it lands, and what it costs to make. */
+export interface PromotionArrow {
+  readonly from: readonly PromotionState[];
+  /** A function because `submit` lands differently depending where it came from. */
+  readonly to: (from: PromotionState) => PromotionState;
+  readonly right: PromotionAct;
+  /** A move that sends work back has to say why. */
+  readonly needsMessage?: boolean;
+}
+
+export const TRANSITIONS: Readonly<Record<PromotionTransition, PromotionArrow>> = {
   submit: {
     from: ["DRAFT", "CHANGES_REQUESTED", "REJECTED"],
     /* Coming back after changes is a RESUBMISSION, and a reviewer needs to see
        that rather than a fresh submission with no history. */
-    to: (from) => (from === "DRAFT" ? "SUBMITTED" : "RESUBMITTED"),
+    to: (from: PromotionState) => (from === "DRAFT" ? "SUBMITTED" : "RESUBMITTED"),
     right: "submit",
   },
   claim: {
@@ -172,27 +206,28 @@ export const TRANSITIONS = {
 };
 
 /** The words a person reads when they ask for an arrow that does not exist. */
-export function transitionRefusal(action, from) {
-  const t = TRANSITIONS[action];
+export function transitionRefusal(action: string, from: unknown): string {
+  const t = TRANSITIONS[action as PromotionTransition];
   if (!t) return "There is no such action.";
   return `A promotion that is ${humanState(from)} cannot be ${pastTense(action)}. ` +
     `That is only possible from: ${t.from.map(humanState).join(", ")}.`;
 }
 
-const HUMAN = {
+const HUMAN: Readonly<Record<string, string>> = {
   DRAFT: "a draft", SUBMITTED: "submitted", UNDER_REVIEW: "under review",
   CHANGES_REQUESTED: "waiting on changes", RESUBMITTED: "resubmitted",
   MARKETING_APPROVED: "approved by marketing", FINAL_APPROVED: "approved",
   SCHEDULED: "scheduled", PUBLISHED: "published", PAUSED: "paused",
   EXPIRED: "expired", REJECTED: "not accepted",
 };
-const humanState = (s) => HUMAN[s] || String(s).toLowerCase();
-const pastTense = (a) => ({
+const humanState = (s: unknown): string => HUMAN[String(s)] || String(s).toLowerCase();
+const PAST_TENSE: Readonly<Record<string, string>> = {
   submit: "submitted", claim: "taken for review", approveMarketing: "approved",
   requestChanges: "sent back", reject: "turned down", publish: "published",
   schedule: "scheduled", pause: "paused",
   approveFinal: "given final approval", expire: "expired",
-}[a] || a);
+};
+const pastTense = (a: string): string => PAST_TENSE[a] || a;
 
 /* --------------------------------------------------------- the checks */
 
@@ -201,7 +236,7 @@ const pastTense = (a) => ({
  * silently removed — the customer may have grounds the product knows nothing
  * about, and it is their claim to make or withdraw, not ours to edit.
  */
-export const UNSUPPORTED = [
+export const UNSUPPORTED: readonly string[] = [
   "guaranteed", "guarantee", "best price", "cheapest", "lowest price",
   "world's best", "number one", "#1", "award-winning", "five star", "5-star",
   "luxury certified", "free upgrade", "always available", "unlimited",
@@ -219,9 +254,33 @@ export const CREATIVE_RULES = {
  * It NEVER approves anything. The strongest thing it can say is PASS, and a
  * promotion that passes every check still goes to a person.
  */
-export function contentCheck(p) {
-  const rows = [];
-  const add = (k, st, say) => rows.push({ k, st, say });
+/** One line of a check report, exactly as the frontend renders it. */
+export interface CheckRow {
+  readonly k: string;
+  readonly st: CheckState;
+  readonly say: string;
+}
+
+/** PASS says nothing is wrong. It never says anything is approved. */
+export type CheckState = "PASS" | "REVIEW" | "ACTION";
+
+/** What a promotion carries into the content checks. */
+export interface PromotionContent extends VisibilityFields {
+  readonly subtitle?: string | null;
+  readonly description?: string | null;
+  readonly ctaDestination?: string | null;
+  readonly terms?: string | null;
+  readonly offer?: string | null;
+  readonly type?: string | null;
+  readonly destination?: string | null;
+  readonly placement?: string | null;
+  readonly audience?: string | null;
+  readonly [key: string]: unknown;
+}
+
+export function contentCheck(p: PromotionContent) {
+  const rows: CheckRow[] = [];
+  const add = (k: string, st: CheckState, say: string) => rows.push({ k, st, say });
   const text = [p.headline, p.subtitle, p.description].filter(Boolean).join(" ");
 
   add("Headline",
@@ -253,7 +312,7 @@ export function contentCheck(p) {
   add("Missing information", gaps.length ? "ACTION" : "PASS",
     gaps.length ? `Still to fill in: ${gaps.join(", ")}.` : "Everything a reviewer needs is here.");
 
-  const gram = [];
+  const gram: string[] = [];
   if (/\s{2,}/.test(text)) gram.push("double spaces");
   if (/[a-z]\.[A-Z]/.test(text)) gram.push("a missing space after a full stop");
   if (p.headline && p.headline === p.headline.toUpperCase() && p.headline.length > 12) {
@@ -290,11 +349,21 @@ export function contentCheck(p) {
 }
 
 /** The seven creative checks, run on the file's PROPERTIES, not on a picture. */
-export function creativeCheck(meta) {
+/** An uploaded image's PROPERTIES. Nothing here looks at the picture. */
+export interface CreativeMeta {
+  readonly name?: string;
+  readonly w: number;
+  readonly h: number;
+  readonly mb: number;
+  readonly busy?: boolean;
+}
+
+export function creativeCheck(meta: CreativeMeta | null | undefined) {
   if (!meta) return { rows: [], worst: "ACTION", ready: false, none: true };
   const R = CREATIVE_RULES;
-  const rows = [];
-  const add = (k, ok, say) => rows.push({ k, st: ok ? "PASS" : "ACTION", say });
+  const rows: CheckRow[] = [];
+  const add = (k: string, ok: boolean, say: string) =>
+    rows.push({ k, st: ok ? "PASS" : "ACTION", say });
 
   add("Image uploaded", true, meta.name || "Uploaded.");
 
@@ -309,7 +378,7 @@ export function creativeCheck(meta) {
     ratioOk ? "16:9, which is the shape of the card."
       : `The card is 16:9. Yours is about ${ratio.toFixed(2)}:1, so it will be cropped.`);
 
-  const ext = String(meta.name || "").split(".").pop().toLowerCase();
+  const ext = (String(meta.name || "").split(".").pop() || "").toLowerCase();
   add("File type", R.types.includes(ext), R.types.includes(ext) ? ext.toUpperCase() : `Use ${R.types.join(", ")}.`);
 
   add("File size", meta.mb <= R.maxMB,
@@ -329,17 +398,20 @@ export function creativeCheck(meta) {
   return summarise(rows);
 }
 
-function summarise(rows) {
+function summarise(rows: readonly CheckRow[]) {
   const worst = rows.some((r) => r.st === "ACTION") ? "ACTION"
     : rows.some((r) => r.st === "REVIEW") ? "REVIEW" : "PASS";
   return { rows, worst, ready: !rows.some((r) => r.st === "ACTION") };
 }
 
-const day = (d) => new Date(d).toISOString().slice(0, 10);
+const day = (d: Date | string | number): string => new Date(d).toISOString().slice(0, 10);
 
 /* ------------------------------------------------------ input handling */
 
-const FIELDS = {
+/** How each writable field is read out of a request body. */
+type FieldKind = "string" | "int" | "bool" | "date" | "json" | "tags";
+
+const FIELDS: Readonly<Record<string, FieldKind>> = {
   title: "string", headline: "string", subtitle: "string", description: "string",
   type: "string", offer: "string", destination: "string",
   ctaLabel: "string", ctaDestination: "string", terms: "string",
@@ -354,7 +426,7 @@ const FIELDS = {
   requiresPayment: "string", requiresService: "string", requiresProduct: "string",
 };
 
-const LIMITS = { headline: 120, subtitle: 160, description: 600, terms: 2000, title: 160, ctaLabel: 60 };
+const LIMITS: Readonly<Record<string, number>> = { headline: 120, subtitle: 160, description: 600, terms: 2000, title: 160, ctaLabel: 60 };
 
 /*
  * ONLY THE FIELDS ON THIS LIST.
@@ -364,12 +436,12 @@ const LIMITS = { headline: 120, subtitle: 160, description: 600, terms: 2000, ti
  * are not writable fields, so there is no path to them, rather than a guard
  * somebody could forget to add to a new route.
  */
-export function cleanPromotionInput(body) {
-  const out = {};
-  const problems = [];
+export function cleanPromotionInput(body: Record<string, unknown> | null | undefined) {
+  const out: Record<string, unknown> = {};
+  const problems: string[] = [];
   for (const [k, kind] of Object.entries(FIELDS)) {
     if (!(k in (body || {}))) continue;
-    const v = body[k];
+    const v = (body as Record<string, unknown>)[k];
     if (v === null || v === undefined) continue;
 
     if (kind === "string") {
@@ -387,7 +459,7 @@ export function cleanPromotionInput(body) {
       out[k] = Boolean(v);
     } else if (kind === "date") {
       if (v === "") { out[k] = null; continue; }
-      const d = new Date(v);
+      const d = new Date(v as string | number | Date);
       if (Number.isNaN(d.getTime())) { problems.push(`${k} is not a date.`); continue; }
       out[k] = d;
     } else if (kind === "json") {
@@ -402,24 +474,45 @@ export function cleanPromotionInput(body) {
        * have nothing on screen to explain it. So empty normalises to null,
        * which the carousel reads as "global".
        */
-      var list = (Array.isArray(v) ? v : [v])
-        .map(function (x) { return String(x).trim(); })
+      const list = (Array.isArray(v) ? v : [v])
+        .map(function (x: unknown) { return String(x).trim(); })
         .filter(Boolean)
         .slice(0, 40);
       out[k] = list.length ? list : null;
     }
   }
 
-  if (out.startDate && out.endDate && out.endDate < out.startDate) {
+  if (out["startDate"] instanceof Date && out["endDate"] instanceof Date
+      && out["endDate"] < out["startDate"]) {
     problems.push("The end date is before the start date.");
   }
-  if (problems.length) throw badRequest(problems[0], problems);
+  if (problems.length) throw badRequest(String(problems[0]), problems);
   return out;
 }
 
 /** The shape the frontend reads. Dates as YYYY-MM-DD, because that is what a
     date input and a string comparison both want. */
-export function toWire(p) {
+/** A promotion row with the relations the console's wire reads. */
+export interface PromotionRow extends PromotionContent, Targetable {
+  readonly id?: string;
+  readonly ref?: string;
+  readonly orgId?: string;
+  readonly org?: { name?: string } | null;
+  readonly image?: string | null;
+  readonly imageMeta?: unknown;
+  readonly language?: string | null;
+  readonly priority?: number | null;
+  readonly aiDrafted?: boolean | null;
+  readonly createdBy?: { name?: string | null; email?: string | null } | null;
+  readonly reviewedBy?: unknown;
+  readonly createdAt?: Date | null;
+  readonly updatedAt?: Date | null;
+  readonly events?: readonly {
+    at?: Date | null; byName?: string; what?: string; why?: string; status?: string;
+  }[];
+}
+
+export function toWire(p: PromotionRow) {
   return {
     id: p.ref,
     recordId: p.id,
@@ -448,7 +541,7 @@ export function toWire(p) {
 
 /** The public feed carries less: a visitor has no business knowing who wrote
     it, who approved it, or what was said during review. */
-export function toPublicWire(p) {
+export function toPublicWire(p: PromotionRow) {
   return {
     id: p.ref,
     organization: p.org ? p.org.name : "",
@@ -503,7 +596,20 @@ export function toPublicWire(p) {
  * array as "targeted at nothing", and the difference between those two is a
  * promotion that runs everywhere and one that runs nowhere.
  */
-function targeting(p) {
+/** The nine targeting columns, as they sit on a promotion row. */
+interface Targetable {
+  readonly countries?: readonly string[] | null;
+  readonly excludeCountries?: readonly string[] | null;
+  readonly regions?: readonly string[] | null;
+  readonly cities?: readonly string[] | null;
+  readonly currencies?: readonly string[] | null;
+  readonly languages?: readonly string[] | null;
+  readonly requiresPayment?: string | null;
+  readonly requiresService?: string | null;
+  readonly requiresProduct?: string | null;
+}
+
+function targeting(p: Targetable) {
   return {
     countries: p.countries && p.countries.length ? p.countries : null,
     excludeCountries: p.excludeCountries && p.excludeCountries.length ? p.excludeCountries : null,
@@ -517,4 +623,5 @@ function targeting(p) {
   };
 }
 
-const stamp = (d) => (d ? new Date(d).toISOString().slice(0, 16).replace("T", " ") : "");
+const stamp = (d: Date | string | null | undefined): string =>
+  (d ? new Date(d).toISOString().slice(0, 16).replace("T", " ") : "");

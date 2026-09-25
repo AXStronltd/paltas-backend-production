@@ -34,7 +34,31 @@
  * point: a company cannot approve its own offering, any more than it can
  * publish its own promotion.
  */
-export const OFFERING_RIGHTS = {
+/**
+ * THE THIRTEEN THINGS SOMEBODY CAN DO TO AN OFFERING.
+ *
+ * Named as a union for the same reason PromotionAct is in rights.ts: the two
+ * tables below are indexed by these, and a typo reads a missing key, returns
+ * false, and tells somebody their role cannot do something it can.
+ */
+export type OfferingRight =
+  /* the company raising the money */
+  | "create" | "edit" | "submit" | "manageInvestors" | "distribute"
+  | "manageDocuments" | "tokenise"
+  /* PALTAS's own staff */
+  | "queue" | "requestChanges" | "reject" | "approve"
+  | "schedule" | "goLive" | "close";
+
+/** What one role may do. Absent is the same as false, and says so. */
+export type OfferingGrants = Readonly<Partial<Record<OfferingRight, boolean>>>;
+
+/** Who is asking, as far as this module is concerned. */
+export interface OfferingActor {
+  readonly role?: string;
+  readonly isPlatform?: boolean;
+}
+
+export const OFFERING_RIGHTS: Readonly<Record<string, OfferingGrants>> = {
   /* The company raising the money. */
   OWNER:    { create: true, edit: true, submit: true, manageInvestors: true,
               distribute: true, manageDocuments: true, tokenise: true },
@@ -58,23 +82,38 @@ export const OFFERING_RIGHTS = {
  * publisher on PALTAS's platform, and the owner of a property group is not.
  * Being an owner of YOUR company grants nothing on OURS.
  */
-export function offeringRights({ role, isPlatform }) {
+export function offeringRights({ role, isPlatform }: OfferingActor): OfferingGrants {
   if (isPlatform && (role === "OWNER" || role === "MANAGER")) {
     return OFFERING_RIGHTS.PUBLISHER;
   }
   /* A platform COMPLIANCE or MARKETING role keeps its reviewing rights; a
      customer's own staff never gain them, because these keys only appear on
      the PALTAS-side rows. */
-  return OFFERING_RIGHTS[role] || {};
+  return (role ? OFFERING_RIGHTS[role] : undefined) || {};
 }
 
-export const canOffering = (actor, act) => Boolean(offeringRights(actor)[act]);
+export const canOffering = (actor: OfferingActor, act: OfferingRight): boolean =>
+  Boolean(offeringRights(actor)[act]);
 
 /* ====================================================================== *
  * THE TEN STATES THAT WERE ASKED FOR, PLUS THE TWO A REVIEW NEEDS.
  * ====================================================================== */
 
-export const OFFERING_TRANSITIONS = {
+/** The moves this table names. A typo is a compile error, not a silent no. */
+export type OfferingAction =
+  | "submit" | "claim" | "requestChanges" | "reject" | "approve" | "schedule"
+  | "goLive" | "fund" | "close" | "distribute" | "complete";
+
+/** One move: where it may start, where it lands, and what it costs to make. */
+export interface OfferingTransition {
+  readonly from: readonly string[];
+  readonly to: string;
+  readonly right: OfferingRight;
+  /** A refusal with no reason is not something a company can act on. */
+  readonly needsReason?: boolean;
+}
+
+export const OFFERING_TRANSITIONS: Readonly<Record<OfferingAction, OfferingTransition>> = {
   submit: {
     from: ["DRAFT", "CHANGES_REQUESTED", "REJECTED"],
     to: "SUBMITTED",
@@ -145,10 +184,11 @@ export const OFFERING_TRANSITIONS = {
 };
 
 /** States in which an offering is visible to investors. */
-export const INVESTABLE_STATES = new Set(["LIVE"]);
+export const INVESTABLE_STATES: ReadonlySet<string> = new Set(["LIVE"]);
 
 /** States in which the offering's own definition may still be edited. */
-export const EDITABLE_STATES = new Set(["DRAFT", "CHANGES_REQUESTED", "REJECTED"]);
+export const EDITABLE_STATES: ReadonlySet<string> =
+  new Set(["DRAFT", "CHANGES_REQUESTED", "REJECTED"]);
 
 /**
  * Why this actor may not make this move, or null if they may.
@@ -156,8 +196,13 @@ export const EDITABLE_STATES = new Set(["DRAFT", "CHANGES_REQUESTED", "REJECTED"
  * Returns a sentence rather than throwing, so the route decides the status
  * code — the same contract as whyNot() in rights.js.
  */
-export function offeringRefusal(actor, action, offering, { reason } = {}) {
-  const rule = OFFERING_TRANSITIONS[action];
+export function offeringRefusal(
+  actor: OfferingActor,
+  action: string,
+  offering: { status?: string } | null | undefined,
+  { reason }: { reason?: unknown } = {},
+): string | null {
+  const rule = OFFERING_TRANSITIONS[action as OfferingAction];
   if (!rule) return `There is no action called "${action}".`;
 
   if (!canOffering(actor, rule.right)) {
@@ -165,7 +210,7 @@ export function offeringRefusal(actor, action, offering, { reason } = {}) {
   }
   if (!offering) return "That offering does not exist, or this account cannot see it.";
 
-  if (!rule.from.includes(offering.status)) {
+  if (!rule.from.includes(String(offering.status))) {
     return `An offering that is ${label(offering.status)} cannot be ${pastTense(action)}. ` +
       `That is only possible from: ${rule.from.map(label).join(", ")}.`;
   }
@@ -175,13 +220,14 @@ export function offeringRefusal(actor, action, offering, { reason } = {}) {
   return null;
 }
 
-const label = (s) => String(s).toLowerCase().replace(/_/g, " ");
-const pastTense = (a) => ({
+const label = (s: unknown): string => String(s).toLowerCase().replace(/_/g, " ");
+const PAST_TENSE: Readonly<Record<string, string>> = {
   submit: "submitted", claim: "taken for review", requestChanges: "sent back",
   reject: "rejected", approve: "approved", schedule: "scheduled",
   goLive: "made live", fund: "marked funded", close: "closed",
   distribute: "moved to distributing", complete: "completed",
-}[a] || a);
+};
+const pastTense = (a: string): string => PAST_TENSE[a] || a;
 
 /* ====================================================================== *
  * WHAT AN OFFERING NEEDS BEFORE IT MAY BE SUBMITTED.
@@ -192,20 +238,60 @@ const pastTense = (a) => ({
  * ====================================================================== */
 
 /** The parties every structure needs named, whatever the jurisdiction. */
-export const REQUIRED_PARTIES = ["PROPERTY_OWNER", "ISSUER"];
+export const REQUIRED_PARTIES: readonly string[] = ["PROPERTY_OWNER", "ISSUER"];
 
 /** And the ones a tokenised offering needs on top. */
-export const REQUIRED_TOKEN_PARTIES = ["TOKENISATION_PROVIDER"];
+export const REQUIRED_TOKEN_PARTIES: readonly string[] = ["TOKENISATION_PROVIDER"];
 
-export function submissionGaps(offering, { parties = [], documents = [], issuer } = {}) {
-  const gaps = [];
+/**
+ * An offering as this check reads it.
+ *
+ * Money arrives as BigInt from Prisma and as a string or number from a form,
+ * which is why the comparisons below accept both — that is existing behaviour
+ * this migration preserved rather than tightened.
+ */
+export interface OfferingDraft {
+  readonly title?: string | null;
+  readonly targetRaise?: bigint | number | string | null;
+  readonly tokenUnits?: number | null;
+  readonly unitPrice?: bigint | number | string | null;
+  readonly jurisdictions?: string | null;
+  readonly distributionRule?: string | null;
+  readonly status?: string;
+  readonly eligibility?: string;
+}
+
+/** What else is on the file when submission is checked. */
+export interface SubmissionContext {
+  readonly parties?: readonly { role?: string }[];
+  readonly documents?: readonly { role?: string }[];
+  readonly issuer?: { status?: string; jurisdictions?: string | null } | null;
+}
+
+/**
+ * Is this money amount above zero?
+ *
+ * Money reaches here as a BigInt from Prisma and as a string or a number from
+ * a form. The original check was `x > 0n || Number(x) > 0`, which is the same
+ * two branches written out here — the BigInt one exact, the other coerced.
+ */
+function positive(v: bigint | number | string | null | undefined): boolean {
+  if (typeof v === "bigint") return v > 0n;
+  return Number(v) > 0;
+}
+
+export function submissionGaps(
+  offering: OfferingDraft,
+  { parties = [], documents = [], issuer }: SubmissionContext = {},
+): string[] {
+  const gaps: string[] = [];
 
   if (!offering.title || !offering.title.trim()) gaps.push("a title");
-  if (!(offering.targetRaise > 0n || Number(offering.targetRaise) > 0)) {
+  if (!positive(offering.targetRaise)) {
     gaps.push("a target raise above zero");
   }
   if (!offering.tokenUnits || offering.tokenUnits <= 0) gaps.push("the number of units offered");
-  if (!(offering.unitPrice > 0n || Number(offering.unitPrice) > 0)) gaps.push("a price per unit");
+  if (!positive(offering.unitPrice)) gaps.push("a price per unit");
   if (!offering.jurisdictions || !offering.jurisdictions.trim()) {
     gaps.push("at least one jurisdiction");
   }
@@ -232,7 +318,7 @@ export function submissionGaps(offering, { parties = [], documents = [], issuer 
   for (const role of REQUIRED_PARTIES) {
     if (!have.has(role)) gaps.push(`the ${label(role)} named`);
   }
-  if (offering.tokenUnits > 0) {
+  if ((offering.tokenUnits ?? 0) > 0) {
     for (const role of REQUIRED_TOKEN_PARTIES) {
       if (!have.has(role)) gaps.push(`the ${label(role)} named`);
     }
@@ -265,7 +351,7 @@ export function submissionGaps(offering, { parties = [], documents = [], issuer 
   return gaps;
 }
 
-export const splitCodes = (s) =>
+export const splitCodes = (s: unknown): string[] =>
   String(s || "").split(/[,\s]+/).map((x) => x.trim().toUpperCase()).filter(Boolean);
 
 /* ====================================================================== *
@@ -275,9 +361,22 @@ export const splitCodes = (s) =>
  * function returns the reason rather than a boolean, because "no" without a
  * reason cannot be fixed by the person it was said to.
  * ====================================================================== */
-export function eligibilityRefusal(offering, profile) {
+/** An investor's compliance profile, as the gate reads it. */
+export interface InvestorProfile {
+  readonly kyc?: string;
+  readonly aml?: string;
+  readonly expiresAt?: Date | string | null;
+  readonly blockedReason?: string | null;
+  readonly jurisdiction?: string | null;
+  readonly classifiedAs?: string;
+}
+
+export function eligibilityRefusal(
+  offering: (OfferingDraft & { jurisdictions?: string | null }) | null | undefined,
+  profile: InvestorProfile | null | undefined,
+): string | null {
   if (!offering) return "That offering does not exist.";
-  if (!INVESTABLE_STATES.has(offering.status)) {
+  if (!INVESTABLE_STATES.has(String(offering.status))) {
     return `This offering is ${label(offering.status)} and is not open for investment.`;
   }
   if (!profile) return "This investor has no compliance profile yet.";
@@ -309,13 +408,16 @@ export function eligibilityRefusal(offering, profile) {
   /* And what they are classified as, against who may invest. */
   const need = offering.eligibility;
   const is = profile.classifiedAs;
-  const RANK = { RETAIL_PERMITTED: 0, PROFESSIONAL_ONLY: 1, ACCREDITED_ONLY: 2 };
+  const RANK: Readonly<Record<string, number>> =
+    { RETAIL_PERMITTED: 0, PROFESSIONAL_ONLY: 1, ACCREDITED_ONLY: 2 };
   if (need === "BY_INVITATION") {
     /* Invitation is a decision somebody records, not a property of the
        investor — so it is refused here and granted by an explicit order. */
     return "This offering is by invitation only.";
   }
-  if (RANK[need] !== undefined && RANK[is] !== undefined && RANK[is] < RANK[need]) {
+  const wanted = RANK[String(need)];
+  const held = RANK[String(is)];
+  if (wanted !== undefined && held !== undefined && held < wanted) {
     return `This offering is for ${label(need)} investors.`;
   }
   return null;

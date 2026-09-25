@@ -74,8 +74,8 @@ import { Router } from "express";
 import { db } from "../db.ts";
 import { badRequest } from "../http/errors.ts";
 import { rateLimit } from "../http/rate-limit.ts";
-import { publicCompareStatus } from "../domain/compare.js";
-import { searchSupply, publicStatus } from "../domain/supply.js";
+import { publicCompareStatus } from "../domain/compare.ts";
+import { searchSupply, publicStatus } from "../domain/supply.ts";
 
 export const marketplaceRoutes = Router();
 

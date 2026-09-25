@@ -46,7 +46,7 @@
  * request is how a token reaches a log file.
  * ====================================================================== */
 
-import { SupplyUnavailable, toMinor } from "../domain/supply.js";
+import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
 
 const BASE = "https://demandapi.booking.com/3.1";
 

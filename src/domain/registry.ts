@@ -37,7 +37,7 @@
  * ====================================================================== */
 
 import type { Registry, ResourceDeclaration } from "./registry-types.ts";
-import { bigOf, isPast, isSet, numberOf, statusOf, textOf } from "./registry-types.ts";
+import { bigOf, dateOf, isPast, isSet, numberOf, statusOf, textOf } from "./registry-types.ts";
 
 import { ACQUISITION_NEXT, nextFor, PERMIT_NEXT } from "./decisions.ts";
 import { feasibilityNumbers } from "./feasibility.ts";
@@ -91,7 +91,7 @@ const DISPATCH_MEANS: Readonly<Record<string, string>> = {
 };
 import { db } from "../db.ts";
 import { aliasesFor } from "./console-map.ts";
-import { postForExpense, postForInvoice } from "./posting.js";
+import { postForExpense, postForInvoice } from "./posting.ts";
 
 /* Field kinds:
      string · text · int · money · float · bool · date · json
@@ -1699,8 +1699,22 @@ const DECLARATIONS = {
      */
     async afterWrite({ row, action, req, db }) {
       if (action !== "create") return {};
+      /* The row is read column by column rather than handed over whole: the
+         framework only knows it wrote SOMETHING, and the posting bridge is
+         entitled to be told which columns it is being given. */
       const b = await postForExpense(db, {
-        orgId: req.actor.orgId, expense: row, userId: req.session.userId,
+        orgId: req.actor.orgId,
+        expense: {
+          id: textOf(row, "id"),
+          amount: row["amount"],
+          category: textOf(row, "category"),
+          currency: textOf(row, "currency"),
+          detail: textOf(row, "detail"),
+          spentOn: dateOf(row, "spentOn"),
+          siteId: textOf(row, "siteId") || null,
+          partyId: textOf(row, "partyId") || null,
+        },
+        userId: req.session.userId,
       });
       return { booking: { booked: b.posted ? b.posted.ref : null, why: b.skipped || null } };
     },

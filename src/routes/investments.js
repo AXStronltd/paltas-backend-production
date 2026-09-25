@@ -47,7 +47,7 @@ import { whyNotArea } from "../domain/access.ts";
 import {
   EDITABLE_STATES, OFFERING_TRANSITIONS, canOffering, eligibilityRefusal,
   offeringRefusal, splitCodes, submissionGaps,
-} from "../domain/investments.js";
+} from "../domain/investments.ts";
 import * as tokens from "../domain/tokenisation.ts";
 
 export const investmentRoutes = Router();

@@ -39,7 +39,7 @@ if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
     ({ db } = await import("../src/db.ts"));
-    L = await import("../src/domain/ledger.js");
+    L = await import("../src/domain/ledger.ts");
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
     const m = String(e && e.message);

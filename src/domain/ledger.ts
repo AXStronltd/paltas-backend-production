@@ -32,6 +32,9 @@
  * last place to discover that.
  * ====================================================================== */
 
+import type { $Enums } from "@prisma/client";
+import type { Db } from "../db.ts";
+
 /* ------------------------------------------------------------ errors */
 
 /**
@@ -40,7 +43,10 @@
  * whoever reads it nothing about what to do next.
  */
 export class LedgerError extends Error {
-  constructor(code, message, detail = {}) {
+  readonly code: string;
+  readonly detail: LedgerDetail;
+
+  constructor(code: string, message: string, detail: LedgerDetail = {}) {
     super(message);
     this.name = "LedgerError";
     this.code = code;
@@ -48,7 +54,18 @@ export class LedgerError extends Error {
   }
 }
 
-const fail = (code, message, detail) => {
+/**
+ * What a refusal carries alongside its sentence.
+ *
+ * Deliberately open: each `fail()` below names the one or two facts that make
+ * its own message actionable — a line number, an account code, the two totals
+ * that disagree — and no two of them are the same shape.
+ */
+export type LedgerDetail = Record<string, unknown>;
+
+/** Always throws. Typed `never` so a caller may `return fail(...)`. */
+type Fail = (code: string, message: string, detail?: LedgerDetail) => never;
+const fail: Fail = (code, message, detail) => {
   throw new LedgerError(code, message, detail);
 };
 
@@ -58,7 +75,13 @@ const fail = (code, message, detail) => {
  * Which side increases each kind of account. Stored on the row as well, so
  * a report never re-derives it, but this is the source the seeder uses.
  */
-export const NORMAL_BALANCE = {
+/** The five kinds of account, as the schema names them. */
+export type AccountType = $Enums.AccountType;
+
+/** Which column increases an account. */
+export type NormalSide = $Enums.NormalBalance;
+
+export const NORMAL_BALANCE: Readonly<Record<AccountType, NormalSide>> = {
   ASSET: "DEBIT",
   EXPENSE: "DEBIT",
   LIABILITY: "CREDIT",
@@ -75,7 +98,15 @@ export const NORMAL_BALANCE = {
  * against the database — so changing this list cannot change how anything
  * already posted is reported.
  */
-export const DEFAULT_CHART = [
+/** One row of a starting chart. `parent` names another row's code. */
+export interface ChartAccount {
+  readonly code: string;
+  readonly name: string;
+  readonly type: AccountType;
+  readonly parent?: string;
+}
+
+export const DEFAULT_CHART: readonly ChartAccount[] = [
   // ── assets ──
   { code: "1000", name: "Bank", type: "ASSET" },
   { code: "1010", name: "Cash", type: "ASSET" },
@@ -126,18 +157,19 @@ export const DEFAULT_CHART = [
  * Idempotent on purpose: onboarding gets re-run, and a second call must not
  * produce a second set of accounts or throw on the unique constraint.
  */
-export async function seedChartOfAccounts(db, orgId) {
+export async function seedChartOfAccounts(db: Db, orgId: string) {
   if (!orgId) fail("ORG_REQUIRED", "An organization is required to seed a chart of accounts.");
 
   const existing = await db.ledgerAccount.findMany({
     where: { orgId },
     select: { code: true },
   });
-  const have = new Set(existing.map((a) => a.code));
+  const have = new Set(existing.map((a: { code: string }) => a.code));
 
-  const created = [];
+  const created: Awaited<ReturnType<Db["ledgerAccount"]["create"]>>[] = [];
   // Parents first, so a child can point at one in the same pass.
-  const ordered = [...DEFAULT_CHART].sort((a, b) => (a.parent ? 1 : 0) - (b.parent ? 1 : 0));
+  const ordered: ChartAccount[] =
+    [...DEFAULT_CHART].sort((a, b) => (a.parent ? 1 : 0) - (b.parent ? 1 : 0));
 
   for (const a of ordered) {
     if (have.has(a.code)) continue;
@@ -165,7 +197,7 @@ export async function seedChartOfAccounts(db, orgId) {
 
 /* --------------------------------------------------------- posting */
 
-const toBig = (v) => {
+const toBig = (v: unknown): bigint => {
   if (typeof v === "bigint") return v;
   if (v === null || v === undefined || v === "") return 0n;
   if (typeof v === "number") {
@@ -178,7 +210,16 @@ const toBig = (v) => {
   catch { return fail("AMOUNT_INVALID", "Amount is not a number.", { value: v }); }
 };
 
-const sum = (rows, key) => rows.reduce((t, r) => t + toBig(r[key]), 0n);
+/**
+ * Add one column of a set of rows.
+ *
+ * `unknown` per cell rather than `bigint`, because the same helper totals
+ * lines straight from a caller and lines straight from Prisma — and toBig()
+ * is the one place either is turned into money.
+ */
+const sum = <K extends string>(
+  rows: readonly Partial<Record<K, unknown>>[], key: K,
+): bigint => rows.reduce((t, r) => t + toBig(r[key]), 0n);
 
 /**
  * Check a set of lines without touching the database.
@@ -194,9 +235,45 @@ const sum = (rows, key) => rows.reduce((t, r) => t + toBig(r[key]), 0n);
  * omitted base amount is not a default — assuming 1:1 would quietly invent
  * an exchange rate — so it is refused and the caller has to say.
  */
-export function normalizeLines(lines, { currency, baseCurrency } = {}) {
+/**
+ * ONE LINE OF AN ENTRY, AS A CALLER WRITES IT.
+ *
+ * Amounts are minor units. They arrive as a number from a form, as a BigInt
+ * from Prisma and as a string from JSON, and toBig() is where all three meet
+ * — which is why they are not narrowed here.
+ */
+export interface JournalLineInput {
+  readonly accountId: string;
+  readonly debit?: unknown;
+  readonly credit?: unknown;
+  readonly baseDebit?: unknown;
+  readonly baseCredit?: unknown;
+  readonly memo?: string | null;
+  readonly siteId?: string | null;
+  readonly buildingId?: string | null;
+  readonly unitId?: string | null;
+  readonly leaseId?: string | null;
+  readonly partyId?: string | null;
+}
+
+/** The same line once the reporting-currency figures are filled in. */
+export type NormalizedLine = JournalLineInput & {
+  readonly baseDebit: unknown;
+  readonly baseCredit: unknown;
+};
+
+/** The pair of currencies an entry is checked against. */
+export interface Currencies {
+  readonly currency?: string | null;
+  readonly baseCurrency?: string | null;
+}
+
+export function normalizeLines(
+  lines: readonly JournalLineInput[] | unknown,
+  { currency, baseCurrency }: Currencies = {},
+): NormalizedLine[] {
   const same = !currency || !baseCurrency || currency === baseCurrency;
-  return (Array.isArray(lines) ? lines : []).map((l, i) => {
+  return (Array.isArray(lines) ? lines : []).map((l: JournalLineInput, i: number) => {
     const hasBase = l.baseDebit !== undefined || l.baseCredit !== undefined;
     if (!same && !hasBase) {
       fail("BASE_REQUIRED",
@@ -211,12 +288,16 @@ export function normalizeLines(lines, { currency, baseCurrency } = {}) {
   });
 }
 
-export function validateLines(lines, { currency, baseCurrency } = {}) {
+export function validateLines(
+  lines: readonly NormalizedLine[] | unknown,
+  { currency, baseCurrency }: Currencies = {},
+): { debit: bigint; credit: bigint; baseDebit: bigint; baseCredit: bigint } {
   if (!Array.isArray(lines) || lines.length < 2) {
     fail("TOO_FEW_LINES", "A journal entry needs at least two lines.", { count: Array.isArray(lines) ? lines.length : 0 });
   }
 
-  for (const [i, l] of lines.entries()) {
+  const rows = lines as readonly NormalizedLine[];
+  for (const [i, l] of rows.entries()) {
     const d = toBig(l.debit), c = toBig(l.credit);
     if (d < 0n || c < 0n) {
       fail("NEGATIVE_AMOUNT", "Amounts are never negative — direction is which column is filled.", { line: i });
@@ -230,8 +311,8 @@ export function validateLines(lines, { currency, baseCurrency } = {}) {
     if (!l.accountId) fail("LINE_NO_ACCOUNT", "Every line names an account.", { line: i });
   }
 
-  const debit = sum(lines, "debit");
-  const credit = sum(lines, "credit");
+  const debit = sum(rows, "debit");
+  const credit = sum(rows, "credit");
   if (debit !== credit) {
     fail("UNBALANCED", "Debits and credits must be equal.", {
       debit: debit.toString(), credit: credit.toString(),
@@ -241,8 +322,8 @@ export function validateLines(lines, { currency, baseCurrency } = {}) {
 
   // The reporting-currency figures have to balance too, or a consolidated
   // report silently invents money the moment two currencies are involved.
-  const baseDebit = sum(lines, "baseDebit");
-  const baseCredit = sum(lines, "baseCredit");
+  const baseDebit = sum(rows, "baseDebit");
+  const baseCredit = sum(rows, "baseCredit");
   if (baseDebit !== baseCredit) {
     fail("UNBALANCED_BASE", "Reporting-currency debits and credits must be equal.", {
       baseDebit: baseDebit.toString(), baseCredit: baseCredit.toString(),
@@ -258,7 +339,7 @@ export function validateLines(lines, { currency, baseCurrency } = {}) {
 }
 
 /** The period a date falls in, and whether it will accept a posting. */
-export async function periodFor(db, orgId, date) {
+export async function periodFor(db: Db, orgId: string, date: Date) {
   return db.financialPeriod.findFirst({
     where: { orgId, opensAt: { lte: date }, closesAt: { gte: date } },
   });
@@ -271,13 +352,32 @@ export async function periodFor(db, orgId, date) {
  * rule above. There is no path that writes a posted entry without going
  * through this function.
  */
-export async function postJournal(db, {
+/** Everything an entry needs to be written and posted. */
+export interface PostJournalInput {
+  readonly orgId: string;
+  readonly ref: string;
+  readonly date: Date | string;
+  readonly memo?: string;
+  readonly lines: readonly JournalLineInput[];
+  readonly currency: string;
+  readonly baseCurrency: string;
+  readonly fxRate?: string;
+  readonly fxSource?: string | null;
+  readonly fxAt?: Date | null;
+  readonly sourceType?: string | null;
+  readonly sourceId?: string | null;
+  readonly postedById?: string | null;
+  readonly reversesId?: string | null;
+  readonly reversalReason?: string | null;
+}
+
+export async function postJournal(db: Db, {
   orgId, ref, date, memo = "", lines,
   currency, baseCurrency, fxRate = "1", fxSource = null, fxAt = null,
   sourceType = null, sourceId = null,
   postedById = null,
   reversesId = null, reversalReason = null,
-}) {
+}: PostJournalInput) {
   if (!orgId) fail("ORG_REQUIRED", "An organization is required.");
   if (!ref) fail("REF_REQUIRED", "An entry needs a reference.");
   if (!currency) fail("CURRENCY_REQUIRED", "An entry needs its transaction currency.");
@@ -293,7 +393,7 @@ export async function postJournal(db, {
   // another's books.
   const ids = [...new Set(normal.map((l) => l.accountId))];
   const accounts = await db.ledgerAccount.findMany({ where: { id: { in: ids } } });
-  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const byId = new Map(accounts.map((a) => [a.id, a] as const));
   for (const id of ids) {
     const a = byId.get(id);
     if (!a) fail("ACCOUNT_UNKNOWN", "A line names an account that does not exist.", { accountId: id });
@@ -356,7 +456,20 @@ export async function postJournal(db, {
  * The original is not edited beyond its status, and its lines are untouched:
  * an auditor sees what was posted, what reversed it and the stated reason.
  */
-export async function reverseJournal(db, { orgId, entryId, ref, date, reason, postedById = null }) {
+/** What reversing one entry needs. The reason is not optional, deliberately. */
+export interface ReverseJournalInput {
+  readonly orgId: string;
+  readonly entryId: string;
+  readonly ref: string;
+  readonly date?: Date | null;
+  readonly reason: string;
+  readonly postedById?: string | null;
+}
+
+export async function reverseJournal(
+  db: Db,
+  { orgId, entryId, ref, date, reason, postedById = null }: ReverseJournalInput,
+) {
   if (!reason) fail("REASON_REQUIRED", "A reversal states why. An unexplained correction is the thing an audit asks about.");
 
   const original = await db.journalEntry.findFirst({
@@ -388,7 +501,7 @@ export async function reverseJournal(db, { orgId, entryId, ref, date, reason, po
     reversesId: original.id,
     reversalReason: reason,
     // debit becomes credit, credit becomes debit
-    lines: original.lines.map((l) => ({
+    lines: original.lines.map((l): JournalLineInput => ({
       accountId: l.accountId,
       debit: l.credit, credit: l.debit,
       baseDebit: l.baseCredit, baseCredit: l.baseDebit,
@@ -398,6 +511,17 @@ export async function reverseJournal(db, { orgId, entryId, ref, date, reason, po
     })),
   });
 }
+
+/**
+ * THE TWO STATUSES A REPORT COUNTS.
+ *
+ * Named once because the long comment in accountBalance() explains it once:
+ * a reversal leaves the ORIGINAL as REVERSED and posts a POSTED mirror, so
+ * counting POSTED alone drops the original and keeps the mirror — and the
+ * account swings by the full amount instead of netting to nothing. DRAFT is
+ * out: it need not balance and appears in no report.
+ */
+const COUNTED: $Enums.JournalStatus[] = ["POSTED", "REVERSED"];
 
 /* --------------------------------------------------------- reading */
 
@@ -409,7 +533,16 @@ export async function reverseJournal(db, { orgId, entryId, ref, date, reason, po
  * has spent — which is what a reader expects and what a stored sign would
  * eventually get wrong.
  */
-export async function accountBalance(db, { orgId, accountId, from = null, to = null }) {
+/** A window over the journal. Both ends optional; neither means "everything". */
+export interface DateWindow {
+  readonly from?: Date | null;
+  readonly to?: Date | null;
+}
+
+export async function accountBalance(
+  db: Db,
+  { orgId, accountId, from = null, to = null }: DateWindow & { orgId: string; accountId: string },
+) {
   const account = await db.ledgerAccount.findFirst({ where: { id: accountId, orgId } });
   if (!account) fail("ACCOUNT_UNKNOWN", "No such account in this organization.", { accountId });
 
@@ -438,7 +571,7 @@ export async function accountBalance(db, { orgId, accountId, from = null, to = n
     orgId,
     accountId,
     entry: {
-      status: { in: ["POSTED", "REVERSED"] },
+      status: { in: COUNTED },
       ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
     },
   };
@@ -468,9 +601,15 @@ export async function accountBalance(db, { orgId, accountId, from = null, to = n
  * on them is wrong with it — so it is the first thing to check and the
  * cheapest thing to run.
  */
-export async function trialBalance(db, { orgId, from = null, to = null }) {
+/** One account's figures, as accountBalance() returns them. */
+export type AccountBalance = Awaited<ReturnType<typeof accountBalance>>;
+
+export async function trialBalance(
+  db: Db,
+  { orgId, from = null, to = null }: DateWindow & { orgId: string },
+) {
   const accounts = await db.ledgerAccount.findMany({ where: { orgId }, orderBy: { code: "asc" } });
-  const rows = [];
+  const rows: AccountBalance[] = [];
   let debit = 0n, credit = 0n;
 
   for (const a of accounts) {
@@ -495,7 +634,9 @@ export async function trialBalance(db, { orgId, from = null, to = null }) {
  * ====================================================================== */
 
 /** Which side of the balance sheet, and whether it belongs there at all. */
-const SHEET = { ASSET: "assets", LIABILITY: "liabilities", EQUITY: "equity" };
+type SheetSide = "assets" | "liabilities" | "equity";
+const SHEET: Readonly<Partial<Record<AccountType, SheetSide>>> =
+  { ASSET: "assets", LIABILITY: "liabilities", EQUITY: "equity" };
 
 /**
  * WHAT THE COMPANY OWNS, OWES AND IS WORTH, AT A DATE.
@@ -516,10 +657,13 @@ const SHEET = { ASSET: "assets", LIABILITY: "liabilities", EQUITY: "equity" };
  * balance does it: a caller who forgets to check reports a broken sheet as a
  * fact.
  */
-export async function balanceSheet(db, { orgId, asAt = null }) {
+export async function balanceSheet(
+  db: Db,
+  { orgId, asAt = null }: { orgId: string; asAt?: Date | null },
+) {
   const tb = await trialBalance(db, { orgId, to: asAt });
 
-  const side = { assets: [], liabilities: [], equity: [] };
+  const side: Record<SheetSide, AccountBalance[]> = { assets: [], liabilities: [], equity: [] };
   let income = 0n, expenses = 0n;
 
   for (const row of tb.rows) {
@@ -529,7 +673,7 @@ export async function balanceSheet(db, { orgId, asAt = null }) {
     if (row.type === "EXPENSE") expenses += row.balance;
   }
 
-  const total = (rows) => rows.reduce((t, r) => t + r.balance, 0n);
+  const total = (rows: readonly AccountBalance[]) => rows.reduce((t, r) => t + r.balance, 0n);
   const assets = total(side.assets);
   const liabilities = total(side.liabilities);
   const equity = total(side.equity);
@@ -556,12 +700,15 @@ export async function balanceSheet(db, { orgId, asAt = null }) {
  * when they were spent, because each is in its own account's normal
  * direction. `net` is the subtraction, done once, here.
  */
-export async function incomeStatement(db, { orgId, from = null, to = null }) {
+export async function incomeStatement(
+  db: Db,
+  { orgId, from = null, to = null }: DateWindow & { orgId: string },
+) {
   const tb = await trialBalance(db, { orgId, from, to });
 
   const income = tb.rows.filter((r) => r.type === "INCOME");
   const expenses = tb.rows.filter((r) => r.type === "EXPENSE");
-  const total = (rows) => rows.reduce((t, r) => t + r.balance, 0n);
+  const total = (rows: readonly AccountBalance[]) => rows.reduce((t, r) => t + r.balance, 0n);
 
   const earned = total(income);
   const spent = total(expenses);
@@ -588,7 +735,10 @@ export async function incomeStatement(db, { orgId, from = null, to = null }) {
  * answerable from the journal without inventing anything, and `basis` says
  * so in the response.
  */
-export async function cashMovement(db, { orgId, from = null, to = null }) {
+export async function cashMovement(
+  db: Db,
+  { orgId, from = null, to = null }: DateWindow & { orgId: string },
+) {
   /* Cash is an asset account that money physically moves through. The chart
      marks them by code; a company that adds another bank account under the
      same parent is included by being an ASSET with a bankRef, which is what
@@ -601,7 +751,11 @@ export async function cashMovement(db, { orgId, from = null, to = null }) {
     orderBy: { code: "asc" },
   });
 
-  const rows = [];
+  /* One cash or bank account's movement over the window. */
+  const rows: {
+    accountId: string; code: string; name: string;
+    opening: bigint; received: bigint; spent: bigint; closing: bigint;
+  }[] = [];
   let opening = 0n, received = 0n, spent = 0n, closing = 0n;
 
   for (const a of cashAccounts) {
@@ -652,7 +806,19 @@ export async function cashMovement(db, { orgId, from = null, to = null }) {
  * leaseId and partyId onto every line it writes. An entry booked against the
  * company alone cannot be attributed to anybody afterwards.
  */
-export async function entityStatement(db, { orgId, partyId = null, siteId = null, unitId = null, from = null, to = null }) {
+/** Whose statement this is. Exactly one of the three is named. */
+export interface StatementOf {
+  readonly orgId: string;
+  readonly partyId?: string | null;
+  readonly siteId?: string | null;
+  readonly unitId?: string | null;
+}
+
+export async function entityStatement(
+  db: Db,
+  { orgId, partyId = null, siteId = null, unitId = null, from = null, to = null }:
+    StatementOf & DateWindow,
+) {
   const dimension = partyId ? { partyId } : siteId ? { siteId } : unitId ? { unitId } : null;
   if (!dimension) {
     fail("DIMENSION_REQUIRED", "A statement is for a party, a property or a unit — name one.");
@@ -662,7 +828,7 @@ export async function entityStatement(db, { orgId, partyId = null, siteId = null
     where: {
       orgId, ...dimension,
       entry: {
-        status: { in: ["POSTED", "REVERSED"] },
+        status: { in: COUNTED },
         ...(from || to ? { date: { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) } } : {}),
       },
     },
@@ -674,7 +840,8 @@ export async function entityStatement(db, { orgId, partyId = null, siteId = null
 
   /* By date, then by the entry's own reference, so two entries on one day
      always read in the same order twice running. */
-  lines.sort((a, b) => (a.entry.date - b.entry.date) || a.entry.ref.localeCompare(b.entry.ref));
+  lines.sort((a, b) =>
+    (a.entry.date.getTime() - b.entry.date.getTime()) || a.entry.ref.localeCompare(b.entry.ref));
 
   let running = 0n;
   let charged = 0n, paid = 0n;

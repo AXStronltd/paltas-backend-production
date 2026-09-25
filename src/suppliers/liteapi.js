@@ -50,7 +50,7 @@
  * because an API that echoes your request is how a key reaches a log.
  * ====================================================================== */
 
-import { SupplyUnavailable, toMinor } from "../domain/supply.js";
+import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
 
 /** Where LiteAPI lives. Overridable so a proxy or a future host is config. */
 export const DEFAULT_BASE = "https://api.liteapi.travel/v3.0";

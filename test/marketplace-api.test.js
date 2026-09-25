@@ -35,7 +35,7 @@ if (!skip) {
     ({ default: pg } = await import("pg"));
     ({ db } = await import("../src/db.ts"));
     ({ createApp } = await import("../src/server.js"));
-    supply = await import("../src/domain/supply.js");
+    supply = await import("../src/domain/supply.ts");
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
     const m = String(e && e.message);
@@ -938,7 +938,7 @@ test("a supplier's own refusal reaches the caller, not a generic 500", { skip },
    */
   const s = payingSupplier();
   s.book = async () => {
-    const { SupplyUnavailable } = await import("../src/domain/supply.js");
+    const { SupplyUnavailable } = await import("../src/domain/supply.ts");
     throw new SupplyUnavailable("LiteAPI returned 400: payment not completed");
   };
   supply.register(s);

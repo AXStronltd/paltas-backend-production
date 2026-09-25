@@ -40,7 +40,7 @@ process.env.APP_URL ||= "http://127.0.0.1:8899";
 import {
   SupplyUnavailable, notConnected, register, clear, isConnected, status,
   searchSupply, normaliseOffer, toMinor,
-} from "../src/domain/supply.js";
+} from "../src/domain/supply.ts";
 import {
   expediaRapid, signature, authorizationHeader, nightsBetween, lowestTotal,
   redact, fromEnv,

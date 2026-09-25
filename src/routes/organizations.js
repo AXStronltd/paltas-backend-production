@@ -22,7 +22,7 @@ import {
   stateOf, toWire, whyNotInvite,
 } from "../domain/invitations.ts";
 import { sessionView } from "../domain/session-view.ts";
-import { seedChartOfAccounts } from "../domain/ledger.js";
+import { seedChartOfAccounts } from "../domain/ledger.ts";
 
 export const organizationRoutes = Router();
 

@@ -51,7 +51,7 @@ import {
   seedChartOfAccounts, postJournal, reverseJournal,
   accountBalance, trialBalance, periodFor,
   balanceSheet, incomeStatement, cashMovement, entityStatement,
-} from "../domain/ledger.js";
+} from "../domain/ledger.ts";
 
 export const ledgerRoutes = Router();
 

@@ -68,7 +68,7 @@
  * ====================================================================== */
 
 import { createHash } from "node:crypto";
-import { SupplyUnavailable, toMinor } from "../domain/supply.js";
+import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
 
 const BASE = "https://api.ean.com/v3";
 

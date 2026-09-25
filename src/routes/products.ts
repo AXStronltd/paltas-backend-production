@@ -43,7 +43,7 @@ import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
 import { sync as syncChannel, status as channelStatus } from "../domain/channels.ts";
-import { postForPayment, reverseFor } from "../domain/posting.js";
+import { postForPayment, reverseFor } from "../domain/posting.ts";
 import {
   presignUpload, presignDownload, head as storageHead,
   publicDescribe as storagePublicDescribe,

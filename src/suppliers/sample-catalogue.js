@@ -56,7 +56,7 @@
  * homepage load. With no dates it quotes a single night and says so.
  * ====================================================================== */
 
-import { SupplyUnavailable } from "../domain/supply.js";
+import { SupplyUnavailable } from "../domain/supply.ts";
 
 /**
  * The shapes of property a marketplace shows, with a plausible nightly figure

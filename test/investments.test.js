@@ -21,7 +21,7 @@ import { freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
 import {
   OFFERING_TRANSITIONS, OFFERING_RIGHTS, eligibilityRefusal, offeringRefusal,
   offeringRights, submissionGaps, splitCodes,
-} from "../src/domain/investments.js";
+} from "../src/domain/investments.ts";
 import * as tokens from "../src/domain/tokenisation.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;

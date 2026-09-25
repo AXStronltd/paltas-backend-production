@@ -1,3 +1,5 @@
+import { messageOf } from "../http/errors.ts";
+
 /**
  * PRICE COMPARISON — a fact added to a room PALTAS can actually sell.
  *
@@ -30,7 +32,41 @@
  * is expected to print rather than paraphrase.
  */
 
-let provider = null;
+/**
+ * WHAT A PRICE COMPARISON PROVIDER HAS TO BE.
+ *
+ * `compare` is the one register insists on. Everything a comparison returns
+ * is somebody else's data, so the results are `unknown` and narrowed where
+ * they are read rather than trusted where they arrive.
+ */
+export interface CompareProvider {
+  compare(query: Record<string, unknown>): Promise<CompareAnswer> | CompareAnswer;
+  searchHomes?(query: Record<string, unknown>): Promise<CompareAnswer> | CompareAnswer;
+  describe?(): { name?: string; label?: string; [key: string]: unknown };
+  [key: string]: unknown;
+}
+
+/**
+ * A hotel as the accommodation supplier describes it.
+ *
+ * Only what the comparison reads. It is somebody else's shape, so every field
+ * is optional and the code below already treats them that way.
+ */
+export interface SupplierHotel {
+  readonly name?: string;
+  readonly city?: string;
+  readonly country?: string;
+  readonly [key: string]: unknown;
+}
+
+/** What one comes back with. Every field optional — it is another company's API. */
+export interface CompareAnswer {
+  readonly offers?: readonly unknown[];
+  readonly results?: readonly unknown[];
+  readonly [key: string]: unknown;
+}
+
+let provider: CompareProvider | null = null;
 
 /*
  * WHY THERE IS NO PROVIDER — which is a different question from whether there
@@ -45,12 +81,12 @@ let provider = null;
  */
 let unavailableBecause = "";
 
-export function noteCompareUnavailable(reason) {
+export function noteCompareUnavailable(reason: unknown): void {
   unavailableBecause = String(reason || "");
 }
 
 /** Wire the comparison provider. Absent is a normal state. */
-export function registerCompare(p) {
+export function registerCompare(p: CompareProvider | null | undefined): CompareProvider | null {
   if (p && typeof p.compare !== "function") {
     throw new Error("A comparison provider must implement compare().");
   }
@@ -120,7 +156,7 @@ const CACHE = new Map();
 const TTL_MS = 6 * 60 * 60 * 1000;   /* six hours; OTA prices do not move faster */
 const MAX_ENTRIES = 500;
 
-function cacheGet(key) {
+function cacheGet(key: string): unknown {
   const hit = CACHE.get(key);
   if (!hit) return null;
   if (Date.now() > hit.until) { CACHE.delete(key); return null; }
@@ -129,7 +165,7 @@ function cacheGet(key) {
   return hit.value;
 }
 
-function cacheSet(key, value) {
+function cacheSet(key: string, value: unknown): void {
   if (CACHE.size >= MAX_ENTRIES) {
     const oldest = CACHE.keys().next().value;
     if (oldest !== undefined) CACHE.delete(oldest);
@@ -147,9 +183,23 @@ export function forgetComparisons() { CACHE.clear(); }
  * extra, and a missing extra must not take a bookable room off the page with
  * it. It returns `offers: []` and says why.
  */
+/** What a price comparison is asked for. */
+export interface CompareQuery {
+  /** The accommodation supplier, asked to confirm which hotel this is. */
+  readonly supplier?: {
+    hotel?(q: Record<string, unknown>): Promise<SupplierHotel | null>;
+  } | null;
+  readonly hotelId?: unknown;
+  readonly country?: unknown;
+  readonly currency?: string;
+  readonly checkIn?: unknown;
+  readonly checkOut?: unknown;
+  readonly guests?: number;
+}
+
 export async function comparePrices({
   supplier, hotelId, country, currency = "", checkIn, checkOut, guests = 2,
-} = {}) {
+}: CompareQuery = {}) {
   const base = {
     hotelId: String(hotelId || ""),
     checkIn, checkOut, guests,
@@ -182,7 +232,7 @@ export async function comparePrices({
    * This lookup is what makes the endpoint safe to expose. If PALTAS does not
    * sell this hotel, there is no name to ask about and no credit is spent.
    */
-  let hotel = null;
+  let hotel: SupplierHotel | null = null;
   try {
     if (supplier && typeof supplier.hotel === "function") {
       hotel = await supplier.hotel({ hotelId, countryCode: country });
@@ -209,7 +259,7 @@ export async function comparePrices({
     /* A comparison that failed is an extra that failed. The room is unaffected,
        and the reason is passed through rather than swallowed. */
     return { ...base, hotel: { name: hotel.name, city: hotel.city },
-             why: (e && e.message) || "The comparison could not be made." };
+             why: messageOf(e) || "The comparison could not be made." };
   }
 
   const value = {
@@ -255,7 +305,19 @@ const HOMES_MAX = 300;
 
 export function forgetHomes() { HOMES.clear(); }
 
-export async function findHomes({ city, checkIn, checkOut, guests = 2, currency = "", limit = 8 } = {}) {
+/** What a homes search is asked for. */
+export interface HomesQuery {
+  readonly city?: unknown;
+  readonly checkIn?: unknown;
+  readonly checkOut?: unknown;
+  readonly guests?: number;
+  readonly currency?: string;
+  readonly limit?: number;
+}
+
+export async function findHomes(
+  { city, checkIn, checkOut, guests = 2, currency = "", limit = 8 }: HomesQuery = {},
+) {
   const base = {
     homes: [], city: city || "", checkIn, checkOut,
     /* A public result: the SELLERS are named in full, the provider PALTAS
@@ -305,10 +367,14 @@ export async function findHomes({ city, checkIn, checkOut, guests = 2, currency 
   } catch (e) {
     /* An extra that failed is still an extra: the shelf says what it said
        before, and the bookable inventory around it is untouched. */
-    return { ...base, why: (e && e.message) || "Other sites could not be read." };
+    return { ...base, why: messageOf(e) || "Other sites could not be read." };
   }
 
-  const homes = (out.results || []).filter((r) => r && r.bookable === false && r.url);
+  const homes = (out.results ?? []).filter(
+    (r: unknown): r is Record<string, unknown> =>
+      typeof r === "object" && r !== null
+      && (r as Record<string, unknown>)["bookable"] === false
+      && Boolean((r as Record<string, unknown>)["url"]));
   const value = {
     ...base,
     homes,

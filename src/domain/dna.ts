@@ -8,6 +8,55 @@
  * ====================================================================== */
 
 import { db } from "../db.ts";
+import type { $Enums } from "@prisma/client";
+import type { Clearance } from "./classification.ts";
+import { visibleRows as visibleRowsFn } from "./classification.ts";
+
+/** The statuses a succession case can hold — the schema's own list. */
+export type SuccessionStatus = $Enums.SuccessionStatus;
+
+/** The kinds of thing a property remembers — the schema's own list. */
+export type TimelineKind = $Enums.TimelineKind;
+
+/**
+ * An event as a CALLER hands it in, before the column defaults are applied.
+ *
+ * Only `kind` and `title` are demanded. Everything else has a default below,
+ * which is what the products already relied on.
+ */
+export interface TimelineEventInput {
+  readonly kind: TimelineKind;
+  readonly title: string;
+  readonly at?: Date;
+  readonly detail?: string;
+  readonly entity?: string;
+  readonly entityId?: string;
+  readonly actorId?: string | null;
+  readonly actorName?: string;
+  readonly source?: $Enums.Provenance;
+  readonly verification?: $Enums.VerificationState;
+  readonly class?: $Enums.DataClass;
+}
+
+/**
+ * An event MERGED IN from a record that was already keeping itself.
+ *
+ * `derived: true` is what separates these from rows in the timeline table:
+ * they are read from leases, work orders and units at query time and are
+ * never written anywhere, so nothing can drift.
+ */
+export interface DerivedEvent {
+  readonly id: string;
+  readonly kind: TimelineKind;
+  readonly at: Date;
+  readonly title: string;
+  readonly detail: string;
+  readonly entity: string;
+  readonly entityId: string;
+  readonly source: $Enums.Provenance;
+  readonly class: $Enums.DataClass;
+  readonly derived: true;
+}
 
 /*
  * THE IDENTIFIER AND THE RECORD MOVED to modules/property-dna/domain/identity.js
@@ -31,7 +80,7 @@ export { refFor, dnaFor } from "../modules/property-dna/domain/identity.js";
  * the work-order history already follows: a record somebody may later be
  * asked to rely on is worth less if it can be quietly tidied.
  */
-export async function remember(orgId, dnaId, event) {
+export async function remember(orgId: string, dnaId: string, event: TimelineEventInput) {
   return db.propertyTimelineEvent.create({
     data: {
       orgId,
@@ -62,7 +111,7 @@ export async function remember(orgId, dnaId, event) {
  * Everything returned carries a `class`, because the merge is what the
  * caller's clearance is applied to.
  */
-export async function derivedEvents(orgId, siteId) {
+export async function derivedEvents(orgId: string, siteId: string): Promise<DerivedEvent[]> {
   const [leases, work, units] = await Promise.all([
     db.lease.findMany({
       where: { orgId, unit: { siteId } },
@@ -81,7 +130,7 @@ export async function derivedEvents(orgId, siteId) {
     }).catch(() => []),
   ]);
 
-  const out = [];
+  const out: DerivedEvent[] = [];
   for (const l of leases) {
     if (l.startsOn) out.push({
       id: `lease:${l.id}:start`, kind: "LEASE_STARTED", at: l.startsOn,
@@ -96,12 +145,18 @@ export async function derivedEvents(orgId, siteId) {
       source: "MANAGER_SUPPLIED", class: "RESTRICTED", derived: true,
     });
   }
-  for (const w of work) out.push({
-    id: `wo:${w.id}`, kind: "MAINTENANCE_COMPLETED", at: w.closedAt,
-    title: w.title || "Work order completed",
-    detail: w.ref ? `Work order ${w.ref}` : "", entity: "work-order", entityId: w.id,
-    source: "MANAGER_SUPPLIED", class: "INTERNAL", derived: true,
-  });
+  for (const w of work) {
+    /* The query already asks only for closed work orders. The guard is here
+       because the column is nullable and a derived event with no date would
+       sort to the wrong end of somebody's timeline. */
+    if (!w.closedAt) continue;
+    out.push({
+      id: `wo:${w.id}`, kind: "MAINTENANCE_COMPLETED", at: w.closedAt,
+      title: w.title || "Work order completed",
+      detail: w.ref ? `Work order ${w.ref}` : "", entity: "work-order", entityId: w.id,
+      source: "MANAGER_SUPPLIED", class: "INTERNAL", derived: true,
+    });
+  }
   for (const u of units) out.push({
     id: `unit:${u.id}`, kind: "UNIT_CREATED", at: u.createdAt,
     title: `Unit ${u.ref} added`, detail: "", entity: "unit", entityId: u.id,
@@ -122,7 +177,7 @@ export async function derivedEvents(orgId, siteId) {
  * property to anybody is a separate, deliberate, audited act performed by a
  * person. PALTAS does not decide who inherits anything.
  */
-export const SUCCESSION_NEXT = {
+export const SUCCESSION_NEXT: Readonly<Record<SuccessionStatus, readonly SuccessionStatus[]>> = {
   DRAFT: ["INITIATED", "CANCELLED"],
   INITIATED: ["DOCUMENTS_REQUIRED", "UNDER_REVIEW", "CANCELLED", "DISPUTED"],
   DOCUMENTS_REQUIRED: ["UNDER_REVIEW", "CANCELLED", "DISPUTED"],
@@ -136,9 +191,9 @@ export const SUCCESSION_NEXT = {
 };
 
 /** Terminal states cannot be reopened; a new case is opened instead. */
-export const SUCCESSION_TERMINAL = new Set(["COMPLETED", "CANCELLED"]);
+export const SUCCESSION_TERMINAL: ReadonlySet<SuccessionStatus> = new Set<SuccessionStatus>(["COMPLETED", "CANCELLED"]);
 
-export function mayAdvance(from, to) {
+export function mayAdvance(from: SuccessionStatus, to: SuccessionStatus): string | null {
   const allowed = SUCCESSION_NEXT[from];
   if (!allowed) return `“${from}” is not a status this workflow knows.`;
   if (SUCCESSION_TERMINAL.has(from)) {
@@ -157,7 +212,28 @@ export function mayAdvance(from, to) {
  * The status column and the step trail are written together: the column is
  * what a list reads quickly, the trail is what an argument is settled with.
  */
-export async function advanceCase(orgId, caseId, to, actor, why) {
+/** Who is moving a case, as far as the trail is concerned. */
+export interface CaseActor {
+  readonly userId?: string | null;
+  readonly name?: string;
+}
+
+/**
+ * What advancing a case comes back with: the moved case, or a named refusal
+ * the route turns into the right status code.
+ */
+export type AdvanceResult =
+  | { case: Awaited<ReturnType<typeof db.successionCase.update>>; from: SuccessionStatus }
+  | { error: "notFound" }
+  | { error: "transition"; why: string };
+
+export async function advanceCase(
+  orgId: string,
+  caseId: string,
+  to: SuccessionStatus,
+  actor: CaseActor | null | undefined,
+  why?: string,
+): Promise<AdvanceResult> {
   const found = await db.successionCase.findFirst({ where: { id: caseId, orgId } });
   if (!found) return { error: "notFound" };
 
@@ -189,7 +265,7 @@ export async function advanceCase(orgId, caseId, to, actor, why) {
 }
 
 /** A case reference a person can quote down a telephone. */
-export function successionRef(n) {
+export function successionRef(n: number | string): string {
   return "SUC-" + String(n).padStart(5, "0");
 }
 
@@ -207,7 +283,35 @@ export function successionRef(n) {
  *
  * Returns only what this caller could have read themselves through the API.
  */
-export function aiContext({ dna, site, timeline, assets, ownership, clearance }, filters) {
+/** What the AI boundary is handed. Every part already read by the caller. */
+export interface AiContextInput {
+  readonly dna: { ref: string; verification: unknown };
+  readonly site?: {
+    name?: string; kind?: string; city?: string; country?: string;
+  } | null;
+  readonly timeline: readonly { class?: string; [key: string]: unknown }[];
+  readonly assets?: readonly {
+    name?: string; kind?: string; status?: string;
+    servicedOn?: Date | null; nextServiceOn?: Date | null;
+  }[] | null;
+  readonly ownership: readonly { class?: string; [key: string]: unknown }[];
+  readonly clearance: Clearance;
+}
+
+/**
+ * The clearance filter, injected rather than imported.
+ *
+ * It is a parameter so a caller cannot accidentally build a context with a
+ * filter that lets everything through — passing one is the deliberate act.
+ */
+export interface AiContextFilters {
+  readonly visibleRows: typeof visibleRowsFn;
+}
+
+export function aiContext(
+  { dna, site, timeline, assets, ownership, clearance }: AiContextInput,
+  filters: AiContextFilters,
+) {
   const { visibleRows } = filters;
   return {
     property: {

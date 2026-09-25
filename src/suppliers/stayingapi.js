@@ -57,7 +57,7 @@
  * calls anything on its own, and `limit` defaults low on purpose.
  */
 
-import { SupplyUnavailable, toMinor } from "../domain/supply.js";
+import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
 
 export const DEFAULT_BASE = "https://api.stayingapi.com/v1";
 

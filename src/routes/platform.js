@@ -46,9 +46,9 @@ import { db } from "../db.ts";
 import { badRequest, conflict, forbidden, notFound } from "../http/errors.ts";
 import { requireSession } from "../http/session.ts";
 import { actorFor } from "../domain/session-view.ts";
-import { status as supplyStatus } from "../domain/supply.js";
+import { status as supplyStatus } from "../domain/supply.ts";
 import { describe as storageDescribe } from "../domain/storage.ts";
-import { compareStatus } from "../domain/compare.js";
+import { compareStatus } from "../domain/compare.ts";
 
 export const platformRoutes = Router();
 

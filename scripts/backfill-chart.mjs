@@ -46,7 +46,7 @@
  * ====================================================================== */
 
 import { PrismaClient } from "@prisma/client";
-import { seedChartOfAccounts, DEFAULT_CHART } from "../src/domain/ledger.js";
+import { seedChartOfAccounts, DEFAULT_CHART } from "../src/domain/ledger.ts";
 
 const args = process.argv.slice(2);
 const has = (f) => args.includes(f);
