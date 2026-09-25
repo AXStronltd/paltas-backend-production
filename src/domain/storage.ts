@@ -137,11 +137,25 @@ export interface DownloadRequest {
   readonly env?: Env;
 }
 
+/**
+ * The three things `head` asks of a reply: whether it succeeded, the status,
+ * and a header. Named rather than `typeof fetch` so a test may stand in a
+ * four-line object without having to impersonate the whole Response class —
+ * and so this file says out loud how little of storage's answer it reads.
+ */
+export interface HeadReply {
+  readonly ok: boolean;
+  readonly status: number;
+  readonly headers: { get(name: string): string | null };
+}
+
+export type HeadFetch = (url: string, init: { method: string }) => Promise<HeadReply>;
+
 export interface HeadRequest {
   readonly storageKey?: string;
   readonly orgId?: string;
   readonly env?: Env;
-  readonly fetchImpl?: typeof globalThis.fetch;
+  readonly fetchImpl?: HeadFetch;
 }
 
 /** Only the characters a filename may keep. Everything else becomes "-". */

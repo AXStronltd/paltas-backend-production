@@ -192,12 +192,11 @@ async function chartOf(cookie: string) {
 }
 
 /** The same company, seen by somebody with a narrower role. */
-async function asRole(owner: string, role: import("@prisma/client").$Enums.Role) {
+async function asRole(
+  owner: Awaited<ReturnType<typeof company>>,
+  role: import("@prisma/client").$Enums.Role,
+) {
   const n = ++seq;
-  const org = await db.session.findFirst({
-    where: { tokenHash: { not: "" } }, select: { orgId: true },
-    orderBy: { createdAt: "desc" },
-  });
   const orgId = owner.orgId;
   const email = `role${n}@example.com`;
   const user = await db.user.create({
@@ -207,10 +206,10 @@ async function asRole(owner: string, role: import("@prisma/client").$Enums.Role)
   await db.session.create({
     data: {
       tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
-      userId: user.id, orgId, expiresAt: new Date(Date.now() + 3600_000),
+      userId: user.id, orgId: String(orgId), expiresAt: new Date(Date.now() + 3600_000),
     },
   });
-  await db.membership.create({ data: { userId: user.id, orgId, role } });
+  await db.membership.create({ data: { userId: user.id, orgId: String(orgId), role } });
   return `paltas_session=${token}`;
 }
 

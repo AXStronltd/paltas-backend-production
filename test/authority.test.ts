@@ -19,6 +19,7 @@ import {
   clearanceFor, mayRead,
 } from "../src/domain/classification.ts";
 import { normalisePath, contains, mayDataset, whyNotDataset } from "../src/modules/authority/domain/jurisdiction.ts";
+import type { DatasetReach } from "../src/modules/authority/domain/jurisdiction.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
 import { sourceText, handlerText } from "./src-files.ts";
@@ -121,7 +122,7 @@ test("a customer never reaches the authority room by seniority alone", () => {
 
 test("the off-ladder classes are off the ladder", () => {
   for (const cls of OFF_LADDER) {
-    assert.equal(CLASS_RANK[cls], undefined, `${cls} became a rung, so climbing now reaches it`);
+    assert.equal((CLASS_RANK as Record<string, number | undefined>)[cls], undefined, `${cls} became a rung, so climbing now reaches it`);
     assert.ok(ALL_CLASSES.includes(cls));
   }
 });
@@ -168,7 +169,10 @@ test("the search scope comes from the mandate, never from the request", () => {
 });
 
 test("a dataset the mandate does not name is refused, with the reason", () => {
-  const a = { within: true, datasets: ["PERMITS", "ZONING"], jurisdiction: { path: "KE/NAIROBI" }, verified: true };
+  const a: DatasetReach = {
+    within: true, datasets: ["PERMITS", "ZONING"],
+    jurisdiction: { path: "KE/NAIROBI" }, verified: true,
+  };
   assert.equal(mayDataset(a, "PERMITS"), true);
   assert.equal(mayDataset(a, "REGISTRATION"), false);
   assert.equal(mayDataset(null, "PERMITS"), false);

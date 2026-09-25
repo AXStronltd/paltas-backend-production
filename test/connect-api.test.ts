@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
-import { portOf } from "./wire.ts";
+import { portOf, present } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -154,7 +154,8 @@ test("a refused sync does not stamp lastSyncAt", { skip }, async () => {
 
   await call(`/channels/${ch.id}/sync`, { method: "POST", cookie: a.cookie });
 
-  const after = await db.channel.findUnique({ where: { id: ch.id } });
+  const after = present(await db.channel.findUnique({ where: { id: ch.id } }),
+    "the channel row is gone");
   assert.equal(after.lastSyncAt, null,
     "the row now reads as synced. That is the defect this endpoint replaced: " +
     "a channel that looks current when nothing was pushed to it.");
@@ -176,7 +177,8 @@ test("a sync that works stamps the row and reports real counts", { skip }, async
   assert.equal(r.json.sync.pushed, 7);
   assert.equal(r.json.sync.pulled, 2);
 
-  const after = await db.channel.findUnique({ where: { id: ch.id } });
+  const after = present(await db.channel.findUnique({ where: { id: ch.id } }),
+    "the channel row is gone");
   assert.ok(after.lastSyncAt instanceof Date, "a real sync must be stamped");
   assert.equal(after.status, "LIVE");
 });
@@ -321,7 +323,8 @@ test("syncing another company's channel is refused", { skip }, async () => {
   assert.equal(r.status, 404,
     "'exists but is not yours' must be indistinguishable from 'does not exist'");
 
-  const after = await db.channel.findUnique({ where: { id: theirs.id } });
+  const after = present(await db.channel.findUnique({ where: { id: theirs.id } }),
+    "the channel row is gone");
   assert.equal(after.lastSyncAt, null, "another company's channel was synced");
 });
 

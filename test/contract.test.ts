@@ -22,6 +22,8 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sourceText } from "./src-files.ts";
 import type { Wire } from "./wire.ts";
+import { present } from "./wire.ts";
+import type { PromotionAct } from "../src/domain/rights.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -30,7 +32,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CANDIDATES = [
   process.env.BACKEND_MD,
   join(HERE, "..", "contract", "backend.md"),
-].filter(Boolean);
+].filter((p): p is string => Boolean(p));
 
 const MD_PATH = CANDIDATES.find((p) => existsSync(p));
 const skip = MD_PATH ? false : "backend.md not found — set BACKEND_MD to the frontend's copy";
@@ -102,7 +104,7 @@ test("§1's three rules are the three the code actually implements", { skip }, a
   assert.match(md, /Verification never closes a console/i);
   const { verificationRestricts } = await import("../src/domain/rights.ts");
 
-  const EVERY_ACT = [
+  const EVERY_ACT: readonly PromotionAct[] = [
     "create", "editOwn", "editOrg", "submit",
     "queue", "requestChanges", "approveMarketing", "flag",
     "finalQueue", "publish", "schedule", "pause", "approveFinal",
@@ -267,13 +269,14 @@ test("§4b's public rule is the rule the server applies", { skip }, async () => 
   assert.equal(isPubliclyVisible(visible, today), true,
     "a published, in-date promotion with something to show is not public");
 
-  for (const [field, broken] of [
+  const broken_: [string, unknown][] = [
     ["status", "SCHEDULED"],
     ["startDate", new Date(today.getTime() + day)],
     ["endDate", new Date(today.getTime() - day)],
     ["headline", ""],
     ["ctaLabel", ""],
-  ]) {
+  ];
+  for (const [field, broken] of broken_) {
     assert.equal(isPubliclyVisible({ ...visible, [field]: broken }, today), false,
       `isPubliclyVisible stopped checking ${field}`);
   }
@@ -372,7 +375,7 @@ test.after(() => {
 const INDEX_PATH = [
   process.env.FRONTEND_INDEX,
   join(HERE, "..", "contract", "homepage-intake.js"),
-].filter(Boolean).find((p) => existsSync(p));
+].filter((p): p is string => Boolean(p)).find((p) => existsSync(p));
 
 const skipIndex = INDEX_PATH ? false : "no homepage copy — set FRONTEND_INDEX";
 const indexHtml = INDEX_PATH ? readFileSync(INDEX_PATH, "utf8") : "";
@@ -452,7 +455,7 @@ test("an empty targeting list never reaches the carousel as a filter", { skip: s
      the targeting form sends. */
   const wire = toPublicWire(Object.fromEntries(fields.map((f) => [f, []])));
   for (const f of fields) {
-    assert.equal(wire[f], null,
+    assert.equal((wire as Record<string, unknown>)[f], null,
       `${f} reached the carousel as an empty array, which matches no market at all`);
   }
 
@@ -466,7 +469,9 @@ test("an empty targeting list never reaches the carousel as a filter", { skip: s
 test("the homepage re-applies the public rule to whatever it is handed", { skip: skipIndex }, async () => {
   /* Defence in depth, and worth asserting: even if this API were wrong, the
      page would refuse a row that is not PUBLISHED and in date. */
-  const fn = indexHtml.match(/function fromPromotion\(p\) \{([\s\S]*?)\n  \}/)[1];
+  const fn = present(
+    indexHtml.match(/function fromPromotion\(p\) \{([\s\S]*?)\n  \}/)?.[1],
+    "the homepage no longer has a fromPromotion()");
   assert.match(fn, /p\.status !== "PUBLISHED"/, "the homepage stopped checking the state");
   assert.match(fn, /today < p\.startDate/, "the homepage stopped checking the start date");
   assert.match(fn, /today > p\.endDate/, "the homepage stopped checking the end date");

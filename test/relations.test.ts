@@ -31,6 +31,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const schema = readFileSync(join(HERE, "..", "prisma", "schema.prisma"), "utf8");
@@ -109,7 +110,8 @@ function fields(body: Wire) {
 const PARSED = new Map([...MODELS].map(([name, body]) => [name, fields(body)]));
 
 /** The relation fields of a model: those whose type is another model. */
-const relationsOf = (model: Wire) => PARSED.get(model).filter((f) => MODELS.has(f.type));
+const relationsOf = (model: string) =>
+  present(PARSED.get(model), `${model} was never parsed`).filter((f) => MODELS.has(f.type));
 
 /* ================================================================ */
 
@@ -143,7 +145,7 @@ test("every relation has both halves", () => {
   const missing = [];
   for (const [model, fs] of PARSED) {
     for (const f of relationsOf(model)) {
-      const other = PARSED.get(f.type);
+      const other = present(PARSED.get(f.type), `${f.type} was never parsed`);
       /*
        * A SELF-RELATION IS A RELATION TO A DIFFERENT FIELD, NOT TO ITSELF.
        *
@@ -187,7 +189,7 @@ test("exactly one side of each relation holds the foreign key", () => {
         if (f.relFields) wrong.push(`${model}.${f.name} is a list AND holds fields: — a list side never does`);
         continue;
       }
-      const back = PARSED.get(f.type).filter(
+      const back = present(PARSED.get(f.type), `${f.type} was never parsed`).filter(
         (g) => g.type === model && g.name !== f.name &&
                (!f.relationName || g.relationName === f.relationName));
       const other = back[0];

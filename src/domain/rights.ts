@@ -84,13 +84,16 @@ const VERIFICATION_RESTRICTS: Readonly<Record<string, readonly PromotionAct[]>> 
   COMPLETE: [],
 };
 
-export function verificationRestricts(status: unknown, act: PromotionAct): boolean {
+/* `act` is a plain string, not PromotionAct: this answers "is THIS act
+   restricted", and a caller asking about something that is not an act at all
+   deserves a false rather than a compile error it cannot act on. */
+export function verificationRestricts(status: unknown, act: string): boolean {
   const restricted = VERIFICATION_RESTRICTS[String(status)]
     /* An unknown verification status is treated as the strictest one. A
        company whose status this service does not recognise is not a company
        that has been verified. */
     ?? VERIFICATION_RESTRICTS["NOT_STARTED"];
-  return restricted !== undefined && restricted.includes(act);
+  return restricted !== undefined && (restricted as readonly string[]).includes(act);
 }
 
 /* ---------------------------------------------------------- promotions */

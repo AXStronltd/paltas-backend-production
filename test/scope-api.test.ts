@@ -133,7 +133,8 @@ async function company({ scope, role = "MANAGER" }: { scope: Wire; role?: Wire }
 
   /* One of each at BOTH sites, so every assertion below has something it
      should see and something it should not. */
-  for (const [site, tag] of [[north, "north"], [south, "south"]]) {
+  const both: [typeof north, string][] = [[north, "north"], [south, "south"]];
+  for (const [site, tag] of both) {
     await db.incident.create({
       data: { orgId: org.id, siteId: site.id, ref: `INC-${n}-${tag}`,
               title: `Alarm at ${tag}` } });
@@ -405,10 +406,11 @@ test("SITE_BEARING matches the schema — it cannot drift", { skip }, async () =
   const { readFileSync } = await import("node:fs");
   const schema = readFileSync(new URL("../prisma/schema.prisma", import.meta.url), "utf8");
 
-  const actual = new Set();
+  const actual = new Set<string>();
   for (const m of schema.matchAll(/^model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)) {
-    if (/^\s*siteId\s+String/m.test(m[2])) {
-      actual.add(m[1][0].toLowerCase() + m[1].slice(1));
+    if (/^\s*siteId\s+String/m.test(String(m[2]))) {
+      const name = String(m[1]);
+      actual.add(name[0]!.toLowerCase() + name.slice(1));
     }
   }
 
@@ -492,9 +494,11 @@ test("a scoped member's request for one site cannot land on a different one", { 
   const edit = await call(`/sites/${c.south.id}`, {
     method: "PATCH", cookie: c.cookie, body: { name: "Renamed by an outsider" } });
   assert.equal(edit.status, 404, "an out-of-scope site was editable");
-  assert.equal((await db.site.findUnique({ where: { id: c.north.id } })).name, before.name,
+  assert.equal(present(await db.site.findUnique({ where: { id: c.north.id } }),
+    "the site this test made is gone").name, before.name,
     "*** editing one site renamed a different one ***");
-  assert.equal((await db.site.findUnique({ where: { id: c.south.id } })).name, c.south.name,
+  assert.equal(present(await db.site.findUnique({ where: { id: c.south.id } }),
+    "the site this test made is gone").name, c.south.name,
     "an out-of-scope site was renamed");
 
   /* And deleting it must not delete the one they may. */

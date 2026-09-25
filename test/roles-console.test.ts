@@ -29,6 +29,7 @@ import { join, resolve } from "node:path";
 import { makeWindow } from "./dom-shim.ts";
 import { CONSOLE_FORMS } from "../src/domain/console-map.ts";
 import type { Wire, Foreign } from "./wire.ts";
+import { said } from "./threw.ts";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");
@@ -139,13 +140,13 @@ test("nobody is let in to an empty console", { skip }, () => {
       const opens = opensFor(G);
       if (!opens.includes(product)) continue;
 
-      const groups = (w.win["__navFor"] as Foreign)(PRODUCTS[product]) || [];
+      const groups = (w.win["__navFor"] as Foreign)((PRODUCTS as Record<string, string>)[product]) || [];
       const items = groups.flatMap((g: Wire) => (g.items || []).map((i: Wire) => i[0]));
       if (!items.length) { empty.push(`${product}/${key}`); continue; }
 
       /* And they land on their OWN first screen — a guard on his shift, not
          on the company's command centre. */
-      const landing = (w.win["__first"] as Foreign)(PRODUCTS[product]);
+      const landing = (w.win["__first"] as Foreign)((PRODUCTS as Record<string, string>)[product]);
       if (!landing || !items.includes(landing)) {
         empty.push(`${product}/${key}: lands on ${landing}, which is not in its own menu`);
       }
@@ -166,7 +167,7 @@ test("every screen a role is given actually renders", { skip }, () => {
       const opens = opensFor(G);
       if (!opens.includes(product)) continue;
 
-      const groups = (w.win["__navFor"] as Foreign)(PRODUCTS[product]) || [];
+      const groups = (w.win["__navFor"] as Foreign)((PRODUCTS as Record<string, string>)[product]) || [];
       for (const g of groups) {
         for (const [screen] of g.items || []) {
           const fn = (w.win["__S"] as Foreign)[screen];
@@ -175,7 +176,7 @@ test("every screen a role is given actually renders", { skip }, () => {
             const html = String(fn() ?? "");
             if (html.trim().length < 20) broken.push(`${product}/${key}: ${screen} rendered empty`);
           } catch (e) {
-            broken.push(`${product}/${key}: ${screen} threw ${String(e && e.message || e).slice(0, 60)}`);
+            broken.push(`${product}/${key}: ${screen} threw ${said(e).slice(0, 60)}`);
           }
         }
       }

@@ -211,12 +211,11 @@ async function chartOf(cookie: string) {
 }
 
 /** The same company, seen by somebody with a narrower role. */
-async function asRole(owner: string, role: import("@prisma/client").$Enums.Role) {
+async function asRole(
+  owner: Awaited<ReturnType<typeof company>>,
+  role: import("@prisma/client").$Enums.Role,
+) {
   const n = ++seq;
-  const org = await db.session.findFirst({
-    where: { tokenHash: { not: "" } }, select: { orgId: true },
-    orderBy: { createdAt: "desc" },
-  });
   const orgId = owner.orgId;
   const email = `role${n}@example.com`;
   const user = await db.user.create({
@@ -226,10 +225,10 @@ async function asRole(owner: string, role: import("@prisma/client").$Enums.Role)
   await db.session.create({
     data: {
       tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
-      userId: user.id, orgId, expiresAt: new Date(Date.now() + 3600_000),
+      userId: user.id, orgId: String(orgId), expiresAt: new Date(Date.now() + 3600_000),
     },
   });
-  await db.membership.create({ data: { userId: user.id, orgId, role } });
+  await db.membership.create({ data: { userId: user.id, orgId: String(orgId), role } });
   return `paltas_session=${token}`;
 }
 
@@ -725,7 +724,7 @@ test("none of it crosses a company", { skip }, async () => {
   const d = await drawing(theirs.cookie);
   const p = await permit(theirs.cookie);
 
-  const post = (path: Wire, body: Wire) => call(path, { method: "POST", cookie: mine.cookie, body: body || {} });
+  const post = (path: string, body?: Wire) => call(path, { method: "POST", cookie: mine.cookie, body: body || {} });
   assert.equal((await post(`/acquisitions/${a.id}/status`, { status: "APPRAISING" })).status, 404);
   assert.equal((await post(`/acquisitions/${a.id}/diligence`, { title: "x" })).status, 404);
   assert.equal((await post(`/feasibilities/${f.id}/decide`, { approve: true })).status, 404);
@@ -764,7 +763,7 @@ test("every decision before a brick is laid is recorded", { skip }, async () => 
   await permitTo(cookie, p.id, "PREPARING");
 
   const actions = new Set((await db.auditEvent.findMany({
-    where: { orgId }, select: { action: true } })).map((e) => e.action));
+    where: { orgId: String(orgId) }, select: { action: true } })).map((e) => e.action));
   for (const want of ["acquisition.status", "feasibility.decide", "drawing.issue",
                       "drawing.revise", "permit.status"]) {
     assert.ok(actions.has(want), `${want} was not recorded`);

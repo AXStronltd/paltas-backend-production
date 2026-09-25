@@ -143,7 +143,7 @@ test("owning YOUR company grants nothing on OURS", () => {
 
 test("a role nobody has heard of can do nothing", () => {
   const a = actor({ role: "SOMETHING_INVENTED" });
-  for (const act of ["create", "submit", "queue", "publish", "approveMarketing"]) {
+  for (const act of ["create", "submit", "queue", "publish", "approveMarketing"] as const) {
     assert.equal(can(a, act), false, `an unknown role could ${act}`);
   }
 });
@@ -201,7 +201,7 @@ test("verification restricts publish and payout, and nothing else", () => {
 test("an unverified company can do everything except publish", () => {
   const a = actor({ role: "PUBLISHER", isPlatform: true, verificationStatus: "NOT_STARTED" });
   assert.equal(whyNot(a, "queue"), null, "verification closed the review queue");
-  assert.match(whyNot(a, "publish"), /not verified/i);
+  assert.match(String(whyNot(a, "publish")), /not verified/i);
 });
 
 /* ================================================================ */
@@ -254,7 +254,7 @@ test("expiring is a publisher's act, and only from a live state", () => {
   assert.equal(TRANSITIONS.expire.right, "publish");
   /* Nothing in a draft or a review queue has a run to end. */
   for (const s of ["DRAFT", "SUBMITTED", "UNDER_REVIEW", "CHANGES_REQUESTED",
-                   "RESUBMITTED", "REJECTED", "MARKETING_APPROVED", "FINAL_APPROVED"]) {
+                   "RESUBMITTED", "REJECTED", "MARKETING_APPROVED", "FINAL_APPROVED"] as const) {
     assert.ok(!TRANSITIONS.expire.from.includes(s), `expire should not be reachable from ${s}`);
   }
 });
@@ -276,7 +276,7 @@ test("there is no arrow from DRAFT to PUBLISHED", () => {
 });
 
 test("publishing is only possible from a state a reviewer put it in", () => {
-  assert.deepEqual(TRANSITIONS.publish.from.sort(),
+  assert.deepEqual([...TRANSITIONS.publish.from].sort(),
     ["FINAL_APPROVED", "MARKETING_APPROVED", "PAUSED", "SCHEDULED"]);
 });
 

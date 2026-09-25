@@ -77,7 +77,8 @@ async function get(path: Wire) {
   return { status: res.status, json, text, cache: res.headers.get("cache-control") };
 }
 
-let ids = {};
+/* Ids of the rows this suite made, so a later test can point at one. */
+let ids: Record<string, string> = {};
 
 async function seed() {
   const make = async (name: Wire, products: Wire, transfer: Wire) => {
@@ -104,7 +105,7 @@ async function seed() {
 
   const agent = await make("Alma Lets", ["AGENT_HOST"], false);
   const hotel = await make("Sunrise Hotel", ["AGENT_HOST", "HOTEL_MANAGEMENT"], true);
-  ids.agentOrg = agent.o.id;
+  ids["agentOrg"] = agent.o.id;
 
   const u1 = await db.unit.create({
     data: { orgId: agent.o.id, siteId: agent.site.id, ref: "12B",
@@ -174,7 +175,7 @@ test("nothing private about the owner or the deal is returned", { skip }, async 
   /* And the agent's own remarks, which is the worst of the three. */
   assert.ok(!body.includes("10% less"), "an internal note was published");
   /* No internal identifier needs to reach a browser. */
-  assert.ok(!body.includes(ids.agentOrg), "an orgId was published");
+  assert.ok(!body.includes(ids["agentOrg"]), "an orgId was published");
   /* The company offering it IS returned — a marketplace needs that. */
   assert.ok(body.includes("Alma Lets"), "the offering company should be named");
 });
@@ -310,7 +311,11 @@ test("direction is not answered, because nothing records it", { skip }, async ()
  * ====================================================================== */
 
 /** A supplier that answers, so the two-array split can be observed. */
-function stubSupplier({ name = "expedia-rapid", sandbox = false, offers = null, throws = null } = {}) {
+function stubSupplier(
+  { name = "expedia-rapid", sandbox = false, offers = null, throws = null }: {
+    name?: string; sandbox?: boolean; offers?: Wire[] | null; throws?: string | null;
+  } = {},
+) {
   return {
     name, sandbox,
     describe() { return { name, connected: true, sandbox, capabilities: ["search"], why: "" }; },
@@ -376,7 +381,7 @@ test("supplier rooms never enter the listings array", { skip }, async () => {
     /* No id can be ambiguous between the two. */
     const ids = new Set(r.json.listings.map((l: Wire) => l.id));
     for (const o of r.json.supply) {
-      assert.ok(!ids.has(o.id), "a supplier id collides with a PALTAS listing id");
+      assert.ok(!ids["has"](o.id), "a supplier id collides with a PALTAS listing id");
     }
   } finally { supply.clear(); }
 });
@@ -448,13 +453,13 @@ test("supplier content is never cached, and PALTAS's own still is", { skip }, as
    */
   supply.clear();
   const own = await get("/marketplace/listings");
-  assert.match(own.cache, /max-age=60/, "PALTAS's own listings should still cache");
+  assert.match(String(own.cache), /max-age=60/, "PALTAS's own listings should still cache");
 
   supply.register(stubSupplier());
   try {
     const mixed = await get("/marketplace/listings");
     assert.ok(mixed.json.supply.length > 0);
-    assert.match(mixed.cache, /no-store/,
+    assert.match(String(mixed.cache), /no-store/,
       "a wholesaler's quote was served with a cache header");
   } finally { supply.clear(); }
 });
@@ -552,7 +557,7 @@ test("an explicit city search narrows both halves of the page", { skip }, async 
   /* The fallback: when somebody actually searches for a place, the supplier
      should look there too rather than needing the hint spelled out twice. */
   supply.clear();
-  let seen = null;
+  let seen: Wire = null;
   supply.register({
     name: "expedia-rapid",
     describe() { return { name: "expedia-rapid", connected: true, sandbox: false, capabilities: [], why: "" }; },
@@ -572,7 +577,7 @@ test("the traveller's IP reaches the supplier and is not invented", { skip }, as
    * neither accepts the calling server's.
    */
   supply.clear();
-  let seen = null;
+  let seen: Wire = null;
   supply.register({
     name: "expedia-rapid",
     describe() { return { name: "expedia-rapid", connected: true, sandbox: false, capabilities: [], why: "" }; },
@@ -1030,7 +1035,7 @@ test("the supplier envelope says whether a guest could actually pay", { skip }, 
       canTakePayment: true, paymentEnvironment: "live",
     }),
   });
-  const ok = await (await fetch(`${base}/marketplace/suppliers`)).json();
+  const ok: Wire = await (await fetch(`${base}/marketplace/suppliers`)).json();
   assert.equal(ok.suppliers[0].canTakePayment, true);
   assert.equal(ok.suppliers[0].bookable, true);
   assert.equal(ok.suppliers[0].why, "", "a working checkout still carries a complaint");

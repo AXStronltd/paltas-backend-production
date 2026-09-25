@@ -111,7 +111,7 @@ export type Row = Record<string, unknown>;
  * schema.prisma, and the assertion is what checks it.
  */
 export interface FakeDelegate {
-  findMany(args?: QueryArgs): Promise<(Row | null)[]>;
+  findMany(args?: QueryArgs): Promise<Row[]>;
   findFirst(args?: QueryArgs): Promise<Row | null>;
   findUnique(args?: QueryArgs): Promise<Row | null>;
   count(args?: QueryArgs): Promise<number>;
@@ -501,6 +501,15 @@ export function createFakeDb() {
    * include / select
    * ---------------------------------------------------------------- */
 
+  /* A row in yields a row out; only a missing row comes back missing. Said as
+     two overloads so `findMany`, which maps over rows it already has, is not
+     forced to hand every caller a `Row | null` it can never contain. */
+  function hydrate(
+    modelName: string, row: Row, include?: unknown, select?: unknown,
+  ): Row;
+  function hydrate(
+    modelName: string, row: Row | null, include?: unknown, select?: unknown,
+  ): Row | null;
   function hydrate(
     modelName: string, row: Row | null, include?: unknown, select?: unknown,
   ): Row | null {

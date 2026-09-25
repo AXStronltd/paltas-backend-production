@@ -231,13 +231,13 @@ test("the wall holds for every resource, not only the one somebody tested", { sk
     });
     assert.equal(made.status, 201,
       `could not create the ${refSlug} a required reference needs: ${made.text}`);
-    const id = Object.values(made.json)[0].id;
+    const id = (Object.values(made.json)[0] as Wire).id;
     referenced.set(model, id);
     return id;
   }
 
-  async function bodyFor(slug: Wire, r: Wire) {
-    const body = {};
+  async function bodyFor(slug: string, r: Wire) {
+    const body: Record<string, Wire> = {};
     for (const key of r.required || []) {
       const kind = r.fields[key];
       body[key] = kind.startsWith("id:") ? await idOf(kind.slice(3))
@@ -257,7 +257,7 @@ test("the wall holds for every resource, not only the one somebody tested", { sk
     const made = await call(`/${slug}`, { method: "POST", cookie: a.cookie, body });
     assert.equal(made.status, 201, `could not create a ${slug}: ${made.text}`);
 
-    const row = Object.values(made.json)[0];
+    const row: Wire = Object.values(made.json)[0];
     const seen = await call(`/${slug}/${row.id}`, { cookie: b.cookie });
     assert.equal(seen.status, 404, `${slug}: company B could read company A's row`);
 
@@ -715,7 +715,8 @@ test("folio lines are scoped through their folio, and need the hotel product",
   const other = await company({ products: ["HOTEL_MANAGEMENT"], role: "MANAGER" });
 
   /* One charge in each company, so "scoped" means something. */
-  for (const [c, tag] of [[hotel, "mine"], [other, "theirs"]]) {
+  const pair: [typeof hotel, string][] = [[hotel, "mine"], [other, "theirs"]];
+  for (const [c, tag] of pair) {
     const res = await db.reservation.create({
       data: { orgId: c.org.id, ref: "RES-" + tag, guestName: "Guest " + tag,
               roomNumber: "101", nights: 2, rate: 1000n },

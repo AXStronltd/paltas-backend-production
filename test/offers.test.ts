@@ -191,12 +191,11 @@ async function chartOf(cookie: string) {
 }
 
 /** The same company, seen by somebody with a narrower role. */
-async function asRole(owner: string, role: import("@prisma/client").$Enums.Role) {
+async function asRole(
+  owner: Awaited<ReturnType<typeof company>>,
+  role: import("@prisma/client").$Enums.Role,
+) {
   const n = ++seq;
-  const org = await db.session.findFirst({
-    where: { tokenHash: { not: "" } }, select: { orgId: true },
-    orderBy: { createdAt: "desc" },
-  });
   const orgId = owner.orgId;
   const email = `role${n}@example.com`;
   const user = await db.user.create({
@@ -206,10 +205,10 @@ async function asRole(owner: string, role: import("@prisma/client").$Enums.Role)
   await db.session.create({
     data: {
       tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
-      userId: user.id, orgId, expiresAt: new Date(Date.now() + 3600_000),
+      userId: user.id, orgId: String(orgId), expiresAt: new Date(Date.now() + 3600_000),
     },
   });
-  await db.membership.create({ data: { userId: user.id, orgId, role } });
+  await db.membership.create({ data: { userId: user.id, orgId: String(orgId), role } });
   return `paltas_session=${token}`;
 }
 
@@ -219,7 +218,12 @@ async function asRole(owner: string, role: import("@prisma/client").$Enums.Role)
  * ====================================================================== */
 
 /** A buyer, a project, a unit and an offer on it. */
-async function offerOn(cookie: Wire, { price = 12_000_000, discount = 0, deposit = 1_000_000, validUntil } = {}) {
+async function offerOn(
+  cookie: string,
+  { price = 12_000_000, discount = 0, deposit = 1_000_000, validUntil }: {
+    price?: number; discount?: number; deposit?: number; validUntil?: string;
+  } = {},
+) {
   const k = ++seq;
   const site = await call("/sites", { method: "POST", cookie, body: { name: `Site ${k}`, city: "Nairobi" } });
   const project = await call("/projects", { method: "POST", cookie, body: { name: `Tower ${k}`, city: "Nairobi" } });
@@ -431,7 +435,7 @@ test("every move is recorded", { skip }, async () => {
   await call(`/offers/${o.offerId}/accept`, { method: "POST", cookie });
 
   const events = await db.auditEvent.findMany({
-    where: { orgId, action: { startsWith: "offer." } },
+    where: { orgId: String(orgId), action: { startsWith: "offer." } },
     select: { action: true },
   });
   const actions = new Set(events.map((e) => e.action));

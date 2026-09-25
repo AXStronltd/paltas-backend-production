@@ -85,7 +85,7 @@ function matches(path: Wire, pat: Wire) {
 }
 
 /** Walk src/ for every file. */
-function walk(dir: Wire, acc = []) {
+function walk(dir: string, acc: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) walk(full, acc);

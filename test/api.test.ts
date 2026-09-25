@@ -26,9 +26,9 @@ import crypto from "node:crypto";
 /* Reading the migrations off disk is db-help.js's job now, so the filesystem
    and path imports this file used to need have gone with it. */
 import { explain, freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
-import { portOf } from "./wire.ts";
+import { portOf, present } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
-import { present } from "./wire.ts";
+import { said, threw } from "./threw.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -152,9 +152,11 @@ async function call(
 
 /** A company with a product, a role and a subscription, made directly. */
 async function makeCompany(
-  { name, email, person, product, role, subscription = "ACTIVE", verification = "COMPLETE" }: {
-    name: string; email: string; person?: string;
-    product?: import("@prisma/client").$Enums.Product; role?: import("@prisma/client").$Enums.Role;
+  { name, email, person, product = "PROPERTY_MANAGEMENT", role = "OWNER",
+    subscription = "ACTIVE", verification = "COMPLETE" }: {
+    name: string; email: string; person: string;
+    product?: import("@prisma/client").$Enums.Product;
+    role?: import("@prisma/client").$Enums.Role;
     subscription?: import("@prisma/client").$Enums.SubscriptionStatus;
     verification?: import("@prisma/client").$Enums.VerificationStatus;
   },
@@ -215,7 +217,7 @@ test("an unsigned-in caller gets 401 from the session, not a crash", { skip }, a
 test("the session is never cached by anything in between", { skip }, async () => {
   const { cookie } = await signIn({ email: "cache@example.com", name: "C" });
   const r = await call("/auth/session", { cookie });
-  assert.match(r.headers.get("cache-control") || "", /no-store/);
+  assert.match(present(r.headers, "the reply carried no headers").get("cache-control") || "", /no-store/);
 });
 
 test("POST /auth/sessions points at Google rather than pretending to work", { skip }, async () => {
@@ -541,7 +543,7 @@ test("the public feed needs no session and leaks nothing", { skip }, async () =>
     assert.ok(!("createdBy" in p), "the public feed named an author");
     assert.ok(!("reviewHistory" in p), "the public feed carried a review history");
   }
-  assert.match(r.headers.get("cache-control") || "", /public/);
+  assert.match(present(r.headers, "the reply carried no headers").get("cache-control") || "", /public/);
 });
 
 /* ------------------------------------------------------------ helpers */
@@ -587,7 +589,7 @@ test("starting a sign-in hands the browser its pending state, and the callback s
 
   const setCookie = r.headers.getSetCookie
     ? r.headers.getSetCookie().join("\n")
-    : (r.headers.get("set-cookie") || "");
+    : (present(r.headers, "the reply carried no headers").get("set-cookie") || "");
   assert.match(setCookie, /paltas_oauth=/,
     "the browser is given nothing to bring back, so the callback cannot complete");
 
@@ -609,9 +611,9 @@ test("starting a sign-in hands the browser its pending state, and the callback s
    * use — the property the old Map got from deleting its entry as it read it.
    * A replayed callback then arrives with nothing.
    */
-  const state = new URL(r.headers.get("location")).searchParams.get("state");
+  const state = new URL(String(present(r.headers, "the reply carried no headers").get("location"))).searchParams.get("state");
   const cb = await fetch(
-    `${base}/auth/google/callback?code=irrelevant&state=${encodeURIComponent(state)}`,
+    `${base}/auth/google/callback?code=irrelevant&state=${encodeURIComponent(String(state))}`,
     { headers: { cookie: `paltas_oauth=${value}` }, redirect: "manual" });
 
   const cleared = cb.headers.getSetCookie
@@ -721,9 +723,9 @@ test("an address claimed by a DIFFERENT Google account is refused", { skip }, as
 
   await assert.rejects(
     () => upsertUser({ googleSub: "sub_intruder_B", email: "shared@example.com", name: "B", picture: "" }),
-    (e) => {
-      assert.equal(e.status, 403, `refused with ${e.status}, expected 403`);
-      assert.match(e.message, /already attached to a different Google account/);
+    (e: unknown) => {
+      assert.equal(threw(e).status, 403, `refused with ${threw(e).status}, expected 403`);
+      assert.match(said(e), /already attached to a different Google account/);
       return true;
     },
     "a second Google account took over an existing address");

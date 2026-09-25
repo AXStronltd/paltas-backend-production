@@ -84,12 +84,16 @@ test("the refusal reaches the operator instead of becoming a generic 500", () =>
 /** Run one thrown value through the real error handler and report what a caller sees. */
 function throughHandler(err: Wire) {
   let status = 0;
-  let body = null;
+  let body: Wire = null;
   const res = {
     status(code: Wire) { status = code; return this; },
     json(payload: Wire) { body = payload; return this; },
   };
-  errorHandler({ error() {} })(err, { method: "GET", originalUrl: "/x" }, res, () => {});
+  errorHandler({ error() {} })(
+    err,
+    { method: "GET", originalUrl: "/x" } as unknown as import("express").Request,
+    res as unknown as import("express").Response,
+    () => {});
   return { status, body };
 }
 
@@ -110,7 +114,7 @@ test("notConnected refuses rather than returning a believable zero", async () =>
    * "Nothing happened" is not an acceptable answer to "sync now" delivered as
    * a success, because the operator cannot tell it apart from a sync that ran.
    */
-  await assert.rejects(() => notConnected.sync({ name: "X" }), ChannelUnavailable);
+  await assert.rejects(() => notConnected.sync(), ChannelUnavailable);
   assert.equal(typeof notConnected.sync, "function");
 });
 

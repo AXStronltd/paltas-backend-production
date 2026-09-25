@@ -281,7 +281,12 @@ test("a permission check names an ACT, never a level", async () => {
   const readOnly = { role: "FINANCE", orgId: "x" };
   assert.ok(whyNotArea(readOnly, "documents", "update", "documents"),
     "a read-only role was allowed to update — the fix did not take");
-  assert.equal(whyNotArea(readOnly, "documents", "write", "documents"), null,
+  /* The act parameter is now a union of the five acts, so TypeScript refuses
+     this call before it runs — which is the stronger guard. The cast keeps the
+     runtime proof for the one caller a type cannot reach: a string that came
+     in off the wire. */
+  const asAct = (word: string) => word as Parameters<typeof whyNotArea>[2];
+  assert.equal(whyNotArea(readOnly, "documents", asAct("write"), "documents"), null,
     "passing a LEVEL now refuses, which is better — but this test's premise " +
     "has changed and its wording should change with it");
 

@@ -372,7 +372,7 @@ export interface CreativeMeta {
   readonly busy?: boolean;
 }
 
-export function creativeCheck(raw: unknown) {
+export function creativeCheck(raw: unknown): CreativeVerdict {
   /*
    * `unknown` because it arrives from a Json column, which Prisma types as
    * JsonValue and which nothing has validated. The fields are read through a
@@ -420,7 +420,15 @@ export function creativeCheck(raw: unknown) {
   return summarise(rows);
 }
 
-function summarise(rows: readonly CheckRow[]) {
+/** What a creative check answers. `none` is the no-image case, said out loud. */
+export interface CreativeVerdict {
+  readonly rows: readonly CheckRow[];
+  readonly worst: "ACTION" | "REVIEW" | "PASS";
+  readonly ready: boolean;
+  readonly none?: boolean;
+}
+
+function summarise(rows: readonly CheckRow[]): CreativeVerdict {
   const worst = rows.some((r) => r.st === "ACTION") ? "ACTION"
     : rows.some((r) => r.st === "REVIEW") ? "REVIEW" : "PASS";
   return { rows, worst, ready: !rows.some((r) => r.st === "ACTION") };

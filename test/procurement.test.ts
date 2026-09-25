@@ -213,12 +213,11 @@ async function chartOf(cookie: string) {
 }
 
 /** The same company, seen by somebody with a narrower role. */
-async function asRole(owner: string, role: import("@prisma/client").$Enums.Role) {
+async function asRole(
+  owner: Awaited<ReturnType<typeof company>>,
+  role: import("@prisma/client").$Enums.Role,
+) {
   const n = ++seq;
-  const org = await db.session.findFirst({
-    where: { tokenHash: { not: "" } }, select: { orgId: true },
-    orderBy: { createdAt: "desc" },
-  });
   const orgId = owner.orgId;
   const email = `role${n}@example.com`;
   const user = await db.user.create({
@@ -228,10 +227,10 @@ async function asRole(owner: string, role: import("@prisma/client").$Enums.Role)
   await db.session.create({
     data: {
       tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
-      userId: user.id, orgId, expiresAt: new Date(Date.now() + 3600_000),
+      userId: user.id, orgId: String(orgId), expiresAt: new Date(Date.now() + 3600_000),
     },
   });
-  await db.membership.create({ data: { userId: user.id, orgId, role } });
+  await db.membership.create({ data: { userId: user.id, orgId: String(orgId), role } });
   return `paltas_session=${token}`;
 }
 
@@ -672,7 +671,7 @@ test("none of it crosses a company", { skip }, async () => {
   const c = await contract(theirs.cookie, 1_000_000);
   const v = await variation(theirs.cookie, c.id);
 
-  const post = (path: Wire, body: Wire) => call(path, { method: "POST", cookie: mine.cookie, body: body || {} });
+  const post = (path: string, body?: Wire) => call(path, { method: "POST", cookie: mine.cookie, body: body || {} });
   assert.equal((await post(`/rfqs/${r.id}/issue`)).status, 404);
   assert.equal((await post(`/rfqs/${r.id}/award`, { quoteId: q.id, note: "x" })).status, 404);
   assert.equal((await post(`/purchase-orders/${o.id}/issue`)).status, 404);
@@ -719,7 +718,7 @@ test("every commitment and every variation is recorded", { skip }, async () => {
   await call(`/purchase-orders/${draft.id}/lines/${l.line.id}`, { method: "DELETE", cookie });
 
   const actions = new Set((await db.auditEvent.findMany({
-    where: { orgId }, select: { action: true } })).map((e) => e.action));
+    where: { orgId: String(orgId) }, select: { action: true } })).map((e) => e.action));
   for (const want of ["rfq.issue", "rfq.award", "purchase.issue", "purchase.invoice",
                       "purchase.line.remove", "change.submit", "change.decide"]) {
     assert.ok(actions.has(want), `${want} was not recorded`);

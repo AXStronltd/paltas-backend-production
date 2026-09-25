@@ -28,7 +28,7 @@ import crypto from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
-import { portOf } from "./wire.ts";
+import { portOf, present } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -152,7 +152,7 @@ test("a real estate agent gets from Google to a working console", { skip }, asyn
     include: { subscription: true, entitlements: true, memberships: true },
   });
   assert.ok(org, "no organization row was written");
-  assert.equal(org.subscription.status, "TRIALING",
+  assert.equal(present(org.subscription, "the company has no subscription row").status, "TRIALING",
     "a new company must be TRIALING — ACTIVE means somebody paid");
   assert.deepEqual(org.entitlements.map((e: Wire) => e.product), ["AGENT_HOST"],
     '"act_for" must entitle the agent product, and only that');

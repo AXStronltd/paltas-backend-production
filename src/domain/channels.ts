@@ -115,7 +115,12 @@ export interface SyncResult {
 
 let current: ChannelManager = notConnected;
 
-export function register(manager: ChannelManager): ChannelManager {
+/* The parameter is what a caller MIGHT hand over, not what a manager is:
+   the two checks below are the boundary, and typing them away would leave
+   them unreachable and the tests for them uncompilable. */
+export function register(
+  manager: Partial<ChannelManager> | null | undefined,
+): ChannelManager {
   if (!manager || typeof manager.sync !== "function") {
     throw new Error("A channel manager must implement sync().");
   }
@@ -124,7 +129,7 @@ export function register(manager: ChannelManager): ChannelManager {
       "A channel manager must have a name. Every sync it performs is recorded " +
       "against it, and an unnamed manager cannot be recorded.");
   }
-  current = manager;
+  current = manager as ChannelManager;
   return current;
 }
 
@@ -165,7 +170,7 @@ export function status() {
  * may print; there is no code path that returns a count without a manager
  * having produced it.
  */
-export async function sync(channel?: { name?: string }) {
+export async function sync(channel?: { name?: string; [key: string]: unknown }) {
   const out = await current.sync(channel);
   return {
     channel: channel?.name || "",

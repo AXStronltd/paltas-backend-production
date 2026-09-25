@@ -150,8 +150,8 @@ const EVERYTHING = ["PROPERTY_MANAGEMENT", "HOTEL_MANAGEMENT", "AGENT_HOST", "SE
  * string. Filling it with a label would make every such create fail for the
  * wrong reason and hide whatever the test was actually looking for.
  */
-function sample(r: Wire, label: Wire, made = {}) {
-  const body = {};
+function sample(r: Wire, label: string, made: Record<string, string | undefined> = {}) {
+  const body: Record<string, Wire> = {};
   for (const key of r.required || []) {
     const kind = r.fields[key];
     if (kind.startsWith("id:")) {
@@ -211,7 +211,7 @@ test(`the wall holds for every one of the ${Object.keys(RESOURCES).length} resou
   const a = await company({ products: EVERYTHING, role: "OWNER" });
   const b = await company({ products: EVERYTHING, role: "OWNER" });
 
-  const created = {};
+  const created: Record<string, string | undefined> = {};
 
   for (const [slug, r] of Object.entries(RESOURCES)) {
     /* Nothing creates these through the staff API — see `noCreate`. Their wall
@@ -221,7 +221,7 @@ test(`the wall holds for every one of the ${Object.keys(RESOURCES).length} resou
       method: "POST", cookie: a.cookie, body: sample(r, `A's ${slug}`, created),
     });
     assert.equal(made.status, 201, `could not create a ${slug}: ${made.text}`);
-    const row = Object.values(made.json)[0];
+    const row: Wire = Object.values(made.json)[0];
     created[r.model] = row?.id;
     assert.ok(row && row.id, `${slug}: the response has no row — ${made.text}`);
 

@@ -162,13 +162,17 @@ export function allSourceFiles(): string[] {
  */
 
 /** "comms-webhook.js" and "comms-webhook.ts" are the same source file. */
-export function sameSource(a: string, b: string): boolean {
+export function sameSource(a: string | undefined, b: string | undefined): boolean {
+  /* A name that is not there matches NOTHING. These comparisons gate
+     `continue` in the scanners, so a missing name that compared equal to
+     another missing name would silently skip a file from the sweep. */
+  if (a === undefined || b === undefined) return false;
   return baseName(a) === baseName(b);
 }
 
 /** A source file's name without whichever extension it is written in. */
 export function baseName(name: string): string {
-  return String(name).replace(/\.(js|ts)$/, "");
+  return name.replace(/\.(js|ts)$/, "");
 }
 
 /* ====================================================================== *

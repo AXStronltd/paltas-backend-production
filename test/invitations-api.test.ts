@@ -33,7 +33,7 @@ let db: typeof import("../src/db.ts")["db"];
 let pg: typeof import("pg")["default"];
 let upsertUser: typeof import("../src/routes/auth.ts")["upsertUser"];
 let createSession: typeof import("../src/auth/sessions.ts")["createSession"];
-let hashToken: typeof import("../src/auth/invitations.ts")["hashToken"];
+let hashToken: typeof import("../src/domain/invitations.ts")["hashToken"];
 
 if (!skip) {
   try {
@@ -128,7 +128,8 @@ test("an owner invites a colleague, who joins with the right role", { skip }, as
     "the address was not normalised — two spellings would be two people");
   assert.equal(made.json.invitation.state, "LIVE");
 
-  const token = new URL(made.json.link).searchParams.get("token");
+  const token = present(new URL(made.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
 
   /* The link says what it is, without a session. */
   const peek = await call(`/invitations/${token}`);
@@ -162,7 +163,8 @@ test("the token is never stored, and never comes back", { skip }, async () => {
     method: "POST", cookie: owner.cookie,
     body: { email: "x@example.com", role: "OPERATIONS" },
   });
-  const token = new URL(made.json.link).searchParams.get("token");
+  const token = present(new URL(made.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
 
   const row = present(await db.invitation.findFirst({ where: { orgId: org.id } }), "no row — the row this test made is gone");
   assert.notEqual(row.tokenHash, token, "the plaintext token is in the database");
@@ -188,7 +190,8 @@ test("a manager cannot mint an owner", { skip }, async () => {
     method: "POST", cookie: owner.cookie,
     body: { email: "mgr@example.com", role: "MANAGER" },
   });
-  const t = new URL(inv.json.link).searchParams.get("token");
+  const t = present(new URL(inv.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
   await call(`/invitations/${t}/accept`, { method: "POST", cookie: mgr.cookie });
 
   /* Now the manager tries to hand out OWNER. */
@@ -215,7 +218,8 @@ test("a specialist cannot invite at all", { skip }, async () => {
     method: "POST", cookie: owner.cookie,
     body: { email: "leasing@example.com", role: "LEASING" },
   });
-  const t = new URL(inv.json.link).searchParams.get("token");
+  const t = present(new URL(inv.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
   await call(`/invitations/${t}/accept`, { method: "POST", cookie: leasing.cookie });
 
   const bad = await call(`/organizations/${org.id}/invitations`, {
@@ -248,7 +252,8 @@ test("a link only works for the address it was sent to", { skip }, async () => {
     method: "POST", cookie: owner.cookie,
     body: { email: "intended@example.com", role: "OPERATIONS" },
   });
-  const token = new URL(made.json.link).searchParams.get("token");
+  const token = present(new URL(made.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
 
   const stranger = await person("stranger@example.com");
   const r = await call(`/invitations/${token}/accept`, {
@@ -269,7 +274,8 @@ test("a link works once", { skip }, async () => {
     method: "POST", cookie: owner.cookie,
     body: { email: "once@example.com", role: "FINANCE" },
   });
-  const token = new URL(made.json.link).searchParams.get("token");
+  const token = present(new URL(made.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
 
   const them = await person("once@example.com");
   assert.equal((await call(`/invitations/${token}/accept`, { method: "POST", cookie: them.cookie })).status, 201);
@@ -284,7 +290,8 @@ test("a withdrawn link stops working", { skip }, async () => {
     method: "POST", cookie: owner.cookie,
     body: { email: "gone@example.com", role: "OPERATIONS" },
   });
-  const token = new URL(made.json.link).searchParams.get("token");
+  const token = present(new URL(made.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
 
   const rev = await call(`/organizations/${org.id}/invitations/${made.json.invitation.id}/revoke`, {
     method: "POST", cookie: owner.cookie,
@@ -304,7 +311,8 @@ test("an expired link stops working", { skip }, async () => {
     method: "POST", cookie: owner.cookie,
     body: { email: "late@example.com", role: "OPERATIONS" },
   });
-  const token = new URL(made.json.link).searchParams.get("token");
+  const token = present(new URL(made.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
   await db.invitation.update({
     where: { id: made.json.invitation.id },
     data: { expiresAt: new Date(Date.now() - 1000) },
@@ -361,7 +369,8 @@ test("accepting needs a session", { skip }, async () => {
     method: "POST", cookie: owner.cookie,
     body: { email: "s@example.com", role: "OPERATIONS" },
   });
-  const token = new URL(made.json.link).searchParams.get("token");
+  const token = present(new URL(made.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
   const r = await call(`/invitations/${token}/accept`, { method: "POST" });
   assert.equal(r.status, 401);
 });
@@ -393,15 +402,21 @@ test("joining a second company does not disturb the first", { skip }, async () =
 
   const inv = await call(`/organizations/${b.org.id}/invitations`, {
     method: "POST", cookie: b.owner.cookie,
-    body: { email: (await db.user.findUnique({ where: { id: a.owner.user.id } })).email, role: "FINANCE" },
+    body: {
+      email: present(await db.user.findUnique({ where: { id: a.owner.user.id } }),
+        "the person who was invited is gone").email,
+      role: "FINANCE",
+    },
   });
-  const t = new URL(inv.json.link).searchParams.get("token");
+  const t = present(new URL(inv.json.link).searchParams.get("token"),
+    "the invitation link carries no token");
   const r = await call(`/invitations/${t}/accept`, { method: "POST", cookie: a.owner.cookie });
   assert.equal(r.status, 201, "a person cannot belong to two companies: " + r.text.slice(0, 160));
 
   const mine = await db.membership.findMany({ where: { userId: a.owner.user.id } });
   assert.equal(mine.length, 2);
-  assert.equal(mine.find((m: Wire) => m.orgId === a.org.id).role, "OWNER",
+  assert.equal(present(mine.find((m: Wire) => m.orgId === a.org.id),
+    "their own membership is gone").role, "OWNER",
     "joining another company changed their role in their own");
 });
 

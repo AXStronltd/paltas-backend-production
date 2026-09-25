@@ -158,7 +158,9 @@ export function explain(raw: unknown, url: unknown): string | null {
  * driver into every file that wants this helper's error messages.
  */
 export interface Connectable {
-  connect(): Promise<void> | void;
+  /* pg's own Client resolves to itself rather than to void, so the return is
+     left unread rather than pinned to void. */
+  connect(): Promise<unknown> | unknown;
 }
 
 /**

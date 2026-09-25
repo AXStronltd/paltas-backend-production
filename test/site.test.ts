@@ -214,12 +214,11 @@ async function chartOf(cookie: string) {
 }
 
 /** The same company, seen by somebody with a narrower role. */
-async function asRole(owner: string, role: import("@prisma/client").$Enums.Role) {
+async function asRole(
+  owner: Awaited<ReturnType<typeof company>>,
+  role: import("@prisma/client").$Enums.Role,
+) {
   const n = ++seq;
-  const org = await db.session.findFirst({
-    where: { tokenHash: { not: "" } }, select: { orgId: true },
-    orderBy: { createdAt: "desc" },
-  });
   const orgId = owner.orgId;
   const email = `role${n}@example.com`;
   const user = await db.user.create({
@@ -229,10 +228,10 @@ async function asRole(owner: string, role: import("@prisma/client").$Enums.Role)
   await db.session.create({
     data: {
       tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
-      userId: user.id, orgId, expiresAt: new Date(Date.now() + 3600_000),
+      userId: user.id, orgId: String(orgId), expiresAt: new Date(Date.now() + 3600_000),
     },
   });
-  await db.membership.create({ data: { userId: user.id, orgId, role } });
+  await db.membership.create({ data: { userId: user.id, orgId: String(orgId), role } });
   return `paltas_session=${token}`;
 }
 
@@ -544,7 +543,7 @@ test("rejecting a defect keeps why, because somebody raised it in good faith", {
 
 test("what stands between here and handover is grouped by how bad it is", { skip }, async () => {
   const { cookie } = await company();
-  const mk = (title: Wire, severity: Wire, extra: Wire) => call("/defects", { method: "POST", cookie,
+  const mk = (title: string, severity: string, extra?: Wire) => call("/defects", { method: "POST", cookie,
     body: { title, severity, ...(extra || {}) } });
   await mk("A", "CRITICAL");
   await mk("B", "MAJOR");
@@ -675,7 +674,7 @@ test("none of it crosses a company", { skip }, async () => {
   const diary = await call("/site-diary", { method: "POST", cookie: theirs.cookie,
     body: { projectId: pid, on: dayOf(0) } });
 
-  const post = (path: Wire) => call(path, { method: "POST", cookie: mine.cookie, body: {} });
+  const post = (path: string) => call(path, { method: "POST", cookie: mine.cookie, body: {} });
   assert.equal((await post(`/rfis/${r.id}/close`)).status, 404);
   assert.equal((await post(`/submittals/${s.id}/submit`)).status, 404);
   assert.equal((await post(`/inspections/${i.id}/record`)).status, 404);
@@ -716,7 +715,7 @@ test("every move in every register is recorded", { skip }, async () => {
   await call("/site-diary", { method: "POST", cookie, body: { projectId: pid, on: dayOf(0) } });
 
   const actions = new Set((await db.auditEvent.findMany({
-    where: { orgId }, select: { action: true } })).map((e) => e.action));
+    where: { orgId: String(orgId) }, select: { action: true } })).map((e) => e.action));
   for (const want of ["rfi.answer", "submittal.submit", "submittal.review",
                       "inspection.record", "defect.fixed", "defect.verify", "diary.write"]) {
     assert.ok(actions.has(want), `${want} was not recorded`);

@@ -213,12 +213,11 @@ async function chartOf(cookie: string) {
 }
 
 /** The same company, seen by somebody with a narrower role. */
-async function asRole(owner: string, role: import("@prisma/client").$Enums.Role) {
+async function asRole(
+  owner: Awaited<ReturnType<typeof company>>,
+  role: import("@prisma/client").$Enums.Role,
+) {
   const n = ++seq;
-  const org = await db.session.findFirst({
-    where: { tokenHash: { not: "" } }, select: { orgId: true },
-    orderBy: { createdAt: "desc" },
-  });
   const orgId = owner.orgId;
   const email = `role${n}@example.com`;
   const user = await db.user.create({
@@ -228,10 +227,10 @@ async function asRole(owner: string, role: import("@prisma/client").$Enums.Role)
   await db.session.create({
     data: {
       tokenHash: crypto.createHash("sha256").update(token).digest("hex"),
-      userId: user.id, orgId, expiresAt: new Date(Date.now() + 3600_000),
+      userId: user.id, orgId: String(orgId), expiresAt: new Date(Date.now() + 3600_000),
     },
   });
-  await db.membership.create({ data: { userId: user.id, orgId, role } });
+  await db.membership.create({ data: { userId: user.id, orgId: String(orgId), role } });
   return `paltas_session=${token}`;
 }
 
@@ -460,7 +459,7 @@ test("a sale is not complete while money is outstanding", { skip }, async () => 
   const u = await unit(cookie);
   const c = await contract(cookie, 12_000_000, u.id);
 
-  const step = (status: Wire, body: Wire) => call(`/contracts/${c.id}/status`, { method: "POST", cookie,
+  const step = (status: string, body?: Wire) => call(`/contracts/${c.id}/status`, { method: "POST", cookie,
     body: { status, ...(body || {}) } });
 
   await step("SOLD");
@@ -536,7 +535,7 @@ test("cancelling a sale puts the flat back on the market", { skip }, async () =>
 test("a contract only moves forwards", { skip }, async () => {
   const { cookie } = await company();
   const c = await contract(cookie, 1_000_000, (await unit(cookie)).id);
-  const step = (status: Wire, body: Wire) => call(`/contracts/${c.id}/status`, { method: "POST", cookie,
+  const step = (status: string, body?: Wire) => call(`/contracts/${c.id}/status`, { method: "POST", cookie,
     body: { status, ...(body || {}) } });
 
   assert.equal((await step("COMPLETED")).status, 409, "a reservation completed without being signed");
@@ -622,7 +621,8 @@ test("none of it crosses a company", { skip }, async () => {
   const m = await call(`/projects/${p.id}/team`, { method: "POST", cookie: theirs.cookie,
     body: { name: "Theirs", role: "PM" } });
 
-  const post = (path: Wire, body: Wire) => call(path, { method: "POST", cookie: mine.cookie, body: body || {} });
+  const post = (path: string, body?: Wire) =>
+    call(path, { method: "POST", cookie: mine.cookie, body: body || {} });
   assert.equal((await post(`/handovers/${h.id}/complete`, { receivedBy: "X" })).status, 404);
   assert.equal((await post(`/handovers/${h.id}/items`, { title: "X" })).status, 404);
   assert.equal((await call(`/handovers/${h.id}/readiness`, { cookie: mine.cookie })).status, 404);
@@ -669,7 +669,7 @@ test("every handover and every move on a sale is recorded", { skip }, async () =
   await finish(cookie, h.id);
 
   const actions = new Set((await db.auditEvent.findMany({
-    where: { orgId }, select: { action: true } })).map((e) => e.action));
+    where: { orgId: String(orgId) }, select: { action: true } })).map((e) => e.action));
   for (const want of ["handover.complete", "handover.item", "contract.status",
                       "project.team.join", "project.team.leave"]) {
     assert.ok(actions.has(want), `${want} was not recorded`);

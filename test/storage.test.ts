@@ -96,7 +96,7 @@ test("one company cannot be handed a link to another's file", () => {
 
   const ok = presignDownload({ storageKey: mine, orgId: ORG_A, env: ENV });
   assert.equal(ok.ok, true);
-  assert.match(ok.url, /X-Amz-Signature=/);
+  assert.match(String(ok.url), /X-Amz-Signature=/);
 
   const theirs = presignDownload({ storageKey: mine, orgId: ORG_B, env: ENV });
   assert.equal(theirs.ok, false, "*** a company was signed a link to another company's file ***");
@@ -157,9 +157,9 @@ test("the upload is confirmed from storage, not from the uploader", async () => 
   const key = keyFor({ orgId: ORG_A, documentId: "d1", filename: "deed.pdf" });
   const fetchImpl = async () => ({
     ok: true, status: 200,
-    headers: { get: (h: Wire) => ({
+    headers: { get: (h: string) => (({
       "content-length": "2048", "content-type": "application/pdf", etag: '"abc123"',
-    })[h.toLowerCase()] },
+    }) as Record<string, string | undefined>)[h.toLowerCase()] ?? null },
   });
   const out = await head({ storageKey: key, orgId: ORG_A, env: ENV, fetchImpl });
   assert.deepEqual(
@@ -172,7 +172,7 @@ test("a file that was never uploaded is not confirmed", async () => {
   const gone = await head({ storageKey: key, orgId: ORG_A, env: ENV,
     fetchImpl: async () => ({ ok: false, status: 404, headers: { get: () => null } }) });
   assert.equal(gone.ok, false);
-  assert.match(gone.why, /No file/);
+  assert.match(String(gone.why), /No file/);
 
   const broken = await head({ storageKey: key, orgId: ORG_A, env: ENV,
     fetchImpl: async () => { throw new Error("network"); } });
@@ -200,11 +200,11 @@ import type { Wire } from "./wire.ts";
 
 /** A minimal S3-shaped store: PUT keeps the bytes, HEAD and GET report them. */
 function objectStore() {
-  const objects = new Map();
+  const objects = new Map<string, { body: Buffer; type: string }>();
   const server = http.createServer((req, res) => {
-    const key = decodeURIComponent(req.url.split("?")[0]);
+    const key = decodeURIComponent(String(req.url).split("?")[0] ?? "");
     if (req.method === "PUT") {
-      const chunks = [];
+      const chunks: Buffer[] = [];
       req.on("data", (c) => chunks.push(c));
       req.on("end", () => {
         const body = Buffer.concat(chunks);
@@ -229,7 +229,7 @@ function objectStore() {
 
 test("a file goes up, is confirmed, and comes back byte for byte", async () => {
   const { server, objects } = objectStore();
-  await new Promise((r) => server.listen(0, r));
+  await new Promise<void>((r) => { server.listen(0, () => r()); });
   const env = { ...ENV, R2_ENDPOINT: `http://127.0.0.1:${portOf(server)}` };
 
   try {
@@ -243,7 +243,7 @@ test("a file goes up, is confirmed, and comes back byte for byte", async () => {
     assert.equal(up.ok, true, up.why);
 
     /* 2 — the browser uploads straight to storage. Nothing through PALTAS. */
-    const put = await fetch(up.url, { method: "PUT", headers: up.headers, body: fileBytes });
+    const put = await fetch(String(up.url), { method: "PUT", headers: up.headers, body: fileBytes });
     assert.equal(put.status, 200, "the signed upload was rejected by storage");
     assert.equal(objects.size, 1);
     assert.ok([...objects.keys()][0].includes(`org/${ORG_A}/documents/doc_1/`),
@@ -261,7 +261,7 @@ test("a file goes up, is confirmed, and comes back byte for byte", async () => {
       storageKey: up.storageKey, orgId: ORG_A, filename: "Certificate of Incorporation.pdf", env,
     });
     assert.equal(down.ok, true, down.why);
-    const got = await fetch(down.url);
+    const got = await fetch(String(down.url));
     assert.equal(got.status, 200);
     assert.deepEqual(Buffer.from(await got.arrayBuffer()), fileBytes,
       "what came back is not what went in");

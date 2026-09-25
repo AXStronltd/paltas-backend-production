@@ -302,7 +302,7 @@ test("removing a product suspends it and never deletes it", { skip }, async () =
     where: { orgId: them.org.id, action: "provisioning.entitlement.suspended" },
   });
   assert.ok(audit, "the customer cannot see that a product was taken away");
-  assert.equal(audit.detail.why, "moved to annual billing");
+  assert.equal((audit.detail as Wire)?.why, "moved to annual billing");
 });
 
 test("suspending twice is refused rather than silently repeated", { skip }, async () => {

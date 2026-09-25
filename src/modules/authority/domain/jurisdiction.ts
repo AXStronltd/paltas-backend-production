@@ -189,9 +189,23 @@ export async function authorityContext(
   };
 }
 
+/**
+ * The part of a context these two read. Named separately because neither
+ * touches the profile or the mandate list, and a caller with a reach in hand
+ * should not have to assemble a whole context to ask.
+ */
+export interface DatasetReach {
+  readonly within: boolean;
+  readonly datasets: readonly AuthorityDataset[];
+  readonly verified?: boolean;
+  /* Only the path is read here, so only the path is asked for. */
+  readonly jurisdiction?: { readonly path: string };
+  readonly why?: string;
+}
+
 /** May this authority context read this dataset? */
 export function mayDataset(
-  authority: AuthorityContext | null | undefined,
+  authority: DatasetReach | null | undefined,
   dataset: AuthorityDataset,
 ): boolean {
   if (!authority || !authority.within) return false;
@@ -203,7 +217,7 @@ export function mayDataset(
  * go and ask for the right one rather than guessing.
  */
 export function whyNotDataset(
-  authority: AuthorityContext | null | undefined,
+  authority: DatasetReach | null | undefined,
   dataset: AuthorityDataset,
   what: string,
 ): string | null {
