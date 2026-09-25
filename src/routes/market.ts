@@ -27,6 +27,7 @@
  * ====================================================================== */
 
 import { Router } from "express";
+import type { Request } from "express";
 import { countries, localization, paymentMethods, services } from "../domain/market.ts";
 import { badRequest } from "../http/errors.ts";
 
@@ -44,7 +45,7 @@ export const marketRoutes = Router();
 const CACHE = "public, max-age=600, stale-while-revalidate=3600";
 
 /** The country the caller asked about, upper-cased, or a 400 saying why. */
-function wanted(req, { required }) {
+function wanted(req: Request, { required }: { required: boolean }): string | null {
   const raw = req.query.country;
   if (!raw) {
     if (!required) return null;

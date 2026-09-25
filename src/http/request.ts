@@ -100,5 +100,46 @@ export interface AuthenticatedRequest extends Request {
   readonly session: SessionWithUser;
 }
 
+/**
+ * THE CALLER, ON A ROUTER THAT HAS ALREADY REQUIRED ONE.
+ *
+ * `req.actor` is optional and stays optional — see the long note at the top
+ * of this file for why that is the honest declaration. This is how a handler
+ * that IS behind requireSession() + requireOrganization() reads it without
+ * an `if` that could never be true and could never be tested.
+ *
+ * A thrown error rather than a cast. If a router is ever mounted without its
+ * guards, the failure names that, at the first line of the first handler,
+ * instead of reading `undefined.orgId` three frames later.
+ *
+ * `where` is the caller's own description of itself, because "a route ran
+ * with no actor" is a sentence somebody has to act on and it does not say
+ * which route.
+ */
+export function actorOf(req: Request, where = "a route"): Actor {
+  const actor = req.actor;
+  if (!actor) {
+    throw new Error(
+      `${where} ran with no actor — it must stay mounted behind requireSession() ` +
+      "and requireOrganization()");
+  }
+  return actor;
+}
+
+/**
+ * The session, on the same routers, for the same reason.
+ *
+ * Separate from actorOf() rather than folded into it: an actor is built from
+ * memberships and a session is who signed in, and there are routes that have
+ * a session and no company — `POST /organizations` is exactly one.
+ */
+export function sessionOf(req: Request, where = "a route"): SessionWithUser {
+  const session = req.session;
+  if (!session) {
+    throw new Error(`${where} ran with no session — it must stay mounted behind requireSession()`);
+  }
+  return session;
+}
+
 /** Levels, re-exported so a route can name one without reaching into access. */
 export type { Level };

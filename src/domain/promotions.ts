@@ -9,6 +9,7 @@
 
 import { badRequest } from "../http/errors.ts";
 import type { PromotionAct } from "./rights.ts";
+import type { Prisma } from "@prisma/client";
 
 /* ------------------------------------------------------- the public gate */
 
@@ -24,11 +25,24 @@ import type { PromotionAct } from "./rights.ts";
  *   2. today is inside startDate–endDate
  *   3. it has a headline and a call to action — something to show, somewhere to go
  */
-/** The twelve states a promotion moves through. */
-export type PromotionState =
-  | "DRAFT" | "SUBMITTED" | "UNDER_REVIEW" | "CHANGES_REQUESTED" | "RESUBMITTED"
-  | "MARKETING_APPROVED" | "FINAL_APPROVED" | "SCHEDULED" | "PUBLISHED"
-  | "PAUSED" | "EXPIRED" | "REJECTED";
+/**
+ * THE TWELVE STATES A PROMOTION MOVES THROUGH.
+ *
+ * The list and the type are one declaration, so a state added to one is added
+ * to both. A route that has to check a status a CALLER sent needs the runtime
+ * list; every other file wants the type.
+ */
+export const PROMOTION_STATES = [
+  "DRAFT", "SUBMITTED", "UNDER_REVIEW", "CHANGES_REQUESTED", "RESUBMITTED",
+  "MARKETING_APPROVED", "FINAL_APPROVED", "SCHEDULED", "PUBLISHED",
+  "PAUSED", "EXPIRED", "REJECTED",
+] as const;
+
+export type PromotionState = typeof PROMOTION_STATES[number];
+
+/** Is this string one of them? For input that came from a caller. */
+export const isPromotionState = (v: string): v is PromotionState =>
+  (PROMOTION_STATES as readonly string[]).includes(v);
 
 /** The ten moves between them. */
 export type PromotionTransition =
@@ -40,7 +54,7 @@ export const PUBLIC_STATES: ReadonlySet<string> = new Set(["PUBLISHED"]);
 export const isPublicState = (status: unknown): boolean => PUBLIC_STATES.has(String(status));
 
 /** Given a date, the Prisma `where` that answers "what may the world see". */
-export function publicWhere(today?: Date | null) {
+export function publicWhere(today?: Date | null): Prisma.PromotionWhereInput {
   const day = startOfDay(today || new Date());
   return {
     status: "PUBLISHED",
@@ -358,7 +372,15 @@ export interface CreativeMeta {
   readonly busy?: boolean;
 }
 
-export function creativeCheck(meta: CreativeMeta | null | undefined) {
+export function creativeCheck(raw: unknown) {
+  /*
+   * `unknown` because it arrives from a Json column, which Prisma types as
+   * JsonValue and which nothing has validated. The fields are read through a
+   * coerced view: a record missing `w` and `h` fails every size check and
+   * comes back ACTION, which is the right answer for a malformed one.
+   */
+  const meta = (typeof raw === "object" && raw !== null && !Array.isArray(raw))
+    ? raw as unknown as CreativeMeta : null;
   if (!meta) return { rows: [], worst: "ACTION", ready: false, none: true };
   const R = CREATIVE_RULES;
   const rows: CheckRow[] = [];

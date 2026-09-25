@@ -32,13 +32,14 @@
 import { Router } from "express";
 import express from "express";
 import { db } from "../db.ts";
-import { processor, isConnected, wireAccount } from "../payments/stripe.js";
-
+import { processor, isConnected, wireAccount } from "../payments/stripe.ts";
+import type { StripeEvent } from "../payments/stripe.ts";
+import { messageOf } from "../http/errors.ts";
 export const stripeWebhookRoutes = Router();
 
 const log = {
-  info: (...a) => console.log(new Date().toISOString(), "[stripe]", ...a),
-  error: (...a) => console.error(new Date().toISOString(), "[stripe]", ...a),
+  info: (...a: unknown[]) => console.log(new Date().toISOString(), "[stripe]", ...a),
+  error: (...a: unknown[]) => console.error(new Date().toISOString(), "[stripe]", ...a),
 };
 
 stripeWebhookRoutes.post("/webhooks/stripe",
@@ -93,7 +94,7 @@ stripeWebhookRoutes.post("/webhooks/stripe",
     try {
       await handle(event);
     } catch (e) {
-      error = String((e && e.message) || e).slice(0, 400);
+      error = (messageOf(e) || String(e)).slice(0, 400);
       log.error("handler failed for", event.type, event.id, error);
     }
 
@@ -102,7 +103,7 @@ stripeWebhookRoutes.post("/webhooks/stripe",
         where: { id: String(event.id) },
         data: { handled: !error, handledAt: new Date(), error },
       });
-    } catch (e) { log.error("could not mark the event handled:", e && e.message); }
+    } catch (e) { log.error("could not mark the event handled:", messageOf(e)); }
 
     /* Always 200 once verified — see the note at the top of this file. */
     res.json({ received: true });
@@ -111,8 +112,20 @@ stripeWebhookRoutes.post("/webhooks/stripe",
 /* ---------------------------------------------------------------- *
  * WHAT EACH EVENT MEANS.
  * ---------------------------------------------------------------- */
-async function handle(event) {
-  const o = event.data && event.data.object;
+/**
+ * Read one property off the event's object without asserting its shape.
+ *
+ * `data.object` has been through a signature check — Stripe really did send
+ * it — but that says the bytes are authentic, not that they are the shape
+ * this file expects. Every field is still read one at a time.
+ */
+const at = (v: unknown, key: string): unknown =>
+  (typeof v === "object" && v !== null) ? (v as Record<string, unknown>)[key] : undefined;
+
+async function handle(event: StripeEvent) {
+  const o = event.data?.object;
+  const id = at(o, "id");
+  const metadata = at(o, "metadata");
 
   switch (event.type) {
     /*
@@ -122,23 +135,23 @@ async function handle(event) {
      */
     case "account.updated":
     case "v2.core.account.updated": {
-      if (!o || !o.id) return;
+      if (!o || !id) return;
       const wired = wireAccount(o);
       /* STRIPE TELLS US THE ACCOUNT, NOT THE COMPANY — there is no session and no
          actor here, and `acct_...` is globally unique. The orgId is what this
          lookup resolves; it cannot also be its filter. Safe because nothing runs
          before the signature verifies. */
-      const before = await db.connectedAccount.findUnique({ where: { accountId: String(o.id) } });
+      const before = await db.connectedAccount.findUnique({ where: { accountId: String(id) } });
       if (!before) {
-        log.info("account.updated for an account PALTAS does not know:", o.id);
+        log.info("account.updated for an account PALTAS does not know:", id);
         return;
       }
       await db.connectedAccount.update({
-        where: { accountId: String(o.id) },
+        where: { accountId: String(id) },
         data: { ...wired, lastSyncedAt: new Date() },
       });
       if (before.cardPaymentsStatus !== wired.cardPaymentsStatus) {
-        log.info(`account ${o.id}: card_payments ${before.cardPaymentsStatus} -> ${wired.cardPaymentsStatus}`);
+        log.info(`account ${id}: card_payments ${before.cardPaymentsStatus} -> ${wired.cardPaymentsStatus}`);
       }
       return;
     }
@@ -152,33 +165,36 @@ async function handle(event) {
      * mid-payment would otherwise leave a Payment row for money nobody sent.
      */
     case "payment_intent.succeeded": {
-      if (!o || !o.id) return;
-      const orgId = (o.metadata && o.metadata.paltas_org_id) || "";
+      if (!o || !id) return;
+      const orgId = String(at(metadata, "paltas_org_id") || "");
       if (!orgId) {
-        log.info("a succeeded payment carried no company id:", o.id);
+        log.info("a succeeded payment carried no company id:", id);
         return;
       }
 
       /* Belt and braces with the event table: the same intent must not produce
          two Payment rows even if it somehow arrives under two event ids. */
-      const seen = await db.payment.findFirst({ where: { orgId, providerRef: String(o.id) } });
+      const seen = await db.payment.findFirst({ where: { orgId, providerRef: String(id) } });
       if (seen) return;
 
       await db.payment.create({
         data: {
           orgId,
-          invoiceId: (o.metadata && o.metadata.paltas_invoice_id) || null,
+          invoiceId: at(metadata, "paltas_invoice_id")
+            ? String(at(metadata, "paltas_invoice_id")) : null,
           /* Minor units, exactly as Stripe reports them. */
-          amount: BigInt(o.amount_received ?? o.amount ?? 0),
-          currency: String(o.currency || "").toUpperCase(),
+          amount: BigInt(
+            (at(o, "amount_received") ?? at(o, "amount") ?? 0) as number | string),
+          currency: String(at(o, "currency") || "").toUpperCase(),
           method: "CARD",
-          providerRef: String(o.id),
-          reference: String((o.metadata && o.metadata.paltas_reference) || ""),
-          receivedAt: o.created ? new Date(o.created * 1000) : new Date(),
+          providerRef: String(id),
+          reference: String(at(metadata, "paltas_reference") || ""),
+          receivedAt: at(o, "created")
+            ? new Date(Number(at(o, "created")) * 1000) : new Date(),
           receivedBy: "stripe",
         },
       });
-      log.info("recorded a payment for", orgId, o.id);
+      log.info("recorded a payment for", orgId, id);
       return;
     }
 
@@ -187,7 +203,7 @@ async function handle(event) {
      * voided one would put money that never existed into a company's books.
      */
     case "payment_intent.payment_failed":
-      log.info("payment failed:", o && o.id, (o && o.last_payment_error && o.last_payment_error.code) || "");
+      log.info("payment failed:", id, at(at(o, "last_payment_error"), "code") || "");
       return;
 
     /*
@@ -198,7 +214,7 @@ async function handle(event) {
      */
     case "charge.refunded":
     case "charge.dispute.created":
-      log.info(event.type, o && o.id, "— needs a human decision, not an automatic reversal");
+      log.info(event.type, id, "— needs a human decision, not an automatic reversal");
       return;
 
     default:

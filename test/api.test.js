@@ -613,7 +613,7 @@ const IDENTITY = {
 };
 
 test("a first sign-in creates the account", { skip }, async () => {
-  const { upsertUser } = await import("../src/routes/auth.js");
+  const { upsertUser } = await import("../src/routes/auth.ts");
 
   const before = await db.user.findUnique({ where: { email: IDENTITY.email } });
   assert.equal(before, null, "the fixture is dirty — this person already exists");
@@ -632,7 +632,7 @@ test("a first sign-in creates the account", { skip }, async () => {
 });
 
 test("signing in again returns the same person, not a second one", { skip }, async () => {
-  const { upsertUser } = await import("../src/routes/auth.js");
+  const { upsertUser } = await import("../src/routes/auth.ts");
 
   const first = await upsertUser(IDENTITY);
   const second = await upsertUser(IDENTITY);
@@ -643,7 +643,7 @@ test("signing in again returns the same person, not a second one", { skip }, asy
 });
 
 test("a returning person's name and picture are refreshed from Google", { skip }, async () => {
-  const { upsertUser } = await import("../src/routes/auth.js");
+  const { upsertUser } = await import("../src/routes/auth.ts");
   await upsertUser(IDENTITY);
 
   const updated = await upsertUser({ ...IDENTITY, name: "New Name", picture: "https://lh3.example/2.jpg" });
@@ -656,7 +656,7 @@ test("a returning person's name and picture are refreshed from Google", { skip }
 });
 
 test("an address already on file is claimed by its Google account", { skip }, async () => {
-  const { upsertUser } = await import("../src/routes/auth.js");
+  const { upsertUser } = await import("../src/routes/auth.ts");
 
   /*
    * Somebody invited to a company before they ever signed in: a User row with
@@ -679,7 +679,7 @@ test("an address already on file is claimed by its Google account", { skip }, as
 });
 
 test("an address claimed by a DIFFERENT Google account is refused", { skip }, async () => {
-  const { upsertUser } = await import("../src/routes/auth.js");
+  const { upsertUser } = await import("../src/routes/auth.ts");
 
   /*
    * THE REFUSAL THAT MATTERS MOST, AND IT HAD NO TEST.
@@ -711,7 +711,7 @@ test("a new account can sign in and reach its own data", { skip }, async () => {
    * walks it: create the account the way the Google callback does, mint the
    * session the same way, and call the endpoints a new guest would hit.
    */
-  const { upsertUser } = await import("../src/routes/auth.js");
+  const { upsertUser } = await import("../src/routes/auth.ts");
   const user = await upsertUser({
     googleSub: "sub_walks_001", email: "walks@example.com", name: "Walker", picture: "",
   });

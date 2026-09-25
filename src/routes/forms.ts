@@ -30,10 +30,34 @@ import { requireSession, requireOrganization } from "../http/session.ts";
 
 export const formRoutes = Router();
 
-/** The values an enum takes, from the generated client rather than a copy. */
-function enumValues(name) {
-  const e = pkg[name] || (pkg.Prisma && pkg.Prisma[name]);
+/**
+ * The values an enum takes, from the generated client rather than a copy.
+ *
+ * Read through a Record index rather than the module's own type: the name
+ * arrives as a string off a field kind ("enum:LeaseStatus"), so there is
+ * nothing at compile time to key the module's shape by.
+ */
+function enumValues(name: string): string[] | null {
+  const bag = pkg as unknown as Record<string, unknown>;
+  const nested = bag["Prisma"] as Record<string, unknown> | undefined;
+  const e = bag[name] ?? nested?.[name];
   return e && typeof e === "object" ? Object.keys(e) : null;
+}
+
+/**
+ * One field of a generated form, as the console renders it.
+ *
+ * `options` is present only for an enum and `lookup` only for a reference —
+ * which is why both are optional rather than empty defaults: a blank select
+ * and a select the form has not decided about yet look the same on screen.
+ */
+interface FormField {
+  readonly name: string;
+  readonly label: string;
+  readonly kind: string;
+  readonly required: boolean;
+  options?: string[];
+  lookup?: string;
 }
 
 /**
@@ -42,8 +66,8 @@ function enumValues(name) {
  * The console's own word where console-map gives one, because the customer
  * reads "Rent", not "monthlyRentMinor".
  */
-function humanise(key) {
-  const SPECIAL = {
+function humanise(key: string): string {
+  const SPECIAL: Readonly<Record<string, string>> = {
     siteId: "Property", buildingId: "Building", unitId: "Unit",
     partyId: "Contact", tenantId: "Tenant", investorId: "Investor",
     orgId: "Company", sqm: "Size (m²)", ref: "Reference",
@@ -75,7 +99,14 @@ function humanise(key) {
 formRoutes.get("/console/forms",
   requireSession(), requireOrganization(),
   (_req, res) => {
-    const out = {};
+    /* One entry per console screen that can create something. */
+    const out: Record<string, {
+      resource: string;
+      label: string;
+      product: string | null;
+      area: string;
+      fields: FormField[];
+    }> = {};
 
     for (const [screen, spec] of Object.entries(CONSOLE_FORMS)) {
       const resource = RESOURCES[spec.resource];
@@ -108,7 +139,7 @@ formRoutes.get("/console/forms",
           label: humanise(backendName),
           kind,
           required: required.has(backendName),
-        };
+        } as FormField;
         if (kind.startsWith("enum:")) field.options = enumValues(kind.slice(5)) || [];
         if (kind.startsWith("id:")) field.lookup = kind.slice(3);   /* which list to pick from */
         fields.push(field);
@@ -123,7 +154,7 @@ formRoutes.get("/console/forms",
         if (fields.some((f) => f.name === name)) continue;
         const kind = resource.fields[name];
         if (!kind) continue;
-        const field = { name, label: humanise(name), kind, required: true };
+        const field: FormField = { name, label: humanise(name), kind, required: true };
         if (kind.startsWith("enum:")) field.options = enumValues(kind.slice(5)) || [];
         if (kind.startsWith("id:")) field.lookup = kind.slice(3);
         fields.unshift(field);                    /* required first */

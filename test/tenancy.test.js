@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
  * company and another company's data, and a `.js` filter over a directory of
  * `.ts` files does not fail — it finds nothing and passes. See test/src-files.js.
  */
-import { allSourceFiles, resolveSource, SRC, sourceFiles, sourceText } from "./src-files.js";
+import { allSourceFiles, resolveSource, sameSource, SRC, sourceFiles, sourceText } from "./src-files.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -326,7 +326,7 @@ test("no query against an org-owned model escapes its organization", () => {
       const to = Math.min(lines.length, line + 20);
       const context = lines.slice(from, to).join("\n");
 
-      const exempt = EXEMPT.find((e) => e.file === name && e.match.test(context));
+      const exempt = EXEMPT.find((e) => sameSource(e.file, name) && e.match.test(context));
       if (exempt) continue;
 
       /*
@@ -409,8 +409,23 @@ test("a person only ever acts for an organization they belong to", () => {
   assert.ok(handler, "the organization-switch route is gone");
   assert.match(handler[0], /db\.membership\.findUnique/,
     "switching organization does not verify membership — anybody could act for anybody");
-  assert.match(handler[0], /userId:\s*req\.session\.userId/,
+  /*
+   * THE USER ID COMES FROM THE SESSION, AND FROM NOTHING ELSE.
+   *
+   * This matched the literal `userId: req.session.userId`, which stopped
+   * matching the day the handler read the session through a helper — a test
+   * failing over a spelling while the rule it guards was untouched.
+   *
+   * What actually matters is the pair: the id is the SESSION's, and it is
+   * not the body's. So both halves are asserted, and either spelling of the
+   * first is accepted.
+   */
+  assert.match(handler[0], /userId:\s*(req\.)?session(Of\([^)]*\))?\.userId/,
     "the membership check does not use the SESSION's user id");
+  assert.doesNotMatch(handler[0], /userId:\s*(req\.)?body/,
+    "the membership check reads a user id out of the request body");
+  assert.doesNotMatch(handler[0], /userId:\s*String\(/,
+    "the membership check builds a user id from a caller's string");
 });
 
 test("nothing trusts an organization id sent by the caller", () => {
@@ -434,7 +449,7 @@ test("nothing trusts an organization id sent by the caller", () => {
      * check that exists only to satisfy a test is worse than no check: the
      * next reader believes it does something.
      */
-    if (name === "platform.js") continue;
+    if (sameSource(name, "platform.js")) continue;
     /*
      * PROVISIONING IS NOT MAKING A TRUST DECISION EITHER — and unlike the
      * console above it WRITES, so this is worth stating rather than borrowing
@@ -450,7 +465,7 @@ test("nothing trusts an organization id sent by the caller", () => {
      * grant PLATFORM without confirmStaffAccess, and the audit row written to
      * the customer's own trail. provisioning-api.test.js covers all three.
      */
-    if (name === "provisioning.js") continue;
+    if (sameSource(name, "provisioning.js")) continue;
     const text = readFileSync(file, "utf8");
     for (const m of text.matchAll(/req\.(body|query|params)\??\.\w*[Oo]rg\w*/g)) {
       const line = text.slice(0, m.index).split("\n").length;
@@ -623,7 +638,7 @@ test("nothing outside the framework reaches a model through a variable", () => {
   for (const p of allSourceFiles()) {
     const entry = { name: p.split("/").pop() };
     /* `resource.js` and `products.js` however they are spelled. */
-    if (ALLOWED.has(entry.name.replace(/\.ts$/, ".js"))) continue;
+    if ([...ALLOWED].some((a) => sameSource(a, entry.name))) continue;
     scanned += 1;
     /* Comments do not run. registry.js documents the shape in prose, and
        reporting its own documentation as a violation is the sort of false

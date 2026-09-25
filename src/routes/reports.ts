@@ -23,7 +23,9 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
-import { levelFor, whyNotArea } from "../domain/access.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Act } from "../domain/access.ts";
+import { actorOf } from "../http/request.ts";import { levelFor, whyNotArea } from "../domain/access.ts";
 import { RESOURCES } from "../domain/registry.ts";
 import { forbidden, hidden } from "../http/errors.ts";
 import {
@@ -34,17 +36,25 @@ export const reportRoutes = Router();
 
 reportRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription());
 
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(e); }
-};
+/**
+ * One handler, with its `try`/`catch` written once.
+ *
+ * Every report below is a read that can throw a refusal, and a route that
+ * forgets `next(e)` turns a 403 into a hung request.
+ */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(e); }
+  };
 
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, "property", act, label);
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a reports route"), "property", act, label);
   if (why) throw forbidden(why);
 }
 
 /** Can this person see money at all. Decides whether the report carries any. */
-const seesMoney = (req) => levelFor(req.actor, "finance") !== "none";
+const seesMoney = (req: Request): boolean =>
+  levelFor(actorOf(req, "a reports route"), "finance") !== "none";
 
 /**
  * A section, with the one distinction that matters.
@@ -55,7 +65,8 @@ const seesMoney = (req) => levelFor(req.actor, "finance") !== "none";
  * clear". A dashboard that cannot tell those apart is a dashboard that hides
  * the first one, and the first one is the problem.
  */
-const section = (total, body) => ({ recorded: total > 0, total, ...body });
+const section = <T extends object>(total: number, body: T) =>
+  ({ recorded: total > 0, total, ...body });
 
 /* ====================================================================== *
  * THE REPORT
@@ -70,7 +81,7 @@ const section = (total, body) => ({ recorded: total > 0, total, ...body });
  */
 reportRoutes.get("/projects/:id/report", route(async (req, res) => {
   need(req, "get", "projects");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a reports route").orgId;
   const project = await db.project.findFirst({ where: { id: req.params.id, orgId } });
   if (!project) throw hidden();
 
@@ -110,7 +121,7 @@ reportRoutes.get("/projects/:id/report", route(async (req, res) => {
       overdue: overdueMilestones.length,
       next: milestones
         .filter((m) => m.status === "PENDING" && m.dueOn)
-        .sort((a, b) => a.dueOn - b.dueOn)
+        .sort((a, b) => Number(a.dueOn) - Number(b.dueOn))
         .slice(0, 3)
         .map((m) => ({ name: m.name, dueOn: m.dueOn, owner: m.owner })),
     },
@@ -123,9 +134,12 @@ reportRoutes.get("/projects/:id/report", route(async (req, res) => {
     db.defect.findMany({ where: { orgId, projectId: id } }),
   ]);
 
-  const lapsed = (p) => p.status === "APPROVED" && p.expiresOn && p.expiresOn < now;
-  const granted = (p) => p.status === "APPROVED" && !lapsed(p);
-  const openDefect = (d) => ["OPEN", "IN_PROGRESS", "FIXED"].includes(d.status);
+  const lapsed = (p: { status: string; expiresOn?: Date | null }) =>
+    p.status === "APPROVED" && Boolean(p.expiresOn) && p.expiresOn! < now;
+  const granted = (p: { status: string; expiresOn?: Date | null }) =>
+    p.status === "APPROVED" && !lapsed(p);
+  const openDefect = (d: { status: string }) =>
+    ["OPEN", "IN_PROGRESS", "FIXED"].includes(d.status);
 
   const blockers = {
     rfis: section(rfis.length, {
@@ -262,7 +276,10 @@ reportRoutes.get("/projects/:id/report", route(async (req, res) => {
 
   res.json({
     project: {
-      id: project.id, name: project.name, status: project.status,
+      id: project.id, name: project.name,
+      /* A development's own column is `stage`; there is no `status`. This
+         read `project.status` and sent undefined to every report screen. */
+      status: project.stage,
       city: project.city, currency: project.currency,
     },
     generatedAt: now,
@@ -307,10 +324,14 @@ reportRoutes.get("/projects/:id/report", route(async (req, res) => {
  * Fifteen lines a reader can check are worth more than one clever one they
  * cannot.
  */
-async function projectClauses(orgId, projectId, readable) {
+async function projectClauses(
+  orgId: string, projectId: string, readable: ReadonlySet<string>,
+) {
   const where = { orgId, projectId };
-  const clauses = [];
-  const add = (model, rows) => {
+  /* An `entityId` is either a list of ids or one id — the project row itself
+     is a single entity and the registers it owns are lists. */
+  const clauses: { entity: string; entityId: { in: string[] } | string }[] = [];
+  const add = (model: string, rows: readonly { id: string }[]) => {
     if (readable.has(model) && rows.length) {
       clauses.push({ entity: model, entityId: { in: rows.map((r) => r.id) } });
     }
@@ -359,7 +380,7 @@ async function projectClauses(orgId, projectId, readable) {
  */
 reportRoutes.get("/projects/:id/activity", route(async (req, res) => {
   need(req, "get", "projects");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a reports route").orgId;
   const project = await db.project.findFirst({ where: { id: req.params.id, orgId } });
   if (!project) throw hidden();
 

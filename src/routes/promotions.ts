@@ -9,7 +9,7 @@
  * Three things this file does that the browser's copy cannot:
  *
  *   IT DECIDES WHO YOU ARE. Not the request body, not a header, not a role
- *   the client claims. `req.actor` is assembled from the session row.
+ *   the client claims. `actorOf(req, "a promotions route")` is assembled from the session row.
  *
  *   IT OWNS THE ARROWS. A promotion moves along the state machine in
  *   domain/promotions.js or it does not move. There is no arrow from DRAFT to
@@ -28,12 +28,22 @@ import {
 import { can, whyNot } from "../domain/rights.ts";
 import {
   TRANSITIONS, cleanPromotionInput, contentCheck, creativeCheck,
-  isPubliclyVisible, publicWhere, toPublicWire, toWire, transitionRefusal,
+  isPromotionState, isPubliclyVisible, publicWhere, toPublicWire, toWire,
+  transitionRefusal,
 } from "../domain/promotions.ts";
+import type {
+  PromotionState, PromotionTransition,
+} from "../domain/promotions.ts";
+import type { Prisma } from "@prisma/client";
+import type { Actor } from "../http/request.ts";
+import { actorOf } from "../http/request.ts";
 
 export const promotionRoutes = Router();
 
-const INCLUDE = {
+/* What every read of a promotion carries with it. Annotated rather than
+   inferred, because an object literal widens `"asc"` to `string` and Prisma
+   demands the literal. */
+const INCLUDE: Prisma.PromotionInclude = {
   org: { select: { id: true, name: true } },
   createdBy: { select: { id: true, name: true, email: true } },
   events: { orderBy: { at: "asc" } },
@@ -89,7 +99,7 @@ promotionRoutes.use(requireSession(), requireOrganization(), requireOpenSubscrip
  */
 promotionRoutes.get("/", async (req, res, next) => {
   try {
-    const actor = req.actor;
+    const actor = actorOf(req, "a promotions route");
     const scope = String(req.query.scope || "mine");
     const wantsAll = scope === "all" || req.query.queue === "true" || req.query.finalQueue === "true";
 
@@ -97,7 +107,7 @@ promotionRoutes.get("/", async (req, res, next) => {
       throw forbidden("Only PALTAS staff can read other companies' promotions.");
     }
 
-    const where = {};
+    const where: Prisma.PromotionWhereInput = {};
     if (!wantsAll) where.orgId = actor.orgId;
 
     if (req.query.queue === "true") {
@@ -107,8 +117,20 @@ promotionRoutes.get("/", async (req, res, next) => {
         throw forbidden("The final approval queue belongs to a PALTAS publisher.");
       }
       where.status = "MARKETING_APPROVED";
-    } else if (req.query.status) {
-      where.status = String(req.query.status);
+    } else if (req.query["status"]) {
+      /*
+       * CHECKED, rather than passed straight through.
+       *
+       * This read `where.status = String(req.query.status)` and handed an
+       * arbitrary query string to Prisma, which refuses an unknown enum value
+       * with a 500. A status that is not a status is the caller's mistake and
+       * is now said as one.
+       */
+      const asked = String(req.query["status"]).toUpperCase();
+      if (!isPromotionState(asked)) {
+        throw badRequest(`“${asked}” is not a promotion status.`);
+      }
+      where.status = asked;
     }
 
     const rows = await db.promotion.findMany({
@@ -128,7 +150,7 @@ promotionRoutes.get("/:ref", async (req, res, next) => {
   try {
     const p = await load(req.params.ref);
     if (!p) throw notFound("No promotion with that reference.");
-    if (!mayRead(req.actor, p)) throw hidden();
+    if (!mayRead(actorOf(req, "a promotions route"), p)) throw hidden();
     res.setHeader("Cache-Control", "no-store, private");
     res.json(toWire(p));
   } catch (e) { next(e); }
@@ -143,7 +165,7 @@ promotionRoutes.get("/:ref/checks", async (req, res, next) => {
   try {
     const p = await load(req.params.ref);
     if (!p) throw notFound("No promotion with that reference.");
-    if (!mayRead(req.actor, p)) throw hidden();
+    if (!mayRead(actorOf(req, "a promotions route"), p)) throw hidden();
     res.json({ content: contentCheck(p), creative: creativeCheck(p.imageMeta) });
   } catch (e) { next(e); }
 });
@@ -151,7 +173,7 @@ promotionRoutes.get("/:ref/checks", async (req, res, next) => {
 /** POST /promotions — always a DRAFT, whatever the body says. */
 promotionRoutes.post("/", async (req, res, next) => {
   try {
-    const no = whyNot(req.actor, "create");
+    const no = whyNot(actorOf(req, "a promotions route"), "create");
     if (no) throw forbidden(no);
 
     const data = cleanPromotionInput(req.body);
@@ -161,8 +183,8 @@ promotionRoutes.post("/", async (req, res, next) => {
       data: {
         ...data,
         ref,
-        orgId: req.actor.orgId,
-        createdById: req.actor.userId,
+        orgId: actorOf(req, "a promotions route").orgId,
+        createdById: actorOf(req, "a promotions route").userId,
         /* NOT from the body. `cleanPromotionInput` has no `status` field, so
            there is no path to it — but saying it here as well means the next
            person to read this route sees the rule rather than inferring it. */
@@ -170,7 +192,7 @@ promotionRoutes.post("/", async (req, res, next) => {
         events: {
           create: {
             what: "created", why: "Draft started.", status: "DRAFT",
-            byId: req.actor.userId, byName: req.actor.userName,
+            byId: actorOf(req, "a promotions route").userId, byName: actorOf(req, "a promotions route").userName,
           },
         },
       },
@@ -193,7 +215,7 @@ promotionRoutes.patch("/:ref", async (req, res, next) => {
   try {
     const p = await load(req.params.ref);
     if (!p) throw notFound("No promotion with that reference.");
-    if (!mayWrite(req.actor, p)) throw hidden();
+    if (!mayWrite(actorOf(req, "a promotions route"), p)) throw hidden();
 
     const EDITABLE = ["DRAFT", "CHANGES_REQUESTED", "REJECTED"];
     if (!EDITABLE.includes(p.status)) {
@@ -217,9 +239,20 @@ promotionRoutes.patch("/:ref", async (req, res, next) => {
  * impossible to get subtly out of step with each other.
  * ====================================================================== */
 
-const ACTIONS = {
-  "submit": { action: "submit", what: (from) => (from === "DRAFT" ? "submitted" : "resubmitted"),
-    say: (from) => (from === "DRAFT" ? "Sent to PALTAS Marketing." : "Changes made and sent back to PALTAS.") },
+/** One transition endpoint: the arrow it follows, and what it is called. */
+interface ActionSpec {
+  readonly action: PromotionTransition;
+  /** What happened, for the history row. */
+  readonly what: (from: PromotionState) => string;
+  /** What the customer is told, when the request said nothing itself. */
+  readonly say: (from: PromotionState) => string;
+}
+
+const ACTIONS: Readonly<Record<string, ActionSpec>> = {
+  "submit": { action: "submit",
+    what: (from: PromotionState) => (from === "DRAFT" ? "submitted" : "resubmitted"),
+    say: (from: PromotionState) =>
+      (from === "DRAFT" ? "Sent to PALTAS Marketing." : "Changes made and sent back to PALTAS.") },
   "review/claim": { action: "claim", what: () => "taken for review", say: () => "A reviewer is reading it." },
   "review/approve": { action: "approveMarketing", what: () => "approved by marketing",
     say: () => "Approved for final review." },
@@ -241,7 +274,7 @@ for (const [path, spec] of Object.entries(ACTIONS)) {
   promotionRoutes.post(`/:ref/${path}`, async (req, res, next) => {
     try {
       const t = TRANSITIONS[spec.action];
-      const actor = req.actor;
+      const actor = actorOf(req, `POST /promotions/:ref/${path}`);
 
       const no = whyNot(actor, t.right);
       if (no) throw forbidden(no);
@@ -281,12 +314,15 @@ for (const [path, spec] of Object.entries(ACTIONS)) {
           const blocking = check.rows.filter((r) => r.st === "ACTION").map((r) => r.k);
           throw badRequest(
             "This promotion is not ready to submit: " + blocking.join(", ") + ".",
-            check.rows
+            /* The details a 400 carries are sentences. The rows themselves are
+               objects the screen renders; what travels in the error is what
+               each blocking row SAYS. */
+            check.rows.filter((r) => r.st === "ACTION").map((r) => `${r.k}: ${r.say}`),
           );
         }
       }
 
-      const to = t.to(p.status);
+      const to = t.to(p.status as PromotionState);
       const updated = await db.promotion.update({
         where: { id: p.id },
         data: {
@@ -312,10 +348,11 @@ for (const [path, spec] of Object.entries(ACTIONS)) {
 
 /* ------------------------------------------------------------ helpers */
 
-const load = (ref) => db.promotion.findUnique({ where: { ref: String(ref) }, include: INCLUDE });
+const load = (ref: unknown) =>
+  db.promotion.findUnique({ where: { ref: String(ref) }, include: INCLUDE });
 
 /** PALTAS staff read everything. Everybody else reads their own company's. */
-function mayRead(actor, p) {
+function mayRead(actor: Actor, p: { orgId: string }): boolean {
   return can(actor, "queue") || p.orgId === actor.orgId;
 }
 
@@ -325,7 +362,7 @@ function mayRead(actor, p) {
  * the copy would be approving their own work, and the customer whose name is
  * on it would never know.
  */
-function mayWrite(actor, p) {
+function mayWrite(actor: Actor, p: { orgId: string; createdById?: string | null }): boolean {
   if (p.orgId !== actor.orgId) return false;
   if (can(actor, "editOrg")) return true;
   return can(actor, "editOwn") && p.createdById === actor.userId;

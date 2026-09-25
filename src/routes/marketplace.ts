@@ -72,6 +72,7 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { $Enums, Prisma } from "@prisma/client";
 import { badRequest } from "../http/errors.ts";
 import { rateLimit } from "../http/rate-limit.ts";
 import { publicCompareStatus } from "../domain/compare.ts";
@@ -79,10 +80,40 @@ import { searchSupply, publicStatus } from "../domain/supply.ts";
 
 export const marketplaceRoutes = Router();
 
-const KINDS = new Set(["SHORT_STAY", "LONG_LET", "FOR_SALE"]);
+const KINDS: ReadonlySet<string> = new Set(["SHORT_STAY", "LONG_LET", "FOR_SALE"]);
+
+/** Is this string one of the kinds a listing may have? */
+const isKind = (v: string): v is $Enums.ListingKind => KINDS.has(v);
+
+/**
+ * A LISTING ON ITS WAY TO THE PAGE.
+ *
+ * The three `__` fields are computed in the handler and stamped onto the row
+ * before `wire()` reads them — they are amenities of the COMPANY offering the
+ * listing, and there is no join that carries them. Optional because they are
+ * absent right up until the handler adds them, which is the honest shape.
+ */
+interface ListingForWire {
+  readonly id: string;
+  readonly title: string;
+  readonly kind: string;
+  readonly price: bigint | number | null;
+  readonly currency: string;
+  readonly createdAt: Date;
+  readonly orgId: string;
+  readonly org?: { name?: string } | null;
+  readonly unit?: {
+    kind?: string; sqm?: number | null; floor?: number | null;
+    buildingName?: string | null;
+    site?: { city?: string; country?: string; name?: string } | null;
+  } | null;
+  __transfer?: boolean;
+  __transferFree?: boolean;
+  __hotel?: boolean;
+}
 
 /** Money stays in minor units, as everywhere else in this service. */
-const wire = (l) => {
+const wire = (l: ListingForWire) => {
   const unit = l.unit || null;
   const site = (unit && unit.site) || null;
   return {
@@ -157,11 +188,11 @@ marketplaceRoutes.get("/marketplace/listings",
     try {
       const take = Math.min(48, Math.max(1, Number(req.query.limit) || 12));
 
-      const where = { status: "LIVE" };
+      const where: Prisma.ListingWhereInput = { status: "LIVE" };
 
       if (req.query.kind) {
         const kind = String(req.query.kind).toUpperCase();
-        if (!KINDS.has(kind)) {
+        if (!isKind(kind)) {
           throw badRequest(`kind must be one of: ${[...KINDS].join(", ").toLowerCase()}.`);
         }
         where.kind = kind;
@@ -234,13 +265,16 @@ marketplaceRoutes.get("/marketplace/listings",
       const freeTransfer = new Set(
         transfers.filter((t) => t.chargeable === false).map((t) => t.orgId));
       const isHotel = new Set(hotels.map((h) => h.orgId));
-      for (const r of rows) {
-        r.__transfer = hasTransfer.has(r.orgId);
-        r.__transferFree = freeTransfer.has(r.orgId);
-        r.__hotel = isHotel.has(r.orgId);
-      }
+      /* Stamped onto the rows the page is about to be built from. Read back
+         by wire() immediately below, and by the transfer filter after it. */
+      const stamped: ListingForWire[] = rows.map((r) => ({
+        ...r,
+        __transfer: hasTransfer.has(r.orgId),
+        __transferFree: freeTransfer.has(r.orgId),
+        __hotel: isHotel.has(r.orgId),
+      }));
 
-      let listings = rows.map(wire);
+      let listings = stamped.map(wire);
 
       /* A filter the homepage's transfer chips use. Applied after the amenity
          is known, because it is computed rather than stored. */

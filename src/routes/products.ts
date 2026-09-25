@@ -30,7 +30,7 @@ import type { Request } from "express";
 import type { Act, Area } from "../domain/access.ts";
 import type { ModelKey } from "../domain/registry-types.ts";
 import type { Actor } from "../http/request.ts";
-import type { Row } from "../db.ts";
+import { actorOf as sharedActorOf } from "../http/request.ts";import type { Row } from "../db.ts";
 
 import { db, delegate } from "../db.ts";
 import { RESOURCES } from "../domain/registry.ts";
@@ -67,22 +67,12 @@ const guarded = Router();
 guarded.use(requireSession(), requireOrganization(), requireOpenSubscription());
 productRoutes.use(guarded);
 
-/**
- * The caller, on a router that has already required one.
- *
- * Same invariant as the framework's — everything below is mounted behind
- * `guarded`, which is requireSession() + requireOrganization() +
- * requireOpenSubscription(). See actorOf() in http/resource.ts.
+/*
+ * The caller comes from http/request.ts. Everything below is mounted behind
+ * `guarded` — requireSession() + requireOrganization() +
+ * requireOpenSubscription() — which is the invariant actorOf() checks.
  */
-function actorOf(req: Request): Actor {
-  const actor = req.actor;
-  if (!actor) {
-    throw new Error(
-      "a product route ran with no actor — these are mounted behind `guarded`, " +
-      "which requires a session and an organization");
-  }
-  return actor;
-}
+const actorOf = (req: Request): Actor => sharedActorOf(req, "a product route");
 
 /**
  * `_count._all` off a groupBy result.

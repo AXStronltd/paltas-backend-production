@@ -49,7 +49,7 @@ if (!skip) {
     ({ default: pg } = await import("pg"));
     ({ db } = await import("../src/db.ts"));
     ({ createApp } = await import("../src/server.js"));
-    ({ upsertUser } = await import("../src/routes/auth.js"));
+    ({ upsertUser } = await import("../src/routes/auth.ts"));
     ({ createSession } = await import("../src/auth/sessions.ts"));
     await db.$queryRaw`SELECT 1`;
   } catch (e) {

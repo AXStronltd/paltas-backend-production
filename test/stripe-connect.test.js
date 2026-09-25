@@ -24,7 +24,7 @@ import {
   stripeProcessor, notConnected, register, clear, isConnected, status,
   cardPaymentsStatus, requirementsOf, wireAccount, redact, fromEnv,
   PaymentsUnavailable, NotReadyToCharge, STRIPE_API_VERSION,
-} from "../src/payments/stripe.js";
+} from "../src/payments/stripe.ts";
 
 test.afterEach(() => clear());
 
@@ -269,7 +269,7 @@ test("redaction covers every key shape Stripe uses", () => {
 });
 
 test("no key or secret is hard-coded anywhere in the payments code", () => {
-  for (const f of ["../src/payments/stripe.js", "../src/routes/payments.js", "../src/routes/stripe-webhook.js"]) {
+  for (const f of ["../src/payments/stripe.ts", "../src/routes/payments.ts", "../src/routes/stripe-webhook.ts"]) {
     const src = readFileSync(new URL(f, import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
     assert.ok(!/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{6,}/.test(src), `a Stripe key is hard-coded in ${f}`);
     assert.ok(!/\bwhsec_[A-Za-z0-9]{6,}/.test(src), `a webhook secret is hard-coded in ${f}`);

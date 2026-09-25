@@ -32,7 +32,10 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
-import { badRequest, conflict, notFound } from "../http/errors.ts";
+import { badRequest, conflict, messageOf, notFound } from "../http/errors.ts";
+import type { Request } from "express";
+import type { $Enums, Prisma } from "@prisma/client";
+import { actorOf, sessionOf } from "../http/request.ts";
 import { requireSession } from "../http/session.ts";
 import { requirePlatform } from "./platform.js";
 
@@ -40,11 +43,20 @@ export const provisioningRoutes = Router();
 
 provisioningRoutes.use("/provisioning", requireSession(), requirePlatform());
 
-/** The products a company can be sold. PLATFORM is not one of them. */
-const SELLABLE = new Set([
+/**
+ * The products a company can be sold. PLATFORM is not one of them.
+ *
+ * Typed as the schema's own enum, so a product renamed in schema.prisma and
+ * not here is a compile error rather than a grant that upserts nothing.
+ */
+const SELLABLE: ReadonlySet<$Enums.Product> = new Set<$Enums.Product>([
   "PROPERTY_MANAGEMENT", "AGENT_HOST", "HOTEL_MANAGEMENT",
   "SECURITY_MANAGEMENT", "GUEST_PORTAL",
 ]);
+
+/** Is this string one of the products the schema knows? */
+const isProduct = (v: string): v is $Enums.Product =>
+  SELLABLE.has(v as $Enums.Product) || v === STAFF_PRODUCT;
 
 /**
  * PLATFORM is staff access to every company on the service. It is grantable
@@ -53,16 +65,24 @@ const SELLABLE = new Set([
  * arrive by the same door as one. It needs `confirmStaffAccess: true` said out
  * loud, so it cannot be granted by a typo in a product name.
  */
-const STAFF_PRODUCT = "PLATFORM";
+const STAFF_PRODUCT: $Enums.Product = "PLATFORM";
 
-async function auditWrite(req, orgId, action, entityId, detail) {
+async function auditWrite(
+  req: Request,
+  orgId: string,
+  action: string,
+  entityId: string,
+  /* A Json column, so an object. Every caller here sends one describing what
+     was granted or withdrawn, which is what makes the trail readable. */
+  detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
         /* THEIR trail, not ours — see the note in the header. */
         orgId,
-        actorId: req.session.userId,
-        actorName: req.actor.userName || "",
+        actorId: sessionOf(req, "a provisioning route").userId,
+        actorName: actorOf(req, "a provisioning route").userName || "",
         action, entity: "entitlement", entityId: entityId || "",
         detail: detail || undefined,
         ip: req.ip || "",
@@ -71,7 +91,7 @@ async function auditWrite(req, orgId, action, entityId, detail) {
   } catch (e) {
     /* Best-effort, like every audit write here: a logging failure must not
        undo a grant somebody has already been told went through. */
-    console.error("provisioning audit write failed", action, e.message);
+    console.error("provisioning audit write failed", action, messageOf(e));
   }
 }
 
@@ -93,10 +113,13 @@ provisioningRoutes.post("/provisioning/entitlements", async (req, res, next) => 
           "PLATFORM is staff access to every company on PALTAS, not a product. " +
           "Send confirmStaffAccess: true if that is really what you mean.");
       }
-    } else if (!SELLABLE.has(product)) {
+    } else if (!SELLABLE.has(product as $Enums.Product)) {
       throw badRequest(
         `“${product}” is not a product. One of: ${[...SELLABLE].join(", ")}.`);
     }
+    /* Both branches above have established this; the guard is what tells the
+       compiler so, rather than a cast on the upsert below. */
+    if (!isProduct(product)) throw badRequest(`“${product}” is not a product.`);
 
     /* CROSS-TENANT BY DESIGN — requirePlatform() above, and the grant below is
        written to the customer's own audit trail. */

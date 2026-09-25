@@ -139,3 +139,34 @@ export function allSourceFiles() {
   }
   return found;
 }
+
+/*
+ * ── AND THE SECOND HALF OF THE SAME PROBLEM ────────────────────────────
+ *
+ * Reading a file by name whatever its extension was only half of it. The
+ * scanners also COMPARE names: the tenancy scanner's exemption list says
+ * `file: "comms-webhook.js"` and matches it against what readdir returned.
+ *
+ * That half was missed, and it surfaced the first time a named file became
+ * TypeScript — the exemption stopped matching, the scanner reported a
+ * cross-tenant query in a file that had not changed a character, and the
+ * suite went red.
+ *
+ * RED IS THE SAFE DIRECTION and it is why this was a ten-minute fix rather
+ * than a silent hole. The comparison at line 437 of tenancy.test.js is the
+ * dangerous shape of the same bug: `if (name === "platform.js") continue`
+ * SKIPS, so the mismatch there would have started checking a file that is
+ * cross-tenant by design and buried the real finding in false ones.
+ *
+ * So names are compared here too, in one place, by the same rule.
+ */
+
+/** "comms-webhook.js" and "comms-webhook.ts" are the same source file. */
+export function sameSource(a, b) {
+  return baseName(a) === baseName(b);
+}
+
+/** A source file's name without whichever extension it is written in. */
+export function baseName(name) {
+  return String(name).replace(/\.(js|ts)$/, "");
+}

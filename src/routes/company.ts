@@ -27,19 +27,26 @@ import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
 import { country as marketCountry } from "../domain/market.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act, Area } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
 
 export const companyRoutes = Router();
 
 companyRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription());
 
-function need(req, area, act, label) {
-  const why = whyNotArea(req.actor, area, act, label);
+function need(req: Request, area: Area, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a company route"), area, act, label);
   if (why) throw forbidden(why);
 }
 
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(e); }
-};
+/** One handler, with its `try`/`catch` written once. */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(e); }
+  };
 
 /* ====================================================================== *
  * 1. THE COMPANY'S OWN AUDIT TRAIL
@@ -87,21 +94,21 @@ const AREA_OF = (() => {
  * to which row — not a second copy of the row.
  */
 companyRoutes.get("/audit", route(async (req, res) => {
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a company route").orgId;
 
   /* Every area this person can read at all. */
-  const readable = new Set();
+  const readable = new Set<string>();
   for (const [model, area] of AREA_OF) {
-    if (levelFor(req.actor, area) !== "none") readable.add(model);
+    if (levelFor(actorOf(req, "a company route"), area) !== "none") readable.add(model);
   }
   if (!readable.size) {
-    throw forbidden(`The role “${req.actor.role}” cannot read any of this company's records, so there is no history to show.`);
+    throw forbidden(`The role “${actorOf(req, "a company route").role}” cannot read any of this company's records, so there is no history to show.`);
   }
 
   const take = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
   const skip = Math.max(Number(req.query.offset) || 0, 0);
 
-  const where = { orgId, entity: { in: [...readable] } };
+  const where: Prisma.AuditEventWhereInput = { orgId, entity: { in: [...readable] } };
   if (req.query.action) where.action = { startsWith: String(req.query.action) };
   if (req.query.entity) {
     const asked = String(req.query.entity);
@@ -112,7 +119,9 @@ companyRoutes.get("/audit", route(async (req, res) => {
 
   const from = req.query.from ? new Date(String(req.query.from)) : null;
   const to = req.query.to ? new Date(String(req.query.to)) : null;
-  if ((from && isNaN(from)) || (to && isNaN(to))) throw badRequest("from and to must be dates.");
+  if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+    throw badRequest("from and to must be dates.");
+  }
   if (from || to) where.at = { ...(from ? { gte: from } : {}), ...(to ? { lte: to } : {}) };
 
   const [rows, total] = await Promise.all([
@@ -160,7 +169,7 @@ companyRoutes.get("/audit", route(async (req, res) => {
  */
 companyRoutes.get("/documents/expiring", route(async (req, res) => {
   need(req, "documents", "list", "documents");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a company route").orgId;
 
   const days = Math.min(Math.max(Number(req.query.withinDays) || 90, 1), 3650);
   const now = new Date();
@@ -177,8 +186,13 @@ companyRoutes.get("/documents/expiring", route(async (req, res) => {
   });
 
   const documents = rows.map((d) => {
-    const days = Math.ceil((new Date(d.expiresAt) - now) / 864e5);
-    return { ...d, daysLeft: days, expired: days < 0 };
+    /* The query already excludes documents with no expiry; the guard is here
+       because the column is nullable and a null date reads as 1970, which
+       would mark every one of them expired. */
+    const days = d.expiresAt
+      ? Math.ceil((new Date(d.expiresAt).getTime() - now.getTime()) / 864e5)
+      : null;
+    return { ...d, daysLeft: days, expired: days !== null && days < 0 };
   });
 
   res.json({
@@ -206,7 +220,7 @@ companyRoutes.get("/documents/expiring", route(async (req, res) => {
  */
 companyRoutes.get("/payments/history", route(async (req, res) => {
   need(req, "finance", "list", "payments");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a company route").orgId;
   const { partyId, invoiceId } = req.query;
 
   if (!partyId && !invoiceId) {
@@ -273,7 +287,7 @@ companyRoutes.get("/payments/history", route(async (req, res) => {
 companyRoutes.get("/organization/settings", route(async (req, res) => {
   need(req, "people", "get", "this company's settings");
   const org = await db.organization.findFirst({
-    where: { id: req.actor.orgId },
+    where: { id: actorOf(req, "a company route").orgId },
     select: {
       id: true, name: true, country: true, city: true, size: true,
       status: true, createdAt: true,
@@ -305,8 +319,8 @@ companyRoutes.get("/organization/settings", route(async (req, res) => {
  */
 companyRoutes.patch("/organization/settings", route(async (req, res) => {
   need(req, "people", "delete", "this company's settings");
-  const orgId = req.actor.orgId;
-  const b = req.body || {};
+  const orgId = actorOf(req, "a company route").orgId;
+  const b = (req.body as Record<string, unknown> | undefined) ?? {};
 
   for (const locked of ["status", "kind", "id", "subscription", "entitlements"]) {
     if (b[locked] !== undefined) {
@@ -314,18 +328,20 @@ companyRoutes.patch("/organization/settings", route(async (req, res) => {
     }
   }
 
-  const data = {};
-  if (b.name !== undefined) {
-    const name = String(b.name).trim();
+  /* Only the four columns this endpoint may change. Named rather than spread
+     from the body, which is what stops `status` or `orgId` arriving in it. */
+  const data: Prisma.OrganizationUpdateInput = {};
+  if (b["name"] !== undefined) {
+    const name = String(b["name"]).trim();
     if (!name) throw badRequest("A company needs a name.");
     if (name.length > 160) throw badRequest("That company name is too long.");
     data.name = name;
   }
-  if (b.city !== undefined) data.city = String(b.city).slice(0, 120);
-  if (b.size !== undefined) data.size = String(b.size).slice(0, 40);
+  if (b["city"] !== undefined) data.city = String(b["city"]).slice(0, 120);
+  if (b["size"] !== undefined) data.size = String(b["size"]).slice(0, 40);
 
-  if (b.country !== undefined) {
-    const code = String(b.country).trim().toLowerCase().slice(0, 4);
+  if (b["country"] !== undefined) {
+    const code = String(b["country"]).trim().toLowerCase().slice(0, 4);
     if (!code) throw badRequest("A country is required.");
     /*
      * REFUSED IF THE CATALOGUE DOES NOT KNOW IT.
@@ -338,7 +354,7 @@ companyRoutes.patch("/organization/settings", route(async (req, res) => {
     const c = marketCountry(code.toUpperCase());
     if (!c) {
       throw badRequest(
-        `“${b.country}” is not a market PALTAS knows, and the books need a country ` +
+        `“${b["country"]}” is not a market PALTAS knows, and the books need a country ` +
         `they can take a currency from.`);
     }
     data.country = code;
@@ -357,14 +373,14 @@ companyRoutes.patch("/organization/settings", route(async (req, res) => {
   try {
     await db.auditEvent.create({
       data: {
-        orgId, actorId: req.session.userId,
+        orgId, actorId: sessionOf(req, "PATCH /company/settings").userId,
         actorName: req.view?.user?.name || req.view?.user?.email || "",
         action: "organization.settings", entity: "organization", entityId: orgId,
         detail: { changed: Object.keys(data), from: before },
         ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", e.message); }
+  } catch (e) { console.error("audit write failed", messageOf(e)); }
 
   const c = org.country ? marketCountry(String(org.country).toUpperCase()) : null;
   res.json({

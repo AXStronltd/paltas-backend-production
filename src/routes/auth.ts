@@ -14,7 +14,14 @@ import {
 } from "../auth/sessions.ts";
 import { sessionView } from "../domain/session-view.ts";
 import { badRequest, forbidden, rateLimit, requireSession, unauthorized } from "../http/index.ts";
+import type { Identity } from "../auth/google.ts";
+import type { SessionWithUser } from "../auth/sessions.ts";
+import { messageOf } from "../http/errors.ts";
+import { sessionOf } from "../http/request.ts";
 
+/** Read one field off an unknown throw without asserting its shape. */
+const at = (v: unknown, key: string): unknown =>
+  (typeof v === "object" && v !== null) ? (v as Record<string, unknown>)[key] : undefined;
 export const authRoutes = Router();
 
 /* Sign-in is the endpoint most worth throttling: it is unauthenticated and it
@@ -28,7 +35,10 @@ const signInLimit = rateLimit({ windowMs: 60_000, max: 20 });
  * and needs no code at all to start a sign-in.
  */
 authRoutes.get("/google", signInLimit, (req, res) => {
-  const { url, cookie } = beginSignIn({ next: req.query.next });
+  /* `req.query.next` is whatever a query string held — a string, a repeated
+     one, or a nested object. Only a plain string is a destination. */
+  const next = typeof req.query["next"] === "string" ? req.query["next"] : undefined;
+  const { url, cookie } = beginSignIn({ next });
 
   /*
    * The verifier travels with the browser rather than in this process.
@@ -117,25 +127,32 @@ authRoutes.get("/google/callback", signInLimit, async (req, res, next) => {
      * sentences: the wording belongs to the frontend, and a message in a
      * query string is one somebody can edit before sending the link on.
      */
+    /* What the failure carries, read off an unknown throw. `status` is set by
+       the errors module and `googleError` by the Google adapter, so both are
+       this service's own fields — but a `catch` binding is still `unknown`. */
+    const status = at(e, "status");
+    const googleError = at(e, "googleError");
+    const said = messageOf(e);
+
     const reason =
-      e && e.status === 403 ? "email_claimed"
-      : e && e.status === 400 ? "incomplete"
+      status === 403 ? "email_claimed"
+      : status === 400 ? "incomplete"
       /*
        * Google's own word first, when it gave one. "invalid_client" is a
        * wrong client id or secret IN THIS DEPLOYMENT, and it is not going to
        * start working on the third attempt — telling somebody to try again
        * is the one answer that guarantees they waste their afternoon.
        */
-      : e && e.status === 401 ? (
-          e.googleError === "invalid_client" ? "bad_credentials"
-          : e.googleError === "redirect_uri_mismatch" ? "redirect_uri_mismatch"
-          : e.googleError === "unauthorized_client" ? "bad_credentials"
-          : e.googleError === "invalid_grant" ? "expired"
-          : /redirect URI/i.test(String(e.message || "")) ? "redirect_uri_mismatch"
-          : /expired or was already used/i.test(String(e.message || "")) ? "expired"
-          : /could not be verified|no account identifier/i.test(String(e.message || "")) ? "identity_unverified"
-          : /no email address/i.test(String(e.message || "")) ? "no_email"
-          : /has not verified that address/i.test(String(e.message || "")) ? "email_unverified"
+      : status === 401 ? (
+          googleError === "invalid_client" ? "bad_credentials"
+          : googleError === "redirect_uri_mismatch" ? "redirect_uri_mismatch"
+          : googleError === "unauthorized_client" ? "bad_credentials"
+          : googleError === "invalid_grant" ? "expired"
+          : /redirect URI/i.test(said) ? "redirect_uri_mismatch"
+          : /expired or was already used/i.test(said) ? "expired"
+          : /could not be verified|no account identifier/i.test(said) ? "identity_unverified"
+          : /no email address/i.test(said) ? "no_email"
+          : /has not verified that address/i.test(said) ? "email_unverified"
           : "failed")
       : null;
 
@@ -175,7 +192,7 @@ authRoutes.get("/google/callback", signInLimit, async (req, res, next) => {
  * by a DIFFERENT Google account is refused outright rather than guessed at —
  * guessing means handing somebody another person's company.
  */
-export async function upsertUser(identity) {
+export async function upsertUser(identity: Identity) {
   const bySub = await db.user.findUnique({ where: { googleSub: identity.googleSub } });
   if (bySub) {
     return db.user.update({
@@ -267,13 +284,16 @@ authRoutes.post("/session/organization", requireSession(), async (req, res, next
     const orgId = String(req.body?.organizationId || "");
     if (!orgId) throw badRequest("Which organization? Send `organizationId`.");
 
+    const session = sessionOf(req, "POST /auth/session/organization");
     const member = await db.membership.findUnique({
-      where: { userId_orgId: { userId: req.session.userId, orgId } },
+      where: { userId_orgId: { userId: session.userId, orgId } },
     });
     if (!member) throw unauthorized("This account is not a member of that organization.");
 
-    await switchOrganization(req.session.id, orgId);
-    const row = { ...req.session, orgId };
+    await switchOrganization(session.id, orgId);
+    /* The session as it now is, without a second read: switchOrganization()
+       has just written this exact orgId. */
+    const row: SessionWithUser = { ...session, orgId };
     res.json(await sessionView(row));
   } catch (e) { next(e); }
 });

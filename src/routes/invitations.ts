@@ -23,6 +23,8 @@ import {
   badRequest, conflict, forbidden, notFound, rateLimit, requireSession,
 } from "../http/index.ts";
 import { stateOf } from "../domain/invitations.ts";
+import type { InviteRow } from "../domain/invitations.ts";
+import { sessionOf } from "../http/request.ts";
 /* The token lookup lives in auth/ beside the session's, because its key IS
    the credential — see the header of that file. */
 import { findByToken } from "../auth/invitations.ts";
@@ -30,7 +32,7 @@ import { findByToken } from "../auth/invitations.ts";
 export const invitationRoutes = Router();
 
 /** Why this invitation cannot be taken up — a sentence, or null. */
-function whyNotAcceptable(invite) {
+function whyNotAcceptable(invite: InviteRow): string | null {
   switch (stateOf(invite)) {
     case "ACCEPTED": return "That invitation has already been used.";
     case "REVOKED":  return "That invitation was withdrawn by the company.";
@@ -92,7 +94,7 @@ invitationRoutes.post("/:token/accept",
       if (no) throw conflict(no);
 
       const me = await db.user.findUnique({
-        where: { id: req.session.userId },
+        where: { id: sessionOf(req, "POST /invitations/:token/accept").userId },
         select: { id: true, email: true },
       });
       if (!me) throw badRequest("That account no longer exists.");

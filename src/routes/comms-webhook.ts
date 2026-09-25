@@ -35,19 +35,21 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { db } from "../db.ts";
+import { messageOf } from "../http/errors.ts";
+import type { $Enums } from "@prisma/client";
 
 export const commsWebhookRoutes = Router();
 
 const log = {
-  info: (...a) => console.log(new Date().toISOString(), "[comms]", ...a),
-  error: (...a) => console.error(new Date().toISOString(), "[comms]", ...a),
+  info: (...a: unknown[]) => console.log(new Date().toISOString(), "[comms]", ...a),
+  error: (...a: unknown[]) => console.error(new Date().toISOString(), "[comms]", ...a),
 };
 
 /**
  * Constant time, because a plain `===` on a secret leaks its length and then
  * its bytes to anybody willing to time a few thousand requests.
  */
-function secretOk(given) {
+function secretOk(given: unknown): boolean {
   const want = process.env.COMMS_WEBHOOK_SECRET || "";
   if (!want) return false;
   const a = Buffer.from(String(given || ""));
@@ -65,7 +67,7 @@ function secretOk(given) {
  * BOUNCED so a person reading the outbox does not have to know which provider
  * carried which.
  */
-const EVENT_STATUS = {
+const EVENT_STATUS: Readonly<Record<string, $Enums.DispatchStatus>> = {
   delivered: "DELIVERED",
   delivery: "DELIVERED",
   "email.delivered": "DELIVERED",
@@ -184,7 +186,7 @@ commsWebhookRoutes.post("/hooks/comms/:provider", async (req, res) => {
   } catch (e) {
     /* Logged, never thrown: a 500 makes the provider retry, and a retry of a
        handler that died halfway is how one bounce becomes several. */
-    log.error("callback failed", provider, e.message);
+    log.error("callback failed", provider, messageOf(e));
   }
 
   res.json({ ok: true });

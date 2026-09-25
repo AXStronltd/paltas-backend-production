@@ -25,9 +25,14 @@ import { badRequest, conflict, forbidden, notFound, unavailable } from "../http/
 import { rateLimit } from "../http/rate-limit.ts";
 import { requireOrganization } from "../http/session.ts";
 import { config } from "../config.ts";
-import {
+import type { Actor } from "../http/request.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+
+/** A connected-account row, as this file reads one back. */
+type ConnectedAccountRow =
+  NonNullable<Awaited<ReturnType<typeof db.connectedAccount.findUnique>>>;import {
   processor, isConnected, status as payStatus, wireAccount, NotReadyToCharge,
-} from "../payments/stripe.js";
+} from "../payments/stripe.ts";
 
 export const paymentRoutes = Router();
 
@@ -41,7 +46,7 @@ function live() {
 }
 
 /** The company's connected account row, or null. */
-const accountFor = (orgId) =>
+const accountFor = (orgId: string) =>
   db.connectedAccount.findUnique({ where: { orgId } });
 
 /**
@@ -57,10 +62,10 @@ const accountFor = (orgId) =>
  * schema — so the second half matched nothing and only the accident of OWNER
  * existing kept it working.
  */
-const MAY_ADMINISTER = new Set(["OWNER", "MANAGER"]);
+const MAY_ADMINISTER: ReadonlySet<string> = new Set(["OWNER", "MANAGER"]);
 
-function mustAdminister(actor) {
-  const role = String((actor && actor.role) || "").toUpperCase();
+function mustAdminister(actor: Actor): void {
+  const role = String(actor.role || "").toUpperCase();
   if (!MAY_ADMINISTER.has(role)) {
     throw forbidden(
       "Only an owner or a manager can set up how this company gets paid.");
@@ -75,7 +80,7 @@ paymentRoutes.get("/payments/account",
   requireOrganization(),
   async (req, res, next) => {
     try {
-      const row = await accountFor(req.actor.orgId);
+      const row = await accountFor(actorOf(req, "a payments route").orgId);
       res.set("Cache-Control", "no-store");
       res.json({
         /* Null rather than an invented shell: "not set up" is a real state and
@@ -88,7 +93,7 @@ paymentRoutes.get("/payments/account",
   });
 
 /** Everything about an account that is safe for a browser. */
-function publicAccount(row) {
+function publicAccount(row: ConnectedAccountRow) {
   return {
     provider: row.provider,
     /* The acct_ id is not secret, and a company support-chatting with Stripe
@@ -119,10 +124,10 @@ paymentRoutes.post("/payments/account/onboarding",
   async (req, res, next) => {
     try {
       const s = live();
-      mustAdminister(req.actor);
+      mustAdminister(actorOf(req, "a payments route"));
 
       const org = await db.organization.findUnique({
-        where: { id: req.actor.orgId },
+        where: { id: actorOf(req, "a payments route").orgId },
         select: { id: true, name: true, country: true },
       });
       if (!org) throw notFound("No such company.");
@@ -134,7 +139,9 @@ paymentRoutes.post("/payments/account/onboarding",
           orgId: org.id,
           name: org.name,
           country: org.country,
-          email: req.session && req.session.email,
+          /* The signed-in person's own address, off the session's user —
+             `Session` has no email column; the relation it includes does. */
+          email: sessionOf(req, "a payments route").user?.email,
         });
         const wired = wireAccount(created);
         row = await db.connectedAccount.create({
@@ -179,13 +186,13 @@ paymentRoutes.post("/payments/account/refresh",
   async (req, res, next) => {
     try {
       const s = live();
-      const row = await accountFor(req.actor.orgId);
+      const row = await accountFor(actorOf(req, "a payments route").orgId);
       if (!row) throw notFound("This company has not started setting up payments.");
 
       const fresh = await s.account({ accountId: row.accountId });
       const wired = wireAccount(fresh);
       const updated = await db.connectedAccount.update({
-        where: { orgId: req.actor.orgId },
+        where: { orgId: actorOf(req, "a payments route").orgId },
         data: { ...wired, lastSyncedAt: new Date() },
       });
 
@@ -220,7 +227,7 @@ paymentRoutes.post("/payments/charges",
       const currency = String(b.currency || "").trim();
       if (!/^[A-Za-z]{3}$/.test(currency)) throw badRequest("currency must be an ISO 4217 code.");
 
-      const row = await accountFor(req.actor.orgId);
+      const row = await accountFor(actorOf(req, "a payments route").orgId);
       if (!row) {
         throw conflict(
           "This company has not set up payments yet, so it cannot take a card. " +
@@ -231,7 +238,7 @@ paymentRoutes.post("/payments/charges",
        * The fee, worked out here and never sent by the client. A caller able to
        * name PALTAS's own commission could set it to zero.
        */
-      const applicationFee = platformFee(amount, req.actor);
+      const applicationFee = platformFee(amount, actorOf(req, "a payments route"));
 
       let intent;
       try {
@@ -242,7 +249,7 @@ paymentRoutes.post("/payments/charges",
           applicationFee,
           description: String(b.description || ""),
           metadata: {
-            paltas_org_id: req.actor.orgId,
+            paltas_org_id: actorOf(req, "a payments route").orgId,
             ...(b.invoiceId ? { paltas_invoice_id: String(b.invoiceId) } : {}),
           },
           /* A retry after a timeout must not charge somebody twice. */
@@ -290,6 +297,6 @@ paymentRoutes.post("/payments/charges",
  *
  * The seam exists so that decision lands in one place when it is made.
  */
-export function platformFee(_amount, _actor) {
+export function platformFee(_amount: number, _actor: Actor): number {
   return 0;
 }
