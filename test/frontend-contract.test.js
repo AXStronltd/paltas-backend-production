@@ -30,11 +30,11 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createContext, runInContext } from "node:vm";
-import { makeWindow } from "./dom-shim.js";
+import { makeWindow } from "./dom-shim.ts";
 import { RESOURCES } from "../src/domain/registry.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceFiles, sourceText } from "./src-files.js";
+import { sourceFiles, sourceText } from "./src-files.ts";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");

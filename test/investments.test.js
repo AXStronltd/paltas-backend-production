@@ -17,7 +17,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
+import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 import {
   OFFERING_TRANSITIONS, OFFERING_RIGHTS, eligibilityRefusal, offeringRefusal,
   offeringRights, submissionGaps, splitCodes,

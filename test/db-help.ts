@@ -18,12 +18,22 @@ import { fileURLToPath } from "node:url";
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 /** Hide the password before a connection string goes anywhere near a log. */
-export function redact(url) {
+export function redact(url: unknown): string {
   return String(url || "").replace(/(:\/\/[^:/@]+):[^@]*@/, "$1:****@");
 }
 
 /** The role a connection string asks for, and the database it wants. */
-export function parts(url) {
+/** What a connection string is asking for. */
+export interface ConnectionParts {
+  readonly role: string;
+  readonly database: string;
+  readonly host: string;
+  readonly port: string;
+  /** Whether one was given at all — never the password itself. */
+  readonly hasPassword: boolean;
+}
+
+export function parts(url: unknown): ConnectionParts {
   try {
     const u = new URL(String(url));
     return {
@@ -44,7 +54,28 @@ export function parts(url) {
  * Returns null when the error is not one of the known configuration
  * failures — a real bug should not be dressed up as a setup problem.
  */
-export function explain(err, url) {
+/**
+ * WHAT POSTGRES ACTUALLY SAID.
+ *
+ * `pg` throws an Error carrying `code` and `routine` — its own SQLSTATE and
+ * the internal function that failed — and neither is on the built-in Error.
+ * Named here rather than read off `any`, because which one is set is how
+ * this file tells a missing role from a missing database.
+ */
+export interface PostgresError extends Error {
+  readonly code?: string;
+  readonly routine?: string;
+}
+
+/** Is this the shape `pg` throws? */
+const isPgError = (e: unknown): e is PostgresError =>
+  e instanceof Error;
+
+export function explain(raw: unknown, url: unknown): string | null {
+  /* Nothing below can say anything useful about a throw that is not an
+     Error — a real bug must not be dressed up as a setup problem. */
+  if (!isPgError(raw)) return null;
+  const err = raw;
   const p = parts(url);
   const where = `${p.host}:${p.port}`;
 
@@ -119,14 +150,32 @@ export function explain(err, url) {
 }
 
 /** Wrap a connection attempt so the failure explains itself. */
-export async function connectOrExplain(client, url) {
+/** Only what this helper calls. `pg.Client` satisfies it. */
+export interface Connectable {
+  connect(): Promise<void>;
+}
+
+/**
+ * A configuration failure, dressed as one.
+ *
+ * `configuration: true` is what the runner reads to decide between "your
+ * setup is wrong" and "the product is broken".
+ */
+export interface ConfigurationError extends Error {
+  code?: string;
+  configuration?: boolean;
+}
+
+export async function connectOrExplain<T extends Connectable>(
+  client: T, url: unknown,
+): Promise<T> {
   try {
     await client.connect();
     return client;
   } catch (err) {
     const help = explain(err, url);
-    if (!help) throw err;
-    const e = new Error(
+    if (!help || !isPgError(err)) throw err;
+    const e: ConfigurationError = new Error(
       "\n\n" + "─".repeat(72) + "\n" + help + "\n" + "─".repeat(72) +
       `\n\nTEST_DATABASE_URL = ${redact(url)}\n` +
       `(postgres said: ${err.code} ${err.routine || ""} — ${err.message})\n`
@@ -158,7 +207,7 @@ export async function connectOrExplain(client, url) {
  * ====================================================================== */
 
 /** The DATABASE_URL Prisma needs in order to work inside one schema. */
-export function urlForSchema(url, schema) {
+export function urlForSchema(url: unknown, schema: string): string {
   const u = new URL(String(url));
   u.searchParams.set("schema", schema);
   return u.toString();
@@ -171,12 +220,28 @@ export function urlForSchema(url, schema) {
  * connecting, because a Pool opens connections lazily and replaces them:
  * anything set on one connection is not true of the next one handed out.
  */
-export function poolInSchema(pg, url, schema) {
+/**
+ * Only what this file uses of `pg`, and of what it hands back.
+ *
+ * The package is imported dynamically by each caller — `await import("pg")` —
+ * so there is no value here to infer a type from, and naming the two methods
+ * is more useful than naming the package.
+ */
+export interface PgPool {
+  query(sql: string): Promise<unknown>;
+  end(): Promise<void>;
+}
+
+export interface PgModule {
+  Pool: new (options: { connectionString: unknown; options?: string }) => PgPool;
+}
+
+export function poolInSchema(pg: PgModule, url: unknown, schema: string): PgPool {
   return new pg.Pool({ connectionString: url, options: `-c search_path=${schema}` });
 }
 
 /** Empty `schema`, then apply every migration into it in Prisma's order. */
-export async function freshSchema(pool, schema) {
+export async function freshSchema(pool: PgPool, schema: string): Promise<void> {
   await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE; CREATE SCHEMA "${schema}";`);
   const root = join(HERE, "..", "prisma", "migrations");
   for (const dir of readdirSync(root).sort()) {
@@ -186,10 +251,13 @@ export async function freshSchema(pool, schema) {
       await pool.query(readFileSync(file, "utf8"));
     } catch (e) {
       /* Which file, and where in it. A bare syntax error against 800 lines
-         of concatenated SQL is a scavenger hunt. */
+         of concatenated SQL is a scavenger hunt. `position` is postgres's
+         own character offset and is on nothing the language declares. */
+      const said = e instanceof Error ? e.message : String(e);
+      const at = (e as { position?: string | number } | null)?.position;
       throw new Error(
-        `migration ${dir} failed: ${e.message}` +
-        (e.position ? `\n  (at character ${e.position})` : ""));
+        `migration ${dir} failed: ${said}` +
+        (at ? `\n  (at character ${at})` : ""));
     }
   }
 }

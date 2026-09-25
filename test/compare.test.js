@@ -9,7 +9,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceText } from "./src-files.ts";
 
 /* connectComparison() lives in server.js, whose config guard refuses to load
    without these. They are stubs — nothing here starts a server or opens a

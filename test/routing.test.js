@@ -35,7 +35,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 /* Source is read through one helper, so a file renamed to .ts does not make
    this scanner silently find nothing. See test/src-files.js. */
-import { sourceFiles, sourceText } from "./src-files.js";
+import { sourceFiles, sourceText } from "./src-files.ts";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESOURCES } from "../src/domain/registry.ts";

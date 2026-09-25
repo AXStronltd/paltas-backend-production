@@ -1,0 +1,36 @@
+{
+  /* ====================================================================== *
+   * THE SUITE, TYPE-CHECKED.
+   *
+   * A separate config from tsconfig.json for one reason: that one EMITS.
+   * `rootDir` is pinned to `src` there because the compiled tree's shape is
+   * load-bearing — dist/domain/market.js walks up two directories to find the
+   * contract file, and one extra level of nesting means the container does
+   * not start. Adding `test/` to the input would move every emitted file down
+   * a directory and break exactly that.
+   *
+   * So this config never emits. It exists to check the suite, and
+   * `npm run typecheck` runs both.
+   *
+   * ── WHY THE FLAGS DIFFER, AND WHERE THEY DO NOT ──────────────────────
+   *
+   * `strict` stays on. So does `noImplicitAny`. A test that quietly takes an
+   * `any` parameter is a test whose fixture can drift from the shape the
+   * service actually returns, which is the failure this whole migration was
+   * about.
+   *
+   * `noUncheckedIndexedAccess` is OFF here and on in src. In the service it
+   * found a real defect. In a test, `rows[0].id` is written immediately after
+   * the line that created `rows[0]`, and there are some nine hundred of them;
+   * the flag would add nine hundred `?.` to code whose whole purpose is to
+   * fail loudly when the thing it just made is not there.
+   * ====================================================================== */
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    "rootDir": ".",
+    "noUncheckedIndexedAccess": false
+  },
+  "include": ["test/**/*"],
+  "exclude": ["node_modules", "dist"]
+}

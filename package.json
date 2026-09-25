@@ -11,7 +11,7 @@
     "start": "prisma migrate deploy && node dist/server.js",
     "dev": "node --watch src/server.js",
     "build": "tsc -p tsconfig.json",
-    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.tests.json",
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
     "seed": "node prisma/seed.js",

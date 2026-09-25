@@ -14,7 +14,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { connectOrExplain, freshSchema, poolInSchema } from "./db-help.js";
+import { connectOrExplain, freshSchema, poolInSchema } from "./db-help.ts";
 
 /* Reading the migrations is db-help.js's job now, so the filesystem and path
    imports this file used to need have gone with it. */

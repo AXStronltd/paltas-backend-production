@@ -13,10 +13,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
+import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceText } from "./src-files.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 

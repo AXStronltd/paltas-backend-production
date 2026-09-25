@@ -23,7 +23,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
+import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const SCHEMA = "test_ledger";

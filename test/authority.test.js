@@ -21,7 +21,7 @@ import {
 import { normalisePath, contains, mayDataset, whyNotDataset } from "../src/modules/authority/domain/jurisdiction.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText, handlerText } from "./src-files.js";
+import { sourceText, handlerText } from "./src-files.ts";
 
 const HERE = fileURLToPath(new URL("..", import.meta.url));
 const schema = readFileSync(join(HERE, "prisma/schema.prisma"), "utf8");

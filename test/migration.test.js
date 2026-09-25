@@ -34,7 +34,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
-import { connectOrExplain, freshSchema, poolInSchema } from "./db-help.js";
+import { connectOrExplain, freshSchema, poolInSchema } from "./db-help.ts";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";

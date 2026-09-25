@@ -28,7 +28,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { allSourceFiles, ROOT } from "./src-files.js";
+import { allSourceFiles, ROOT } from "./src-files.ts";
 import { readdirSync } from "node:fs";
 
 /** `from "./x.js"`, `from "../y/z.ts"` — static imports and re-exports. */

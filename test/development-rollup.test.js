@@ -49,7 +49,7 @@ const skip = typeof mock.module === "function"
 
 let db, createApp;
 if (!skip) {
-  const { createFakeDb } = await import("./fake-prisma.js");
+  const { createFakeDb } = await import("./fake-prisma.ts");
   db = createFakeDb();
   mock.module("../src/db.ts", {
   namedExports: {

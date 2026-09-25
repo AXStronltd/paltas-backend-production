@@ -55,7 +55,7 @@ export const SRC = join(ROOT, "src");
  */
 export const SOURCE_EXTENSIONS = [".js", ".ts"];
 
-const isSource = (name) => SOURCE_EXTENSIONS.some((e) => name.endsWith(e));
+const isSource = (name: string): boolean => SOURCE_EXTENSIONS.some((e) => name.endsWith(e));
 
 /**
  * Read one source file by name, whatever it is written in.
@@ -64,13 +64,13 @@ const isSource = (name) => SOURCE_EXTENSIONS.some((e) => name.endsWith(e));
  * `routes/products.ts`. The `.js` in the argument is a convenience, not a
  * claim — callers name the module and this decides the rest.
  */
-export function sourceText(...parts) {
+export function sourceText(...parts: string[]): string {
   const path = resolveSource(...parts);
   return readFileSync(path, "utf8");
 }
 
 /** The path `sourceText` would read, for a test that wants to name it. */
-export function resolveSource(...parts) {
+export function resolveSource(...parts: string[]): string {
   const rel = join(...parts);
   const base = join(SRC, rel).replace(/\.(js|ts)$/, "");
   const found = SOURCE_EXTENSIONS
@@ -102,7 +102,7 @@ export function resolveSource(...parts) {
  * Not recursive — `sourceFiles("routes")` is the routes, not the routes and
  * everything below them. `allSourceFiles()` is the recursive one.
  */
-export function sourceFiles(...parts) {
+export function sourceFiles(...parts: string[]): string[] {
   const dir = join(SRC, ...parts);
   let entries;
   try {
@@ -124,9 +124,9 @@ export function sourceFiles(...parts) {
 }
 
 /** Every source file anywhere under `src/`, with its path. */
-export function allSourceFiles() {
-  const found = [];
-  const walk = (dir) => {
+export function allSourceFiles(): string[] {
+  const found: string[] = [];
+  const walk = (dir: string): void => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const p = join(dir, entry.name);
       if (entry.isDirectory()) { walk(p); continue; }
@@ -162,12 +162,12 @@ export function allSourceFiles() {
  */
 
 /** "comms-webhook.js" and "comms-webhook.ts" are the same source file. */
-export function sameSource(a, b) {
+export function sameSource(a: string, b: string): boolean {
   return baseName(a) === baseName(b);
 }
 
 /** A source file's name without whichever extension it is written in. */
-export function baseName(name) {
+export function baseName(name: string): string {
   return String(name).replace(/\.(js|ts)$/, "");
 }
 
@@ -194,7 +194,7 @@ export function baseName(name) {
  * usually enough. `router` is the identifier the file registers routes on,
  * which is what marks where the next one starts.
  */
-export function handlerText(source, declaration, router) {
+export function handlerText(source: string, declaration: string, router: string): string {
   const text = String(source);
 
   /*

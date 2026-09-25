@@ -40,7 +40,7 @@ let skip = typeof mock.module === "function"
 let db, createApp;
 
 if (!skip) {
-  const { createFakeDb } = await import("./fake-prisma.js");
+  const { createFakeDb } = await import("./fake-prisma.ts");
   db = createFakeDb();
 
   /* The one substitution. Everything downstream of src/db.js is the real

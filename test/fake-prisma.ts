@@ -52,30 +52,120 @@ const HERE = dirname(fileURLToPath(import.meta.url));
  * READING THE SCHEMA.
  * ====================================================================== */
 
-const uncomment = (t) =>
+const uncomment = (t: string): string =>
   t.replace(/^\s*\/\/.*$/gm, "").replace(/(^|[^:])\/\/.*$/gm, "$1");
 
-function parseSchema() {
+/* ====================================================================== *
+ * THE SCHEMA, AS THIS FILE UNDERSTANDS IT.
+ *
+ * These describe what `parseSchema()` reads out of schema.prisma, and so
+ * they describe the fake's own idea of a database. Writing them down is
+ * more than tidiness: the whole value of this file is that it is BUILT from
+ * the schema rather than written by hand, and a shape nobody stated is a
+ * shape that can quietly stop matching the schema it came from.
+ * ====================================================================== */
+
+/** One relation's arguments, as `@relation(...)` states them. */
+export interface RelationSpec {
+  readonly name: string;
+  /** The columns on THIS model. Null where the relation names none. */
+  readonly fields: string[] | null;
+  readonly references: string[] | null;
+}
+
+/** One column. */
+export interface FieldSpec {
+  readonly name: string;
+  readonly type: string;
+  readonly list: boolean;
+  readonly optional: boolean;
+  readonly isId: boolean;
+  readonly unique: boolean;
+  readonly updatedAt: boolean;
+  /** The text inside `@default(...)`, or null where there is none. */
+  readonly default: string | null;
+  readonly relation: RelationSpec | null;
+}
+
+/** One model, and every way its rows must stay distinct. */
+export interface ModelSpec {
+  readonly name: string;
+  readonly fields: FieldSpec[];
+  /** Each entry is one constraint: a list of the columns it spans. */
+  readonly uniques: string[][];
+}
+
+/** A row, as this fake stores one. Columns are whatever the schema declared. */
+export type Row = Record<string, unknown>;
+
+/**
+ * The stand-in client, as a test holds one.
+ *
+ * The four `$` methods are named because tests call them directly. The index
+ * signature is for the model accessors, which are attached by name in a loop
+ * from MODEL_BY_ACCESSOR — declaring 132 of them here would be the
+ * hand-written copy of schema.prisma this whole file exists to avoid.
+ */
+export interface FakeDb {
+  $queryRaw(): Promise<{ "?column?": number }[]>;
+  $executeRaw(): Promise<number>;
+  $disconnect(): Promise<void>;
+  $transaction(arg: unknown): Promise<unknown>;
+  /** Everything in the store, for a test that wants to look directly. */
+  __tables: Map<string, Map<string, Row>>;
+  __reset(): void;
+  [accessor: string]: unknown;
+}
+
+/**
+ * WHAT THIS FAKE UNDERSTANDS OF A PRISMA QUERY.
+ *
+ * Every field it reads, and no more — which makes this list the fake's
+ * supported surface, written down. Anything a caller sends that is not here
+ * is not silently ignored: `boom()` throws naming it, because a fake that
+ * quietly drops a `where` turns a real bug into a green tick.
+ *
+ * The values are `unknown` rather than Prisma's own generic types. This is a
+ * stand-in built by parsing schema.prisma as text; it has no access to the
+ * generated types and inventing an approximation of them here would be a
+ * second source of truth, which is the one thing this file exists to avoid.
+ */
+export interface QueryArgs {
+  where?: unknown;
+  data?: unknown;
+  select?: unknown;
+  include?: unknown;
+  orderBy?: unknown;
+  take?: number;
+  skip?: number;
+  cursor?: { id?: unknown } & Record<string, unknown>;
+  /** `upsert` only. */
+  create?: unknown;
+  update?: unknown;
+}
+
+function parseSchema(): { models: Map<string, ModelSpec>; enums: Map<string, string[]> } {
   const text = readFileSync(join(HERE, "..", "prisma", "schema.prisma"), "utf8");
-  const models = new Map();
-  const enums = new Map();
+  const models = new Map<string, ModelSpec>();
+  const enums = new Map<string, string[]>();
 
   for (const m of text.matchAll(/^enum (\w+) \{([\s\S]*?)^\}/gm)) {
-    enums.set(m[1], uncomment(m[2]).split(/\s+/).filter(Boolean));
+    enums.set(String(m[1]), uncomment(String(m[2])).split(/\s+/).filter(Boolean));
   }
 
   for (const m of text.matchAll(/^model (\w+) \{([\s\S]*?)^\}/gm)) {
-    const name = m[1];
-    const body = uncomment(m[2]);
-    const fields = [];
-    const uniques = [];
+    const name = String(m[1]);
+    const body = uncomment(String(m[2]));
+    const fields: FieldSpec[] = [];
+    const uniques: string[][] = [];
 
     for (const raw of body.split("\n")) {
       const line = raw.trim();
       if (!line) continue;
 
       if (line.startsWith("@@unique(")) {
-        uniques.push(line.match(/\[([^\]]*)\]/)[1].split(",").map((s) => s.trim()));
+        const spanned = line.match(/\[([^\]]*)\]/)?.[1] ?? "";
+        uniques.push(spanned.split(",").map((s) => s.trim()));
         continue;
       }
       if (line.startsWith("@@")) continue;
@@ -85,7 +175,7 @@ function parseSchema() {
       const [, fname, ftype, mod = "", rest = ""] = f;
       const relArgs = rest.match(/@relation\(([^)]*)\)/)?.[1] ?? null;
 
-      const field = {
+      const field: FieldSpec = {
         name: fname,
         type: ftype,
         list: mod === "[]",
@@ -109,7 +199,7 @@ function parseSchema() {
 }
 
 /** `@default(...)` with balanced parens — `@default(now())` breaks a lazy regex. */
-function defaultOf(rest) {
+function defaultOf(rest: string): string | null {
   const i = rest.indexOf("@default(");
   if (i < 0) return null;
   let j = i + "@default(".length, depth = 1;
@@ -138,11 +228,13 @@ const { models: MODELS, enums: ENUMS } = parseSchema();
  * exactly what makes a fake worse than no fake, so it is read from the
  * schema.
  */
-const idOf = (model) => (model.fields.find((f) => f.isId) || { name: "id" }).name;
+const idOf = (model: ModelSpec): string =>
+  (model.fields.find((f) => f.isId) ?? { name: "id" }).name;
 
 /** `Site` → `site`, the accessor Prisma exposes. */
-const accessorOf = (model) => model.charAt(0).toLowerCase() + model.slice(1);
-const MODEL_BY_ACCESSOR = new Map([...MODELS.keys()].map((m) => [accessorOf(m), m]));
+const accessorOf = (model: string): string => model.charAt(0).toLowerCase() + model.slice(1);
+const MODEL_BY_ACCESSOR = new Map<string, string>(
+  [...MODELS.keys()].map((m) => [accessorOf(m), m] as const));
 
 /* ====================================================================== *
  * ERRORS SHAPED LIKE PRISMA'S.
@@ -152,15 +244,28 @@ const MODEL_BY_ACCESSOR = new Map([...MODELS.keys()].map((m) => [accessorOf(m), 
  * test would prove the opposite of what it claims.
  * ====================================================================== */
 
-function prismaError(code, message, meta) {
-  const e = new Error(message);
+/**
+ * An error shaped like Prisma's.
+ *
+ * The routes catch `e.code === "P2002"`, so these three fields are the
+ * contract — a plain Error would take a different path through the handler
+ * and the test would prove the opposite of what it claims.
+ */
+export interface FakePrismaError extends Error {
+  code: string;
+  meta: unknown;
+  clientVersion: string;
+}
+
+function prismaError(code: string, message: string, meta?: unknown): FakePrismaError {
+  const e = new Error(message) as FakePrismaError;
   e.code = code;
   e.meta = meta;
   e.clientVersion = "fake";
   return e;
 }
 
-const boom = (what) => {
+const boom = (what: string): never => {
   throw new Error(
     `fake-prisma does not implement ${what}.\n` +
     `It is deliberately strict: silently ignoring this would turn a real bug ` +
@@ -171,7 +276,14 @@ const boom = (what) => {
  * MATCHING A `where`.
  * ====================================================================== */
 
-function matchesValue(actual, expected, field) {
+/**
+ * `field` is the COLUMN NAME, and nothing below reads it.
+ *
+ * It is threaded through the recursive calls and never consulted — left as
+ * it was found rather than removed, because the day this fake needs to say
+ * WHICH column an unsupported operator was used on, it is already here.
+ */
+function matchesValue(actual: unknown, expected: unknown, field?: string): boolean {
   if (expected === null) return actual === null || actual === undefined;
 
   if (expected instanceof Date) {
@@ -179,12 +291,17 @@ function matchesValue(actual, expected, field) {
   }
 
   if (expected && typeof expected === "object" && !Array.isArray(expected)) {
-    for (const [op, v] of Object.entries(expected)) {
+    const clause = expected as Record<string, unknown>;
+    for (const [op, v] of Object.entries(clause)) {
       switch (op) {
         case "equals": if (!matchesValue(actual, v, field)) return false; break;
         case "not": if (matchesValue(actual, v, field)) return false; break;
-        case "in": if (!v.some((x) => matchesValue(actual, x, field))) return false; break;
-        case "notIn": if (v.some((x) => matchesValue(actual, x, field))) return false; break;
+        case "in":
+          if (!asList(v).some((x) => matchesValue(actual, x, field))) return false;
+          break;
+        case "notIn":
+          if (asList(v).some((x) => matchesValue(actual, x, field))) return false;
+          break;
         case "gt": if (!(cmp(actual, v) > 0)) return false; break;
         case "gte": if (!(cmp(actual, v) >= 0)) return false; break;
         case "lt": if (!(cmp(actual, v) < 0)) return false; break;
@@ -192,7 +309,7 @@ function matchesValue(actual, expected, field) {
         case "contains": {
           const a = String(actual ?? "");
           const b = String(v);
-          const ci = expected.mode === "insensitive";
+          const ci = clause["mode"] === "insensitive";
           if (!(ci ? a.toLowerCase().includes(b.toLowerCase()) : a.includes(b))) return false;
           break;
         }
@@ -207,23 +324,32 @@ function matchesValue(actual, expected, field) {
   return actual === expected;
 }
 
-function cmp(a, b) {
+function cmp(a: unknown, b: unknown): number {
   if (a === null || a === undefined) return -1;
-  const x = a instanceof Date ? a.getTime() : a;
-  const y = b instanceof Date ? b.getTime() : b;
+  const x = a instanceof Date ? a.getTime() : (a as number | string);
+  const y = b instanceof Date ? b.getTime() : (b as number | string);
   return x < y ? -1 : x > y ? 1 : 0;
 }
 
-function matches(row, where, model) {
+/**
+ * A `where` operator's operand, as a list.
+ *
+ * `in` and `notIn` take one, and a caller that sends a bare value rather
+ * than an array is asking a question this fake can still answer. Refusing
+ * would be stricter than Prisma without being more correct.
+ */
+const asList = (v: unknown): unknown[] => (Array.isArray(v) ? v : [v]);
+
+function matches(row: Row, where: unknown, model: ModelSpec): boolean {
   if (!where) return true;
 
   for (const [key, value] of Object.entries(where)) {
     if (key === "AND") {
-      if (!(Array.isArray(value) ? value : [value]).every((w) => matches(row, w, model))) return false;
+      if (!asList(value).every((w) => matches(row, w as Row, model))) return false;
       continue;
     }
     if (key === "OR") {
-      if (!value.some((w) => matches(row, w, model))) return false;
+      if (!asList(value).some((w) => matches(row, w as Row, model))) return false;
       continue;
     }
     if (key === "NOT") {
@@ -235,12 +361,13 @@ function matches(row, where, model) {
     const field = model.fields.find((f) => f.name === key);
     if (!field && key.includes("_")) {
       const parts = key.split("_");
+      const compound = (value ?? {}) as Record<string, unknown>;
       if (parts.every((p) => model.fields.some((f) => f.name === p))) {
-        if (!parts.every((p) => matchesValue(row[p], value[p], p))) return false;
+        if (!parts.every((p) => matchesValue(row[p], compound[p], p))) return false;
         continue;
       }
     }
-    if (!field) boom(`a where on unknown field "${model.name}.${key}"`);
+    if (!field) return boom(`a where on unknown field "${model.name}.${key}"`);
 
     /* Filtering THROUGH a relation is not supported, and saying so beats
        pretending the filter applied. */
@@ -259,13 +386,25 @@ function matches(row, where, model) {
 
 export function createFakeDb() {
   /** model name → id → row */
-  const tables = new Map([...MODELS.keys()].map((m) => [m, new Map()]));
+  const tables = new Map<string, Map<string, Row>>(
+    [...MODELS.keys()].map((m) => [m, new Map<string, Row>()] as const));
 
-  const rowsOf = (model) => [...tables.get(model).values()];
+  /**
+   * Every row of one model.
+   *
+   * `tables` was built from MODELS above, so a name that reached here is one
+   * this fake knows — but a typo in a caller would otherwise read
+   * `undefined.values()` three frames away from the mistake.
+   */
+  const rowsOf = (model: string): Row[] => {
+    const table = tables.get(model);
+    if (!table) return boom(`the model "${model}"`);
+    return [...table.values()];
+  };
 
   /* ---------------------------------------------------------------- */
 
-  function applyDefaults(model, data) {
+  function applyDefaults(model: ModelSpec, data: Row): Row {
     const out = { ...data };
     for (const f of model.fields) {
       if (f.list && MODELS.has(f.type)) continue;
@@ -291,8 +430,9 @@ export function createFakeDb() {
     return out;
   }
 
-  function evalDefault(f) {
+  function evalDefault(f: FieldSpec): unknown {
     const d = f.default;
+    if (d === null) return undefined;
     if (d === "now()") return new Date();
     if (d.startsWith("cuid(") || d.startsWith("uuid(")) {
       return "c" + crypto.randomBytes(12).toString("hex");
@@ -319,7 +459,7 @@ export function createFakeDb() {
     boom(`the default \`${d}\` on ${f.name}`);
   }
 
-  function checkUnique(model, row, ignoreId) {
+  function checkUnique(model: ModelSpec, row: Row, ignoreId?: unknown): void {
     const key = idOf(model);
     for (const cols of model.uniques) {
       if (cols.some((c) => row[c] === null || row[c] === undefined)) continue;
@@ -336,11 +476,13 @@ export function createFakeDb() {
    * include / select
    * ---------------------------------------------------------------- */
 
-  function hydrate(modelName, row, include, select) {
+  function hydrate(
+    modelName: string, row: Row | null, include?: unknown, select?: unknown,
+  ): Row | null {
     if (!row) return row;
 
     if (select) {
-      const out = {};
+      const out: Row = {};
       for (const [key, want] of Object.entries(select)) {
         if (!want) continue;
         out[key] = row[key];
@@ -352,18 +494,27 @@ export function createFakeDb() {
     if (!include) return out;
 
     const model = MODELS.get(modelName);
-    for (const [key, spec] of Object.entries(include)) {
+    if (!model) return boom(`the model "${modelName}"`);
+
+    for (const [key, spec] of Object.entries(include as Record<string, unknown>)) {
       if (!spec) continue;
       const field = model.fields.find((f) => f.name === key);
-      if (!field || !MODELS.has(field.type)) boom(`an include of "${modelName}.${key}"`);
+      if (!field || !MODELS.has(field.type)) {
+        return boom(`an include of "${modelName}.${key}"`);
+      }
 
       const other = MODELS.get(field.type);
-      const opts = spec === true ? {} : spec;
+      if (!other) return boom(`the model "${field.type}"`);
+      /* `include: { unit: true }` and `include: { unit: { select } }` are the
+         same request with and without options. */
+      const opts = (spec === true ? {} : spec) as {
+        include?: unknown; select?: unknown; where?: unknown; orderBy?: unknown;
+      };
 
       if (field.relation?.fields) {
         /* This side holds the foreign key. */
-        const fk = row[field.relation.fields[0]];
-        const ref = field.relation.references[0];
+        const fk = row[String(field.relation.fields[0])];
+        const ref = String(field.relation.references?.[0] ?? "id");
         const found = fk == null ? null : rowsOf(field.type).find((r) => r[ref] === fk);
         out[key] = found ? hydrate(field.type, found, opts.include, opts.select) : null;
         continue;
@@ -374,22 +525,25 @@ export function createFakeDb() {
       const back = other.fields.find(
         (f) => f.type === modelName && f.relation?.fields &&
                (!field.relation?.name || f.relation.name === field.relation.name));
-      if (!back) boom(`the back-relation for "${modelName}.${key}"`);
+      if (!back?.relation?.fields) {
+        return boom(`the back-relation for "${modelName}.${key}"`);
+      }
 
-      const fkCol = back.relation.fields[0];
-      let kids = rowsOf(field.type).filter((r) => r[fkCol] === row.id);
+      const fkCol = String(back.relation.fields[0]);
+      let kids = rowsOf(field.type).filter((r) => r[fkCol] === row["id"]);
       if (opts.where) kids = kids.filter((r) => matches(r, opts.where, other));
       if (opts.orderBy) kids = sortRows(kids, opts.orderBy);
 
+      const first = kids[0];
       out[key] = field.list
         ? kids.map((r) => hydrate(field.type, r, opts.include, opts.select))
-        : (kids[0] ? hydrate(field.type, kids[0], opts.include, opts.select) : null);
+        : (first ? hydrate(field.type, first, opts.include, opts.select) : null);
     }
     return out;
   }
 
-  function sortRows(rows, orderBy) {
-    const specs = Array.isArray(orderBy) ? orderBy : [orderBy];
+  function sortRows(rows: readonly Row[], orderBy: unknown): Row[] {
+    const specs = asList(orderBy) as Record<string, unknown>[];
     return [...rows].sort((a, b) => {
       for (const spec of specs) {
         for (const [field, dir] of Object.entries(spec)) {
@@ -406,19 +560,25 @@ export function createFakeDb() {
    * The delegate every model gets.
    * ---------------------------------------------------------------- */
 
-  function delegate(modelName) {
+  function delegate(modelName: string) {
     const model = MODELS.get(modelName);
     const table = tables.get(modelName);
+    /* Both came from MODELS above, so a name that reached here is one this
+       fake knows — and a typo in a caller is named rather than read off
+       undefined three frames later. */
+    if (!model || !table) return boom(`the model "${modelName}"`);
 
-    const find = (where) => rowsOf(modelName).filter((r) => matches(r, where, model));
+    const find = (where?: unknown): Row[] =>
+      rowsOf(modelName).filter((r) => matches(r, where, model));
 
     return {
-      async findMany(args = {}) {
+      async findMany(args: QueryArgs = {}) {
         let rows = find(args.where);
         rows = args.orderBy ? sortRows(rows, args.orderBy) : rows;
 
-        if (args.cursor) {
-          const at = rows.findIndex((r) => r.id === args.cursor.id);
+        const cursor = args.cursor;
+        if (cursor) {
+          const at = rows.findIndex((r) => r["id"] === cursor["id"]);
           rows = at < 0 ? [] : rows.slice(at + (args.skip || 0));
         } else if (args.skip) {
           rows = rows.slice(args.skip);
@@ -428,24 +588,27 @@ export function createFakeDb() {
         return rows.map((r) => hydrate(modelName, r, args.include, args.select));
       },
 
-      async findFirst(args = {}) {
+      async findFirst(args: QueryArgs = {}) {
         const rows = args.orderBy ? sortRows(find(args.where), args.orderBy) : find(args.where);
         return rows.length ? hydrate(modelName, rows[0], args.include, args.select) : null;
       },
 
-      async findUnique(args = {}) {
+      async findUnique(args: QueryArgs = {}) {
         const rows = find(args.where);
         return rows.length ? hydrate(modelName, rows[0], args.include, args.select) : null;
       },
 
-      async count(args = {}) {
+      async count(args: QueryArgs = {}) {
         return find(args.where).length;
       },
 
-      async create(args = {}) {
-        const nested = {};
-        const data = {};
-        for (const [k, v] of Object.entries(args.data || {})) {
+      async create(args: QueryArgs = {}) {
+        /* Relations go one way and columns the other: a create may carry a
+           whole company's worth of nested rows, and those are written after
+           the parent exists. */
+        const nested: Row = {};
+        const data: Row = {};
+        for (const [k, v] of Object.entries((args.data ?? {}) as Row)) {
           const f = model.fields.find((x) => x.name === k);
           if (f && MODELS.has(f.type)) nested[k] = v;
           else data[k] = v;
@@ -453,23 +616,29 @@ export function createFakeDb() {
 
         const row = applyDefaults(model, data);
         checkUnique(model, row);
-        table.set(row[idOf(model)], row);
+        table.set(String(row[idOf(model)]), row);
 
         /* `create: { … }` and `create: [ … ]` on a relation — organizations.js
            builds a whole company in one call. */
         for (const [key, spec] of Object.entries(nested)) {
           const field = model.fields.find((f) => f.name === key);
-          const other = MODELS.get(field.type);
+          const other = field ? MODELS.get(field.type) : undefined;
+          if (!field || !other) return boom(`a nested write on "${modelName}.${key}"`);
+
           const back = other.fields.find(
             (f) => f.type === modelName && f.relation?.fields &&
                    (!field.relation?.name || f.relation.name === field.relation.name));
-          if (!back) boom(`a nested write on "${modelName}.${key}"`);
-          const fk = back.relation.fields[0];
+          if (!back?.relation?.fields) {
+            return boom(`a nested write on "${modelName}.${key}"`);
+          }
+          const fk = String(back.relation.fields[0]);
 
-          for (const [op, payload] of Object.entries(spec)) {
+          for (const [op, payload] of Object.entries((spec ?? {}) as Row)) {
             if (op !== "create") boom(`the nested write "${op}"`);
-            for (const one of (Array.isArray(payload) ? payload : [payload])) {
-              await delegate(field.type).create({ data: { ...one, [fk]: row[idOf(model)] } });
+            for (const one of asList(payload)) {
+              await delegate(field.type).create({
+                data: { ...(one as Row), [fk]: row[idOf(model)] },
+              });
             }
           }
         }
@@ -477,23 +646,23 @@ export function createFakeDb() {
         return hydrate(modelName, row, args.include, args.select);
       },
 
-      async update(args = {}) {
+      async update(args: QueryArgs = {}) {
         const rows = find(args.where);
         if (!rows.length) {
           throw prismaError("P2025", "An operation failed because it depends on one or more records that were required but not found.");
         }
-        const row = rows[0];
-        const key = row[idOf(model)];
+        const row = rows[0] as Row;
+        const key = String(row[idOf(model)]);
         const next = { ...row, ...writeable(model, args.data, row) };
         checkUnique(model, next, key);
         table.set(key, next);
         return hydrate(modelName, next, args.include, args.select);
       },
 
-      async updateMany(args = {}) {
+      async updateMany(args: QueryArgs = {}) {
         const rows = find(args.where);
         for (const row of rows) {
-          const key = row[idOf(model)];
+          const key = String(row[idOf(model)]);
           const next = { ...row, ...writeable(model, args.data, row) };
           checkUnique(model, next, key);
           table.set(key, next);
@@ -501,7 +670,7 @@ export function createFakeDb() {
         return { count: rows.length };
       },
 
-      async upsert(args = {}) {
+      async upsert(args: QueryArgs = {}) {
         const rows = find(args.where);
         if (rows.length) {
           return this.update({ where: args.where, data: args.update, include: args.include });
@@ -509,34 +678,39 @@ export function createFakeDb() {
         return this.create({ data: args.create, include: args.include });
       },
 
-      async delete(args = {}) {
+      async delete(args: QueryArgs = {}) {
         const rows = find(args.where);
-        if (!rows.length) throw prismaError("P2025", "Record to delete does not exist.");
-        cascade(modelName, rows[0]);
-        table.delete(rows[0][idOf(model)]);
-        return rows[0];
+        const gone = rows[0];
+        if (!gone) throw prismaError("P2025", "Record to delete does not exist.");
+        cascade(modelName, gone);
+        table.delete(String(gone[idOf(model)]));
+        return gone;
       },
 
-      async deleteMany(args = {}) {
+      async deleteMany(args: QueryArgs = {}) {
         const rows = find(args.where);
-        for (const r of rows) { cascade(modelName, r); table.delete(r[idOf(model)]); }
+        for (const r of rows) { cascade(modelName, r); table.delete(String(r[idOf(model)])); }
         return { count: rows.length };
       },
     };
   }
 
   /** `{ increment: 1 }` and friends, plus @updatedAt. */
-  function writeable(model, data, current) {
-    const out = {};
+  function writeable(model: ModelSpec, data: unknown, current?: Row): Row {
+    const out: Row = {};
     for (const [k, v] of Object.entries(data || {})) {
       const f = model.fields.find((x) => x.name === k);
-      if (!f) boom(`a write to unknown field "${model.name}.${k}"`);
+      if (!f) return boom(`a write to unknown field "${model.name}.${k}"`);
       if (MODELS.has(f.type)) boom(`a nested update on "${model.name}.${k}"`);
 
       if (v && typeof v === "object" && !(v instanceof Date) && !Array.isArray(v)) {
-        if ("increment" in v) { out[k] = (current[k] || 0) + v.increment; continue; }
-        if ("decrement" in v) { out[k] = (current[k] || 0) - v.decrement; continue; }
-        if ("set" in v) { out[k] = v.set; continue; }
+        const op = v as Record<string, unknown>;
+        /* `increment` and `decrement` only ever apply to an existing row —
+           `create` has no current value to move. */
+        const was = Number(current?.[k] ?? 0);
+        if ("increment" in op) { out[k] = was + Number(op["increment"]); continue; }
+        if ("decrement" in op) { out[k] = was - Number(op["decrement"]); continue; }
+        if ("set" in op) { out[k] = op["set"]; continue; }
         boom(`the update operator on "${k}"`);
       }
       out[k] = v;
@@ -548,23 +722,27 @@ export function createFakeDb() {
   /**
    * Cascade and SetNull, so deleting a company behaves as the schema says.
    */
-  function cascade(modelName, row) {
+  function cascade(modelName: string, row: Row): void {
     for (const [otherName, other] of MODELS) {
       for (const f of other.fields) {
         if (f.type !== modelName || !f.relation?.fields) continue;
-        const fk = f.relation.fields[0];
-        const mine = row[idOf(MODELS.get(modelName))];
-        const kids = [...tables.get(otherName).values()].filter((r) => r[fk] === mine);
+        const fk = String(f.relation.fields[0]);
+        const parent = MODELS.get(modelName);
+        if (!parent) return boom(`the model "${modelName}"`);
+        const mine = row[idOf(parent)];
+        const kids = rowsOf(otherName).filter((r) => r[fk] === mine);
         if (!kids.length) continue;
 
         const otherKey = idOf(other);
         const rule = f.optional ? "SetNull" : "Cascade";
+        const otherTable = tables.get(otherName);
+        if (!otherTable) return boom(`the model "${otherName}"`);
         for (const kid of kids) {
           if (rule === "Cascade") {
             cascade(otherName, kid);
-            tables.get(otherName).delete(kid[otherKey]);
+            otherTable.delete(String(kid[otherKey]));
           } else {
-            tables.get(otherName).set(kid[otherKey], { ...kid, [fk]: null });
+            otherTable.set(String(kid[otherKey]), { ...kid, [fk]: null });
           }
         }
       }
@@ -573,17 +751,30 @@ export function createFakeDb() {
 
   /* ---------------------------------------------------------------- */
 
-  const db = {
+  /**
+   * THE CLIENT ITSELF.
+   *
+   * One model accessor per model, added below the literal — which is why the
+   * type carries an index signature. It is `unknown` rather than a delegate
+   * type: the accessors are attached by name in a loop, and declaring them
+   * individually would mean restating all 132 models here, which is the
+   * hand-written copy of the schema this file exists to avoid.
+   *
+   * A test reaches them as `db.offer.findMany(...)`, and what it gets back
+   * is the same shape the real client returns — a Row, checked by the
+   * assertions the test then makes about it.
+   */
+  const db: FakeDb = {
     async $queryRaw() { return [{ "?column?": 1 }]; },
     async $executeRaw() { return 0; },
     async $disconnect() {},
-    async $transaction(arg) {
+    async $transaction(arg: unknown) {
       /* No rollback. Every transaction in this service is a set of writes
          that either all make sense or none do, and the routes are what is
          under test — not Postgres's atomicity, which migration.test.js and
          the real end-to-end run cover. */
       if (typeof arg === "function") return arg(db);
-      return Promise.all(arg);
+      return Promise.all(arg as readonly unknown[]);
     },
     /** Everything in the store, for a test that wants to look directly. */
     __tables: tables,

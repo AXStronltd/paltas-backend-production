@@ -25,7 +25,7 @@ import crypto from "node:crypto";
 
 /* Reading the migrations off disk is db-help.js's job now, so the filesystem
    and path imports this file used to need have gone with it. */
-import { explain, freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
+import { explain, freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 

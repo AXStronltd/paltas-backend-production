@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
 import { RESOURCES } from "../src/domain/registry.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceText } from "./src-files.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const md = readFileSync(join(HERE, "..", "contract", "backend.md"), "utf8");

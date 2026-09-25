@@ -18,7 +18,7 @@ import crypto from "node:crypto";
 import { SignJWT, exportJWK, generateKeyPair } from "jose";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceText } from "./src-files.ts";
 
 /* config.js reads the environment at import time and refuses to start without
    it, which is the behaviour we want in production and something a test has to

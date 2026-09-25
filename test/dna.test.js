@@ -26,7 +26,7 @@ import {
 import { refFor, SUCCESSION_NEXT, SUCCESSION_TERMINAL, mayAdvance } from "../src/domain/dna.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText, handlerText } from "./src-files.js";
+import { sourceText, handlerText } from "./src-files.ts";
 
 /* fileURLToPath, not .pathname: this repository's directory name contains a
    space, and .pathname hands back "paltas-backend%202". */

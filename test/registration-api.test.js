@@ -27,7 +27,7 @@ import crypto from "node:crypto";
 
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { freshSchema, poolInSchema, urlForSchema } from "./db-help.js";
+import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 

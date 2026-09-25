@@ -321,7 +321,7 @@ test("it is not registered as the marketplace's supplier", () => {
 import { readFileSync } from "node:fs";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceText } from "./src-files.ts";
 
 test("a key pasted with whitespace is trimmed, and a blank one is absent", () => {
   /*

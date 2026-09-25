@@ -26,27 +26,78 @@
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
 
-export function makeWindow({ href = "https://paltas.io/" } = {}) {
-  const calls = { fetch: [], warn: [], error: [] };
+/* ====================================================================== *
+ * WHAT THIS SHIM PRETENDS TO BE.
+ *
+ * A browser's DOM, as much of it as the frontend's own scripts touch. The
+ * interface below is therefore the SUPPORTED SURFACE, written down: a page
+ * reaching for something not on it gets a real TypeError, which is the
+ * failure this file wants — it means the page uses an API the shim has not
+ * been taught, and somebody should teach it rather than the test quietly
+ * passing.
+ *
+ * `[key: string]: unknown` is on it because a page may stash its own
+ * properties on an element, and a shim that refused those would be refusing
+ * something a browser allows.
+ * ====================================================================== */
 
-  const node = (tag = "div") => {
-    const el = {
+/** One element. */
+export interface ShimNode {
+  tagName: string;
+  nodeType: number;
+  children: ShimNode[];
+  childNodes: ShimNode[];
+  attributes: Record<string, unknown>;
+  style: Record<string, unknown>;
+  dataset: Record<string, unknown>;
+  innerHTML: string;
+  textContent: string;
+  value: string;
+  checked: boolean;
+  appendChild(c: ShimNode): ShimNode;
+  removeChild(c: ShimNode): ShimNode;
+  insertBefore(c: ShimNode): ShimNode;
+  setAttribute(k: string, v: unknown): void;
+  getAttribute(k: string): unknown;
+  removeAttribute(k: string): void;
+  hasAttribute(k: string): boolean;
+  querySelector(): ShimNode;
+  querySelectorAll(): ShimNode[];
+  insertAdjacentHTML(where: unknown, html: unknown): undefined;
+  insertAdjacentElement(where: unknown, el: ShimNode): ShimNode;
+  cloneNode(): ShimNode;
+  [key: string]: unknown;
+}
+
+/** What the shim recorded while a page ran. */
+export interface ShimCalls {
+  fetch: unknown[];
+  warn: unknown[];
+  error: unknown[];
+}
+
+export function makeWindow({ href = "https://paltas.io/" }: { href?: string } = {}) {
+  const calls: ShimCalls = { fetch: [], warn: [], error: [] };
+
+  const node = (tag: string = "div"): ShimNode => {
+    const el: ShimNode = {
       tagName: String(tag).toUpperCase(), nodeType: 1,
       children: [], childNodes: [], attributes: {}, style: {}, dataset: {},
       classList: { add(){}, remove(){}, toggle(){}, contains: () => false },
       innerHTML: "", textContent: "", value: "", checked: false,
-      appendChild(c){ this.children.push(c); this.childNodes.push(c); return c; },
-      removeChild(c){ const i=this.children.indexOf(c); if(i>=0){this.children.splice(i,1);} return c; },
-      insertBefore(c){ return this.appendChild(c); },
-      setAttribute(k,v){ this.attributes[k]=v; }, getAttribute(k){ return this.attributes[k] ?? null; },
-      removeAttribute(k){ delete this.attributes[k]; },
-      hasAttribute(k){ return k in this.attributes; },
+      appendChild(c: ShimNode) { this.children.push(c); this.childNodes.push(c); return c; },
+      removeChild(c: ShimNode) { const i = this.children.indexOf(c); if (i >= 0) { this.children.splice(i, 1); } return c; },
+      insertBefore(c: ShimNode) { return this.appendChild(c); },
+      setAttribute(k: string, v: unknown) { this.attributes[k] = v; },
+      getAttribute(k: string) { return this.attributes[k] ?? null; },
+      removeAttribute(k: string) { delete this.attributes[k]; },
+      hasAttribute(k: string) { return k in this.attributes; },
       addEventListener(){}, removeEventListener(){}, dispatchEvent(){ return true; },
       /* An ELEMENT's querySelector answers like the document's, for the same
          reason: returning null makes `el.querySelector(x).addEventListener(…)`
          throw on a page that works. The two were inconsistent, and the
          inconsistency read as a page bug. */
-      querySelector(){ return (this.__q ||= node("div")); },
+      querySelector(): ShimNode { return (this.__q ||= node("div")) as ShimNode; },
       querySelectorAll(){ return []; },
       closest(){ return null; }, contains(){ return false; }, focus(){}, blur(){}, click(){},
       scrollIntoView(){}, getBoundingClientRect: () => ({top:0,left:0,width:0,height:0,bottom:0,right:0}),
@@ -66,47 +117,59 @@ export function makeWindow({ href = "https://paltas.io/" } = {}) {
        * nodes. That is enough for what these tests ask: did the page run, and
        * what did it produce.
        */
-      insertAdjacentHTML(where, html){
+      insertAdjacentHTML(where: unknown, html: unknown) {
         const w = String(where || "").toLowerCase();
         if (w === "afterbegin") this.innerHTML = String(html) + this.innerHTML;
         else if (w === "beforeend") this.innerHTML = this.innerHTML + String(html);
         else if (w === "beforebegin" || w === "afterend") { /* a sibling; nothing reads it */ }
         return undefined;
       },
-      insertAdjacentElement(where, el){ this.appendChild(el); return el; },
+      insertAdjacentElement(_where: unknown, el: ShimNode) { this.appendChild(el); return el; },
       remove(){}, cloneNode(){ return node(tag); },
     };
     return el;
   };
 
-  const byId = {}, bySel = {};
-  const asked = { ids: new Set(), sel: new Set() };
+  const byId: Record<string, ShimNode> = {};
+  const bySel: Record<string, ShimNode> = {};
+  const asked = { ids: new Set<string>(), sel: new Set<string>() };
 
   const document = {
     nodeType: 9, readyState: "loading", title: "", cookie: "",
     documentElement: node("html"), head: node("head"), body: node("body"),
-    createElement: node, createTextNode: (t) => ({ nodeType: 3, textContent: t }),
+    createElement: node, createTextNode: (t: unknown) => ({ nodeType: 3, textContent: t }),
     createDocumentFragment: () => node("fragment"),
     /* A real page HAS these elements. Returning null makes every
        `getElementById(x).addEventListener` crash on a page that works, which
        is a false finding — so hand back a node and remember which ids were
        asked for. Same element each time, so identity comparisons hold. */
-    getElementById(id) { asked.ids.add(id); return (byId[id] ||= node("div")); },
-    querySelector(sel) { asked.sel.add(sel); return (bySel[sel] ||= node("div")); },
+    getElementById(id: string) { asked.ids.add(id); return (byId[id] ||= node("div")); },
+    querySelector(sel: string) { asked.sel.add(sel); return (bySel[sel] ||= node("div")); },
     getElementsByTagName: () => [], getElementsByClassName: () => [],
     querySelectorAll: () => [],
     addEventListener(){}, removeEventListener(){}, dispatchEvent(){ return true; },
   };
 
-  const storage = () => { const m = new Map(); return {
-    getItem: (k) => (m.has(k) ? m.get(k) : null),
-    setItem: (k,v) => void m.set(k, String(v)),
-    removeItem: (k) => void m.delete(k), clear: () => m.clear(),
-    key: (i) => [...m.keys()][i] ?? null, get length(){ return m.size; },
+  const storage = () => { const m = new Map<string, string>(); return {
+    getItem: (k: string) => (m.has(k) ? m.get(k) : null),
+    setItem: (k: string, v: unknown) => void m.set(k, String(v)),
+    removeItem: (k: string) => void m.delete(k), clear: () => m.clear(),
+    key: (i: number) => [...m.keys()][i] ?? null, get length(){ return m.size; },
   }; };
 
   const url = new URL(href);
-  const win = {
+  /*
+   * THE WINDOW.
+   *
+   * `Record<string, unknown>` and not an interface: it is assembled in three
+   * passes — this literal, then the self-references below it, then whatever
+   * a page's own scripts define on it while they run. That last one is the
+   * point of the file, and no declaration written here could describe it.
+   *
+   * What the shim SUPPORTS is described by ShimNode above; this is the bag
+   * the scripts get handed.
+   */
+  const win: Record<string, unknown> = {
     document, navigator: { userAgent: "node-smoke", language: "en-GB", languages: ["en-GB"], onLine: true },
     /*
      * `search` and `hash` come FROM THE URL, not hard-coded to "".
@@ -125,9 +188,15 @@ export function makeWindow({ href = "https://paltas.io/" } = {}) {
     addEventListener(){}, removeEventListener(){}, dispatchEvent(){ return true; },
     matchMedia: () => ({ matches: false, addListener(){}, removeListener(){},
                          addEventListener(){}, removeEventListener(){} }),
-    CustomEvent: class { constructor(t,o){ this.type=t; Object.assign(this,o||{}); } },
-    Event: class { constructor(t){ this.type=t; } },
-    requestAnimationFrame: (f) => { const t = setTimeout(f, 0); t.unref?.(); return t; },
+    CustomEvent: class {
+      type: unknown;
+      constructor(t: unknown, o?: object) { this.type = t; Object.assign(this, o ?? {}); }
+    },
+    Event: class {
+      type: unknown;
+      constructor(t: unknown) { this.type = t; }
+    },
+    requestAnimationFrame: (f: () => void) => { const t = setTimeout(f, 0); t.unref?.(); return t; },
     cancelAnimationFrame: clearTimeout,
     /*
      * TIMERS THAT DO NOT HOLD THE PROCESS OPEN.
@@ -138,42 +207,58 @@ export function makeWindow({ href = "https://paltas.io/" } = {}) {
      * free to exit, which is what a test needs and what a browser tab does
      * anyway when it is closed.
      */
-    setTimeout: (fn, ms, ...a) => { const t = setTimeout(fn, ms, ...a); t.unref?.(); return t; },
-    setInterval: (fn, ms, ...a) => { const t = setInterval(fn, ms, ...a); t.unref?.(); return t; },
+    setTimeout: (fn: (...a: unknown[]) => void, ms?: number, ...a: unknown[]) => {
+      const t = setTimeout(fn, ms, ...a); t.unref?.(); return t;
+    },
+    setInterval: (fn: (...a: unknown[]) => void, ms?: number, ...a: unknown[]) => {
+      const t = setInterval(fn, ms, ...a); t.unref?.(); return t;
+    },
     clearTimeout, clearInterval, queueMicrotask,
     alert(){}, confirm: () => true, prompt: () => null, scrollTo(){}, getComputedStyle: () => ({}),
     /* Nothing may reach the network. A load-time fetch is itself a finding. */
-    fetch: (u, o) => { calls.fetch.push(String(u)); return Promise.reject(new Error("network disabled in smoke test")); },
+    fetch: (u: unknown) => {
+      calls.fetch.push(String(u));
+      return Promise.reject(new Error("network disabled in smoke test"));
+    },
     URL, URLSearchParams, FormData: class {}, Headers: class {}, Request: class {}, Response: class {},
     AbortController, AbortSignal, TextEncoder, TextDecoder, btoa, atob,
     /* Pages preload photographs with `new Image()`. Without it the very first
        inline script throws and nothing after it runs — which looked like a page
        bug and was a hole in this shim. */
-    Image: class { constructor(){ this.onload=null; this.onerror=null; }
-                   set src(v){ this._src=v; } get src(){ return this._src; } },
+    Image: class {
+      onload: unknown = null;
+      onerror: unknown = null;
+      _src: unknown = "";
+      set src(v: unknown) { this._src = v; }
+      get src(): unknown { return this._src; }
+    },
     IntersectionObserver: class { observe(){} unobserve(){} disconnect(){} },
     ResizeObserver: class { observe(){} unobserve(){} disconnect(){} },
     MutationObserver: class { observe(){} disconnect(){} takeRecords(){ return []; } },
-    crypto: { getRandomValues: (a) => a, randomUUID: () => "00000000-0000-4000-8000-000000000000" },
+    crypto: {
+      getRandomValues: <T>(a: T): T => a,
+      randomUUID: () => "00000000-0000-4000-8000-000000000000",
+    },
     Intl, JSON, Math, Date, Promise, Array, Object, String, Number, Boolean, RegExp, Error, Map, Set,
     WeakMap, WeakSet, Symbol, BigInt, Proxy, Reflect, isNaN, isFinite, parseInt, parseFloat, escape, unescape,
     encodeURIComponent, decodeURIComponent, encodeURI, decodeURI,
   };
-  win.window = win; win.self = win; win.globalThis = win; win.top = win; win.parent = win;
-  win.console = { log(){}, info(){}, debug(){}, table(){}, group(){}, groupEnd(){}, trace(){},
-                  warn: (...a) => calls.warn.push(a.map(String).join(" ")),
-                  error: (...a) => calls.error.push(a.map(String).join(" ")) };
-  document.defaultView = win;
+  win["window"] = win; win["self"] = win; win["globalThis"] = win;
+  win["top"] = win; win["parent"] = win;
+  win["console"] = { log(){}, info(){}, debug(){}, table(){}, group(){}, groupEnd(){}, trace(){},
+                  warn: (...a: unknown[]) => calls.warn.push(a.map(String).join(" ")),
+                  error: (...a: unknown[]) => calls.error.push(a.map(String).join(" ")) };
+  (document as Record<string, unknown>)["defaultView"] = win;
 
   const ctx = vm.createContext(win);
   return {
     win, calls, asked,
     /* One context per window, so each script sees what the ones before it
        defined — which is exactly how a page loads them. */
-    loadCode(code, filename) {
+    loadCode(code: string, filename: string): void {
       new vm.Script(code, { filename }).runInContext(ctx, { timeout: 30000 });
     },
-    load(path) {
+    load(path: string): void {
       this.loadCode(readFileSync(path, "utf8"), path);
     },
   };

@@ -24,7 +24,7 @@ import { readFileSync, readdirSync, statSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceText } from "./src-files.ts";
 
 const DOCKERFILE = readFileSync("Dockerfile", "utf8");
 const DOCKERIGNORE = existsSync(".dockerignore")

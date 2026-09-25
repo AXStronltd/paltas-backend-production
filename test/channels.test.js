@@ -269,7 +269,7 @@ import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
-import { sourceText } from "./src-files.js";
+import { sourceText } from "./src-files.ts";
 import { errorHandler } from "../src/http/errors.ts";
 
 const FE = process.env.PALTAS_FRONTEND

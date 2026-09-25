@@ -40,10 +40,54 @@ function supportsModuleMocks() {
   return major > 22 || (major === 22 && minor >= 3);
 }
 
+/* ====================================================================== *
+ * THE RUNNER LOOKS FOR BOTH EXTENSIONS, AND REFUSES TO FIND NOTHING.
+ *
+ * This filtered on `.test.js`. Rename the suite to TypeScript and the list
+ * becomes empty — and `node --test` with no files does not fail. It runs
+ * nothing, reports nothing, and EXITS ZERO. `npm test` would print a tidy
+ * green nothing while the entire suite sat unexecuted beside it.
+ *
+ * That is the same failure test/src-files.js exists to prevent, one level
+ * up: a filter over the wrong extension does not break, it goes quiet. So
+ * the extension lives in one place here too, and an empty list is a hard
+ * stop rather than a pass.
+ * ====================================================================== */
+const TEST_SUFFIXES = [".test.js", ".test.ts"];
+
 const files = readdirSync(join(ROOT, "test"))
-  .filter((f) => f.endsWith(".test.js"))
+  .filter((f) => TEST_SUFFIXES.some((suffix) => f.endsWith(suffix)))
   .map((f) => join("test", f))
   .sort();
+
+if (!files.length) {
+  console.error(
+    "\n  No test files in test/.\n\n" +
+    "  `node --test` with nothing to run exits 0, so this refuses instead:\n" +
+    "  a suite that did not run must never look like a suite that passed.\n" +
+    `  Looked for: ${TEST_SUFFIXES.join(", ")}\n`);
+  process.exit(1);
+}
+
+/*
+ * AND A FILE MAY NOT EXIST TWICE.
+ *
+ * Halfway through a migration `offers.test.js` and `offers.test.ts` can both
+ * be present — one converted, one forgotten. Node would run both, the older
+ * one would pass against code it no longer matches, and the count would look
+ * healthy. Refused by name.
+ */
+const byName = new Map();
+for (const f of files) {
+  const base = f.replace(/\.test\.(js|ts)$/, "");
+  if (byName.has(base)) {
+    console.error(
+      `\n  Two copies of the same test: ${byName.get(base)} and ${f}.\n` +
+      "  One of them is a leftover from a conversion. Delete it.\n");
+    process.exit(1);
+  }
+  byName.set(base, f);
+}
 
 const args = ["--test", ...files];
 const mocks = supportsModuleMocks();
@@ -97,7 +141,7 @@ if (!dbUrl) {
     await client.end();
     database = true;
   } catch (e) {
-    const { explain, redact } = await import("../test/db-help.js");
+    const { explain, redact } = await import("../test/db-help.ts");
     const help = explain(e, dbUrl);
     console.log("\n" + "─".repeat(72));
     console.log(help || `Could not use the database at ${redact(dbUrl)}:\n  ${e.message}`);

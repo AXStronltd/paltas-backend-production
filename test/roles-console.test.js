@@ -26,7 +26,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { makeWindow } from "./dom-shim.js";
+import { makeWindow } from "./dom-shim.ts";
 import { CONSOLE_FORMS } from "../src/domain/console-map.ts";
 
 const FE = process.env.PALTAS_FRONTEND

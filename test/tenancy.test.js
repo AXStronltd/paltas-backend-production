@@ -32,7 +32,7 @@ import { fileURLToPath } from "node:url";
  * company and another company's data, and a `.js` filter over a directory of
  * `.ts` files does not fail — it finds nothing and passes. See test/src-files.js.
  */
-import { allSourceFiles, resolveSource, sameSource, SRC, sourceFiles, sourceText } from "./src-files.js";
+import { allSourceFiles, resolveSource, sameSource, SRC, sourceFiles, sourceText } from "./src-files.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
