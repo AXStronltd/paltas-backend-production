@@ -31,6 +31,12 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+import type { $Enums } from "@prisma/client";
 import { whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {
@@ -41,33 +47,37 @@ export const offerRoutes = Router();
 
 offerRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription());
 
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, "agent", act, label || "offers");
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "an offers route"), "agent", act, label || "offers");
   if (why) throw forbidden(why);
 }
 
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(e); }
-};
+/** One handler, with its `try`/`catch` written once. */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(e); }
+  };
 
-async function audit(req, action, entityId, detail) {
+async function audit(
+  req: Request, action: string, entityId?: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId,
-        actorId: req.session.userId,
+        orgId: actorOf(req, "an offers route").orgId,
+        actorId: sessionOf(req, "an offers route").userId,
         actorName: req.view?.user?.name || req.view?.user?.email || "",
         action, entity: "offer", entityId: entityId || "",
         detail: detail || undefined, ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, e.message); }
+  } catch (e) { console.error("audit write failed", action, messageOf(e)); }
 }
 
 /** This company's offer, or nothing that admits it exists. */
-async function own(req, id) {
+async function own(req: Request, id: string) {
   const offer = await db.offer.findFirst({
-    where: { id, orgId: req.actor.orgId },
+    where: { id, orgId: actorOf(req, "an offers route").orgId },
     include: {
       unit: { select: { id: true, ref: true, status: true } },
       buyer: { select: { id: true, name: true } },
@@ -87,7 +97,15 @@ async function own(req, id) {
  * that matters is somebody trying to accept it. The row is corrected as well,
  * so every other reader agrees.
  */
-async function expireIfLapsed(offer) {
+/**
+ * An offer as the lifecycle rules read one.
+ *
+ * `OfferRow & { unit, buyer, contract }` rather than the bare row, because
+ * own() above includes all three and every caller below reads them.
+ */
+type OfferWithParties = Awaited<ReturnType<typeof own>>;
+
+async function expireIfLapsed(offer: OfferWithParties): Promise<OfferWithParties> {
   const live = offer.status === "SENT" || offer.status === "VIEWED" || offer.status === "DRAFT";
   if (!live || !offer.validUntil || new Date(offer.validUntil) >= new Date()) return offer;
   const updated = await db.offer.update({
@@ -98,14 +116,18 @@ async function expireIfLapsed(offer) {
 }
 
 /** What may follow what. Written once, so no route invents its own rule. */
-const MAY = {
+/** The four things that can be done to an offer. */
+type OfferAct = "send" | "view" | "accept" | "reject";
+
+/** What may follow what. A typo in an act is a compile error, not a silent no. */
+const MAY: Readonly<Record<OfferAct, readonly $Enums.OfferStatus[]>> = {
   send: ["DRAFT"],
   view: ["SENT"],
   accept: ["SENT", "VIEWED"],
   reject: ["SENT", "VIEWED"],
 };
 
-function check(offer, act) {
+function check(offer: { status: $Enums.OfferStatus }, act: OfferAct): void {
   if (MAY[act].includes(offer.status)) return;
   const was = offer.status.toLowerCase();
   throw conflict(
@@ -165,12 +187,24 @@ offerRoutes.post("/offers/:id/accept", route(async (req, res) => {
   /* Accepting commits a unit, so it is a create-level act rather than an
      edit: it opens a reservation that did not exist. */
   need(req, "create", "accepting an offer");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "an offers route").orgId;
   const offer = await expireIfLapsed(await own(req, req.params.id));
   check(offer, "accept");
 
   if (!offer.unitId) throw badRequest("An offer with no unit cannot be accepted — there is nothing to reserve.");
   if (!offer.buyerId) throw badRequest("An offer with no buyer cannot be accepted.");
+
+  /*
+   * The unit and the buyer, captured after the two guards above.
+   *
+   * Both columns are nullable — an offer can be drafted before either is
+   * chosen — and the guards are what make them present HERE. The narrowing
+   * does not reach inside the transaction callback below, so the values are
+   * copied rather than asserted past: the same two reads, on the line after
+   * the check that made them safe.
+   */
+  const unitId = offer.unitId;
+  const buyerId = offer.buyerId;
   if (offer.contract) throw conflict(`This offer is already reserved as ${offer.contract.ref}.`);
 
   /* Somebody else may hold this unit already. Checked before the transaction
@@ -209,8 +243,8 @@ offerRoutes.post("/offers/:id/accept", route(async (req, res) => {
         orgId, ref,
         offerId: offer.id,
         projectId: offer.projectId,
-        unitId: offer.unitId,
-        buyerId: offer.buyerId,
+        unitId,
+        buyerId,
         /* What was actually agreed, not what was asked. */
         price: BigInt(offer.price) - BigInt(offer.discount),
         deposit: offer.deposit,
@@ -230,7 +264,7 @@ offerRoutes.post("/offers/:id/accept", route(async (req, res) => {
      * truth and no second place to keep in step.
      */
     await tx.unit.update({
-      where: { id: offer.unitId },
+      where: { id: unitId },
       data: { status: "RESERVED" },
     });
 
@@ -238,7 +272,7 @@ offerRoutes.post("/offers/:id/accept", route(async (req, res) => {
        leaving two buyers each believing they are still in the running. */
     const beaten = await tx.offer.updateMany({
       where: {
-        orgId, unitId: offer.unitId,
+        orgId, unitId,
         id: { not: offer.id },
         status: { in: ["DRAFT", "SENT", "VIEWED"] },
       },
@@ -299,7 +333,7 @@ offerRoutes.post("/offers/:id/reject", route(async (req, res) => {
  */
 offerRoutes.get("/offers/pipeline", route(async (req, res) => {
   need(req, "list", "offers");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "an offers route").orgId;
 
   const live = await db.offer.findMany({
     where: { orgId, status: { in: ["DRAFT", "SENT", "VIEWED"] } },
@@ -339,7 +373,7 @@ offerRoutes.get("/offers/pipeline", route(async (req, res) => {
 }));
 
 /** The same counter the framework uses for contracts, so refs never collide. */
-async function nextContractRef(orgId) {
+async function nextContractRef(orgId: string): Promise<string> {
   const name = `contracts:${orgId}`;
   const row = await db.counter.upsert({
     where: { name }, create: { name, value: 1 }, update: { value: { increment: 1 } },

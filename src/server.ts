@@ -25,7 +25,7 @@ import { formRoutes } from "./routes/forms.ts";
 import { marketRoutes } from "./routes/market.ts";
 import { ledgerRoutes } from "./routes/ledger.ts";
 import { companyRoutes } from "./routes/company.ts";
-import { offerRoutes } from "./routes/offers.js";
+import { offerRoutes } from "./routes/offers.ts";
 import { workflowRoutes } from "./routes/workflow.ts";
 import { commsRoutes } from "./routes/comms.ts";
 import { siteRoutes } from "./routes/site.ts";
