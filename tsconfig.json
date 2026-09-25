@@ -32,11 +32,15 @@
     "rootDir": "src",
     "outDir": "dist",
 
-    /* The whole point of an incremental migration: JavaScript compiles and
-       emits alongside TypeScript. checkJs stays OFF so converting a file is a
-       deliberate act rather than something that happens to all 74 at once. */
-    "allowJs": true,
-    "checkJs": false,
+    /* OFF, now that src/ holds no JavaScript at all.
+     *
+     * It was on for the migration so a half-converted tree compiled and
+     * emitted. Leaving it on afterwards means a .js file added to src/ would
+     * be accepted silently and never type-checked, which is exactly the
+     * quiet hole this migration existed to close. test/build.test.js counts
+     * the source files, so a .js appearing in src/ now fails to compile
+     * rather than passing unexamined. */
+    "allowJs": false,
 
     /* HOW A HALF-CONVERTED TREE ACTUALLY RUNS.
      *
@@ -62,11 +66,19 @@
     /* On from the first day, before a single file is converted. A migration
      * that starts loose and tightens later is one that never tightens.
      *
-     * noUncheckedIndexedAccess and exactOptionalPropertyTypes are held back
-     * deliberately — see Phase 7. Prisma's argument types are `field?: T | null`
-     * throughout and this codebase spreads conditionals into them; turning
-     * those two on now would bury a genuine conversion error under hundreds of
-     * unrelated ones. */
+     * ── exactOptionalPropertyTypes IS OFF, AND STAYS OFF ────────────────
+     *
+     * Measured against the finished tree: 41 errors, and every one of them is
+     * against PRISMA'S GENERATED TYPES rather than against this codebase.
+     * Prisma declares its arguments `field?: T` without `| undefined`, and the
+     * idiom this service uses — `where.status = enumParam(...)`, which yields
+     * undefined for a filter nobody sent — is precisely what the flag refuses.
+     *
+     * Turning it on would mean rewriting 41 assignments into conditional
+     * spreads: more code, no bug found, and a real chance of introducing one
+     * in a `where` clause. It is not practical against a generated client, and
+     * "where practical" is the bar. If Prisma ever emits `| undefined`, this
+     * becomes a one-line change and the note can go. */
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
