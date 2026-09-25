@@ -51,10 +51,11 @@ import { registerCompare, compareStatus, noteCompareUnavailable } from "./domain
 import { fromEnv as expediaRapidFromEnv } from "./suppliers/expedia-rapid.ts";
 import { fromEnv as bookingDemandFromEnv } from "./suppliers/booking-demand.ts";
 import { fromEnv as sampleCatalogueFromEnv } from "./suppliers/sample-catalogue.ts";
+import { messageOf } from "./http/errors.ts";
 
 const log = {
-  info: (...a) => console.log(new Date().toISOString(), ...a),
-  error: (...a) => console.error(new Date().toISOString(), ...a),
+  info: (...a: unknown[]) => console.log(new Date().toISOString(), ...a),
+  error: (...a: unknown[]) => console.error(new Date().toISOString(), ...a),
 };
 
 /* Fixed at import, so it is the process's age and not the request's clock. */
@@ -93,7 +94,7 @@ export function createApp() {
    * never happen; if it ever does, somebody needs to know rather than to
    * reconcile a ledger that disagrees with itself.
    * ------------------------------------------------------------------ */
-  app.set("json replacer", function (key, value) {
+  app.set("json replacer", function (key: string, value: unknown) {
     if (typeof value !== "bigint") return value;
     if (value > 9007199254740991n || value < -9007199254740991n) {
       throw new Error(
@@ -367,7 +368,8 @@ export function createApp() {
 
 /* Only start a server when run directly — importing this file in a test must
    not bind a port. */
-const isMain = process.argv[1] && import.meta.url.endsWith(process.argv[1].split("/").pop());
+const isMain = Boolean(
+  process.argv[1] && import.meta.url.endsWith(String(process.argv[1].split("/").pop())));
 
 /**
  * Attach an accommodation supplier, if this installation has credentials for one.
@@ -409,7 +411,7 @@ export function connectPayments(env = process.env) {
     }
     return s;
   } catch (e) {
-    log.error("payment processor failed to connect:", e && e.message);
+    log.error("payment processor failed to connect:", messageOf(e));
     return null;
   }
 }
@@ -478,7 +480,7 @@ export function connectComparison(env = process.env) {
        from booting or take a bookable room off the marketplace.
        The message is the adapter's own and never contains a credential — it
        refuses an unrecognised key by describing the PREFIX it wanted. */
-    const why = (e && e.message) || "the provider could not be built";
+    const why = messageOf(e) || "the provider could not be built";
     noteCompareUnavailable("STAYINGAPI_KEY was set but rejected: " + why);
     log.error("price comparison failed to connect:", why);
     return null;
@@ -534,7 +536,7 @@ export function connectSuppliers(env = process.env) {
     /* A misconfigured supplier must not stop the API from booting. The
        marketplace degrades to PALTAS's own listings, which is the behaviour it
        had before any supplier existed. */
-    log.error("accommodation supplier failed to connect:", e && e.message);
+    log.error("accommodation supplier failed to connect:", messageOf(e));
     return null;
   }
 }
@@ -552,12 +554,12 @@ if (isMain) {
 
   pruneExpiredSessions()
     .then((n) => n && log.info(`pruned ${n} expired session(s)`))
-    .catch((e) => log.error("session prune failed", e.message));
+    .catch((e: unknown) => log.error("session prune failed", messageOf(e)));
 
   /* Render sends SIGTERM on deploy. Finishing the requests already in flight
      is the difference between a clean deploy and a handful of people seeing a
      failure for no reason. */
-  const stop = async (signal) => {
+  const stop = async (signal: string) => {
     log.info(`${signal} — shutting down`);
     server.close(async () => {
       await closeDb();

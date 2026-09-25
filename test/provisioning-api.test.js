@@ -35,7 +35,7 @@ if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
     ({ db } = await import("../src/db.ts"));
-    ({ createApp } = await import("../src/server.js"));
+    ({ createApp } = await import("../src/server.ts"));
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
     const m = String(e && e.message);

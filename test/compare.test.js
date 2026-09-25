@@ -204,7 +204,7 @@ test("'not connected' says WHICH absence it is, and never with a key", async () 
 });
 
 test("the diagnosis tells an empty value and a misspelt name apart", async () => {
-  const { connectComparison } = await import("../src/server.js");
+  const { connectComparison } = await import("../src/server.ts");
 
   /*
    * Three mistakes present identically as "not set", and only one of them is

@@ -759,7 +759,7 @@ test("a real supplier always outranks the sample catalogue", async () => {
    * "the real one wins" is exactly the kind of precedence that looks right in
    * source and is wrong in practice.
    */
-  const { connectSuppliers } = await import("../src/server.js");
+  const { connectSuppliers } = await import("../src/server.ts");
 
   clear();
   let s = connectSuppliers({ PALTAS_SAMPLE_SUPPLY: "1" });
@@ -1051,7 +1051,7 @@ test("LiteAPI redaction covers both key prefixes and the header", () => {
 });
 
 test("LiteAPI outranks the other suppliers and the sample catalogue", async () => {
-  const { connectSuppliers } = await import("../src/server.js");
+  const { connectSuppliers } = await import("../src/server.ts");
   clear();
   let s = connectSuppliers({
     LITEAPI_KEY: "sand_x",

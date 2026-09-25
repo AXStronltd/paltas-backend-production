@@ -34,7 +34,7 @@ if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
     ({ db } = await import("../src/db.ts"));
-    ({ createApp } = await import("../src/server.js"));
+    ({ createApp } = await import("../src/server.ts"));
     ({ upsertUser } = await import("../src/routes/auth.ts"));
     ({ createSession } = await import("../src/auth/sessions.ts"));
     ({ hashToken } = await import("../src/domain/invitations.ts"));

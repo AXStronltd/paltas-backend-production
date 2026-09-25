@@ -150,9 +150,17 @@ export interface SupplyResult {
  * that way.
  */
 export interface SupplierHotel {
-  readonly name?: string;
-  readonly city?: string;
-  readonly country?: string;
+  /*
+   * `| null` throughout, not just `?`.
+   *
+   * These are two different statements and the adapters make both: a field
+   * that is ABSENT was not asked for, and one that is NULL was asked for and
+   * the supplier did not say. LiteAPI returns the second — `name: null` for a
+   * hotel it holds no name for — and flattening the two would lose which.
+   */
+  readonly name?: string | null;
+  readonly city?: string | null;
+  readonly country?: string | null;
   readonly [key: string]: unknown;
 }
 
@@ -173,22 +181,22 @@ export interface RoomsResult {
 /** A held rate: what it costs now, and how the guest will pay for it. */
 export interface PrebookResult {
   readonly prebookId: string;
-  readonly offerId?: string;
+  readonly offerId?: string | null;
   readonly hotelId?: string | null;
   readonly checkIn?: string | null;
   readonly checkOut?: string | null;
   readonly price?: number | null;
   readonly currency?: string | null;
   /** Anything other than 0 means the price moved between show and hold. */
-  readonly priceDifferencePercent?: number;
+  readonly priceDifferencePercent?: number | null;
   readonly sandbox?: boolean;
   /** Present only when the guest pays through the supplier's own form. */
   readonly payment?: {
     readonly clientSecret?: string | null;
     readonly transactionId?: string | null;
     readonly publishableKey?: string | null;
-    readonly stripeJsUrl?: string;
-    readonly environment?: string;
+    readonly stripeJsUrl?: string | null;
+    readonly environment?: string | null;
   } | null;
 }
 
@@ -211,6 +219,65 @@ export interface BookingResult {
   readonly createdAt?: string | null;
   readonly supplierBookingId?: string | null;
   readonly sandbox?: boolean;
+}
+
+/** What a room list is asked for. */
+export interface RoomsQuery {
+  readonly hotelId?: string;
+  readonly checkIn?: string;
+  readonly checkOut?: string;
+  readonly guests?: number;
+  readonly currency?: string;
+}
+
+/** Which hotel, and in which country — /data/hotels demands both. */
+export interface HotelQuery {
+  readonly hotelId?: string;
+  readonly countryCode?: string;
+}
+
+/** Which offer to hold, and whether the guest pays through the supplier. */
+export interface PrebookQuery {
+  readonly offerId?: string;
+  readonly usePaymentSdk?: boolean;
+}
+
+/** Who the booking is in the name of. All three names are required. */
+export interface BookingHolder {
+  readonly firstName?: string;
+  readonly lastName?: string;
+  readonly email?: string;
+  readonly phone?: string;
+}
+
+/** One guest on the booking. Falls back to the holder where a field is blank. */
+export interface BookingGuest {
+  readonly occupancyNumber?: number;
+  readonly firstName?: string;
+  readonly lastName?: string;
+  readonly email?: string;
+  readonly phone?: string;
+  readonly remarks?: string;
+}
+
+/**
+ * What taking a held rate needs.
+ *
+ * `transactionId` is what separates a booking the guest paid for from one
+ * PALTAS would be charged for — a supplier that has no payment step refuses
+ * without it.
+ */
+export interface BookRequest {
+  readonly prebookId?: string;
+  readonly holder?: BookingHolder;
+  readonly guests?: readonly BookingGuest[];
+  readonly clientReference?: string;
+  readonly transactionId?: string;
+}
+
+/** Which booking to read back or cancel. */
+export interface BookingQuery {
+  readonly bookingId?: string;
 }
 
 /** What cancelling cost. A non-refundable booking still cancels. */
@@ -257,17 +324,17 @@ export interface AccommodationSupplier {
    */
 
   /** Every bookable offer at one hotel, cheapest first. */
-  rooms?(query: Record<string, unknown>): Promise<RoomsResult>;
+  rooms?(query: RoomsQuery): Promise<RoomsResult>;
   /** One hotel's name, city and classification — never a price. */
-  hotel?(query: Record<string, unknown>): Promise<SupplierHotel | null>;
+  hotel?(query: HotelQuery): Promise<SupplierHotel | null>;
   /** Hold an offer and get the real, final price. */
-  prebook?(query: Record<string, unknown>): Promise<PrebookResult>;
+  prebook?(query: PrebookQuery): Promise<PrebookResult>;
   /** Take the held rate. */
-  book?(query: Record<string, unknown>): Promise<BookingResult>;
+  book?(query: BookRequest): Promise<BookingResult>;
   /** What the supplier currently says about a booking. */
-  booking?(query: Record<string, unknown>): Promise<BookingResult>;
+  booking?(query: BookingQuery): Promise<BookingResult>;
   /** Cancel, and report honestly what it cost. */
-  cancel?(query: Record<string, unknown>): Promise<CancelResult>;
+  cancel?(query: BookingQuery): Promise<CancelResult>;
 }
 
 /**

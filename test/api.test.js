@@ -53,7 +53,7 @@ if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
     ({ db } = await import("../src/db.ts"));
-    ({ createApp } = await import("../src/server.js"));
+    ({ createApp } = await import("../src/server.ts"));
     /* Touch the client so a missing engine fails HERE, with a useful message,
        rather than inside the first test. */
     await db.$queryRaw`SELECT 1`;

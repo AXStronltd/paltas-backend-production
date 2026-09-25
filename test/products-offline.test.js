@@ -59,7 +59,7 @@ if (!skip) {
     },
   });
 
-  ({ createApp } = await import("../src/server.js"));
+  ({ createApp } = await import("../src/server.ts"));
 }
 
 /* ---------------------------------------------------------------- rig */

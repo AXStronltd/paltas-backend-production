@@ -62,7 +62,7 @@ if (!skip) {
     delegate: (model) => db[model],
   },
 });
-  ({ createApp } = await import("../src/server.js"));
+  ({ createApp } = await import("../src/server.ts"));
 }
 
 let server, base;

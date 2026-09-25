@@ -52,7 +52,8 @@
 
 import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
 import type {
-  AccommodationSupplier, RawOffer, SupplierDescription, SupplyQuery, SupplyResult,
+  AccommodationSupplier, BookRequest, BookingGuest, BookingQuery, HotelQuery,
+  PrebookQuery, RawOffer, RoomsQuery, SupplierDescription, SupplyQuery, SupplyResult,
 } from "../domain/supply.ts";
 import { messageOf } from "../http/errors.ts";
 
@@ -322,38 +323,6 @@ interface CallOptions {
   readonly params?: readonly (readonly [string, string])[] | null;
 }
 
-/** Who the booking is in the name of. All three names are required. */
-export interface BookingHolder {
-  readonly firstName?: string;
-  readonly lastName?: string;
-  readonly email?: string;
-  readonly phone?: string;
-}
-
-/** One guest on the booking. Falls back to the holder where a field is blank. */
-export interface BookingGuest {
-  readonly occupancyNumber?: number;
-  readonly firstName?: string;
-  readonly lastName?: string;
-  readonly email?: string;
-  readonly phone?: string;
-  readonly remarks?: string;
-}
-
-/**
- * What taking a held rate needs.
- *
- * `transactionId` is what separates a booking the guest paid for from one
- * PALTAS would be charged for — see the refusal in book() below.
- */
-export interface BookRequest {
-  readonly prebookId?: string;
-  readonly holder?: BookingHolder;
-  readonly guests?: readonly BookingGuest[];
-  readonly clientReference?: string;
-  readonly transactionId?: string;
-}
-
 export function liteApi({
   apiKey,
   /** Overridable base, for a proxy or a future host. */
@@ -380,7 +349,7 @@ export function liteApi({
   stripePkLive = "",
   fetchImpl,
   timeoutMs = 7000,
-}: LiteApiConfig = {}) {
+}: LiteApiConfig = {}): AccommodationSupplier {
   if (!apiKey) {
     throw new SupplyUnavailable(
       "LiteAPI cannot be registered without LITEAPI_KEY. Nothing is connected, " +
@@ -729,8 +698,7 @@ export function liteApi({
      *
      * `countryCode` is not optional — /data/hotels demands it.
      */
-    async hotel({ hotelId = "", countryCode = "" }:
-      { hotelId?: string; countryCode?: string } = {}) {
+    async hotel({ hotelId = "", countryCode = "" }: HotelQuery = {}) {
       if (!hotelId) throw new SupplyUnavailable("A hotel id is needed.");
       const cc = String(countryCode || "").toUpperCase();
       if (!/^[A-Z]{2}$/.test(cc)) {
@@ -752,8 +720,7 @@ export function liteApi({
       };
     },
 
-    async prebook({ offerId = "", usePaymentSdk = false }:
-      { offerId?: string; usePaymentSdk?: boolean } = {}) {
+    async prebook({ offerId = "", usePaymentSdk = false }: PrebookQuery = {}) {
       if (!offerId) throw new SupplyUnavailable("An offer id is needed to hold a rate.");
 
       /*
@@ -787,8 +754,10 @@ export function liteApi({
         prebookId: String(prebookId),
         offerId: at(d, "offerId") ? String(at(d, "offerId")) : String(offerId),
         hotelId: at(d, "hotelId") ? String(at(d, "hotelId")) : null,
-        checkIn: at(d, "checkin") ?? null,
-        checkOut: at(d, "checkout") ?? null,
+        /* Dates as the supplier wrote them — never reformatted, because a
+           check-in is a local date and a timezone conversion moves it. */
+        checkIn: at(d, "checkin") == null ? null : String(at(d, "checkin")),
+        checkOut: at(d, "checkout") == null ? null : String(at(d, "checkout")),
         price: total,
         currency: at(d, "currency") ? String(at(d, "currency")).toUpperCase() : null,
         /*
@@ -932,7 +901,7 @@ export function liteApi({
     },
 
     /** What the supplier currently says about a booking. */
-    async booking({ bookingId = "" }: { bookingId?: string } = {}) {
+    async booking({ bookingId = "" }: BookingQuery = {}) {
       if (!bookingId) throw new SupplyUnavailable("A booking id is needed.");
       const r = await call(`/bookings/${encodeURIComponent(String(bookingId))}`);
       return wireBooking(at(r, "data"), sandbox);
@@ -946,7 +915,7 @@ export function liteApi({
      * the whole value of this call, so it is returned rather than flattened into
      * "cancelled".
      */
-    async cancel({ bookingId = "" }: { bookingId?: string } = {}) {
+    async cancel({ bookingId = "" }: BookingQuery = {}) {
       if (!bookingId) throw new SupplyUnavailable("A booking id is needed to cancel.");
       const r = await call(`/bookings/${encodeURIComponent(String(bookingId))}`, { method: "PUT" });
       const d = at(r, "data") ?? {};
@@ -1000,8 +969,8 @@ export function wireBooking(d: unknown, sandbox: boolean) {
     hotelId: at(hotel, "hotelId") ? String(at(hotel, "hotelId"))
            : (at(d, "hotelId") ? String(at(d, "hotelId")) : null),
     hotelName: at(hotel, "name") ? String(at(hotel, "name")) : null,
-    checkIn: at(d, "checkin") ?? null,
-    checkOut: at(d, "checkout") ?? null,
+    checkIn: at(d, "checkin") == null ? null : String(at(d, "checkin")),
+    checkOut: at(d, "checkout") == null ? null : String(at(d, "checkout")),
     price: at(d, "price") !== undefined ? toMinor(at(d, "price") as number | string) : null,
     currency: at(d, "currency") ? String(at(d, "currency")).toUpperCase() : null,
     refundable: policies
@@ -1013,7 +982,7 @@ export function wireBooking(d: unknown, sandbox: boolean) {
       amount: toMinor(at(i, "amount") as number | string),
       currency: at(i, "currency") ? String(at(i, "currency")).toUpperCase() : null,
     })),
-    createdAt: at(d, "createdAt") ?? null,
+    createdAt: at(d, "createdAt") == null ? null : String(at(d, "createdAt")),
     supplierBookingId: at(d, "supplierBookingId")
       ? String(at(d, "supplierBookingId")) : null,
     source: "liteapi",
@@ -1030,7 +999,9 @@ export function redact(s: unknown): string {
 }
 
 /** Build from the environment, or null when this installation has no key. */
-export function fromEnv(env = process.env) {
+export function fromEnv(
+  env: NodeJS.ProcessEnv = process.env,
+): AccommodationSupplier | null {
   if (!env.LITEAPI_KEY) return null;
   return liteApi({
     apiKey: env.LITEAPI_KEY,

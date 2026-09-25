@@ -34,7 +34,7 @@ if (!skip) {
   try {
     ({ default: pg } = await import("pg"));
     ({ db } = await import("../src/db.ts"));
-    ({ createApp } = await import("../src/server.js"));
+    ({ createApp } = await import("../src/server.ts"));
     supply = await import("../src/domain/supply.ts");
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
