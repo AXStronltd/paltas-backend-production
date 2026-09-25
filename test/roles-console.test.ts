@@ -28,7 +28,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { makeWindow } from "./dom-shim.ts";
 import { CONSOLE_FORMS } from "../src/domain/console-map.ts";
-import type { Wire } from "./wire.ts";
+import type { Wire, Foreign } from "./wire.ts";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");
@@ -60,14 +60,15 @@ function opensFor(G: Wire) {
 }
 
 /** One console, signed in as one role of one product. */
-function open(product: Wire, role: Wire) {
-  const w = makeWindow({ href: `https://paltas.io/dashboard/${PRODUCTS[product]}.html` });
-  w.win.PALTAS_BOOT = { system: PRODUCTS[product] };
+function open(product: string, role: string) {
+  const page = (PRODUCTS as Record<string, string>)[product];
+  const w = makeWindow({ href: `https://paltas.io/dashboard/${page}.html` });
+  w.win["PALTAS_BOOT"] = { system: page };
   w.loadCode(readFileSync(join(FE, "assets", "console.js"), "utf8") +
     "\n;window.__navFor=navFor;window.__first=firstScreenOf;window.__S=SCREENS;",
     "console.js");
 
-  const G = w.win.PALTAS.Session;
+  const G = (w.win["PALTAS"] as Foreign).Session;
   G.create({
     email: "person@example.com", name: "A Person", company: "A Company",
     products: [product], role, preferred: product,
@@ -138,13 +139,13 @@ test("nobody is let in to an empty console", { skip }, () => {
       const opens = opensFor(G);
       if (!opens.includes(product)) continue;
 
-      const groups = w.win.__navFor(PRODUCTS[product]) || [];
+      const groups = (w.win["__navFor"] as Foreign)(PRODUCTS[product]) || [];
       const items = groups.flatMap((g: Wire) => (g.items || []).map((i: Wire) => i[0]));
       if (!items.length) { empty.push(`${product}/${key}`); continue; }
 
       /* And they land on their OWN first screen — a guard on his shift, not
          on the company's command centre. */
-      const landing = w.win.__first(PRODUCTS[product]);
+      const landing = (w.win["__first"] as Foreign)(PRODUCTS[product]);
       if (!landing || !items.includes(landing)) {
         empty.push(`${product}/${key}: lands on ${landing}, which is not in its own menu`);
       }
@@ -165,10 +166,10 @@ test("every screen a role is given actually renders", { skip }, () => {
       const opens = opensFor(G);
       if (!opens.includes(product)) continue;
 
-      const groups = w.win.__navFor(PRODUCTS[product]) || [];
+      const groups = (w.win["__navFor"] as Foreign)(PRODUCTS[product]) || [];
       for (const g of groups) {
         for (const [screen] of g.items || []) {
-          const fn = w.win.__S[screen];
+          const fn = (w.win["__S"] as Foreign)[screen];
           if (typeof fn !== "function") { broken.push(`${product}/${key}: ${screen} is not a screen`); continue; }
           try {
             const html = String(fn() ?? "");
@@ -193,14 +194,14 @@ test("every screen a role is given actually renders", { skip }, () => {
    */
   const { w } = open("PROPERTY_MANAGEMENT", "OPERATIONS");
   const reached = new Set(
-    (w.win.__navFor("property") || []).flatMap((g: Wire) => (g.items || []).map((i: Wire) => i[0])));
+    ((w.win["__navFor"] as Foreign)("property") || []).flatMap((g: Wire) => (g.items || []).map((i: Wire) => i[0])));
 
   /* Procurement belongs to FINANCE, not operations — committing the company
      to pay somebody is a money decision even before any money moves. So it is
      checked through the role that actually has it. */
   const { w: fin } = open("PROPERTY_MANAGEMENT", "FINANCE");
   const byFinance = new Set(
-    (fin.win.__navFor("property") || []).flatMap((g: Wire) => (g.items || []).map((i: Wire) => i[0])));
+    ((fin.win["__navFor"] as Foreign)("property") || []).flatMap((g: Wire) => (g.items || []).map((i: Wire) => i[0])));
   for (const screen of ["pm_rfqs", "pm_orders", "pm_variations",
                         "pm_land", "pm_feasibility"]) {
     assert.ok(byFinance.has(screen), `${screen} was never reached, so nothing above tested it`);
@@ -258,7 +259,7 @@ test("every ＋ form has a screen that can open it", { skip }, () => {
     "\n\n  Either give it a button, or delete it from console-map.js.");
   /* And it really read the table. */
   assert.ok(Object.keys(CONSOLE_FORMS).length > 20, "the form table stopped loading");
-  assert.ok(w.win.__S, "the console stopped loading");
+  assert.ok((w.win["__S"] as Foreign), "the console stopped loading");
 });
 
 test("the role table is not quietly empty", { skip }, () => {

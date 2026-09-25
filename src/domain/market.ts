@@ -65,7 +65,7 @@ interface Capabilities {
 }
 
 interface MarketCatalogue {
-  countries(): unknown[];
+  countries(): CountryEntry[];
   country(code: string): CountryEntry | null;
   availablePaymentMethods(ctx: Record<string, unknown>): unknown[];
   languages(): Record<string, unknown>;
@@ -142,9 +142,21 @@ export function country(code: unknown): CountryEntry | null {
  * An ineligible method is ABSENT, never present-and-disabled. A greyed-out
  * rail invites a customer to wonder what they did wrong.
  */
+/**
+ * One way to pay, as the shared catalogue describes it.
+ *
+ * `id` is what both sides compare — market-drift.test.ts checks that this
+ * service and the browser offer the same set for every country — so it is
+ * named. Everything else is the catalogue's and travels through.
+ */
+export interface PaymentMethod {
+  readonly id: string;
+  readonly [key: string]: unknown;
+}
+
 export function paymentMethods(
   { country: code, currency, amount }: PaymentQuery = {},
-): unknown[] {
+): PaymentMethod[] {
   const c = country(code);
   if (!c) return [];
   const ctx: { country: string; currency?: string; amount?: number } = { country: c.code };
@@ -153,7 +165,7 @@ export function paymentMethods(
     const minor = Number(amount);
     if (Number.isFinite(minor)) ctx.amount = minor / 100;
   }
-  return MC.availablePaymentMethods(ctx);
+  return MC.availablePaymentMethods(ctx) as PaymentMethod[];
 }
 
 /** Which languages a market may be shown in, and how complete each pack is. */

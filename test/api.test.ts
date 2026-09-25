@@ -49,7 +49,9 @@ process.env.INSECURE_COOKIES = "1";
 
 /* Decide up front whether this file can run at all. */
 let skip = DB ? false : "no TEST_DATABASE_URL — skipping API tests";
-let dbHelp: typeof import("./db-help.ts") | null = null;
+/* The sentence explain() produced, held so it prints in full at the end of
+   the run rather than truncated into a skip reason. */
+let dbHelp: string | null = null;
 /*
  * LOADED INSIDE A `try`, SO THEY ARE DECLARED OUTSIDE IT.
  *
@@ -151,8 +153,10 @@ async function call(
 /** A company with a product, a role and a subscription, made directly. */
 async function makeCompany(
   { name, email, person, product, role, subscription = "ACTIVE", verification = "COMPLETE" }: {
-    name: string; email: string; person?: string; product?: string; role?: string;
-    subscription?: string; verification?: string;
+    name: string; email: string; person?: string;
+    product?: import("@prisma/client").$Enums.Product; role?: import("@prisma/client").$Enums.Role;
+    subscription?: import("@prisma/client").$Enums.SubscriptionStatus;
+    verification?: import("@prisma/client").$Enums.VerificationStatus;
   },
 ) {
   const org = await db.organization.create({

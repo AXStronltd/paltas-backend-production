@@ -50,7 +50,9 @@ process.env.APP_URL ||= "http://127.0.0.1:8899";
 process.env.INSECURE_COOKIES = "1";
 
 let skip = DB ? false : "no TEST_DATABASE_URL — skipping ledger tests";
-let dbHelp: typeof import("./db-help.ts") | null = null;
+/* The sentence explain() produced, held so it prints in full at the end of
+   the run rather than truncated into a skip reason. */
+let dbHelp: string | null = null;
 /*
  * LOADED INSIDE A `try`, SO THEY ARE DECLARED OUTSIDE IT.
  *
@@ -117,7 +119,9 @@ async function signIn(
 }
 
 let seq = 0;
-async function company({ role = "OWNER", country = "ke" } = {}) {
+async function company(
+  { role = "OWNER", country = "ke" }: { role?: import("@prisma/client").$Enums.Role; country?: string } = {},
+) {
   const n = ++seq;
   const org = await db.organization.create({
     data: {

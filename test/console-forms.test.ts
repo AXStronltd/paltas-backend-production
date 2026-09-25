@@ -34,7 +34,8 @@ import { RESOURCES } from "../src/domain/registry.ts";
 import { CONSOLE_FORMS } from "../src/domain/console-map.ts";
 import prismaPkg from "@prisma/client";
 import { portOf } from "./wire.ts";
-import type { Wire } from "./wire.ts";
+import { present } from "./wire.ts";
+import type { Wire, Reply } from "./wire.ts";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -235,7 +236,9 @@ async function post(path: Wire, body: Wire) {
   return { status: res.status, json, text };
 }
 
-let SITE = null;
+/* The site everything below is created inside — one `+ Add` form needs one
+   selected, the way the console does. */
+let SITE: Reply | null = null;
 if (!skip) { test.before(async () => { SITE = await boot(); }); }
 test.after(async () => { if (server) await new Promise((r) => server.close(r)); });
 
@@ -303,12 +306,14 @@ test("all 27 forms post successfully, and nothing is silently dropped", { skip }
     const form = CONSOLE_FORMS[screen];
     if (!form) continue;
 
-    const body = {};
+    const body: Record<string, unknown> = {};
     for (const [consoleField, kind] of Object.entries(spec.fields)) {
       body[consoleField] = valueFor(consoleField, kind);
     }
     /* The one dependency the console satisfies by having a site selected. */
-    if (form.resource === "zones") body.siteId = SITE.json.site.id;
+    if (form.resource === "zones") {
+      body["siteId"] = present(SITE, "no site was made").json.site.id;
+    }
 
     const res = await post(`/${form.resource}`, body);
     if (res.status !== 201) {
@@ -321,7 +326,7 @@ test("all 27 forms post successfully, and nothing is silently dropped", { skip }
     const row = Object.values(res.json)[0];
     for (const [consoleField, kind] of Object.entries(spec.fields)) {
       const column = form.fields[consoleField];
-      const stored = row[column];
+      const stored = (row as Record<string, unknown>)[column];
 
       if (stored === undefined) {
         failures.push(`${screen}.${consoleField} → ${column}: the response has no such field`);
@@ -392,14 +397,14 @@ async function referenceTo(model: Wire) {
      */
     assert.ok(db[model], `"${model}" is neither a resource nor a model — id: names nothing`);
     const made = await db[model].create({
-      data: { orgId: ORG.id, ref: `REF-${++unique}` },
+      data: { orgId: present(ORG, "no company was made").id, ref: `REF-${++unique}` },
     });
     madeRows.set(model, made.id);
     return made.id;
   }
   const [slug, resource] = entry;
 
-  const body = {};
+  const body: Record<string, unknown> = {};
   for (const name of resource.required || []) {
     const kind = resource.fields[name];
     /* A required field can itself be a reference — a project phase needs a
@@ -413,7 +418,7 @@ async function referenceTo(model: Wire) {
   assert.equal(res.status, 201,
     `could not create a ${model} to point at: ${res.status} ${res.text.slice(0, 160)}`);
 
-  const id = Object.values(res.json)[0].id;
+  const id = (Object.values(res.json)[0] as Wire).id;
   madeRows.set(model, id);
   return id;
 }
@@ -443,8 +448,12 @@ function valueForKind(kind: Wire, field: Wire) {
 }
 
 /** The enum's values, from the generated client rather than a copy. */
-function enumValues(name: Wire) {
-  const e = prismaPkg[name] || (prismaPkg.Prisma && prismaPkg.Prisma[name]);
+function enumValues(name: string): string[] | null {
+  /* The name arrives as a string off a field kind ("enum:LeaseStatus"), so
+     there is nothing at compile time to key the module's shape by. */
+  const bag = prismaPkg as unknown as Record<string, unknown>;
+  const nested = bag["Prisma"] as Record<string, unknown> | undefined;
+  const e = bag[name] ?? nested?.[name];
   return e && typeof e === "object" ? Object.keys(e) : null;
 }
 
@@ -481,7 +490,7 @@ test("every form beyond the 27 posts, and nothing is silently dropped", { skip }
     const resource = RESOURCES[form.resource];
     if (!resource) continue;
 
-    const body = {};
+    const body: Record<string, unknown> = {};
     for (const [consoleField, column] of Object.entries(form.fields)) {
       const kind = resource.fields[column];
       body[consoleField] = kind.startsWith("id:")
@@ -498,7 +507,7 @@ test("every form beyond the 27 posts, and nothing is silently dropped", { skip }
     /* 201 only says it was accepted. */
     const row = Object.values(res.json)[0];
     for (const [consoleField, column] of Object.entries(form.fields)) {
-      const stored = row[column];
+      const stored = (row as Record<string, unknown>)[column];
       if (stored === undefined) {
         failures.push(`${screen}.${consoleField} → ${column}: the response has no such field`);
         continue;
@@ -535,10 +544,12 @@ test("the enum wording the console offers is wording the server accepts", { skip
       if (!declared.startsWith("enum:")) continue;      // stored as free text
 
       for (const option of kind.slice(5, -1).split("|").map((s: Wire) => s.trim())) {
-        const body = {};
+        const body: Record<string, unknown> = {};
         for (const [f, k] of Object.entries(spec.fields)) body[f] = valueFor(f, k);
         body[consoleField] = option;
-        if (form.resource === "zones") body.siteId = SITE.json.site.id;
+        if (form.resource === "zones") {
+      body["siteId"] = present(SITE, "no site was made").json.site.id;
+    }
 
         const res = await post(`/${form.resource}`, body);
         if (res.status !== 201) {
@@ -546,7 +557,7 @@ test("the enum wording the console offers is wording the server accepts", { skip
                         `${res.status} ${res.text.slice(0, 150)}`);
           continue;
         }
-        const stored = Object.values(res.json)[0][column];
+        const stored = (Object.values(res.json)[0] as Wire)[column];
         const want = option.toUpperCase().replace(/[\s-]+/g, "_");
         if (stored !== want && stored !== option) {
           /* Not necessarily wrong — console-map.js translates some wordings

@@ -44,6 +44,8 @@ import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { Wire } from "./wire.ts";
+import type { Foreign } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");
@@ -66,7 +68,9 @@ const skip = existsSync(FE_FILE)
 function loadFrontendCatalogue() {
   const src = readFileSync(FE_FILE, "utf8");
 
-  const root = {
+  /* The scripts define PALTAS on it while they run, so it is a bag. */
+
+  const root: Record<string, Foreign> = {
     location: { hostname: "server", origin: "", pathname: "/" },
     addEventListener() {}, removeEventListener() {}, dispatchEvent() {},
     sessionStorage: { getItem: () => null, setItem() {}, removeItem() {} },
@@ -88,7 +92,14 @@ function loadFrontendCatalogue() {
 
 /* Both sides, loaded once. */
 const FRONTEND = skip ? null : loadFrontendCatalogue();
+/*
+ * The service's own market module. Null when the frontend is not beside this
+ * checkout, in which case every test here skips — so the reads below are
+ * through a helper that says so rather than a `!` on each.
+ */
 const SERVER = skip ? null : await import("../src/domain/market.ts");
+const server = (): NonNullable<typeof SERVER> =>
+  present(SERVER, "the market module was not loaded — this suite should have skipped");
 
 /** The instruction that is always the same, so it is written once. */
 const REMEDY =
@@ -98,7 +109,7 @@ const REMEDY =
   "      cp \"$PALTAS_FRONTEND/assets/market-config.js\" contract/market-config.js\n";
 
 test("every country the browser knows, this service knows too", { skip }, () => {
-  const mine = SERVER.countries().map((c) => c.code).sort();
+  const mine = server().countries().map((c) => c.code).sort();
   const theirs = FRONTEND.countries().map((c: Wire) => c.code).sort();
 
   const missing = theirs.filter((c: Wire) => !mine.includes(c));
@@ -121,7 +132,7 @@ test("a country's money, language and region read the same on both sides", { ski
   const FIELDS = ["code", "name", "currency", "locale", "region", "dial", "perUsd", "base"];
 
   for (const t of theirs) {
-    const m = SERVER.country(t.code);
+    const m = server().country(t.code);
     assert.ok(m, `this service does not know ${t.code}` + REMEDY);
     for (const f of FIELDS) {
       assert.deepEqual(m[f], t[f],
@@ -144,14 +155,14 @@ test("the same payment rails are offered, market by market", { skip }, () => {
    */
   for (const c of FRONTEND.countries()) {
     const theirs = FRONTEND.availablePaymentMethods({ country: c.code });
-    const mine = SERVER.paymentMethods({ country: c.code });
+    const mine = server().paymentMethods({ country: c.code });
 
     assert.deepEqual(
       mine.map((m) => m.id).sort(),
       theirs.map((m: Wire) => m.id).sort(),
       `${c.code} (${c.name}) is offered different payment methods by each side. ` +
       `This service: [${mine.map((m) => m.id).sort()}]. ` +
-      `The browser: [${ theirs.map((m: Wire) => m.id).sort() }: { theirs.map((m: Wire)?: Wire }].` + REMEDY);
+      `The browser: [${theirs.map((m: Wire) => m.id).sort()}].` + REMEDY);
   }
 });
 
@@ -163,7 +174,7 @@ test("a rail costs the same on both sides", { skip }, () => {
    */
   for (const c of FRONTEND.countries()) {
     const theirs = FRONTEND.availablePaymentMethods({ country: c.code });
-    const mine = SERVER.paymentMethods({ country: c.code });
+    const mine = server().paymentMethods({ country: c.code });
     const byId = new Map(mine.map((m) => [m.id, m]));
 
     for (const t of theirs) {
@@ -181,14 +192,17 @@ test("a rail costs the same on both sides", { skip }, () => {
 test("a market's capabilities are the same on both sides", { skip }, () => {
   for (const c of FRONTEND.countries()) {
     const theirs = FRONTEND.capabilities(c.code);
-    const mine = SERVER.services(c.code);
+    const mine = server().services(c.code);
 
     assert.deepEqual(mine.services.slice().sort(), (theirs.services || []).slice().sort(),
       `${c.code} can do different things on each side.` + REMEDY);
 
+    /* `capabilities` is null for a country the catalogue does not hold, and
+       the assertion above has already established this one is held. */
+    const ours = present(mine.capabilities, `${c.code} has no capabilities`) as Wire;
     for (const f of ["products", "features"]) {
       assert.deepEqual(
-        (mine.capabilities[f] || []).slice().sort(),
+        (ours[f] || []).slice().sort(),
         (theirs[f] || []).slice().sort(),
         `${c.code}.${f} differs between the two sides.` + REMEDY);
     }
@@ -197,7 +211,7 @@ test("a market's capabilities are the same on both sides", { skip }, () => {
 
 test("the language packs and their coverage match", { skip }, () => {
   const theirs = FRONTEND.languages();
-  const mine = SERVER.localization(null);
+  const mine = server().localization(null);
 
   assert.deepEqual(mine.available.slice().sort(), Object.keys(theirs).sort(),
     `the two sides ship different languages.` + REMEDY);
@@ -211,7 +225,7 @@ test("the language packs and their coverage match", { skip }, () => {
     `the two sides disagree about how complete the translations are.` + REMEDY);
 
   for (const c of FRONTEND.countries()) {
-    assert.deepEqual(SERVER.localization(c.code).languages, c.langs,
+    assert.deepEqual(server().localization(c.code).languages, c.langs,
       `${c.code} is offered different languages by each side.` + REMEDY);
   }
 });

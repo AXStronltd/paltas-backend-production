@@ -127,7 +127,7 @@ async function company() {
 
 async function get(path: Wire, cookie: Wire) {
   const res = await fetch(base + path, { headers: { cookie } });
-  return { status: res.status, json: await res.json() };
+  return { status: res.status, json: (await res.json()) as Wire };
 }
 
 /** A contract straight into the database — this tests the counting, not the form. */

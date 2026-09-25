@@ -35,7 +35,9 @@ process.env.APP_URL ||= "http://127.0.0.1:8899";
 process.env.INSECURE_COOKIES = "1";
 
 let skip = DB ? false : "no TEST_DATABASE_URL — skipping communications tests";
-let dbHelp: typeof import("./db-help.ts") | null = null;
+/* The sentence explain() produced, held so it prints in full at the end of
+   the run rather than truncated into a skip reason. */
+let dbHelp: string | null = null;
 /*
  * LOADED INSIDE A `try`, SO THEY ARE DECLARED OUTSIDE IT.
  *
@@ -204,7 +206,7 @@ async function chartOf(cookie: string) {
 }
 
 /** The same company, seen by somebody with a narrower role. */
-async function asRole(owner: string, role: string) {
+async function asRole(owner: string, role: import("@prisma/client").$Enums.Role) {
   const n = ++seq;
   const org = await db.session.findFirst({
     where: { tokenHash: { not: "" } }, select: { orgId: true },

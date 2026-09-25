@@ -89,7 +89,11 @@ async function call(
 }
 
 let seq = 0;
-async function company({ products, role = "OWNER", name }: { products: Wire; role?: Wire; name: Wire }) {
+async function company(
+  { products, role = "OWNER", name }: {
+    products: readonly string[]; role?: import("@prisma/client").$Enums.Role; name?: string;
+  },
+) {
   const n = ++seq;
   const org = await db.organization.create({
     data: {

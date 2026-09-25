@@ -85,7 +85,7 @@ async function call(
 
 let seq = 0;
 
-async function hotel(role = "OWNER") {
+async function hotel(role: import("@prisma/client").$Enums.Role = "OWNER") {
   const n = ++seq;
   const org = await db.organization.create({
     data: {

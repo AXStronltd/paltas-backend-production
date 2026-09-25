@@ -315,11 +315,27 @@ export function mayRead(clearance: Clearance | null | undefined, cls: string): b
  * Rows carry their own `class`; a row with none is treated as INTERNAL rather
  * than as public, because the failure that matters is the one that leaks.
  */
-export function visibleRows<T extends { class?: string }>(
+/*
+ * UNCONSTRAINED on purpose.
+ *
+ * `T extends { class?: string }` looks right and refuses the one case this
+ * function exists to handle: TypeScript's weak-type rule rejects a row with
+ * NO class at all, because a constraint made only of optional properties
+ * demands at least one in common. A row with no class is precisely what is
+ * treated as INTERNAL below.
+ *
+ * So the column is read rather than demanded, and every caller keeps its own
+ * row type on the way out.
+ */
+export function visibleRows<T>(
   rows: readonly T[],
   clearance: Clearance,
 ): T[] {
-  return (rows || []).filter((r) => mayRead(clearance, (r && r.class) || "INTERNAL"));
+  return (rows || []).filter((r) => {
+    const cls = (typeof r === "object" && r !== null)
+      ? (r as { class?: unknown }).class : undefined;
+    return mayRead(clearance, typeof cls === "string" && cls ? cls : "INTERNAL");
+  });
 }
 
 /**

@@ -53,7 +53,9 @@ async function connect() {
   return pool;
 }
 
-const q = (text: Wire, params?: Wire) => pool.query(text, params);
+/* `pg` rows are whatever the catalogue query selected. */
+const q = (text: string, params?: unknown[]): Promise<{ rows: Wire[] }> =>
+  pool.query(text, params);
 
 /** The minimum rows a company needs, made the way POST /organizations makes them. */
 async function makeCompany({ id, email, product = "HOTEL_MANAGEMENT", role = "OWNER" }: { id: Wire; email: Wire; product?: Wire; role?: Wire }) {

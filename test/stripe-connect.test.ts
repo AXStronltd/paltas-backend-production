@@ -27,13 +27,29 @@ import {
 } from "../src/payments/stripe.ts";
 import { has } from "./wire.ts";
 import type { Wire } from "./wire.ts";
+import type { StripeLike } from "../src/payments/stripe.ts";
+import { ok } from "node:assert/strict";
 
 test.afterEach(() => clear());
 
-/** A Stripe double that records what it was asked for. */
-function fakeStripe(overrides = {}) {
-  const calls = [];
-  const rec = (name: Wire) => (...args) => {
+/** One call the double recorded: which method, and what it was handed. */
+interface Recorded {
+  readonly name: string;
+  readonly args: unknown[];
+}
+
+/**
+ * A Stripe double that records what it was asked for.
+ *
+ * It satisfies StripeLike — the five calls this service makes — and carries
+ * `calls` beside them, which is how the assertions check that a direct
+ * charge really went out with the `Stripe-Account` header on it.
+ */
+function fakeStripe(
+  overrides: Record<string, (...args: Wire[]) => unknown> = {},
+): StripeLike & { calls: Recorded[]; sent(name: string): Wire; args(name: string): Wire[] } {
+  const calls: Recorded[] = [];
+  const rec = (name: string) => (...args: Wire[]) => {
     calls.push({ name, args });
     const fn = overrides[name];
     return Promise.resolve(fn ? fn(...args) : {});
@@ -43,10 +59,28 @@ function fakeStripe(overrides = {}) {
     v2: { core: { accounts: { create: rec("accounts.create"), retrieve: rec("accounts.retrieve") } } },
     accountLinks: { create: rec("accountLinks.create") },
     paymentIntents: { create: rec("paymentIntents.create") },
-    webhooks: { constructEvent: (...a) => { calls.push({ name: "constructEvent", args: a });
-      if (overrides["constructEvent"]) return overrides["constructEvent"](...a);
-      throw new Error("bad signature"); } },
-  };
+    webhooks: {
+      constructEvent: (...a: Wire[]) => {
+        calls.push({ name: "constructEvent", args: a });
+        const given = overrides["constructEvent"];
+        if (given) return given(...a) as import("../src/payments/stripe.ts").StripeEvent;
+        throw new Error("bad signature");
+      },
+    },
+    /* What one call was handed, for the assertions below. Fails naming the
+       method when it was never made, rather than reading `.args` of
+       undefined. */
+    sent(name: string): Wire {
+      return this.args(name)[0];
+    },
+    /* Every argument of one call — a direct charge is two: the intent, and
+       the options carrying the Stripe-Account header. */
+    args(name: string): Wire[] {
+      const made = calls.find((c) => c.name === name);
+      ok(made, `${name} was never called`);
+      return made.args;
+    },
+  } as StripeLike & { calls: Recorded[]; sent(name: string): Wire; args(name: string): Wire[] };
 }
 
 const ACTIVE_ACCOUNT = {
@@ -63,9 +97,17 @@ const ACTIVE_ACCOUNT = {
 test("with no processor, every write refuses and nothing is invented", async () => {
   assert.equal(isConnected(), false);
   /* Money: a fake success here is a company believing it was paid. */
-  await assert.rejects(() => notConnected.charge(), /No payment processor is connected/);
-  await assert.rejects(() => notConnected.createAccount(), /Nothing has been created/);
-  await assert.rejects(() => notConnected.verifyWebhook(), PaymentsUnavailable);
+  /* The arguments are irrelevant — every one of these refuses before reading
+     them — but the interface asks for them, so they are given. */
+  await assert.rejects(
+    () => notConnected.charge({ accountId: "acct_x", amount: 100, currency: "kes" }),
+    /No payment processor is connected/);
+  await assert.rejects(
+    () => notConnected.createAccount({ orgId: "o1" }),
+    /Nothing has been created/);
+  await assert.rejects(
+    async () => notConnected.verifyWebhook({ rawBody: "{}", signature: "sig" }),
+    PaymentsUnavailable);
   assert.equal(status().connected, false);
 });
 
@@ -81,7 +123,7 @@ test("a live key is reported as live, a test key as test", () => {
   const l = stripeProcessor({ secretKey: "rk_live_x", client: fakeStripe() });
   assert.equal(t.livemode, false);
   assert.equal(l.livemode, true, "a restricted LIVE key must still read as live");
-  assert.match(has(l.describe, "describe").call(l).why, /LIVE mode. Real cards/);
+  assert.match(String(has(l.describe, "describe").call(l).why), /LIVE mode. Real cards/);
 });
 
 /* ================================================================ 2
@@ -93,7 +135,7 @@ test("an account is created with v2 dimensions and no legacy type", async () => 
   const p = stripeProcessor({ secretKey: "sk_test_x", client: fake });
   await p.createAccount({ orgId: "org1", name: "Nyali Hotel", country: "KE", email: "a@b.c" });
 
-  const body = fake.calls.find((c) => c.name === "accounts.create").args[0];
+  const body: Wire = fake.sent("accounts.create");
   /*
    * `type: "express" | "custom" | "standard"` is the deprecated v1 pattern.
    * Passing it silently opts the platform out of the v2 model entirely.
@@ -175,8 +217,7 @@ test("a charge is DIRECT, on the company's own account", async () => {
     idempotencyKey: "key-1", statusCheck: "active",
   });
 
-  const call = fake.calls.find((c) => c.name === "paymentIntents.create");
-  const [body, opts] = call.args;
+  const [body, opts] = fake.args("paymentIntents.create") as [Wire, Wire];
 
   /* THE header that makes it a direct charge. Without it the charge lands on
      PALTAS's account and PALTAS becomes merchant of record. */
@@ -208,7 +249,10 @@ test("a fee cannot equal or exceed the payment", async () => {
 
 test("a charge needs a real amount", async () => {
   const p = stripeProcessor({ secretKey: "sk_test_x", client: fakeStripe() });
-  for (const bad of [0, -100, 1.5, "1000", null]) {
+  /* A string and a null are here on purpose: ChargeRequest declares a
+     number, and this proves the RUNTIME check refuses them too — which is
+     what stands between a caller and a charge for NaN. */
+  for (const bad of [0, -100, 1.5, "1000", null] as number[]) {
     await assert.rejects(
       () => p.charge({ accountId: "a", amount: bad, currency: "KES", statusCheck: "active" }),
       /amount in minor units/);
@@ -222,7 +266,7 @@ test("a charge needs a real amount", async () => {
 test("an unverifiable webhook is refused, and says nothing about the body", async () => {
   const p = stripeProcessor({ secretKey: "sk_test_x", webhookSecret: "whsec_x", client: fakeStripe() });
   await assert.rejects(
-    () => p.verifyWebhook({ rawBody: Buffer.from("{}"), signature: "t=1,v1=nope" }),
+    async () => p.verifyWebhook({ rawBody: Buffer.from("{}"), signature: "t=1,v1=nope" }),
     (e: Wire) => {
       assert.match(e.message, /signature did not verify/);
       /* Nothing from the attacker-controlled body may be echoed back. */
@@ -234,7 +278,7 @@ test("an unverifiable webhook is refused, and says nothing about the body", asyn
 test("without a webhook secret, no event can be trusted at all", async () => {
   const p = stripeProcessor({ secretKey: "sk_test_x", client: fakeStripe() });
   await assert.rejects(
-    () => p.verifyWebhook({ rawBody: Buffer.from("{}"), signature: "sig" }),
+    async () => p.verifyWebhook({ rawBody: Buffer.from("{}"), signature: "sig" }),
     /STRIPE_WEBHOOK_SECRET is not set/);
 });
 

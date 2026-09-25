@@ -27,6 +27,8 @@ import { refFor, SUCCESSION_NEXT, SUCCESSION_TERMINAL, mayAdvance } from "../src
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
 import { sourceText, handlerText } from "./src-files.ts";
+import type { SuccessionStatus } from "../src/domain/dna.ts";
+import { present } from "./wire.ts";
 
 /* fileURLToPath, not .pathname: this repository's directory name contains a
    space, and .pathname hands back "paltas-backend%202". */
@@ -91,24 +93,31 @@ test("the classification ladder is ordered, and security sits off it", () => {
    * document a thief wants most and an owner has no operational need for, so
    * it is granted on its own terms instead.
    */
-  assert.equal(CLASS_RANK[SECURITY_CLASS], undefined,
+  /* Read through an index because LadderClass does NOT include it — which
+     is the compile-time half of this same assertion. Kept at runtime too,
+     so the rule stays stated where a reader is looking. */
+  assert.equal((CLASS_RANK as Record<string, number>)[SECURITY_CLASS], undefined,
     "SECURITY_RESTRICTED became a rung on the ladder, so climbing now reaches it");
   assert.ok(ALL_CLASSES.includes(SECURITY_CLASS));
 
-  const top = { rank: CLASS_RANK.LEGAL_RESTRICTED, label: "LEGAL_RESTRICTED", security: false, via: "test" };
+  const top = { rank: CLASS_RANK.LEGAL_RESTRICTED, label: "LEGAL_RESTRICTED", security: false, authority: false, via: "test" };
   assert.equal(mayRead(top, "OWNER_ONLY"), true);
   assert.equal(mayRead(top, SECURITY_CLASS), false,
     "the highest rung reached security-restricted data without the security right");
 });
 
 test("an unknown classification is refused, not waved through", () => {
-  const top = { rank: 99, label: "X", security: true, via: "test" };
+  const top = { rank: 99, label: "X", security: true, authority: false, via: "test" };
   assert.equal(mayRead(top, "MADE_UP"), false);
-  assert.equal(mayRead(top, undefined), false);
+  /* `undefined` on purpose: a row whose class column is empty must not be
+     treated as public. The cast says the signature already asks for a
+     string — the RUNTIME behaviour is what this asserts. */
+  assert.equal(mayRead(top, undefined as unknown as string), false);
   assert.equal(mayRead(null, "PUBLIC"), false);
   /* A row with no class is treated as INTERNAL, not as public: the failure
      that matters is the one that leaks. */
-  const anon = visibleRows([{ id: 1 }], { rank: CLASS_RANK.PUBLIC, label: "PUBLIC", security: false });
+  const rows = [{ id: 1 }];
+  const anon = visibleRows(rows, { rank: CLASS_RANK.PUBLIC, label: "PUBLIC", security: false, authority: false, via: "test" });
   assert.equal(anon.length, 0, "a row with no classification was shown to a PUBLIC clearance");
 });
 
@@ -169,7 +178,7 @@ test("a field the caller may not read is absent, not null", () => {
     basis: { from: "basis", class: "LEGAL_RESTRICTED" },
     active: { from: "active", class: "CONFIDENTIAL" },
   };
-  const manager = { rank: CLASS_RANK.CONFIDENTIAL, label: "CONFIDENTIAL", security: false, via: "role" };
+  const manager = { rank: CLASS_RANK.CONFIDENTIAL, label: "CONFIDENTIAL", security: false, authority: false, via: "role" };
   const out = redact(row, spec, manager);
 
   assert.ok(!("holder" in out), "the holder key survived redaction as a null or empty value");
@@ -185,7 +194,7 @@ test("what was withheld is reported as counts, never as contents", () => {
     { class: "OWNER_ONLY", holder: "Yusuf Hassan" },
     { class: "INTERNAL", holder: "Visible" },
   ];
-  const manager = { rank: CLASS_RANK.CONFIDENTIAL, label: "CONFIDENTIAL", security: false, via: "role" };
+  const manager = { rank: CLASS_RANK.CONFIDENTIAL, label: "CONFIDENTIAL", security: false, authority: false, via: "role" };
   const summary = withheldSummary(rows, manager);
   assert.deepEqual(summary, { OWNER_ONLY: 2 });
   assert.equal(JSON.stringify(summary).includes("Hassan"), false,
@@ -207,7 +216,8 @@ test("there is exactly one public shape, and it is opt-in", () => {
   assert.equal(publicProfile(dna, site), null,
     "a property published without anybody turning a public profile on");
 
-  const on = publicProfile({ ...dna, publicProfile: true }, site);
+  const on = present(publicProfile({ ...dna, publicProfile: true }, site),
+    "a property with its public profile ON produced nothing");
   assert.deepEqual(Object.keys(on).sort(),
     ["city", "country", "kind", "name", "ref", "summary", "verified"],
     "the public shape gained or lost a field — this is the one place that " +
@@ -272,7 +282,9 @@ test("the machine refuses a skipped step and a terminal case", () => {
     "a case jumped from initiated straight to completed");
   assert.match(mayAdvance("COMPLETED", "DISPUTED") || "", /cannot be moved again/,
     "a completed case was reopened instead of a new one being started");
-  assert.match(mayAdvance("NONSENSE", "DRAFT") || "", /not a status/);
+  /* A status this workflow does not know, sent on purpose: the type already
+     names the ten it does, and this asserts the RUNTIME refusal. */
+  assert.match(mayAdvance("NONSENSE" as SuccessionStatus, "DRAFT") || "", /not a status/);
 });
 
 test("the person who opens a case cannot also approve it", () => {
