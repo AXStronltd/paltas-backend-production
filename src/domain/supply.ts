@@ -143,6 +143,89 @@ export interface SupplyResult {
 }
 
 /**
+ * A hotel as the accommodation supplier describes it.
+ *
+ * Only what a comparison and a room list read. It is somebody else's shape,
+ * so every field is optional and the code that reads one already treats them
+ * that way.
+ */
+export interface SupplierHotel {
+  readonly name?: string;
+  readonly city?: string;
+  readonly country?: string;
+  readonly [key: string]: unknown;
+}
+
+/**
+ * WHAT A SUPPLIER THAT SELLS ROOMS ANSWERS WITH.
+ *
+ * The fields routes/stays.ts actually reads, and no more. Every one is
+ * optional but the identifier each step hangs on, because these come from
+ * somebody else's API and a field they stopped sending must degrade rather
+ * than throw.
+ */
+export interface RoomsResult {
+  readonly hotelId: string;
+  readonly nights: number;
+  readonly offers: readonly unknown[];
+}
+
+/** A held rate: what it costs now, and how the guest will pay for it. */
+export interface PrebookResult {
+  readonly prebookId: string;
+  readonly offerId?: string;
+  readonly hotelId?: string | null;
+  readonly checkIn?: string | null;
+  readonly checkOut?: string | null;
+  readonly price?: number | null;
+  readonly currency?: string | null;
+  /** Anything other than 0 means the price moved between show and hold. */
+  readonly priceDifferencePercent?: number;
+  readonly sandbox?: boolean;
+  /** Present only when the guest pays through the supplier's own form. */
+  readonly payment?: {
+    readonly clientSecret?: string | null;
+    readonly transactionId?: string | null;
+    readonly publishableKey?: string | null;
+    readonly stripeJsUrl?: string;
+    readonly environment?: string;
+  } | null;
+}
+
+/** A booking, as the supplier reports it back. */
+export interface BookingResult {
+  readonly bookingId: string;
+  readonly clientReference?: string | null;
+  readonly status?: string | null;
+  /** What the guest shows at the desk. */
+  readonly hotelConfirmationCode?: string | null;
+  readonly hotelId?: string | null;
+  readonly hotelName?: string | null;
+  readonly checkIn?: string | null;
+  readonly checkOut?: string | null;
+  readonly price?: number | null;
+  readonly currency?: string | null;
+  /** Null means the supplier did not say — not the same as non-refundable. */
+  readonly refundable?: boolean | null;
+  readonly cancellation?: readonly unknown[];
+  readonly createdAt?: string | null;
+  readonly supplierBookingId?: string | null;
+  readonly sandbox?: boolean;
+}
+
+/** What cancelling cost. A non-refundable booking still cancels. */
+export interface CancelResult {
+  readonly bookingId: string;
+  readonly status?: string | null;
+  /** Charged anyway, and said so. */
+  readonly charged?: boolean;
+  readonly cancellationFee?: number | null;
+  readonly refund?: number | null;
+  readonly currency?: string | null;
+  readonly sandbox?: boolean;
+}
+
+/**
  * THE INTERFACE A SUPPLIER MUST IMPLEMENT, as a type.
  *
  * `search` and `name` are the two an adapter cannot omit — register() below
@@ -157,6 +240,34 @@ export interface AccommodationSupplier {
   readonly sandbox?: boolean;
   describe?(): SupplierDescription;
   search(query: SupplyQuery): Promise<SupplyResult>;
+
+  /*
+   * ── AND THE SIX A SUPPLIER THAT CAN ACTUALLY SELL A ROOM HAS ─────────
+   *
+   * OPTIONAL, because searching and selling are different capabilities and
+   * most adapters have only the first. Expedia Rapid and Booking.com Demand
+   * return prices; LiteAPI holds a rate, takes a booking, reads it back and
+   * cancels it.
+   *
+   * Every route in routes/stays.ts already checks `typeof s.book !== "function"`
+   * before reaching for one and refuses with a sentence when it is absent —
+   * which is the behaviour these declarations describe rather than change. A
+   * caller cannot reach one without the check, because the type says it may
+   * not be there.
+   */
+
+  /** Every bookable offer at one hotel, cheapest first. */
+  rooms?(query: Record<string, unknown>): Promise<RoomsResult>;
+  /** One hotel's name, city and classification — never a price. */
+  hotel?(query: Record<string, unknown>): Promise<SupplierHotel | null>;
+  /** Hold an offer and get the real, final price. */
+  prebook?(query: Record<string, unknown>): Promise<PrebookResult>;
+  /** Take the held rate. */
+  book?(query: Record<string, unknown>): Promise<BookingResult>;
+  /** What the supplier currently says about a booking. */
+  booking?(query: Record<string, unknown>): Promise<BookingResult>;
+  /** Cancel, and report honestly what it cost. */
+  cancel?(query: Record<string, unknown>): Promise<CancelResult>;
 }
 
 /**

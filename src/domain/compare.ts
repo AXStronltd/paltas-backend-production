@@ -1,4 +1,7 @@
 import { messageOf } from "../http/errors.ts";
+/* The supplier's own description of a hotel, from where suppliers are
+   defined rather than restated here. */
+import type { SupplierHotel } from "./supply.ts";
 
 /**
  * PRICE COMPARISON — a fact added to a room PALTAS can actually sell.
@@ -51,19 +54,6 @@ export interface CompareProvider {
   describe?(): { name?: string; label?: string; [key: string]: unknown };
   readonly name?: string;
   [key: string]: unknown;
-}
-
-/**
- * A hotel as the accommodation supplier describes it.
- *
- * Only what the comparison reads. It is somebody else's shape, so every field
- * is optional and the code below already treats them that way.
- */
-export interface SupplierHotel {
-  readonly name?: string;
-  readonly city?: string;
-  readonly country?: string;
-  readonly [key: string]: unknown;
 }
 
 /** What one comes back with. Every field optional — it is another company's API. */

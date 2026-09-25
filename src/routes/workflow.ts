@@ -26,6 +26,16 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+import type { $Enums } from "@prisma/client";
+import { enumParam } from "../http/errors.ts";
+
+/** A dispatch row, as this file reads one back. */
+type DispatchRow = NonNullable<Awaited<ReturnType<typeof db.dispatch.findFirst>>>;
 import { whyNotArea } from "../domain/access.ts";
 import { DECISION_NEXT } from "../domain/decisions.ts";
 import { deliver, STATUS_FOR } from "../domain/messaging.ts";
@@ -39,27 +49,33 @@ export const workflowRoutes = Router();
 
 workflowRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription());
 
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, "property", act, label);
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a workflow route"), "property", act, label);
   if (why) throw forbidden(why);
 }
 
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(e); }
-};
+/** One handler, with its `try`/`catch` written once. */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(e); }
+  };
 
-const who = (req) => req.view?.user?.name || req.view?.user?.email || "";
+const who = (req: Request): string =>
+  req.view?.user?.name || req.view?.user?.email || "";
 
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request, action: string, entity: string,
+  entityId?: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId, actorId: req.session.userId, actorName: who(req),
+        orgId: actorOf(req, "a workflow route").orgId, actorId: sessionOf(req, "a workflow route").userId, actorName: who(req),
         action, entity, entityId: entityId || "", detail: detail || undefined,
         ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, e.message); }
+  } catch (e) { console.error("audit write failed", action, messageOf(e)); }
 }
 
 /*
@@ -71,28 +87,41 @@ async function audit(req, action, entity, entityId, detail) {
  * neither can the test. Four functions that each name their table are worth
  * more than one that names none.
  */
-async function ownMeeting(req, id, extra) {
-  const row = await db.meeting.findFirst({ where: { id, orgId: req.actor.orgId }, ...(extra || {}) });
+/**
+ * One meeting of this company's, with whatever relations the caller asked for.
+ *
+ * `extra` is a Prisma argument — an `include` today, an `orderBy` tomorrow —
+ * and the generic is what carries the shape of what was included back to the
+ * caller, so a handler that asks for participants can read them.
+ */
+async function ownMeeting<T extends Omit<Prisma.MeetingFindFirstArgs, "where">>(
+  req: Request, id: string, extra?: T,
+) {
+  const row = await db.meeting.findFirst({
+    where: { id, orgId: actorOf(req, "a workflow route").orgId },
+    ...(extra ?? {}),
+  } as Prisma.MeetingFindFirstArgs & T);
+  if (!row) throw hidden();
+  return row as Prisma.MeetingGetPayload<T>;
+}
+async function ownDecision(req: Request, id: string) {
+  const row = await db.decision.findFirst({ where: { id, orgId: actorOf(req, "a workflow route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownDecision(req, id) {
-  const row = await db.decision.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownTask(req: Request, id: string) {
+  const row = await db.task.findFirst({ where: { id, orgId: actorOf(req, "a workflow route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownTask(req, id) {
-  const row = await db.task.findFirst({ where: { id, orgId: req.actor.orgId } });
-  if (!row) throw hidden();
-  return row;
-}
-async function ownParty(req, id) {
-  const row = await db.party.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownParty(req: Request, id: string) {
+  const row = await db.party.findFirst({ where: { id, orgId: actorOf(req, "a workflow route").orgId } });
   if (!row) throw hidden();
   return row;
 }
 
-const text = (v, max) => String(v == null ? "" : v).trim().slice(0, max);
+const text = (v: unknown, max: number): string =>
+  String(v == null ? "" : v).trim().slice(0, max);
 
 /* ====================================================================== *
  * MEETINGS
@@ -117,7 +146,7 @@ workflowRoutes.post("/meetings/:id/participants", route(async (req, res) => {
 
   const participant = await db.meetingParticipant.create({
     data: {
-      orgId: req.actor.orgId, meetingId: meeting.id, partyId, name,
+      orgId: actorOf(req, "a workflow route").orgId, meetingId: meeting.id, partyId, name,
       email: text(b.email, 200), role: text(b.role, 80),
       attended: !!b.attended,
     },
@@ -130,7 +159,7 @@ workflowRoutes.delete("/meetings/:id/participants/:pid", route(async (req, res) 
   need(req, "update", "meetings");
   const meeting = await ownMeeting(req, req.params.id);
   const { count } = await db.meetingParticipant.deleteMany({
-    where: { id: req.params.pid, meetingId: meeting.id, orgId: req.actor.orgId },
+    where: { id: req.params.pid, meetingId: meeting.id, orgId: actorOf(req, "a workflow route").orgId },
   });
   if (!count) throw hidden();
   await audit(req, "meeting.participant.remove", "meeting", meeting.id, {});
@@ -153,12 +182,12 @@ workflowRoutes.post("/meetings/:id/hold", route(async (req, res) => {
   const attended = Array.isArray(req.body?.attended) ? req.body.attended.map(String) : null;
   if (attended) {
     await db.meetingParticipant.updateMany({
-      where: { orgId: req.actor.orgId, meetingId: meeting.id },
+      where: { orgId: actorOf(req, "a workflow route").orgId, meetingId: meeting.id },
       data: { attended: false },
     });
     if (attended.length) {
       await db.meetingParticipant.updateMany({
-        where: { orgId: req.actor.orgId, meetingId: meeting.id, id: { in: attended } },
+        where: { orgId: actorOf(req, "a workflow route").orgId, meetingId: meeting.id, id: { in: attended } },
         data: { attended: true },
       });
     }
@@ -228,7 +257,7 @@ workflowRoutes.post("/meetings/:id/minutes", route(async (req, res) => {
    * Whether they arrived is answered per person in the outbox, because that
    * is the only place it can be answered honestly.
    */
-  let dispatched = [];
+  let dispatched: DispatchRow[] = [];
   if (send) {
     dispatched = await issueMinutes(req, meeting, out, recipients);
   }
@@ -252,8 +281,22 @@ workflowRoutes.post("/meetings/:id/minutes", route(async (req, res) => {
 }));
 
 /** One message per person, attempted, each recorded whatever happened. */
-async function issueMinutes(req, meeting, updated, recipients) {
-  const orgId = req.actor.orgId;
+/** One participant a set of minutes is being sent to. */
+interface MinutesRecipient {
+  readonly id: string;
+  readonly name: string;
+  readonly email: string;
+  readonly partyId: string | null;
+}
+
+/** One message per person, attempted, each recorded whatever happened. */
+async function issueMinutes(
+  req: Request,
+  meeting: { id: string; ref: string; title: string; orgId: string; projectId: string | null },
+  updated: { minutes: string },
+  recipients: readonly MinutesRecipient[],
+): Promise<DispatchRow[]> {
+  const orgId = actorOf(req, "a workflow route").orgId;
   const subject = `Minutes — ${meeting.title}`;
   const made = [];
 
@@ -266,12 +309,12 @@ async function issueMinutes(req, meeting, updated, recipients) {
           status: "QUEUED", toName: p.name, toAddress: p.email, partyId: p.partyId,
           subject, body: updated.minutes,
           projectId: meeting.projectId, meetingId: meeting.id,
-          createdById: req.session.userId, createdByName: who(req),
+          createdById: sessionOf(req, "a workflow route").userId, createdByName: who(req),
         },
       });
     } catch (e) {
       /* One bad address must not cost the other nine their message. */
-      console.error("minutes dispatch not created", meeting.ref, p.email, e.message);
+      console.error("minutes dispatch not created", meeting.ref, p.email, messageOf(e));
       continue;
     }
 
@@ -301,7 +344,7 @@ async function issueMinutes(req, meeting, updated, recipients) {
 }
 
 /** What actually happened, in one sentence, without flattering it. */
-function sentence(dispatched) {
+function sentence(dispatched: readonly DispatchRow[]): string {
   const n = dispatched.length;
   if (!n) return "Nothing was created — no message could be prepared.";
   const queued = dispatched.filter((d) => d.status === "QUEUED").length;
@@ -325,14 +368,15 @@ function sentence(dispatched) {
 
 workflowRoutes.post("/decisions/:id/status", route(async (req, res) => {
   need(req, "update", "decisions");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a workflow route").orgId;
   const decision = await ownDecision(req, req.params.id);
 
-  const to = String(req.body?.status || "").trim().toUpperCase();
+  const to = enumParam("DecisionStatus", req.body?.status, "decision state");
+  if (!to) throw badRequest("Which state? Send `status`.");
   if (!DECISION_NEXT[to]) {
-    throw badRequest(`"${req.body?.status}" is not a decision state.`, Object.keys(DECISION_NEXT));
+    throw badRequest(`"${to}" is not a decision state.`, Object.keys(DECISION_NEXT));
   }
-  const allowed = DECISION_NEXT[decision.status];
+  const allowed = DECISION_NEXT[decision.status] ?? [];
   if (!allowed.includes(to)) {
     throw conflict(
       allowed.length
@@ -389,7 +433,7 @@ workflowRoutes.post("/tasks/:id/assign", route(async (req, res) => {
     /* Only somebody who belongs to this company. Assigning to an account
        outside it would put a task on a stranger's list. */
     const member = await db.membership.findFirst({
-      where: { orgId: req.actor.orgId, userId: String(b.assigneeId) },
+      where: { orgId: actorOf(req, "a workflow route").orgId, userId: String(b.assigneeId) },
       include: { user: { select: { id: true, name: true, email: true } } },
     });
     if (!member) throw badRequest("That person is not a member of this company.");
@@ -422,7 +466,7 @@ workflowRoutes.post("/tasks/:id/done", route(async (req, res) => {
   if (task.status === "CANCELLED") throw conflict("That task was cancelled. Reopen it first if it still needs doing.");
 
   const open = await db.task.count({
-    where: { orgId: req.actor.orgId, parentId: task.id, status: { notIn: ["DONE", "CANCELLED"] } },
+    where: { orgId: actorOf(req, "a workflow route").orgId, parentId: task.id, status: { notIn: ["DONE", "CANCELLED"] } },
   });
   if (open) {
     throw conflict(`${open} subtask${open === 1 ? " is" : "s are"} still open. Finish or cancel those first.`);
@@ -461,12 +505,12 @@ workflowRoutes.post("/tasks/:id/checklist", route(async (req, res) => {
   if (!t) throw badRequest("A checklist item needs something in it.");
 
   const last = await db.taskChecklistItem.findFirst({
-    where: { orgId: req.actor.orgId, taskId: task.id },
+    where: { orgId: actorOf(req, "a workflow route").orgId, taskId: task.id },
     orderBy: { position: "desc" }, select: { position: true },
   });
   const item = await db.taskChecklistItem.create({
     data: {
-      orgId: req.actor.orgId, taskId: task.id, text: t,
+      orgId: actorOf(req, "a workflow route").orgId, taskId: task.id, text: t,
       position: (last?.position ?? -1) + 1,
     },
   });
@@ -477,7 +521,7 @@ workflowRoutes.post("/tasks/:id/checklist/:itemId/toggle", route(async (req, res
   need(req, "update", "tasks");
   const task = await ownTask(req, req.params.id);
   const item = await db.taskChecklistItem.findFirst({
-    where: { id: req.params.itemId, taskId: task.id, orgId: req.actor.orgId },
+    where: { id: req.params.itemId, taskId: task.id, orgId: actorOf(req, "a workflow route").orgId },
   });
   if (!item) throw hidden();
 
@@ -497,7 +541,7 @@ workflowRoutes.post("/tasks/:id/comments", route(async (req, res) => {
   if (!body) throw badRequest("A comment needs something in it.");
 
   const comment = await db.taskComment.create({
-    data: { orgId: req.actor.orgId, taskId: task.id, body, byName: who(req) },
+    data: { orgId: actorOf(req, "a workflow route").orgId, taskId: task.id, body, byName: who(req) },
   });
   await audit(req, "task.comment", "task", task.id, { ref: task.ref });
   res.status(201).json({ comment });
@@ -516,12 +560,14 @@ workflowRoutes.post("/tasks/:id/comments", route(async (req, res) => {
  */
 workflowRoutes.get("/tasks/mine", route(async (req, res) => {
   need(req, "list", "tasks");
-  const orgId = req.actor.orgId;
-  const me = req.session.userId;
+  const orgId = actorOf(req, "a workflow route").orgId;
+  const me = sessionOf(req, "a workflow route").userId;
   const myName = who(req);
 
   const view = String(req.query.view || "assigned").toLowerCase();
-  const open = { notIn: ["DONE", "CANCELLED"] };
+  /* Everything that is not finished. Annotated rather than inferred: an
+     object literal widens the strings and Prisma demands the enum. */
+  const open: Prisma.EnumTaskStatusFilter = { notIn: ["DONE", "CANCELLED"] };
 
   const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
   const endOfDay = new Date(); endOfDay.setHours(23, 59, 59, 999);
@@ -531,7 +577,8 @@ workflowRoutes.get("/tasks/mine", route(async (req, res) => {
      are assigned work before they ever sign in. */
   const mine = { OR: [{ assigneeId: me }, ...(myName ? [{ assigneeName: myName }] : [])] };
 
-  const WHERE = {
+  /** The six task views, each a filter over Task. */
+  const WHERE: Readonly<Record<string, Prisma.TaskWhereInput>> = {
     assigned: { orgId, ...mine, status: open },
     created: { orgId, createdById: me, status: open },
     overdue: { orgId, ...mine, status: open, dueOn: { lt: startOfDay } },
@@ -539,12 +586,13 @@ workflowRoutes.get("/tasks/mine", route(async (req, res) => {
     upcoming: { orgId, ...mine, status: open, dueOn: { gt: endOfDay, lte: weekOut } },
     all: { orgId, status: open },
   };
-  if (!WHERE[view]) {
-    throw badRequest(`"${req.query.view}" is not a task view.`, Object.keys(WHERE));
+  const filter = WHERE[view];
+  if (!filter) {
+    throw badRequest(`"${view}" is not a task view.`, Object.keys(WHERE));
   }
 
   const tasks = await db.task.findMany({
-    where: WHERE[view],
+    where: filter,
     orderBy: [{ dueOn: "asc" }, { priority: "desc" }],
     take: 200,
     include: {
@@ -555,7 +603,7 @@ workflowRoutes.get("/tasks/mine", route(async (req, res) => {
     },
   });
 
-  const counts = {};
+  const counts: Record<string, number> = {};
   for (const [name, where] of Object.entries(WHERE)) {
     counts[name] = await db.task.count({ where });
   }

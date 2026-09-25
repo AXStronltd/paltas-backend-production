@@ -27,6 +27,13 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+import type { $Enums } from "@prisma/client";
+import { enumParam } from "../http/errors.ts";
 import { whyNotArea } from "../domain/access.ts";
 import { ACQUISITION_NEXT, PERMIT_NEXT } from "../domain/decisions.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
@@ -40,68 +47,79 @@ export const predevRoutes = Router();
 
 predevRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription());
 
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, "property", act, label);
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a predevelopment route"), "property", act, label);
   if (why) throw forbidden(why);
 }
 
 /* Buying land and approving a feasibility are money decisions, whatever else
    they are. Somebody who may draw the programme must not be able to commit
    the company to a purchase. */
-function needMoney(req, act, label) {
-  const why = whyNotArea(req.actor, "finance", act, label);
+function needMoney(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a predevelopment route"), "finance", act, label);
   if (why) throw forbidden(why);
 }
 
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(e); }
+/** One handler, with its `try`/`catch` written once. */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(e); }
+  };
+
+const who = (req: Request): string =>
+  req.view?.user?.name || req.view?.user?.email || "";
+const text = (v: unknown, max: number): string =>
+  String(v == null ? "" : v).trim().slice(0, max);
+const day = (v: unknown): Date | null => {
+  if (!v) return null;
+  const d = new Date(v as string | number | Date);
+  return Number.isNaN(d.getTime()) ? null : d;
 };
 
-const who = (req) => req.view?.user?.name || req.view?.user?.email || "";
-const text = (v, max) => String(v == null ? "" : v).trim().slice(0, max);
-const day = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : d; };
-
-function money(v) {
+function money(v: unknown): bigint | null {
   const n = Number(v);
   if (!Number.isFinite(n) || !Number.isSafeInteger(Math.trunc(n))) return null;
   return BigInt(Math.trunc(n));
 }
 
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request, action: string, entity: string,
+  entityId?: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId, actorId: req.session.userId, actorName: who(req),
+        orgId: actorOf(req, "a predevelopment route").orgId, actorId: sessionOf(req, "a predevelopment route").userId, actorName: who(req),
         action, entity, entityId: entityId || "", detail: detail || undefined,
         ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, e.message); }
+  } catch (e) { console.error("audit write failed", action, messageOf(e)); }
 }
 
 /* One lookup per table, named, so the scoping scanner can read them. */
-async function ownAcquisition(req, id) {
-  const row = await db.acquisition.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownAcquisition(req: Request, id: string) {
+  const row = await db.acquisition.findFirst({ where: { id, orgId: actorOf(req, "a predevelopment route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownDiligence(req, id) {
-  const row = await db.diligenceItem.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownDiligence(req: Request, id: string) {
+  const row = await db.diligenceItem.findFirst({ where: { id, orgId: actorOf(req, "a predevelopment route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownFeasibility(req, id) {
-  const row = await db.feasibility.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownFeasibility(req: Request, id: string) {
+  const row = await db.feasibility.findFirst({ where: { id, orgId: actorOf(req, "a predevelopment route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownDrawing(req, id) {
-  const row = await db.drawing.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownDrawing(req: Request, id: string) {
+  const row = await db.drawing.findFirst({ where: { id, orgId: actorOf(req, "a predevelopment route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownPermit(req, id) {
-  const row = await db.permit.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownPermit(req: Request, id: string) {
+  const row = await db.permit.findFirst({ where: { id, orgId: actorOf(req, "a predevelopment route").orgId } });
   if (!row) throw hidden();
   return row;
 }
@@ -120,14 +138,14 @@ async function ownPermit(req, id) {
 predevRoutes.post("/acquisitions/:id/status", route(async (req, res) => {
   needMoney(req, "update", "acquisitions");
   const a = await ownAcquisition(req, req.params.id);
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a predevelopment route").orgId;
 
-  const to = String(req.body?.status || "").toUpperCase();
+  const to = enumParam("AcquisitionStatus", req.body?.status, "acquisition state");
+  if (!to) throw badRequest("Which state? Send `status`.");
   if (!ACQUISITION_NEXT[to]) {
-    throw badRequest(`"${req.body?.status}" is not an acquisition state.`,
-      Object.keys(ACQUISITION_NEXT));
+    throw badRequest(`"${to}" is not an acquisition state.`, Object.keys(ACQUISITION_NEXT));
   }
-  const allowed = ACQUISITION_NEXT[a.status];
+  const allowed = ACQUISITION_NEXT[a.status] ?? [];
   if (!allowed.includes(to)) {
     throw conflict(
       allowed.length
@@ -137,7 +155,7 @@ predevRoutes.post("/acquisitions/:id/status", route(async (req, res) => {
           `A deal that comes back is a new one.`);
   }
 
-  const data = { status: to };
+  const data: Prisma.AcquisitionUpdateInput = { status: to };
 
   if (to === "OFFERED") {
     const offered = money(req.body?.offeredPrice ?? a.offeredPrice);
@@ -222,11 +240,11 @@ predevRoutes.post("/acquisitions/:id/diligence", route(async (req, res) => {
   if (!title) throw badRequest("A check needs to say what is being checked.");
 
   const count = await db.diligenceItem.count({
-    where: { orgId: req.actor.orgId, acquisitionId: a.id },
+    where: { orgId: actorOf(req, "a predevelopment route").orgId, acquisitionId: a.id },
   });
   const item = await db.diligenceItem.create({
     data: {
-      orgId: req.actor.orgId, acquisitionId: a.id, title,
+      orgId: actorOf(req, "a predevelopment route").orgId, acquisitionId: a.id, title,
       category: text(req.body?.category, 120),
       dueOn: day(req.body?.dueOn), position: count + 1,
     },
@@ -247,13 +265,10 @@ predevRoutes.post("/acquisitions/:id/diligence/:itemId", route(async (req, res) 
   const item = await ownDiligence(req, req.params.itemId);
   if (item.acquisitionId !== a.id) throw hidden();
 
-  const to = String(req.body?.status || "").toUpperCase();
-  if (!["PENDING", "CLEAR", "ISSUE", "WAIVED"].includes(to)) {
-    throw badRequest(`"${req.body?.status}" is not a check result.`,
-      ["PENDING", "CLEAR", "ISSUE", "WAIVED"]);
-  }
+  const to = enumParam("DiligenceStatus", req.body?.status, "check result");
+  if (!to) throw badRequest("Which result? Send `status`.");
 
-  const data = {
+  const data: Prisma.DiligenceItemUpdateInput = {
     status: to,
     finding: req.body?.finding === undefined ? item.finding : text(req.body.finding, 20000),
     checkedBy: text(req.body?.checkedBy, 160) || who(req),
@@ -363,7 +378,7 @@ predevRoutes.post("/feasibilities/:id/supersede", route(async (req, res) => {
   needMoney(req, "create", "feasibilities");
   const f = await ownFeasibility(req, req.params.id);
   if (f.status === "SUPERSEDED") throw conflict(`${f.ref} has already been replaced.`);
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a predevelopment route").orgId;
 
   const next = await db.feasibility.create({
     data: {
@@ -374,7 +389,7 @@ predevRoutes.post("/feasibilities/:id/supersede", route(async (req, res) => {
       landCost: f.landCost, buildCost: f.buildCost, professional: f.professional,
       financeCost: f.financeCost, otherCost: f.otherCost, grossValue: f.grossValue,
       currency: f.currency, targetMarginBps: f.targetMarginBps,
-      createdById: req.session.userId, createdByName: who(req),
+      createdById: sessionOf(req, "a predevelopment route").userId, createdByName: who(req),
     },
   });
   const out = await db.feasibility.update({
@@ -446,7 +461,7 @@ predevRoutes.post("/drawings/:id/issue", route(async (req, res) => {
 predevRoutes.post("/drawings/:id/revise", route(async (req, res) => {
   need(req, "create", "drawings");
   const d = await ownDrawing(req, req.params.id);
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a predevelopment route").orgId;
 
   if (d.status === "SUPERSEDED") {
     throw conflict(`${d.number} rev ${d.revision} was already superseded. Revise the current one.`);
@@ -465,7 +480,7 @@ predevRoutes.post("/drawings/:id/revise", route(async (req, res) => {
       projectId: d.projectId, number: d.number, title: d.title,
       discipline: d.discipline, revision, scale: d.scale,
       status: "DRAFT", previousId: d.id,
-      createdById: req.session.userId, createdByName: who(req),
+      createdById: sessionOf(req, "a predevelopment route").userId, createdByName: who(req),
     },
   });
   const out = await db.drawing.update({
@@ -482,7 +497,7 @@ predevRoutes.post("/drawings/:id/revise", route(async (req, res) => {
 }));
 
 /** A → B → C. Numeric revisions increment; anything else the caller names. */
-function nextLetter(rev) {
+function nextLetter(rev: unknown): string {
   const r = String(rev || "A").trim();
   if (/^\d+$/.test(r)) return String(Number(r) + 1);
   if (/^[A-Za-z]$/.test(r)) {
@@ -499,7 +514,7 @@ function nextLetter(rev) {
  */
 predevRoutes.get("/drawings/current", route(async (req, res) => {
   need(req, "list", "drawings");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a predevelopment route").orgId;
   const rows = await db.drawing.findMany({
     where: { orgId, status: { not: "SUPERSEDED" } },
     orderBy: [{ number: "asc" }, { createdAt: "desc" }],
@@ -536,11 +551,12 @@ predevRoutes.post("/permits/:id/status", route(async (req, res) => {
   need(req, "update", "permits");
   const p = await ownPermit(req, req.params.id);
 
-  const to = String(req.body?.status || "").toUpperCase();
+  const to = enumParam("PermitStatus", req.body?.status, "permit state");
+  if (!to) throw badRequest("Which state? Send `status`.");
   if (!PERMIT_NEXT[to]) {
-    throw badRequest(`"${req.body?.status}" is not a permit state.`, Object.keys(PERMIT_NEXT));
+    throw badRequest(`"${to}" is not a permit state.`, Object.keys(PERMIT_NEXT));
   }
-  const allowed = PERMIT_NEXT[p.status];
+  const allowed = PERMIT_NEXT[p.status] ?? [];
   if (!allowed.includes(to)) {
     throw conflict(
       allowed.length
@@ -550,7 +566,7 @@ predevRoutes.post("/permits/:id/status", route(async (req, res) => {
           `A fresh application is a new permit.`);
   }
 
-  const data = { status: to };
+  const data: Prisma.PermitUpdateInput = { status: to };
   let detail = text(req.body?.note, 4000);
 
   if (to === "SUBMITTED") {
@@ -592,7 +608,7 @@ predevRoutes.post("/permits/:id/status", route(async (req, res) => {
     db.permit.update({ where: { id: p.id }, data }),
     db.permitEvent.create({
       data: {
-        orgId: req.actor.orgId, permitId: p.id, status: to,
+        orgId: actorOf(req, "a predevelopment route").orgId, permitId: p.id, status: to,
         detail, byName: who(req),
       },
     }),
@@ -620,7 +636,7 @@ predevRoutes.post("/permits/:id/status", route(async (req, res) => {
  */
 predevRoutes.get("/permits/blocking", route(async (req, res) => {
   need(req, "list", "permits");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a predevelopment route").orgId;
   const now = new Date();
   const soon = new Date(Date.now() + 90 * 864e5);
 
@@ -631,8 +647,10 @@ predevRoutes.get("/permits/blocking", route(async (req, res) => {
     take: 500,
   });
 
-  const lapsed = (p) => p.status === "APPROVED" && p.expiresOn && p.expiresOn < now;
-  const granted = (p) => p.status === "APPROVED" && !lapsed(p);
+  const lapsed = (p: { status: string; expiresOn?: Date | null }) =>
+    p.status === "APPROVED" && Boolean(p.expiresOn) && p.expiresOn! < now;
+  const granted = (p: { status: string; expiresOn?: Date | null }) =>
+    p.status === "APPROVED" && !lapsed(p);
 
   const blocking = all.filter((p) => p.blocking && !granted(p));
   const expiring = all.filter((p) => granted(p) && p.expiresOn && p.expiresOn < soon);

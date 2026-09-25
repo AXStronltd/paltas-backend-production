@@ -26,6 +26,16 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+import type { $Enums } from "@prisma/client";
+import { enumParam } from "../http/errors.ts";
+
+/** A sale, as this file reads one back. */
+type ContractRow = NonNullable<Awaited<ReturnType<typeof db.contract.findFirst>>>;
 import { whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { numberFor } from "../http/resource.ts";
@@ -37,58 +47,69 @@ export const handoverRoutes = Router();
 
 handoverRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription());
 
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, "property", act, label);
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a handover route"), "property", act, label);
   if (why) throw forbidden(why);
 }
-function needMoney(req, act, label) {
-  const why = whyNotArea(req.actor, "finance", act, label);
+function needMoney(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a handover route"), "finance", act, label);
   if (why) throw forbidden(why);
 }
 
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(e); }
+/** One handler, with its `try`/`catch` written once. */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(e); }
+  };
+
+const who = (req: Request): string =>
+  req.view?.user?.name || req.view?.user?.email || "";
+const text = (v: unknown, max: number): string =>
+  String(v == null ? "" : v).trim().slice(0, max);
+const day = (v: unknown): Date | null => {
+  if (!v) return null;
+  const d = new Date(v as string | number | Date);
+  return Number.isNaN(d.getTime()) ? null : d;
 };
 
-const who = (req) => req.view?.user?.name || req.view?.user?.email || "";
-const text = (v, max) => String(v == null ? "" : v).trim().slice(0, max);
-const day = (v) => { if (!v) return null; const d = new Date(v); return isNaN(d) ? null : d; };
-
-function money(v) {
+function money(v: unknown): bigint | null {
   const n = Number(v);
   if (!Number.isFinite(n) || !Number.isSafeInteger(Math.trunc(n))) return null;
   return BigInt(Math.trunc(n));
 }
 
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request, action: string, entity: string,
+  entityId?: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId, actorId: req.session.userId, actorName: who(req),
+        orgId: actorOf(req, "a handover route").orgId, actorId: sessionOf(req, "a handover route").userId, actorName: who(req),
         action, entity, entityId: entityId || "", detail: detail || undefined,
         ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, e.message); }
+  } catch (e) { console.error("audit write failed", action, messageOf(e)); }
 }
 
-async function ownHandover(req, id) {
-  const row = await db.handover.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownHandover(req: Request, id: string) {
+  const row = await db.handover.findFirst({ where: { id, orgId: actorOf(req, "a handover route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownItem(req, id) {
-  const row = await db.handoverItem.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownItem(req: Request, id: string) {
+  const row = await db.handoverItem.findFirst({ where: { id, orgId: actorOf(req, "a handover route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownContract(req, id) {
-  const row = await db.contract.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownContract(req: Request, id: string) {
+  const row = await db.contract.findFirst({ where: { id, orgId: actorOf(req, "a handover route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownMember(req, id) {
-  const row = await db.projectMember.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownMember(req: Request, id: string) {
+  const row = await db.projectMember.findFirst({ where: { id, orgId: actorOf(req, "a handover route").orgId } });
   if (!row) throw hidden();
   return row;
 }
@@ -104,7 +125,7 @@ async function ownMember(req, id) {
  * is FOR, and refusing over a scratched worktop teaches people to record
  * everything as minor — which costs far more than the scratch.
  */
-async function blockingDefects(orgId, unitId) {
+async function blockingDefects(orgId: string, unitId: string | null | undefined) {
   if (!unitId) return [];
   return db.defect.findMany({
     where: {
@@ -121,7 +142,7 @@ async function blockingDefects(orgId, unitId) {
 handoverRoutes.get("/handovers/:id/readiness", route(async (req, res) => {
   need(req, "get", "handovers");
   const h = await ownHandover(req, req.params.id);
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a handover route").orgId;
 
   const [defects, items] = await Promise.all([
     blockingDefects(orgId, h.unitId),
@@ -168,11 +189,11 @@ handoverRoutes.post("/handovers/:id/items", route(async (req, res) => {
   if (!title) throw badRequest("An item needs to say what is being handed over.");
 
   const count = await db.handoverItem.count({
-    where: { orgId: req.actor.orgId, handoverId: h.id },
+    where: { orgId: actorOf(req, "a handover route").orgId, handoverId: h.id },
   });
   const item = await db.handoverItem.create({
     data: {
-      orgId: req.actor.orgId, handoverId: h.id, title,
+      orgId: actorOf(req, "a handover route").orgId, handoverId: h.id, title,
       kind: text(req.body?.kind, 80), position: count + 1,
     },
   });
@@ -189,11 +210,8 @@ handoverRoutes.post("/handovers/:id/items/:itemId", route(async (req, res) => {
     throw conflict(`${h.ref} is done. What was handed over that day does not change afterwards.`);
   }
 
-  const to = String(req.body?.status || "").toUpperCase();
-  if (!["PENDING", "DONE", "ISSUE", "NOT_APPLICABLE"].includes(to)) {
-    throw badRequest(`"${req.body?.status}" is not an item state.`,
-      ["PENDING", "DONE", "ISSUE", "NOT_APPLICABLE"]);
-  }
+  const to = enumParam("HandoverItemStatus", req.body?.status, "handover item state");
+  if (!to) throw badRequest("Which state? Send `status`.");
   const note = text(req.body?.note, 4000);
   if (to === "ISSUE" && !note) {
     throw badRequest("An item marked as a problem needs to say what the problem is.");
@@ -223,7 +241,7 @@ handoverRoutes.post("/handovers/:id/items/:itemId", route(async (req, res) => {
 handoverRoutes.post("/handovers/:id/complete", route(async (req, res) => {
   need(req, "update", "handovers");
   const h = await ownHandover(req, req.params.id);
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a handover route").orgId;
 
   if (h.status === "COMPLETED") throw conflict(`${h.ref} has already been handed over.`);
   if (h.status === "CANCELLED") throw conflict(`${h.ref} was cancelled.`);
@@ -323,7 +341,7 @@ handoverRoutes.post("/handovers/:id/refuse", route(async (req, res) => {
  * than that, and completing a sale on the strength of a stale column is how a
  * flat gets transferred before it is paid for.
  */
-async function balanceOf(orgId, contract) {
+async function balanceOf(orgId: string, contract: ContractRow) {
   /*
    * THE PATH FROM MONEY TO A SALE runs contract → invoice → payment. There is
    * no direct link and there should not be: an instalment is invoiced and the
@@ -359,7 +377,8 @@ async function balanceOf(orgId, contract) {
   return { value, received, owed: value - received };
 }
 
-const CONTRACT_NEXT = {
+/** What a sale may become next. Anything not listed is refused. */
+const CONTRACT_NEXT: Readonly<Record<string, readonly $Enums.ContractStatus[]>> = {
   RESERVED: ["SOLD", "CANCELLED"],
   SOLD: ["COMPLETED", "CANCELLED"],
   COMPLETED: [],
@@ -377,13 +396,14 @@ const CONTRACT_NEXT = {
 handoverRoutes.post("/contracts/:id/status", route(async (req, res) => {
   needMoney(req, "update", "contracts");
   const c = await ownContract(req, req.params.id);
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a handover route").orgId;
 
-  const to = String(req.body?.status || "").toUpperCase();
+  const to = enumParam("ContractStatus", req.body?.status, "contract state");
+  if (!to) throw badRequest("Which state? Send `status`.");
   if (!CONTRACT_NEXT[to]) {
-    throw badRequest(`"${req.body?.status}" is not a contract state.`, Object.keys(CONTRACT_NEXT));
+    throw badRequest(`"${to}" is not a contract state.`, Object.keys(CONTRACT_NEXT));
   }
-  const allowed = CONTRACT_NEXT[c.status];
+  const allowed = CONTRACT_NEXT[c.status] ?? [];
   if (!allowed.includes(to)) {
     throw conflict(
       allowed.length
@@ -392,7 +412,7 @@ handoverRoutes.post("/contracts/:id/status", route(async (req, res) => {
         : `${c.ref} is ${c.status.toLowerCase()} and does not move again.`);
   }
 
-  const data = { status: to };
+  const data: Prisma.ContractUpdateInput = { status: to };
   const balance = await balanceOf(orgId, c);
 
   if (to === "SOLD") {
@@ -455,7 +475,7 @@ handoverRoutes.post("/contracts/:id/status", route(async (req, res) => {
 handoverRoutes.get("/contracts/:id/balance", route(async (req, res) => {
   needMoney(req, "get", "contracts");
   const c = await ownContract(req, req.params.id);
-  const b = await balanceOf(req.actor.orgId, c);
+  const b = await balanceOf(actorOf(req, "a handover route").orgId, c);
   res.json({
     contract: { id: c.id, ref: c.ref, currency: c.currency, status: c.status },
     value: String(b.value), received: String(b.received), owed: String(b.owed),
@@ -477,7 +497,7 @@ handoverRoutes.get("/contracts/:id/balance", route(async (req, res) => {
  */
 handoverRoutes.post("/projects/:id/team", route(async (req, res) => {
   need(req, "update", "project-team");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a handover route").orgId;
   const project = await db.project.findFirst({ where: { id: req.params.id, orgId } });
   if (!project) throw hidden();
 
@@ -535,7 +555,7 @@ handoverRoutes.post("/projects/:id/team", route(async (req, res) => {
  */
 handoverRoutes.post("/projects/:id/team/:memberId/leave", route(async (req, res) => {
   need(req, "update", "project-team");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a handover route").orgId;
   const member = await ownMember(req, req.params.memberId);
   if (member.projectId !== req.params.id) throw hidden();
   if (member.leftOn) throw conflict(`${member.name} already left this job.`);
@@ -580,7 +600,7 @@ handoverRoutes.post("/projects/:id/team/:memberId/leave", route(async (req, res)
  */
 handoverRoutes.get("/projects/:id/team", route(async (req, res) => {
   need(req, "get", "project-team");
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a handover route").orgId;
   const project = await db.project.findFirst({ where: { id: req.params.id, orgId } });
   if (!project) throw hidden();
 

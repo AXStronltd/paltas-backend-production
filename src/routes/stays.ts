@@ -41,6 +41,17 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { AccommodationSupplier } from "../domain/supply.ts";
+import type { SessionWithUser } from "../auth/sessions.ts";
+
+/** A supplier booking PALTAS recorded, as this file reads one back. */
+type SupplierBookingRow =
+  NonNullable<Awaited<ReturnType<typeof db.supplierBooking.findFirst>>>;
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
 import { badRequest, unavailable, notFound } from "../http/errors.ts";
 import { rateLimit } from "../http/rate-limit.ts";
 import { requireSession } from "../http/session.ts";
@@ -67,7 +78,7 @@ function live() {
  * refuses to EXPOSE booking management at all, because without a persisted
  * booking there is no owner to check a reader or a canceller against.
  */
-function sandboxOnly(s) {
+function sandboxOnly(s: AccommodationSupplier): void {
   if (!s.sandbox) {
     throw unavailable(
       "This booking cannot be completed against a live supplier without payment. " +
@@ -83,7 +94,7 @@ function sandboxOnly(s) {
  * a booking id is real, which is a small oracle worth not handing out. To
  * anybody who is not the owner, it simply does not exist.
  */
-async function ownedBy(session, bookingId) {
+async function ownedBy(session: SessionWithUser, bookingId: unknown) {
   const row = await db.supplierBooking.findFirst({
     where: { bookingId: String(bookingId), userId: session.userId },
   });
@@ -92,7 +103,7 @@ async function ownedBy(session, bookingId) {
 }
 
 /** Dates, or a 400 that names what is wrong rather than just refusing. */
-function stayOf(q) {
+function stayOf(q: Record<string, unknown>) {
   const checkIn = String(q.checkIn || q.checkin || "").trim();
   const checkOut = String(q.checkOut || q.checkout || "").trim();
   const a = Date.parse(`${checkIn}T00:00:00Z`);
@@ -284,7 +295,7 @@ stayRoutes.post("/marketplace/stays/hold",
              rather than multiplying rows. */
           where: { supplier_prebookId: { supplier: supplierName, prebookId: held.prebookId } },
           create: {
-            userId: req.session.userId,
+            userId: sessionOf(req, "a stays route").userId,
             supplier: supplierName,
             prebookId: held.prebookId,
             transactionId: held.payment ? (held.payment.transactionId || "") : "",
@@ -309,7 +320,7 @@ stayRoutes.post("/marketplace/stays/hold",
          * money against a reservation PALTAS has no record of is the failure
          * this whole row exists to prevent.
          */
-        console.error("prebook not recorded:", e && e.message);
+        console.error("prebook not recorded:", e && messageOf(e));
         throw unavailable(
           "The booking could not be prepared. Nothing has been charged and no " +
           "rate is held against your name.");
@@ -363,7 +374,7 @@ stayRoutes.post("/marketplace/stays/book",
         throw notFound(
           "That held rate is not one PALTAS is holding. Nothing has been charged.");
       }
-      if (held.userId !== req.session.userId) {
+      if (held.userId !== sessionOf(req, "a stays route").userId) {
         /* Somebody else's hold. 404 rather than 403 — see ownedBy. */
         throw notFound("That held rate is not one PALTAS is holding.");
       }
@@ -457,7 +468,7 @@ stayRoutes.post("/marketplace/stays/book",
         });
       } catch (e) {
         recorded = false;
-        console.error("supplier booking not recorded:", e && e.message);
+        console.error("supplier booking not recorded:", e && messageOf(e));
       }
 
       res.set("Cache-Control", "no-store");
@@ -503,7 +514,7 @@ stayRoutes.get("/marketplace/stays/:bookingId",
       }
       /* Theirs, or it does not exist. Checked BEFORE the supplier is asked, so a
          stranger's id cannot even be used to probe whether it is real. */
-      const own = await ownedBy(req.session, req.params.bookingId);
+      const own = await ownedBy(sessionOf(req, "a stays route"), req.params.bookingId);
 
       let booking;
       try {
@@ -511,7 +522,7 @@ stayRoutes.get("/marketplace/stays/:bookingId",
       } catch (e) {
         /* A supplier 404 is a 404 here, not a 503 — the booking is the thing
            that does not exist, and the supplier is fine. */
-        if (/404|not found/i.test(String(e && e.message))) throw notFound("No such booking.");
+        if (/404|not found/i.test(String(e && messageOf(e)))) throw notFound("No such booking.");
         throw e;
       }
       res.set("Cache-Control", "no-store");
@@ -540,7 +551,7 @@ stayRoutes.delete("/marketplace/stays/:bookingId",
       }
       /* Cancelling somebody else's holiday is the worst thing these routes could
          allow, so ownership is established before anything is sent. */
-      await ownedBy(req.session, req.params.bookingId);
+      await ownedBy(sessionOf(req, "a stays route"), req.params.bookingId);
 
       const result = await s.cancel({ bookingId: String(req.params.bookingId) });
 
@@ -551,7 +562,7 @@ stayRoutes.delete("/marketplace/stays/:bookingId",
        */
       try {
         await db.supplierBooking.updateMany({
-          where: { bookingId: String(req.params.bookingId), userId: req.session.userId },
+          where: { bookingId: String(req.params.bookingId), userId: sessionOf(req, "a stays route").userId },
           data: {
             status: result.status || "CANCELLED",
             cancelledAt: new Date(),
@@ -562,7 +573,7 @@ stayRoutes.delete("/marketplace/stays/:bookingId",
       } catch (e) {
         /* The cancellation already happened at the supplier. A stale row is a
            reporting problem; refusing here would imply it had not been cancelled. */
-        console.error("cancellation not recorded:", e && e.message);
+        console.error("cancellation not recorded:", e && messageOf(e));
       }
 
       res.set("Cache-Control", "no-store");
@@ -597,7 +608,7 @@ stayRoutes.get("/marketplace/stays",
   async (req, res, next) => {
     try {
       const rows = await db.supplierBooking.findMany({
-        where: { userId: req.session.userId },
+        where: { userId: sessionOf(req, "a stays route").userId },
         orderBy: [{ createdAt: "desc" }],
         take: 50,
       });
@@ -637,7 +648,7 @@ stayRoutes.get("/marketplace/stays",
  * answer with the SAME booking, not a fresh call to the supplier. Asking LiteAPI
  * again would be a second reservation attempt for a rate already taken.
  */
-function fromRecord(r) {
+function fromRecord(r: SupplierBookingRow) {
   return {
     bookingId: r.bookingId,
     clientReference: r.clientReference || null,
