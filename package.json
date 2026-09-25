@@ -5,7 +5,7 @@
   "description": "The PALTAS API. Sessions, organizations and the promotion workflow, built to the contract in the frontend's backend.md.",
   "type": "module",
   "engines": {
-    "node": ">=18"
+    "node": ">=22.18"
   },
   "scripts": {
     "start": "prisma migrate deploy && node dist/server.js",
@@ -14,7 +14,6 @@
     "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.tests.json",
     "migrate": "prisma migrate dev",
     "generate": "prisma generate",
-    "seed": "node prisma/seed.js",
     "test": "node scripts/test.mjs",
     "verify": "prisma generate && npm run typecheck && node scripts/test.mjs",
     "check": "prisma validate && prisma format --check"
