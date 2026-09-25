@@ -38,7 +38,7 @@ import { resourceRouter } from "../http/resource.ts";
 import { clean } from "../domain/input.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
 import { scopedTo } from "../domain/scope.ts";
-import { badRequest, conflict, forbidden, hidden, messageOf } from "../http/errors.ts";
+import { badRequest, conflict, forbidden, hidden, isPrismaError, messageOf } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
@@ -97,12 +97,6 @@ function countOf(group: { _count?: unknown } | undefined): number {
   if (typeof c !== "object" || c === null) return 0;
   const all = (c as Record<string, unknown>)["_all"];
   return typeof all === "number" ? all : 0;
-}
-
-/** What Prisma throws, narrowed. The same shape http/resource.ts uses. */
-function isPrismaError(e: unknown): e is { code: string } {
-  return typeof e === "object" && e !== null
-    && typeof (e as Record<string, unknown>)["code"] === "string";
 }
 
 /**

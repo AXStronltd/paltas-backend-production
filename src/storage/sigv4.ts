@@ -37,8 +37,9 @@ import crypto from "node:crypto";
 const ALGORITHM = "AWS4-HMAC-SHA256";
 const UNSIGNED = "UNSIGNED-PAYLOAD";
 
-const sha256 = (v) => crypto.createHash("sha256").update(v).digest("hex");
-const hmac = (key, v) => crypto.createHmac("sha256", key).update(v).digest();
+const sha256 = (v: string): string => crypto.createHash("sha256").update(v).digest("hex");
+const hmac = (key: crypto.BinaryLike | crypto.KeyObject, v: string): Buffer =>
+  crypto.createHmac("sha256", key).update(v).digest();
 
 /**
  * RFC 3986, which is not what encodeURIComponent does.
@@ -48,7 +49,7 @@ const hmac = (key, v) => crypto.createHmac("sha256", key).update(v).digest();
  * and the request would be rejected with a signature mismatch that says
  * nothing about why.
  */
-export function uriEncode(str, encodeSlash = true) {
+export function uriEncode(str: unknown, encodeSlash = true): string {
   let out = "";
   for (const ch of String(str)) {
     if (/[A-Za-z0-9\-._~]/.test(ch)) { out += ch; continue; }
@@ -61,12 +62,14 @@ export function uriEncode(str, encodeSlash = true) {
 }
 
 /** 20130524T000000Z and 20130524, the two forms the algorithm wants. */
-export function stamps(date) {
+export function stamps(date: Date): { amzDate: string; dateStamp: string } {
   const iso = date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
   return { amzDate: iso, dateStamp: iso.slice(0, 8) };
 }
 
-function signingKey(secret, dateStamp, region, service) {
+function signingKey(
+  secret: string, dateStamp: string, region: string, service: string,
+): Buffer {
   return hmac(hmac(hmac(hmac("AWS4" + secret, dateStamp), region), service), "aws4_request");
 }
 
@@ -77,11 +80,49 @@ function signingKey(secret, dateStamp, region, service) {
  * advisory: a Content-Type signed here must be sent by the uploader or the
  * request fails. That is how an upload is held to the type it declared.
  */
+/**
+ * What one presigned URL is asked for.
+ *
+ * `extraHeaders` are SIGNED, so anything named here becomes binding on the
+ * uploader rather than advisory — which is the whole reason the option
+ * exists.
+ */
+export interface PresignRequest {
+  readonly method: string;
+  readonly host: string;
+  readonly key: string;
+  readonly accessKeyId: string;
+  readonly secretAccessKey: string;
+  readonly region?: string;
+  readonly service?: string;
+  readonly expiresIn?: number;
+  readonly query?: Readonly<Record<string, string>>;
+  readonly extraHeaders?: Readonly<Record<string, string>>;
+  readonly date?: Date;
+}
+
+/**
+ * A signed URL, and every intermediate the algorithm produced.
+ *
+ * The intermediates are returned because AWS publishes a worked example with
+ * each of them spelled out, and test/sigv4.test.js checks them one by one —
+ * so a wrong signature says WHICH step went wrong rather than just "mismatch".
+ */
+export interface PresignResult {
+  readonly url: string;
+  readonly signature: string;
+  readonly canonicalRequest: string;
+  readonly stringToSign: string;
+  readonly signedHeaders: string;
+  readonly amzDate: string;
+  readonly expiresIn: number;
+}
+
 export function presign({
   method, host, key, accessKeyId, secretAccessKey,
   region = "auto", service = "s3", expiresIn = 900,
   query = {}, extraHeaders = {}, date = new Date(),
-}) {
+}: PresignRequest): PresignResult {
   if (!host) throw new Error("presign needs a host");
   if (!key) throw new Error("presign needs an object key");
   if (!accessKeyId || !secretAccessKey) throw new Error("presign needs credentials");
@@ -90,17 +131,18 @@ export function presign({
   const scope = `${dateStamp}/${region}/${service}/aws4_request`;
 
   /* Host is always signed. Anything else the caller wants bound goes with it. */
-  const headers = { host, ...extraHeaders };
+  const headers: Record<string, string> = { host, ...extraHeaders };
   const names = Object.keys(headers).map((h) => h.toLowerCase()).sort();
   const canonicalHeaders = names
     .map((n) => {
       const actual = Object.keys(headers).find((h) => h.toLowerCase() === n);
-      return `${n}:${String(headers[actual]).trim().replace(/\s+/g, " ")}\n`;
+      const value = actual === undefined ? "" : headers[actual];
+      return `${n}:${String(value).trim().replace(/\s+/g, " ")}\n`;
     })
     .join("");
   const signedHeaders = names.join(";");
 
-  const q = {
+  const q: Record<string, string> = {
     ...query,
     "X-Amz-Algorithm": ALGORITHM,
     "X-Amz-Credential": `${accessKeyId}/${scope}`,

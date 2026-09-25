@@ -27,11 +27,16 @@
  * ====================================================================== */
 
 import { db } from "../../../db.ts";
+import type { $Enums } from "@prisma/client";
+import type { Request } from "express";
+
+/** The datasets a mandate may name. There is no ALL — see the note above. */
+export type AuthorityDataset = $Enums.AuthorityDataset;
 
 /** Uppercase, slash-separated, no leading or trailing slash. */
-export function normalisePath(parts) {
+export function normalisePath(parts: readonly unknown[] | string | null | undefined): string {
   return (Array.isArray(parts) ? parts : String(parts || "").split("/"))
-    .map((p) => String(p || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, ""))
+    .map((p: unknown) => String(p || "").trim().toUpperCase().replace(/[^A-Z0-9-]/g, ""))
     .filter(Boolean)
     .join("/");
 }
@@ -42,7 +47,7 @@ export function normalisePath(parts) {
  * Exact match, or an ancestor. The separator is required so that a mandate
  * over KE/NAIRO — which is not a place — cannot reach KE/NAIROBI.
  */
-export function contains(mandatePath, propertyPath) {
+export function contains(mandatePath: string, propertyPath: string): boolean {
   if (!mandatePath || !propertyPath) return false;
   if (mandatePath === propertyPath) return true;
   return propertyPath.startsWith(mandatePath + "/");
@@ -56,7 +61,17 @@ export function contains(mandatePath, propertyPath) {
  * authoritative and wins — a parcel's jurisdiction was set by an authority,
  * and a city typed into a form was not.
  */
-export async function pathForProperty(orgId, site) {
+/** Where a property sits, and which record said so. */
+export interface JurisdictionOfProperty {
+  readonly path: string;
+  /** "parcel" when an authority set it; "property record" when a form did. */
+  readonly source: "parcel" | "property record";
+}
+
+export async function pathForProperty(
+  orgId: string,
+  site: { id: string; country?: string | null; city?: string | null },
+): Promise<JurisdictionOfProperty> {
   const link = await db.propertyParcel.findFirst({
     where: { orgId, siteId: site.id },
     include: { parcel: { include: { jurisdiction: true } } },
@@ -76,7 +91,45 @@ export async function pathForProperty(orgId, site) {
  * An UNVERIFIED authority profile grants nothing. PALTAS checking that a body
  * is what it says it is comes before any mandate it claims.
  */
-export async function authorityContext(req, dna, site) {
+/**
+ * ONE MANDATE, AS THE CALLER IS TOLD ABOUT IT.
+ *
+ * A subset of the row: enough to say what this authority may read here and
+ * until when, and nothing about the profile behind it.
+ */
+export interface MandateSummary {
+  readonly id: string;
+  readonly path: string | undefined;
+  readonly datasets: readonly AuthorityDataset[];
+  readonly basis: string;
+  readonly purpose: string;
+  readonly endsOn: Date | null;
+}
+
+/**
+ * WHAT AN AUTHORITY MAY DO HERE.
+ *
+ * `within` is the field everything else is read against: false means this
+ * authority holds no mandate that reaches this property, and `why` is the
+ * sentence saying which one is missing. A refusal that cannot be acted on is
+ * not much better than no answer.
+ */
+export interface AuthorityContext {
+  readonly profile: { id: string; verified: boolean; [key: string]: unknown };
+  readonly verified: boolean;
+  readonly within: boolean;
+  readonly datasets: readonly AuthorityDataset[];
+  readonly mandates: readonly MandateSummary[];
+  readonly jurisdiction?: JurisdictionOfProperty;
+  readonly mayWrite?: boolean;
+  readonly why?: string;
+}
+
+export async function authorityContext(
+  req: Request,
+  dna: { orgId: string },
+  site: { id: string; country?: string | null; city?: string | null },
+): Promise<AuthorityContext | null> {
   const actorOrgId = req.actor?.orgId;
   if (!actorOrgId) return null;
 
@@ -137,7 +190,10 @@ export async function authorityContext(req, dna, site) {
 }
 
 /** May this authority context read this dataset? */
-export function mayDataset(authority, dataset) {
+export function mayDataset(
+  authority: AuthorityContext | null | undefined,
+  dataset: AuthorityDataset,
+): boolean {
   if (!authority || !authority.within) return false;
   return (authority.datasets || []).includes(dataset);
 }
@@ -146,10 +202,14 @@ export function mayDataset(authority, dataset) {
  * Why not — a sentence naming the mandate that is missing, so somebody can
  * go and ask for the right one rather than guessing.
  */
-export function whyNotDataset(authority, dataset, what) {
+export function whyNotDataset(
+  authority: AuthorityContext | null | undefined,
+  dataset: AuthorityDataset,
+  what: string,
+): string | null {
   if (!authority) return `${what} is not available to this account.`;
-  if (!authority.verified) return authority.why;
-  if (!authority.within) return authority.why;
+  if (!authority.verified) return authority.why ?? null;
+  if (!authority.within) return authority.why ?? null;
   if (mayDataset(authority, dataset)) return null;
   return `${what} needs the ${dataset} dataset. This authority's mandate over ` +
          `${authority.jurisdiction?.path} covers ` +

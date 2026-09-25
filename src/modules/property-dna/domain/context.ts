@@ -21,8 +21,11 @@ import { db } from "../../../db.ts";
 import { forbidden, hidden } from "../../../http/errors.ts";
 import { whyNotArea } from "../../../domain/access.ts";
 import { clearanceFor, reachesProperty, whyNotClass } from "../../../domain/classification.ts";
-import { dnaFor } from "./identity.js";
-import { authorityContext } from "../../authority/domain/jurisdiction.js";
+import { dnaFor } from "./identity.ts";
+import { authorityContext } from "../../authority/domain/jurisdiction.ts";
+import type { AuthenticatedRequest } from "../../../http/request.ts";
+import type { Clearance } from "../../../domain/classification.ts";
+import { messageOf } from "../../../http/errors.ts";
 
 /**
  * Open a property for this caller.
@@ -32,7 +35,33 @@ import { authorityContext } from "../../authority/domain/jurisdiction.js";
  * insecure-direct-object-reference the rest of this service avoids through
  * own().
  */
-export async function context(req) {
+/**
+ * WHAT EVERY PROPERTY DNA SERVICE IS HANDED.
+ *
+ * `orgId` and `actorOrgId` are two different companies whenever a public
+ * authority is reading, and the distinction is the reason both are here:
+ * records about a property belong to its OWNER'S tenant, and the audit row
+ * saying who looked has to be filed there too.
+ */
+export interface PropertyContext {
+  /** The PROPERTY'S company — not the caller's. */
+  readonly orgId: string;
+  /** The caller's own company, which is the same one unless it is an authority. */
+  readonly actorOrgId: string;
+  readonly dna: PropertyDnaWithSite;
+  readonly site: PropertyDnaWithSite["site"];
+  readonly relations: readonly PropertyRelationshipRow[];
+  readonly clearance: Clearance;
+  readonly authority: Awaited<ReturnType<typeof authorityContext>>;
+}
+
+type PropertyDnaWithSite =
+  NonNullable<Awaited<ReturnType<typeof db.propertyDna.findFirst<{ include: { site: true } }>>>>;
+
+type PropertyRelationshipRow =
+  Awaited<ReturnType<typeof db.propertyRelationship.findMany>>[number];
+
+export async function context(req: AuthenticatedRequest): Promise<PropertyContext> {
   const actorOrgId = req.actor.orgId;
   const siteId = req.params.siteId;
 
@@ -100,7 +129,7 @@ export async function context(req) {
 }
 
 /** Refuse a whole section, in words that say where the person stands. */
-export function gate(clearance, cls, what) {
+export function gate(clearance: Clearance, cls: string, what: string): void {
   const why = whyNotClass(clearance, cls, what);
   if (why) throw forbidden(why);
 }
@@ -114,7 +143,14 @@ export function gate(clearance, cls, what) {
  * losing the record of a read is bad, and failing the read because the
  * recording failed is worse.
  */
-export async function audit(req, action, entity, entityId, detail, orgId) {
+export async function audit(
+  req: AuthenticatedRequest,
+  action: string,
+  entity: string,
+  entityId: string,
+  detail?: string,
+  orgId?: string,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
@@ -130,5 +166,5 @@ export async function audit(req, action, entity, entityId, detail, orgId) {
         action, entity, entityId, detail: detail || undefined, ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, entity, e.message); }
+  } catch (e) { console.error("audit write failed", action, entity, messageOf(e)); }
 }

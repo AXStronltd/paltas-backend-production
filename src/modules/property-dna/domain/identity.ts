@@ -9,6 +9,7 @@
  * ====================================================================== */
 
 import { db } from "../../../db.ts";
+import { isPrismaError } from "../../../http/errors.ts";
 
 /* ---------------------------------------------------------------- *
  * 1. THE IDENTIFIER
@@ -22,12 +23,18 @@ import { db } from "../../../db.ts";
  * would tell every customer how many properties every other customer has,
  * which is a business fact PALTAS has no right to publish.
  */
-function slug(v, n, fallback) {
+function slug(v: unknown, n: number, fallback: string): string {
   const s = String(v || "").toUpperCase().replace(/[^A-Z]/g, "");
   return (s || fallback).slice(0, n).padEnd(n, "X");
 }
 
-export function refFor(site, sequence) {
+/** The parts of a site an identifier is built from. */
+export interface SiteForRef {
+  readonly country?: string | null;
+  readonly city?: string | null;
+}
+
+export function refFor(site: SiteForRef | null | undefined, sequence: number | string): string {
   return [
     "PALTAS-PROP",
     slug(site?.country, 2, "XX"),
@@ -43,7 +50,7 @@ export function refFor(site, sequence) {
  * writes a row for every existing site is a migration that can half-finish,
  * and there is no moment where a site NEEDS one before somebody opens it.
  */
-export async function dnaFor(orgId, siteId) {
+export async function dnaFor(orgId: string, siteId: string) {
   const existing = await db.propertyDna.findFirst({
     where: { orgId, siteId },
     include: { site: true },
@@ -75,7 +82,7 @@ export async function dnaFor(orgId, siteId) {
       });
       return made;
     } catch (e) {
-      if (e && e.code === "P2002") continue;      /* ref taken — take the next */
+      if (isPrismaError(e) && e.code === "P2002") continue;   /* ref taken — take the next */
       throw e;
     }
   }

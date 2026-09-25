@@ -66,7 +66,7 @@ export interface DerivedEvent {
  * on context.js — leaving them in this file would have made every service
  * pull in the succession machine and the AI boundary to open a property.
  */
-export { refFor, dnaFor } from "../modules/property-dna/domain/identity.js";
+export { refFor, dnaFor } from "../modules/property-dna/domain/identity.ts";
 
 /* ---------------------------------------------------------------- *
  * 2. THE MEMORY

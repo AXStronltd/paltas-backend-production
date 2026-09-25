@@ -13,7 +13,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { presign, uriEncode, stamps } from "../src/storage/sigv4.js";
+import { presign, uriEncode, stamps } from "../src/storage/sigv4.ts";
 
 /* AWS docs, "Example: Signature Calculation for Presigned URL". */
 const EXAMPLE = {

@@ -36,7 +36,7 @@ import type { Env } from "../config.ts";
  * ====================================================================== */
 
 import crypto from "node:crypto";
-import { presign } from "../storage/sigv4.js";
+import { presign } from "../storage/sigv4.ts";
 
 /* Kept small on purpose. A document is a certificate or a deed; anything
    approaching this size is a video somebody has put in the wrong place. */

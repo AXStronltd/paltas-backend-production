@@ -34,7 +34,7 @@ import {
   dnaFor, remember, derivedEvents, advanceCase, successionRef, aiContext,
   SUCCESSION_NEXT,
 } from "../domain/dna.ts";
-import { context, gate, audit } from "../modules/property-dna/domain/context.js";
+import { context, gate, audit } from "../modules/property-dna/domain/context.ts";
 
 export const dnaRoutes = Router();
 dnaRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription());

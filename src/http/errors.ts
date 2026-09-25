@@ -132,6 +132,25 @@ export class ExposableFailure extends Error implements ExposableError {
  * that merely happens to have a `status` property — a database driver, an HTTP
  * client — cannot talk its way into a response body.
  */
+/**
+ * WHAT PRISMA THROWS, NARROWED.
+ *
+ * Prisma's own error classes are a runtime import, and this service already
+ * had two hand-written copies of this three-line check — one in
+ * http/resource.ts and one in routes/products.ts — because importing the
+ * class where all that is wanted is a code string pulls the client into
+ * modules that otherwise need none of it.
+ *
+ * Named here once so the third caller did not become a third copy. The one
+ * in resource.ts stays as it is: it narrows to a richer shape carrying
+ * `meta`, which is what it needs to name the field a unique constraint
+ * fired on.
+ */
+export function isPrismaError(e: unknown): e is { code: string } {
+  return typeof e === "object" && e !== null
+    && typeof (e as Record<string, unknown>)["code"] === "string";
+}
+
 function isExposable(err: unknown): err is ExposableError {
   if (typeof err !== "object" || err === null) return false;
   const e = err as Record<string, unknown>;
