@@ -501,7 +501,25 @@ test("the actor's rights come from the database, not the request", () => {
   const view = sourceText("domain", "session-view.js");
   const actor = view.match(/export async function actorFor[\s\S]*?\n\}/);
   assert.ok(actor, "actorFor() is gone");
-  assert.ok(!/req\.|request/.test(actor[0]),
+
+  /*
+   * THE COMMENTS ARE NOT THE CODE.
+   *
+   * This used to scan the function as raw text, so it fired on the word
+   * "request" appearing in a comment — and a comment inside actorFor() is
+   * very often ABOUT the request, because explaining that this function
+   * deliberately does not read one is exactly what belongs there.
+   *
+   * Two bad outcomes followed from that: a true sentence could turn the
+   * suite red, and the obvious way out was to reword the prose, which
+   * teaches the next person that the guard is something to write around.
+   * Stripping comments first means it can only fail on code.
+   */
+  const code = actor[0]
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+
+  assert.ok(!/\breq\b|\brequest\b/.test(code),
     "actorFor() reads something from the request — role and scope must come " +
     "from the session row and its memberships alone");
 });

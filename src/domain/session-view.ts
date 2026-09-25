@@ -17,6 +17,7 @@ import type { SessionWithUser } from "../auth/sessions.ts";
 import type { Actor } from "../http/request.ts";
 
 import { db } from "../db.ts";
+import { grantsFor } from "./access.ts";
 
 /* ====================================================================== *
  * THE SHAPE VERSION. THE SESSION IS WORTHLESS WITHOUT IT.
@@ -293,6 +294,25 @@ export async function actorFor(sessionRow: SessionWithUser): Promise<Actor | nul
     isPlatform: products.includes("PLATFORM"),
     subscriptionStatus: view.subscription.status,
     verificationStatus: view.verification.status,
+
+    /*
+     * WHAT THIS ROLE MAY DO, FROM THE TABLE THE SERVICE ITSELF ENFORCES.
+     *
+     * The console has always decided which screens to draw from its own role
+     * table, and the service decides what to allow from ROLE_AREAS. Nothing
+     * connected the two, so they drifted: an engineer was offered a ＋ button
+     * on nine screens whose create the service refuses, and a finance user was
+     * offered one on documents they may only read.
+     *
+     * Sending the grants rather than restating them in the frontend keeps one
+     * source of truth. The console asks "may I write here?" and gets the same
+     * answer the request would have got — so a ＋ that cannot work is never
+     * drawn, and a permission change lands in both places at once.
+     *
+     * Read-only: this is a statement OF the decision, never an input TO it.
+     * Every request is still checked server-side against the same table.
+     */
+    areas: grantsFor(current ? current.role : "OWNER"),
   };
 }
 

@@ -420,3 +420,54 @@ test("the price list is the same for everybody, and has no company", { skip }, a
      editing the price it is charged. */
   assert.ok(!("organization" in basic) && !("orgId" in basic));
 });
+
+/* ==================================================================== *
+ * THE ＋ BUTTONS A ROLE IS OFFERED, FROM THE ROUTE ITSELF.
+ *
+ * GET /console/forms is where the console learns which screens can create
+ * something. It listed every form to everybody, so an engineer — who may
+ * read the property area but not write it — was offered ＋ on buildings,
+ * units, meetings, tasks, RFIs, inspections, defects, the site diary and
+ * assets. Nine buttons that open a form, ask for eight fields and are
+ * refused on submit. A finance user got a tenth on documents.
+ *
+ * This asks the ROUTE, not the table it reads. An earlier version of this
+ * test recomputed the filter itself and went on passing when the filter
+ * was deleted from the handler — which is the whole failure it exists to
+ * catch.
+ * ==================================================================== */
+
+test("the console is only offered forms its role may actually submit", { skip }, async () => {
+  const { RESOURCES } = await import("../src/domain/registry.ts");
+  const { whyNotArea } = await import("../src/domain/access.ts");
+
+  const formsFor = async (role: import("@prisma/client").$Enums.Role) => {
+    const { cookie } = await company({ products: ["PROPERTY_MANAGEMENT"], role });
+    const r = await call("/console/forms", { cookie });
+    assert.equal(r.status, 200, r.text.slice(0, 200));
+    return r.json.forms as Record<string, Wire>;
+  };
+
+  const owner = await formsFor("OWNER");
+  const ownerCount = Object.keys(owner).length;
+  assert.ok(ownerCount > 20,
+    `an owner was offered only ${ownerCount} forms — the map has stopped resolving`);
+
+  for (const role of ["ENGINEERING", "FINANCE", "OPERATIONS"] as const) {
+    const served = await formsFor(role);
+    const wrong: string[] = [];
+    for (const [screen, form] of Object.entries(served)) {
+      const declared = RESOURCES[String(form.resource)];
+      if (!declared) continue;
+      const why = whyNotArea({ role }, declared.area, "create", declared.area);
+      if (why) wrong.push(`${screen} -> ${form.resource} (${declared.area}): ${why}`);
+    }
+    assert.deepEqual(wrong, [],
+      `/console/forms offered ${role} a ＋ button the service refuses. Every one ` +
+      `of these opens a form and is rejected on submit:\n    ` + wrong.join("\n    "));
+
+    assert.ok(Object.keys(served).length < ownerCount,
+      `${role} was offered the same ${ownerCount} forms an owner is, so the ` +
+      `permission filter on /console/forms is not doing anything at all`);
+  }
+});

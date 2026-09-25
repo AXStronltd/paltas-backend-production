@@ -275,3 +275,65 @@ test("the role table is not quietly empty", { skip }, () => {
   assert.equal(G.ROLES.OWNER.sees, null, "an owner stopped seeing the whole product");
   assert.equal(G.ROLES.SECURITY_MANAGER.only, "SECURITY_MANAGEMENT");
 });
+
+/* ==================================================================== *
+ * NO DEAD BUTTONS: THE SIDEBAR MAY NOT OFFER WHAT THE API REFUSES.
+ *
+ * The console draws its nav from its own role table. The service decides
+ * from ROLE_AREAS in domain/access.ts. Nothing made the two agree, and
+ * they did not: five roles in the property console, six in agent, one in
+ * hotel and eight in security were handed the FULL product sidebar —
+ * general ledger, trial balance, P&L and all — because `allowed()`
+ * answers null both for "this role sees everything" and for "this role
+ * has a table with no entry for this product", and navFor() read the two
+ * as the same thing.
+ *
+ * This test closes the loop by walking the only bridge that exists
+ * between the two vocabularies: CONSOLE_FORMS maps a screen to a
+ * resource, and the registry gives that resource its area. A screen whose
+ * ＋ button posts to an area the role cannot write is a dead button, and
+ * that is exactly what the brief forbids.
+ * ==================================================================== */
+
+test("the form map never offers a create the service refuses", { skip }, async () => {
+  const { RESOURCES } = await import("../src/domain/registry.ts");
+  const { whyNotArea, ROLE_AREAS } = await import("../src/domain/access.ts");
+
+  /* What GET /console/forms would serve this role — the same filter the
+     route applies, over the same two tables. */
+  const servedTo = (role: string): string[] =>
+    Object.entries(CONSOLE_FORMS)
+      .filter(([, spec]) => {
+        const r = RESOURCES[spec.resource];
+        return r && !whyNotArea({ role }, r.area, "create", r.area);
+      })
+      .map(([screen]) => screen);
+
+  const offending: string[] = [];
+  let checked = 0;
+
+  for (const role of Object.keys(ROLE_AREAS)) {
+    for (const screen of servedTo(role)) {
+      const spec = CONSOLE_FORMS[screen];
+      const r = RESOURCES[spec!.resource];
+      checked += 1;
+      const why = whyNotArea({ role }, r!.area, "create", r!.area);
+      if (why) offending.push(`${role}: ${screen} -> ${spec!.resource} (${r!.area}) — ${why}`);
+    }
+  }
+
+  assert.ok(checked > 150,
+    `only ${checked} role/form pairs were checked, so this proves nothing — ` +
+    `the form map or the registry has stopped matching`);
+  assert.deepEqual(offending, [],
+    "a ＋ button was offered to somebody the service will refuse:\n    " +
+    offending.join("\n    "));
+
+  /* And the filter really filters, or the test above passes on everything. */
+  const owner = servedTo("OWNER").length;
+  const engineer = servedTo("ENGINEERING").length;
+  assert.ok(engineer < owner,
+    `an engineer is offered the same ${owner} forms an owner is. The permission ` +
+    `filter on /console/forms is not doing anything.`);
+  assert.ok(engineer > 0, "an engineer was left with no form at all, which is not right either");
+});

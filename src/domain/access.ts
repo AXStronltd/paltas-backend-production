@@ -273,3 +273,20 @@ export function whyNotArea(
   }
   return null;
 }
+
+/**
+ * EVERY AREA THIS ROLE MAY TOUCH, AND AT WHAT LEVEL.
+ *
+ * Published on the session so the console can draw a ＋ button only where a
+ * create would actually be allowed. It is the same table `levelFor()` reads,
+ * exported rather than restated — a second copy in the frontend is precisely
+ * how the two drifted apart in the first place.
+ *
+ * An unknown role gets "none" everywhere, which is the same answer
+ * `levelFor()` gives it.
+ */
+export function grantsFor(role: string | null | undefined): AreaGrants {
+  const row = role ? ROLE_AREAS[role] : undefined;
+  if (row) return row;
+  return Object.fromEntries(AREAS.map((a) => [a, "none"])) as AreaGrants;
+}

@@ -50,6 +50,13 @@ export interface Actor {
   readonly isPlatform: boolean;
   readonly subscriptionStatus: string;
   readonly verificationStatus: string;
+  /**
+   * What this role may do, from ROLE_AREAS — the same table every request is
+   * checked against. Carried so the console can draw a ＋ button only where a
+   * create would be allowed, instead of keeping its own copy of the rules and
+   * drifting from them. A statement of the decision, never an input to it.
+   */
+  readonly areas: import("../domain/access.ts").AreaGrants;
 }
 
 /**

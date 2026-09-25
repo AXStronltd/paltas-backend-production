@@ -25,6 +25,7 @@
 import { Router } from "express";
 import pkg from "@prisma/client";
 import { RESOURCES } from "../domain/registry.ts";
+import { whyNotArea } from "../domain/access.ts";
 import { CONSOLE_FORMS } from "../domain/console-map.ts";
 import { requireSession, requireOrganization } from "../http/session.ts";
 
@@ -98,7 +99,7 @@ function humanise(key: string): string {
  */
 formRoutes.get("/console/forms",
   requireSession(), requireOrganization(),
-  (_req, res) => {
+  (req, res) => {
     /* One entry per console screen that can create something. */
     const out: Record<string, {
       resource: string;
@@ -111,6 +112,25 @@ formRoutes.get("/console/forms",
     for (const [screen, spec] of Object.entries(CONSOLE_FORMS)) {
       const resource = RESOURCES[spec.resource];
       if (!resource) continue;                    /* a screen with no resource */
+
+      /*
+       * A FORM THIS PERSON MAY NOT SUBMIT IS NOT A FORM.
+       *
+       * The console draws its ＋ buttons from this answer, so a form listed
+       * here for somebody who cannot create the record is a button that opens,
+       * asks for eight fields, and is refused on submit.
+       *
+       * Fifteen of those existed: an engineer was offered ＋ on buildings,
+       * units, meetings, tasks, RFIs, inspections, defects, the site diary
+       * and assets — nine screens whose area they may only read — and a
+       * finance user was offered one on documents.
+       *
+       * Checked with the same whyNotArea() every create goes through, so the
+       * button and the request cannot disagree. The screen itself still
+       * renders: a role that may read these records should go on reading
+       * them, and what goes away is only the offer to add one.
+       */
+      if (whyNotArea(req.actor, resource.area, "create", resource.area)) continue;
 
       const required = new Set(resource.required || []);
       const fields = [];
