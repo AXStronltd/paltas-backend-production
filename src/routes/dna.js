@@ -29,7 +29,7 @@ import { whyNotArea } from "../domain/access.ts";
 import {
   clearanceFor, mayRead, visibleRows, redact, withheldSummary,
   whyNotClass, publicProfile, reachesProperty, SECURITY_CLASS, ALL_CLASSES,
-} from "../domain/classification.js";
+} from "../domain/classification.ts";
 import {
   dnaFor, remember, derivedEvents, advanceCase, successionRef, aiContext,
   SUCCESSION_NEXT,

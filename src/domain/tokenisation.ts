@@ -1,3 +1,5 @@
+import { ExposableFailure, messageOf } from "../http/errors.ts";
+
 /* ====================================================================== *
  * THE TOKENISATION ADAPTER.
  *
@@ -30,13 +32,10 @@
  * ====================================================================== */
 
 /** Thrown when something asks for a capability no provider is behind. */
-export class TokenisationUnavailable extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "TokenisationUnavailable";
+export class TokenisationUnavailable extends ExposableFailure {
+  constructor(message: string) {
     /* 503, not 500: nothing is broken. A capability is absent. */
-    this.status = 503;
-    this.expose = true;
+    super("TokenisationUnavailable", 503, message);
   }
 }
 
@@ -111,9 +110,28 @@ export const notConnected = {
  * it, and so a test can attach a fake that is obviously a fake.
  * ---------------------------------------------------------------- */
 
-let current = notConnected;
+/**
+ * WHAT A TOKENISATION PROVIDER HAS TO BE.
+ *
+ * `mint` is the one register() insists on; the rest is what status() reads if
+ * it is there. Named so that a half-built provider fails where it is written.
+ */
+export interface TokenisationProvider {
+  readonly name?: string;
+  readonly sandbox?: boolean;
+  mint(...args: never[]): unknown;
+  describe?(): {
+    name?: string;
+    sandbox?: boolean;
+    capabilities?: unknown;
+    why?: string;
+  };
+  [key: string]: unknown;
+}
 
-export function register(provider) {
+let current: TokenisationProvider = notConnected;
+
+export function register(provider: TokenisationProvider): TokenisationProvider {
   if (!provider || typeof provider.mint !== "function") {
     throw new Error("A tokenisation provider must implement at least mint().");
   }
@@ -149,9 +167,16 @@ export function status() {
     return {
       connected: false, name: "", sandbox: false, capabilities: [],
       why: "The configured tokenisation provider could not describe itself: " +
-           String(e && e.message).slice(0, 160),
+           messageOf(e).slice(0, 160),
     };
   }
+}
+
+/** What minting one position needs to know. */
+export interface MintRequest {
+  readonly offeringRef?: string;
+  readonly investorRef?: string;
+  readonly units: number;
 }
 
 /* ---------------------------------------------------------------- *
@@ -169,9 +194,9 @@ export function status() {
  * "clearly marked SANDBOX/TEST environment for technical testing" that the
  * running service can offer. Marked is the operative word.
  * ---------------------------------------------------------------- */
-export function sandboxProvider({ seq = 0 } = {}) {
+export function sandboxProvider({ seq = 0 }: { seq?: number } = {}): TokenisationProvider {
   let n = seq;
-  const ref = (kind) => `SANDBOX-${kind}-${String(++n).padStart(6, "0")}`;
+  const ref = (kind: string): string => `SANDBOX-${kind}-${String(++n).padStart(6, "0")}`;
   return {
     name: "sandbox",
     sandbox: true,
@@ -183,7 +208,7 @@ export function sandboxProvider({ seq = 0 } = {}) {
              "SANDBOX- and none of it exists anywhere outside this database.",
       };
     },
-    async mint({ offeringRef, investorRef, units }) {
+    async mint({ offeringRef, investorRef, units }: MintRequest) {
       if (!units || units <= 0) throw new Error("mint needs a positive number of units");
       return {
         providerRef: ref("POS"), txRef: ref("TX"),
@@ -192,7 +217,7 @@ export function sandboxProvider({ seq = 0 } = {}) {
         asAt: null,     /* the caller stamps time; this module never invents one */
       };
     },
-    async transfer({ units }) {
+    async transfer({ units }: { units: number }) {
       return { providerRef: ref("POS"), txRef: ref("TX"), units };
     },
     async positionsFor() {

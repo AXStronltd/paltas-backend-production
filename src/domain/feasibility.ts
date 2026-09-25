@@ -20,13 +20,25 @@
  * and nothing recalculates. Basis points rather than a percentage float, so
  * two studies with the same inputs cannot differ in the last digit.
  */
-export function feasibilityNumbers(f) {
+/** The inputs a study stores. Every other figure follows from these. */
+export interface FeasibilityInputs {
+  readonly landCost: bigint;
+  readonly buildCost: bigint;
+  readonly professional: bigint;
+  readonly financeCost: bigint;
+  readonly otherCost: bigint;
+  readonly grossValue: bigint;
+  /** Basis points, so 17.5% is 1750 — an integer, like every scaled number here. */
+  readonly targetMarginBps: number;
+}
+
+export function feasibilityNumbers(f: FeasibilityInputs) {
   const total = f.landCost + f.buildCost + f.professional + f.financeCost + f.otherCost;
   const profit = f.grossValue - total;
   /* On COST, which is the convention a developer means by "margin" — and it
      is said out loud below, because the other convention (on value) gives a
      different number from the same figures. */
-  const marginBps = total > 0n ? Number((profit * 10000n) / total) : 0;
+  const marginBps = total > 0n ? Number((profit * 10_000n) / total) : 0;
   /* What the land could have cost and still hit the target. The number a
      feasibility exists to produce. */
   const built = f.buildCost + f.professional + f.financeCost + f.otherCost;

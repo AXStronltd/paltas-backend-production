@@ -22,7 +22,7 @@ import { db } from "../db.ts";
 import {
   badRequest, conflict, forbidden, notFound, rateLimit, requireSession,
 } from "../http/index.ts";
-import { stateOf } from "../domain/invitations.js";
+import { stateOf } from "../domain/invitations.ts";
 /* The token lookup lives in auth/ beside the session's, because its key IS
    the credential — see the header of that file. */
 import { findByToken } from "../auth/invitations.ts";

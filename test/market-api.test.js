@@ -34,7 +34,7 @@ process.env.INSECURE_COOKIES = "1";
  * this file deliberately never opens a connection, and still runs everywhere.
  */
 const { createApp } = await import("../src/server.js");
-const { catalogueSize } = await import("../src/domain/market.js");
+const { catalogueSize } = await import("../src/domain/market.ts");
 
 let server, base;
 test.before(async () => {

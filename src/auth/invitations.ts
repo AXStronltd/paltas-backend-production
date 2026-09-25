@@ -23,7 +23,7 @@
  * ====================================================================== */
 
 import { db } from "../db.ts";
-import { hashToken } from "../domain/invitations.js";
+import { hashToken } from "../domain/invitations.ts";
 
 /**
  * The invitation this link names, or null.

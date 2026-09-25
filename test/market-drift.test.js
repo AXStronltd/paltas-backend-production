@@ -87,7 +87,7 @@ function loadFrontendCatalogue() {
 
 /* Both sides, loaded once. */
 const FRONTEND = skip ? null : loadFrontendCatalogue();
-const SERVER = skip ? null : await import("../src/domain/market.js");
+const SERVER = skip ? null : await import("../src/domain/market.ts");
 
 /** The instruction that is always the same, so it is written once. */
 const REMEDY =

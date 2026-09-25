@@ -38,6 +38,7 @@
  * people who run the company — not inherited by climbing the ladder.
  * ====================================================================== */
 
+import type { Actor } from "./access.ts";
 import { levelFor } from "./access.ts";
 
 /**
@@ -45,7 +46,55 @@ import { levelFor } from "./access.ts";
  *
  * SECURITY_RESTRICTED is deliberately absent: it is not a rung. See below.
  */
-export const CLASS_RANK = {
+/**
+ * WHAT SOMEBODY IS ALLOWED TO SEE, AND WHAT GRANTED IT.
+ *
+ * `via` is the interesting field: the permissions endpoint shows a person
+ * why they hold what they hold, and a clearance nobody can explain is one
+ * nobody can challenge.
+ */
+export interface Clearance {
+  readonly rank: number;
+  readonly label: string;
+  readonly security: boolean;
+  readonly authority: boolean;
+  readonly datasets?: readonly unknown[];
+  readonly via: string;
+}
+
+/**
+ * One field of a redacted view: which class may see it, and where it comes from.
+ *
+ * `from` is either another column's name or a function, because some fields
+ * are derived — a count rather than the list it counts.
+ */
+export interface RedactRule {
+  readonly class: string;
+  readonly from?: string | ((row: Record<string, unknown>) => unknown);
+}
+
+/** One person's standing relative to one property. */
+export interface PropertyRelation {
+  readonly relation: string;
+  readonly active?: boolean;
+  /** A deliberately narrower ceiling. The lower of the two wins. */
+  readonly clearance?: string;
+}
+
+/**
+ * A public authority's mandate.
+ *
+ * `within` is whether it reaches THIS property. An authority whose mandate
+ * does not reach here gets nothing at all — see clearanceFor().
+ */
+export interface AuthorityMandate {
+  readonly within?: boolean;
+  readonly datasets?: readonly unknown[];
+  readonly jurisdiction?: { readonly path?: string };
+  readonly why?: string;
+}
+
+export const CLASS_RANK: Readonly<Record<string, number>> = {
   PUBLIC: 0,
   INTERNAL: 1,
   RESTRICTED: 2,
@@ -83,7 +132,7 @@ export const ALL_CLASSES = [...Object.keys(CLASS_RANK), ...OFF_LADDER];
  * These are ceilings, not grants: a relationship never LOWERS what somebody
  * already had through their role, and never raises them past this line.
  */
-export const RELATION_CEILING = {
+export const RELATION_CEILING: Readonly<Record<string, string>> = {
   OWNER: "LEGAL_RESTRICTED",
   CO_OWNER: "OWNER_ONLY",
   /* An executor is trusted with the estate and nothing else. They are given
@@ -112,7 +161,7 @@ export const RELATION_CEILING = {
  * property's owner. A managing agent runs other people's buildings; that is
  * the whole business. So they stop at CONFIDENTIAL.
  */
-export const ROLE_CEILING = {
+export const ROLE_CEILING: Readonly<Record<string, string>> = {
   OWNER: "CONFIDENTIAL",
   MANAGER: "CONFIDENTIAL",
   GM: "CONFIDENTIAL",
@@ -155,7 +204,11 @@ const SECURITY_RELATIONS = new Set(["OWNER", "CO_OWNER"]);
  * Returns { rank, label, security, via } — `via` names what granted it, which
  * is what the permissions endpoint shows a person about themselves.
  */
-export function clearanceFor(actor, relations, authority) {
+export function clearanceFor(
+  actor: { readonly role?: string } | null | undefined,
+  relations?: readonly PropertyRelation[] | null,
+  authority?: AuthorityMandate | null,
+): Clearance {
   if (!actor) return { rank: -1, label: "NONE", security: false, authority: false, via: "not signed in" };
 
   /*
@@ -181,25 +234,25 @@ export function clearanceFor(actor, relations, authority) {
     return { rank: -1, label: "NONE", security: false, authority: false, via: authority.why || "no mandate here" };
   }
 
-  const roleLabel = ROLE_CEILING[actor.role] || "PUBLIC";
-  let best = CLASS_RANK[roleLabel];
+  const roleLabel = (actor.role ? ROLE_CEILING[actor.role] : undefined) ?? "PUBLIC";
+  let best = CLASS_RANK[roleLabel] ?? 0;
   let via = `role ${actor.role}`;
 
-  const live = (relations || []).filter((r) => r && r.active !== false);
+  const live = (relations ?? []).filter((r) => r && r.active !== false);
   for (const rel of live) {
     const label = RELATION_CEILING[rel.relation];
     if (!label) continue;
     /* A relationship may carry an explicit, narrower clearance — an owner who
        has deliberately limited a co-owner, say. The lower of the two wins,
        because a ceiling is a ceiling. */
-    const capped = rel.clearance && CLASS_RANK[rel.clearance] !== undefined
-      ? Math.min(CLASS_RANK[label], CLASS_RANK[rel.clearance])
-      : CLASS_RANK[label];
+    const ceiling = CLASS_RANK[label] ?? 0;
+    const explicit = rel.clearance !== undefined ? CLASS_RANK[rel.clearance] : undefined;
+    const capped = explicit !== undefined ? Math.min(ceiling, explicit) : ceiling;
     if (capped > best) { best = capped; via = `${rel.relation} of this property`; }
   }
 
   const security =
-    SECURITY_ROLES.has(actor.role) ||
+    (actor.role !== undefined && SECURITY_ROLES.has(actor.role)) ||
     live.some((r) => SECURITY_RELATIONS.has(r.relation));
 
   const label = Object.keys(CLASS_RANK).find((k) => CLASS_RANK[k] === best) || "PUBLIC";
@@ -210,7 +263,7 @@ export function clearanceFor(actor, relations, authority) {
 }
 
 /** May this clearance read a record of this classification? */
-export function mayRead(clearance, cls) {
+export function mayRead(clearance: Clearance | null | undefined, cls: string): boolean {
   if (!clearance || clearance.rank < 0) return false;
   if (cls === SECURITY_CLASS) return !!clearance.security;
   /*
@@ -243,7 +296,10 @@ export function mayRead(clearance, cls) {
  * Rows carry their own `class`; a row with none is treated as INTERNAL rather
  * than as public, because the failure that matters is the one that leaks.
  */
-export function visibleRows(rows, clearance) {
+export function visibleRows<T extends { class?: string }>(
+  rows: readonly T[],
+  clearance: Clearance,
+): T[] {
   return (rows || []).filter((r) => mayRead(clearance, (r && r.class) || "INTERNAL"));
 }
 
@@ -257,8 +313,12 @@ export function visibleRows(rows, clearance) {
  * null tells a reader that something exists and they cannot see it, which on
  * an ownership record is itself a disclosure.
  */
-export function redact(row, spec, clearance) {
-  const out = {};
+export function redact<T extends Record<string, unknown>>(
+  row: T,
+  spec: Readonly<Record<string, RedactRule>>,
+  clearance: Clearance,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
   if (!row) return out;
   for (const [key, rule] of Object.entries(spec)) {
     if (!mayRead(clearance, rule.class)) continue;
@@ -275,12 +335,15 @@ export function redact(row, spec, clearance) {
  * anything from it — "3 ownership records you cannot see" is honest; listing
  * their holders is not. Nothing here names a field or a value.
  */
-export function withheldSummary(rows, clearance) {
-  const out = {};
-  for (const r of rows || []) {
-    const cls = (r && r.class) || "INTERNAL";
+export function withheldSummary(
+  rows: readonly { class?: string }[],
+  clearance: Clearance,
+) {
+  const out: Record<string, number> = {};
+  for (const r of rows ?? []) {
+    const cls = r?.class || "INTERNAL";
     if (mayRead(clearance, cls)) continue;
-    out[cls] = (out[cls] || 0) + 1;
+    out[cls] = (out[cls] ?? 0) + 1;
   }
   return out;
 }
@@ -292,7 +355,11 @@ export function withheldSummary(rows, clearance) {
  * whyNotArea() in access.js, so a route picks the status code and the person
  * reads something that tells them where they stand.
  */
-export function whyNotClass(clearance, cls, what) {
+export function whyNotClass(
+  clearance: Clearance,
+  cls: string,
+  what?: string,
+): string | null {
   if (!clearance || clearance.rank < 0) return "You are not signed in.";
   if (mayRead(clearance, cls)) return null;
   if (cls === SECURITY_CLASS) {
@@ -316,7 +383,7 @@ export function whyNotClass(clearance, cls, what) {
  * field to Property DNA cannot quietly widen what the public sees. If it is
  * not named here, it does not leave.
  */
-export function publicProfile(dna, site) {
+export function publicProfile(dna: Record<string, unknown> | null, site?: Record<string, unknown> | null) {
   if (!dna || !dna.publicProfile) return null;
   return {
     ref: dna.ref,
@@ -337,8 +404,11 @@ export function publicProfile(dna, site) {
  * reach their own property through a relationship — that is the case of an
  * owner who holds no company role — and nothing else.
  */
-export function reachesProperty(actor, relations) {
+export function reachesProperty(
+  actor: Actor | null | undefined,
+  relations?: readonly PropertyRelation[] | null,
+): boolean {
   if (!actor) return false;
   if (levelFor(actor, "property") !== "none") return true;
-  return (relations || []).some((r) => r && r.active !== false);
+  return (relations ?? []).some((r) => r && r.active !== false);
 }

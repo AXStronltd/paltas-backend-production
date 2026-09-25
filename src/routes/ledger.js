@@ -45,7 +45,7 @@ import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
-import { country as marketCountry } from "../domain/market.js";
+import { country as marketCountry } from "../domain/market.ts";
 import {
   LedgerError, DEFAULT_CHART, NORMAL_BALANCE,
   seedChartOfAccounts, postJournal, reverseJournal,

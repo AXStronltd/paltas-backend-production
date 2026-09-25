@@ -27,8 +27,21 @@ import crypto from "node:crypto";
 import { ROLE_AREAS } from "./access.ts";
 
 /** Same construction as a session token, and for the same reason. */
+/** The parts of an invitation these rules read. */
+export interface InviteRow {
+  readonly id?: string;
+  readonly acceptedAt?: Date | null;
+  readonly revokedAt?: Date | null;
+  readonly expiresAt?: Date | null;
+  readonly createdAt?: Date | null;
+  readonly email?: string;
+  readonly role?: string;
+  /** Who sent it, with their name — a revoked invitation still says who. */
+  readonly invitedBy?: { readonly name?: string | null; readonly email?: string | null } | null;
+}
+
 export const newToken = () => crypto.randomBytes(32).toString("base64url");
-export const hashToken = (token) =>
+export const hashToken = (token: string): string =>
   crypto.createHash("sha256").update(String(token)).digest("hex");
 
 /** How long a link is good for. Long enough to be forwarded, short enough to matter. */
@@ -53,7 +66,7 @@ export const CAN_INVITE = ["OWNER", "MANAGER"];
  * co-founders, and refusing that would mean the only way to add a second owner
  * is a database edit. A MANAGER may grant anything below OWNER.
  */
-export function grantableBy(role) {
+export function grantableBy(role: string): string[] {
   if (!CAN_INVITE.includes(role)) return [];
   const all = Object.keys(ROLE_AREAS).filter((r) => !NEVER_INVITABLE.includes(r));
   return role === "OWNER" ? all : all.filter((r) => r !== "OWNER");
@@ -65,7 +78,7 @@ export function grantableBy(role) {
  * Returns the reason rather than throwing so the route picks the status code,
  * the same contract as whyNot() in rights.js.
  */
-export function whyNotInvite(inviterRole, wantedRole) {
+export function whyNotInvite(inviterRole: string, wantedRole: string): string | null {
   if (!CAN_INVITE.includes(inviterRole)) {
     return `The role “${inviterRole}” cannot invite people. Ask an owner or a manager.`;
   }
@@ -83,7 +96,7 @@ export function whyNotInvite(inviterRole, wantedRole) {
 }
 
 /** One address, one way of writing it. */
-export function cleanEmail(raw) {
+export function cleanEmail(raw: unknown): string | null {
   const email = String(raw || "").trim().toLowerCase();
   /* Deliberately not a full RFC 5322 parser — that rejects addresses that
      work. This catches the shapes that are certainly not addresses. */
@@ -93,7 +106,7 @@ export function cleanEmail(raw) {
 }
 
 /** LIVE, ACCEPTED, REVOKED or EXPIRED — computed, never stored. */
-export function stateOf(invite, now = new Date()) {
+export function stateOf(invite: InviteRow | null | undefined, now = new Date()): string {
   if (!invite) return "MISSING";
   if (invite.acceptedAt) return "ACCEPTED";
   if (invite.revokedAt) return "REVOKED";
@@ -108,7 +121,7 @@ export function stateOf(invite, now = new Date()) {
  * that creates it and never again; anything that reads an invitation back gets
  * this shape, so there is no field for a link to leak through.
  */
-export function toWire(invite, now = new Date()) {
+export function toWire(invite: InviteRow & { id: string }, now = new Date()) {
   return {
     id: invite.id,
     email: invite.email,
@@ -125,6 +138,6 @@ export function toWire(invite, now = new Date()) {
 }
 
 /** The link an owner copies. Built from the public app URL, never guessed. */
-export function inviteLink(appUrl, token) {
+export function inviteLink(appUrl: string, token: string): string {
   return `${String(appUrl).replace(/\/+$/, "")}/auth/join.html?token=${encodeURIComponent(token)}`;
 }

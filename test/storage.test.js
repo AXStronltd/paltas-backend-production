@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import {
   isConfigured, describe, publicDescribe, keyFor, keyBelongsTo, safeName,
   presignUpload, presignDownload, head, MAX_BYTES, ALLOWED_TYPES,
-} from "../src/domain/storage.js";
+} from "../src/domain/storage.ts";
 
 const ENV = {
   R2_ACCOUNT_ID: "acct123", R2_BUCKET: "paltas-docs",

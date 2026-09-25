@@ -18,7 +18,7 @@ import { db } from "../../../db.ts";
 import { requireSession, requireOrganization } from "../../../http/session.ts";
 import { badRequest, conflict, forbidden, hidden } from "../../../http/errors.ts";
 import { clean } from "../../../domain/input.ts";
-import { mayRead, visibleRows, withheldSummary, AUTHORITY_CLASS } from "../../../domain/classification.js";
+import { mayRead, visibleRows, withheldSummary, AUTHORITY_CLASS } from "../../../domain/classification.ts";
 import { context, gate, audit } from "../../property-dna/domain/context.js";
 import { authorityContext, mayDataset, whyNotDataset, normalisePath, contains } from "../domain/jurisdiction.js";
 

@@ -136,6 +136,15 @@ export const isPast = (row: ReadRow, column: string): boolean => {
   return d !== null && d < new Date();
 };
 
+/** A money column, which is BigInt everywhere in this schema. */
+export const bigOf = (row: ReadRow, column: string): bigint => {
+  const v = row[column];
+  if (typeof v === "bigint") return v;
+  if (typeof v === "number") return BigInt(Math.trunc(v));
+  if (typeof v === "string" && /^-?\d+$/.test(v)) return BigInt(v);
+  return 0n;
+};
+
 /** Whether a column holds something. Used for `expenseId`, `lockedAt`, `leftOn`. */
 export const isSet = (row: ReadRow, column: string): boolean => {
   const v = row[column];

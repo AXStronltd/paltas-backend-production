@@ -48,7 +48,7 @@ import {
   EDITABLE_STATES, OFFERING_TRANSITIONS, canOffering, eligibilityRefusal,
   offeringRefusal, splitCodes, submissionGaps,
 } from "../domain/investments.js";
-import * as tokens from "../domain/tokenisation.js";
+import * as tokens from "../domain/tokenisation.ts";
 
 export const investmentRoutes = Router();
 

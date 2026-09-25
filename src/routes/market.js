@@ -27,7 +27,7 @@
  * ====================================================================== */
 
 import { Router } from "express";
-import { countries, localization, paymentMethods, services } from "../domain/market.js";
+import { countries, localization, paymentMethods, services } from "../domain/market.ts";
 import { badRequest } from "../http/errors.ts";
 
 export const marketRoutes = Router();

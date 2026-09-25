@@ -37,10 +37,10 @@
  * ====================================================================== */
 
 import type { Registry, ResourceDeclaration } from "./registry-types.ts";
-import { isPast, isSet, numberOf, statusOf, textOf } from "./registry-types.ts";
+import { bigOf, isPast, isSet, numberOf, statusOf, textOf } from "./registry-types.ts";
 
 import { ACQUISITION_NEXT, nextFor, PERMIT_NEXT } from "./decisions.ts";
-import { feasibilityNumbers } from "./feasibility.js";
+import { feasibilityNumbers } from "./feasibility.ts";
 
 /*
  * WHAT EACH STATE ACTUALLY MEANS, IN WORDS.
@@ -594,7 +594,20 @@ const DECLARATIONS = {
      * first time a cost changes and nothing recalculates — and nobody ever
      * notices, because the number still looks like a number.
      */
-    onRead: (row) => feasibilityNumbers(row),
+    /*
+     * The row's money columns are BigInt in the database and `unknown` to a
+     * generic reader, so they are collected into the shape the arithmetic
+     * needs rather than the arithmetic being loosened to accept anything.
+     */
+    onRead: (row) => feasibilityNumbers({
+      landCost: bigOf(row, "landCost"),
+      buildCost: bigOf(row, "buildCost"),
+      professional: bigOf(row, "professional"),
+      financeCost: bigOf(row, "financeCost"),
+      otherCost: bigOf(row, "otherCost"),
+      grossValue: bigOf(row, "grossValue"),
+      targetMarginBps: numberOf(row, "targetMarginBps"),
+    }),
     include: {
       project: { select: { id: true, name: true } },
       acquisition: { select: { id: true, ref: true, title: true } },

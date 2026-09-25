@@ -44,6 +44,42 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/**
+ * WHAT THE FRONTEND'S OWN market-config.js EXPOSES.
+ *
+ * Named here rather than trusted, because that file is evaluated at import
+ * time out of the other repository — so this is the seam where a change over
+ * there becomes a failure here, and it should be a legible one.
+ */
+export interface CountryEntry {
+  readonly code: string;
+  readonly langs: readonly string[];
+  readonly [key: string]: unknown;
+}
+
+interface Capabilities {
+  readonly services: readonly unknown[];
+  readonly [key: string]: unknown;
+}
+
+interface MarketCatalogue {
+  countries(): unknown[];
+  country(code: string): CountryEntry | null;
+  availablePaymentMethods(ctx: Record<string, unknown>): unknown[];
+  languages(): Record<string, unknown>;
+  coverage(): unknown;
+  capabilities(code: string): Capabilities | null;
+  paymentCatalogue(): readonly unknown[];
+}
+
+/** What a caller may narrow the payment methods by. */
+export interface PaymentQuery {
+  readonly country?: unknown;
+  readonly currency?: unknown;
+  /** MINOR units on the wire; the catalogue's thresholds are major. */
+  readonly amount?: unknown;
+}
+
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 function loadCatalogue() {
@@ -72,7 +108,7 @@ function loadCatalogue() {
   new Function("root", "window", "document", "CustomEvent", "sessionStorage", "fetch", src)(
     root, root, doc, class {}, root.sessionStorage, noFetch);
 
-  const MC = root.PALTAS && root.PALTAS.Market;
+  const MC = (root as { PALTAS?: { Market?: MarketCatalogue } }).PALTAS?.Market;
   if (!MC || typeof MC.countries !== "function") {
     throw new Error("contract/market-config.js did not expose PALTAS.Market — has it been restructured?");
   }
@@ -89,7 +125,7 @@ export function countries() {
 }
 
 /** One country, or null. */
-export function country(code) {
+export function country(code: unknown): CountryEntry | null {
   return code ? MC.country(String(code).toUpperCase()) : null;
 }
 
@@ -104,10 +140,12 @@ export function country(code) {
  * An ineligible method is ABSENT, never present-and-disabled. A greyed-out
  * rail invites a customer to wonder what they did wrong.
  */
-export function paymentMethods({ country: code, currency, amount } = {}) {
+export function paymentMethods(
+  { country: code, currency, amount }: PaymentQuery = {},
+): unknown[] {
   const c = country(code);
   if (!c) return [];
-  const ctx = { country: c.code };
+  const ctx: { country: string; currency?: string; amount?: number } = { country: c.code };
   if (currency) ctx.currency = String(currency).toUpperCase();
   if (amount !== undefined && amount !== null && amount !== "") {
     const minor = Number(amount);
@@ -117,14 +155,15 @@ export function paymentMethods({ country: code, currency, amount } = {}) {
 }
 
 /** Which languages a market may be shown in, and how complete each pack is. */
-export function localization(code) {
+export function localization(code: unknown) {
   const c = country(code);
   const all = MC.languages();
   return {
     country: c ? c.code : null,
     languages: c ? c.langs.slice() : ["en"],
     available: Object.keys(all),
-    directions: Object.fromEntries(Object.entries(all).map(([k, v]) => [k, v.dir])),
+    directions: Object.fromEntries(
+      Object.entries(all).map(([k, v]) => [k, (v as { dir?: string }).dir])),
     coverage: MC.coverage(),
     /*
      * `strings` is deliberately absent.
@@ -145,7 +184,7 @@ export function localization(code) {
  * route. Carries products, services, features, compliance requirements and
  * the payment ids, which is everything `capabilitiesOf` computes.
  */
-export function services(code) {
+export function services(code: unknown) {
   const c = country(code);
   if (!c) return { country: null, services: [], capabilities: null };
   const caps = MC.capabilities(c.code);

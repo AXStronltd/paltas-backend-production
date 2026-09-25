@@ -20,7 +20,7 @@ import { config } from "../config.ts";
 import {
   INVITE_DAYS, cleanEmail, grantableBy, hashToken, inviteLink, newToken,
   stateOf, toWire, whyNotInvite,
-} from "../domain/invitations.js";
+} from "../domain/invitations.ts";
 import { sessionView } from "../domain/session-view.ts";
 import { seedChartOfAccounts } from "../domain/ledger.js";
 

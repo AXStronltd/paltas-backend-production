@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import {
   CLASS_RANK, SECURITY_CLASS, AUTHORITY_CLASS, OFF_LADDER, ALL_CLASSES,
   clearanceFor, mayRead,
-} from "../src/domain/classification.js";
+} from "../src/domain/classification.ts";
 import { normalisePath, contains, mayDataset, whyNotDataset } from "../src/modules/authority/domain/jurisdiction.js";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */

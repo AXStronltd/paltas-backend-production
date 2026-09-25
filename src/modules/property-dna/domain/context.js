@@ -20,7 +20,7 @@
 import { db } from "../../../db.ts";
 import { forbidden, hidden } from "../../../http/errors.ts";
 import { whyNotArea } from "../../../domain/access.ts";
-import { clearanceFor, reachesProperty, whyNotClass } from "../../../domain/classification.js";
+import { clearanceFor, reachesProperty, whyNotClass } from "../../../domain/classification.ts";
 import { dnaFor } from "./identity.js";
 import { authorityContext } from "../../authority/domain/jurisdiction.js";
 

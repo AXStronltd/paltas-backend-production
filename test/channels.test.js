@@ -25,7 +25,7 @@ import { readFileSync } from "node:fs";
 import {
   ChannelUnavailable, clear, isConnected, manager, notConnected,
   register, status, sync,
-} from "../src/domain/channels.js";
+} from "../src/domain/channels.ts";
 
 const products = sourceText("routes", "products.js");
 

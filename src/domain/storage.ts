@@ -1,3 +1,5 @@
+import type { Env } from "../config.ts";
+
 /* ====================================================================== *
  * WHERE A CUSTOMER'S DOCUMENTS ACTUALLY LIVE.
  *
@@ -79,14 +81,14 @@ function settings(env = process.env) {
   };
 }
 
-export function isConfigured(env = process.env) { return settings(env) !== null; }
+export function isConfigured(env: Env = process.env): boolean { return settings(env) !== null; }
 
 /**
  * Whether documents can be uploaded, and if not, exactly what is missing.
  * Never throws — a settings screen asking "can we take documents" must get an
  * answer, and "no, because X" is an answer.
  */
-export function describe(env = process.env) {
+export function describe(env: Env = process.env) {
   const s = settings(env);
   if (s) {
     return {
@@ -106,7 +108,7 @@ export function describe(env = process.env) {
 }
 
 /** A visitor-safe version: says whether it works, never which setting is absent. */
-export function publicDescribe(env = process.env) {
+export function publicDescribe(env: Env = process.env) {
   const d = describe(env);
   return {
     connected: d.connected, maxBytes: d.maxBytes, accepts: d.accepts,
@@ -114,9 +116,37 @@ export function publicDescribe(env = process.env) {
   };
 }
 
+/** What a storage key is built from. Never accepted from a caller. */
+export interface KeyParts {
+  readonly orgId?: string;
+  readonly documentId?: string;
+  readonly filename?: unknown;
+}
+
+/** Permission to upload one file, to one key, for a few minutes. */
+export interface UploadRequest extends KeyParts {
+  readonly contentType?: unknown;
+  readonly bytes?: unknown;
+  readonly env?: Env;
+}
+
+export interface DownloadRequest {
+  readonly storageKey?: string;
+  readonly orgId?: string;
+  readonly filename?: unknown;
+  readonly env?: Env;
+}
+
+export interface HeadRequest {
+  readonly storageKey?: string;
+  readonly orgId?: string;
+  readonly env?: Env;
+  readonly fetchImpl?: typeof globalThis.fetch;
+}
+
 /** Only the characters a filename may keep. Everything else becomes "-". */
-export function safeName(name) {
-  const base = String(name || "file").split(/[\\/]/).pop();
+export function safeName(name: unknown): string {
+  const base = String(name || "file").split(/[\\/]/).pop() ?? "file";
   const cleaned = base.normalize("NFKD").replace(/[^\w.\- ]+/g, "").replace(/\s+/g, "-");
   const trimmed = cleaned.replace(/^[.\-]+/, "").slice(0, 80);
   return trimmed || "file";
@@ -130,7 +160,7 @@ export function safeName(name) {
  * segment means re-uploading does not silently overwrite the previous file,
  * so a replaced document is still recoverable.
  */
-export function keyFor({ orgId, documentId, filename }) {
+export function keyFor({ orgId, documentId, filename }: KeyParts): string {
   if (!orgId) throw new Error("a storage key needs an organization");
   if (!documentId) throw new Error("a storage key needs a document");
   const unique = crypto.randomBytes(8).toString("hex");
@@ -138,7 +168,7 @@ export function keyFor({ orgId, documentId, filename }) {
 }
 
 /** Does this key belong to this company? The guard before any download. */
-export function keyBelongsTo(storageKey, orgId) {
+export function keyBelongsTo(storageKey: unknown, orgId: unknown): boolean {
   if (!storageKey || !orgId) return false;
   return String(storageKey).startsWith(`org/${orgId}/`);
 }
@@ -150,7 +180,9 @@ export function keyBelongsTo(storageKey, orgId) {
  * declares a PDF cannot send an executable, and one that declares 2MB cannot
  * send 2GB. Checking after the fact would mean the file is already stored.
  */
-export function presignUpload({ orgId, documentId, filename, contentType, bytes, env = process.env }) {
+export function presignUpload(
+  { orgId, documentId, filename, contentType, bytes, env = process.env }: UploadRequest,
+) {
   const s = settings(env);
   if (!s) /* The PUBLIC reason. describe().why names the missing environment
        variables, which is what an operator needs and what a customer must
@@ -190,7 +222,9 @@ export function presignUpload({ orgId, documentId, filename, contentType, bytes,
 }
 
 /** A short-lived link to read one document, checked against its owner first. */
-export function presignDownload({ storageKey, orgId, filename, env = process.env }) {
+export function presignDownload(
+  { storageKey, orgId, filename, env = process.env }: DownloadRequest,
+) {
   const s = settings(env);
   if (!s) /* The PUBLIC reason. describe().why names the missing environment
        variables, which is what an operator needs and what a customer must
@@ -226,7 +260,9 @@ export function presignDownload({ storageKey, orgId, filename, env = process.env
  * easiest possible thing to do, so the record is written from what the
  * storage provider reports instead.
  */
-export async function head({ storageKey, orgId, env = process.env, fetchImpl = fetch }) {
+export async function head(
+  { storageKey, orgId, env = process.env, fetchImpl = fetch }: HeadRequest,
+) {
   const s = settings(env);
   if (!s) /* The PUBLIC reason. describe().why names the missing environment
        variables, which is what an operator needs and what a customer must

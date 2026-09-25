@@ -84,12 +84,45 @@ export const hidden = (): ApiError =>
  * modules and carry `status` and `expose: true` instead. This is the shape
  * the handler below will repeat back to a caller, and NOTHING ELSE IS.
  */
-interface ExposableError {
+export interface ExposableError {
   readonly expose: true;
   readonly status: number;
   readonly name?: string;
   readonly message: string;
   readonly details?: ErrorDetails;
+}
+
+/**
+ * THE BASE FOR EVERY ERROR AN ADAPTER THROWS.
+ *
+ * ChannelUnavailable, SupplyUnavailable, PaymentsUnavailable, NotReadyToCharge
+ * and the tokenisation errors all wrote the same four lines by hand:
+ *
+ *     this.name = "…"; this.status = 503; this.expose = true;
+ *
+ * Four copies of a contract that `isExposable()` below reads, and nothing
+ * checked that they matched it. One of them setting `expected` instead of
+ * `expose` — which an earlier draft did — meant an operator was told
+ * "something went wrong at our end", the one thing that is NOT true when a
+ * capability is simply absent.
+ *
+ * Extending this makes the contract a type rather than a convention. They
+ * stay separate classes because `instanceof` is how the adapters tell their
+ * own failures apart from each other's.
+ */
+export class ExposableFailure extends Error implements ExposableError {
+  readonly expose = true as const;
+  readonly status: number;
+  readonly details: ErrorDetails | undefined;
+
+  constructor(name: string, status: number, message: string, details?: ErrorDetails) {
+    super(message);
+    /* Read by the handler to name the error in the response body, and lost
+       on a subclass unless it is set. */
+    this.name = name;
+    this.status = status;
+    this.details = details;
+  }
 }
 
 /**

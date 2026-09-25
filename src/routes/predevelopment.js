@@ -30,7 +30,7 @@ import { db } from "../db.ts";
 import { whyNotArea } from "../domain/access.ts";
 import { ACQUISITION_NEXT, PERMIT_NEXT } from "../domain/decisions.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
-import { feasibilityNumbers } from "../domain/feasibility.js";
+import { feasibilityNumbers } from "../domain/feasibility.ts";
 import { numberFor } from "../http/resource.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,

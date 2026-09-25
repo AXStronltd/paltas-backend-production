@@ -42,12 +42,12 @@ import { badRequest, conflict, forbidden, hidden, messageOf } from "../http/erro
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
-import { sync as syncChannel, status as channelStatus } from "../domain/channels.js";
+import { sync as syncChannel, status as channelStatus } from "../domain/channels.ts";
 import { postForPayment, reverseFor } from "../domain/posting.js";
 import {
   presignUpload, presignDownload, head as storageHead,
   publicDescribe as storagePublicDescribe,
-} from "../domain/storage.js";
+} from "../domain/storage.ts";
 
 export const productRoutes = Router();
 

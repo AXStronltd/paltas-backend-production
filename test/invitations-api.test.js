@@ -37,7 +37,7 @@ if (!skip) {
     ({ createApp } = await import("../src/server.js"));
     ({ upsertUser } = await import("../src/routes/auth.js"));
     ({ createSession } = await import("../src/auth/sessions.ts"));
-    ({ hashToken } = await import("../src/domain/invitations.js"));
+    ({ hashToken } = await import("../src/domain/invitations.ts"));
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
     const m = String(e && e.message);
@@ -414,7 +414,7 @@ const JOIN = joinPath(FE, "auth/join.html");
 const skipFE = existsSync(JOIN) ? undefined : `no frontend at ${FE}`;
 
 test("the invite link points at a page that exists", { skip: skipFE }, async () => {
-  const { inviteLink } = await import("../src/domain/invitations.js");
+  const { inviteLink } = await import("../src/domain/invitations.ts");
   const url = new URL(inviteLink("https://paltas.io", "tok123"));
 
   assert.equal(url.pathname, "/auth/join.html",

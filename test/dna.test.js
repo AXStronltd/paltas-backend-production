@@ -22,7 +22,7 @@ import { fileURLToPath } from "node:url";
 import {
   CLASS_RANK, SECURITY_CLASS, ALL_CLASSES, RELATION_CEILING, ROLE_CEILING,
   clearanceFor, mayRead, visibleRows, redact, withheldSummary, publicProfile,
-} from "../src/domain/classification.js";
+} from "../src/domain/classification.ts";
 import { refFor, SUCCESSION_NEXT, SUCCESSION_TERMINAL, mayAdvance } from "../src/domain/dna.js";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */

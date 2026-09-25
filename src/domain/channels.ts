@@ -1,3 +1,5 @@
+import { ExposableFailure } from "../http/errors.ts";
+
 /* ====================================================================== *
  * PALTAS CONNECT — THE CHANNEL MANAGER SEAM.
  *
@@ -29,18 +31,15 @@
  * ====================================================================== */
 
 /** Thrown when a channel manager was asked to do something it cannot. */
-export class ChannelUnavailable extends Error {
-  constructor(message) {
-    super(message);
-    this.name = "ChannelUnavailable";
+export class ChannelUnavailable extends ExposableFailure {
+  constructor(message: string) {
     /* A refusal, not a fault. The request was well-formed and the operator
        did nothing wrong — the capability is absent. 503, not 500.
        `expose` is the flag http/errors.js reads to let the real message
        through; without it this surfaces as "Something went wrong at our end",
        which is exactly the wrong thing to tell someone whose channel is
        simply not connected. */
-    this.status = 503;
-    this.expose = true;
+    super("ChannelUnavailable", 503, message);
   }
 }
 
@@ -87,9 +86,36 @@ export const notConnected = {
  * registry holds one and replacing it is deliberate.
  * ---------------------------------------------------------------- */
 
-let current = notConnected;
+/**
+ * WHAT A CHANNEL MANAGER HAS TO BE.
+ *
+ * `sync` and `name` are required by register() at run time; the rest is what
+ * status() reads if it is there. Naming the shape means a partially-built
+ * adapter fails where it is written rather than on the first sync.
+ */
+export interface ChannelManager {
+  readonly name: string;
+  /** Pushes rates and availability, pulls reservations back. */
+  sync(channel?: unknown): Promise<SyncResult | undefined> | SyncResult | undefined;
+  describe?(): {
+    name?: string;
+    label?: string;
+    capabilities?: unknown;
+    why?: string;
+  };
+  [key: string]: unknown;
+}
 
-export function register(manager) {
+/** What one sync actually did. Counts only a manager can have produced. */
+export interface SyncResult {
+  readonly pushed?: unknown;
+  readonly pulled?: unknown;
+  readonly at?: unknown;
+}
+
+let current: ChannelManager = notConnected;
+
+export function register(manager: ChannelManager): ChannelManager {
   if (!manager || typeof manager.sync !== "function") {
     throw new Error("A channel manager must implement sync().");
   }
@@ -139,7 +165,7 @@ export function status() {
  * may print; there is no code path that returns a count without a manager
  * having produced it.
  */
-export async function sync(channel) {
+export async function sync(channel?: { name?: string }) {
   const out = await current.sync(channel);
   return {
     channel: channel?.name || "",

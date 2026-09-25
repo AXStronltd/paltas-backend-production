@@ -1,3 +1,9 @@
+import type { Env } from "../config.ts";
+import { messageOf } from "../http/errors.ts";
+
+/** A provider's own words, if it sent any. Theirs beat ours. */
+const said = (v: unknown): string => (typeof v === "string" ? v : "");
+
 /* ====================================================================== *
  * WHO ACTUALLY DELIVERS A MESSAGE, AND WHAT THIS SERVICE MAY CLAIM.
  *
@@ -33,91 +39,130 @@
  * Adding a provider is adding an entry here. Nothing else in the service
  * names a provider.
  */
-const EMAIL_PROVIDERS = [
+/**
+ * A credential `usable()` has already proved is there.
+ *
+ * providerFor() refuses to return a provider whose key is missing, so by the
+ * time send() runs these are all set — but that is a runtime check the
+ * compiler cannot follow into another function. Checking again is cheap, and
+ * the message names the real mistake: a provider listing a credential in
+ * `key`/`also` that it then does not read, or reading one it never listed.
+ */
+function credential(env: Env, key: string): string {
+  const v = env[key];
+  if (v === undefined || v.trim() === "") {
+    throw new Error(
+      `${key} is read while sending but is not among the credentials this ` +
+      `provider declares, so nothing checked it before the attempt.`);
+  }
+  return v;
+}
+
+/** One message, as a provider needs it. */
+export interface OutboundMessage {
+  readonly to: string;
+  readonly subject?: string;
+  readonly body?: string;
+}
+
+/**
+ * One provider this service knows how to talk to.
+ *
+ * `key` is the secret that makes it usable; `also` names anything else it
+ * needs, because two out of three credentials is a 401 at the worst moment.
+ */
+interface Provider {
+  readonly name: string;
+  readonly key: string;
+  readonly also?: readonly string[];
+  send(env: Env, msg: OutboundMessage): Promise<{ id: string }>;
+}
+
+const EMAIL_PROVIDERS: readonly Provider[] = [
   {
     name: "resend",
     key: "RESEND_API_KEY",
     /** @returns {Promise<{id: string}>} whatever the provider calls it. */
-    async send(env, msg) {
+    async send(env: Env, msg: OutboundMessage): Promise<{ id: string }> {
       const res = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
-          authorization: `Bearer ${env.RESEND_API_KEY}`,
+          authorization: `Bearer ${credential(env, "RESEND_API_KEY")}`,
           "content-type": "application/json",
         },
         body: JSON.stringify({
-          from: env.MAIL_FROM,
+          from: credential(env, "MAIL_FROM"),
           to: [msg.to],
-          subject: msg.subject,
-          text: msg.body,
+          subject: msg.subject ?? "",
+          text: msg.body ?? "",
         }),
       });
-      const body = await res.json().catch(() => ({}));
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
       if (!res.ok) {
         /* The provider's own sentence. Ours would be a guess, and a guess in
            an error log is what turns a five-minute fix into an afternoon. */
-        throw new Error(body?.message || `${res.status} from Resend`);
+        throw new Error(said(body["message"]) || `${res.status} from Resend`);
       }
-      return { id: String(body?.id || "") };
+      return { id: String(body["id"] || "") };
     },
   },
   {
     name: "postmark",
     key: "POSTMARK_TOKEN",
-    async send(env, msg) {
+    async send(env: Env, msg: OutboundMessage): Promise<{ id: string }> {
       const res = await fetch("https://api.postmarkapp.com/email", {
         method: "POST",
         headers: {
-          "X-Postmark-Server-Token": env.POSTMARK_TOKEN,
+          "X-Postmark-Server-Token": credential(env, "POSTMARK_TOKEN"),
           "content-type": "application/json",
           accept: "application/json",
         },
         body: JSON.stringify({
-          From: env.MAIL_FROM,
+          From: credential(env, "MAIL_FROM"),
           To: msg.to,
-          Subject: msg.subject,
-          TextBody: msg.body,
-          MessageStream: env.POSTMARK_STREAM || "outbound",
+          Subject: msg.subject ?? "",
+          TextBody: msg.body ?? "",
+          MessageStream: env["POSTMARK_STREAM"] || "outbound",
         }),
       });
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body?.Message || `${res.status} from Postmark`);
-      return { id: String(body?.MessageID || "") };
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) throw new Error(said(body["Message"]) || `${res.status} from Postmark`);
+      return { id: String(body["MessageID"] || "") };
     },
   },
 ];
 
-const SMS_PROVIDERS = [
+const SMS_PROVIDERS: readonly Provider[] = [
   {
     name: "twilio",
     key: "TWILIO_AUTH_TOKEN",
     /* Also needs the account sid and a from-number; `usable` below checks all
        three, because two out of three is a 401 at the worst moment. */
     also: ["TWILIO_ACCOUNT_SID", "TWILIO_FROM"],
-    async send(env, msg) {
-      const sid = env.TWILIO_ACCOUNT_SID;
+    async send(env: Env, msg: OutboundMessage): Promise<{ id: string }> {
+      const sid = credential(env, "TWILIO_ACCOUNT_SID");
       const res = await fetch(
         `https://api.twilio.com/2010-04-01/Accounts/${encodeURIComponent(sid)}/Messages.json`,
         {
           method: "POST",
           headers: {
             authorization: "Basic " +
-              Buffer.from(`${sid}:${env.TWILIO_AUTH_TOKEN}`).toString("base64"),
+              Buffer.from(`${sid}:${credential(env, "TWILIO_AUTH_TOKEN")}`).toString("base64"),
             "content-type": "application/x-www-form-urlencoded",
           },
           body: new URLSearchParams({
-            From: env.TWILIO_FROM, To: msg.to, Body: msg.body,
+            From: credential(env, "TWILIO_FROM"), To: msg.to, Body: msg.body ?? "",
           }).toString(),
         },
       );
-      const body = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(body?.message || `${res.status} from Twilio`);
-      return { id: String(body?.sid || "") };
+      const body = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!res.ok) throw new Error(said(body["message"]) || `${res.status} from Twilio`);
+      return { id: String(body["sid"] || "") };
     },
   },
 ];
 
-const BY_CHANNEL = {
+const BY_CHANNEL: Readonly<Record<string, readonly Provider[]>> = {
   EMAIL: EMAIL_PROVIDERS,
   SMS: SMS_PROVIDERS,
   /* Nothing carries WhatsApp for this service yet. Declared so the channel is
@@ -129,7 +174,7 @@ const BY_CHANNEL = {
   IN_APP: [],
 };
 
-function usable(p, env) {
+function usable(p: Provider, env: Env): boolean {
   if (!env[p.key]) return false;
   return (p.also || []).every((k) => !!env[k]);
 }
@@ -141,19 +186,19 @@ function usable(p, env) {
  * refuses a send with no from-address, and finding that out per message means
  * a queue of failures instead of one honest "not configured".
  */
-export function providerFor(channel, env = process.env) {
+export function providerFor(channel: string, env: Env = process.env): Provider | null {
   const list = BY_CHANNEL[channel] || [];
   for (const p of list) {
     if (!usable(p, env)) continue;
-    if (channel === "EMAIL" && !env.MAIL_FROM) continue;
+    if (channel === "EMAIL" && !env["MAIL_FROM"]) continue;
     return p;
   }
   return null;
 }
 
 /** What is connected, for a settings screen to show plainly. */
-export function providerStatus(env = process.env) {
-  const out = {};
+export function providerStatus(env: Env = process.env) {
+  const out: Record<string, unknown> = {};
   for (const channel of Object.keys(BY_CHANNEL)) {
     const p = providerFor(channel, env);
     out[channel] = {
@@ -178,7 +223,11 @@ export function providerStatus(env = process.env) {
  * @returns {Promise<{outcome: "accepted"|"unconfigured"|"refused"|"delivered",
  *                    provider: string, providerRef: string, detail: string}>}
  */
-export async function deliver(channel, msg, env = process.env) {
+export async function deliver(
+  channel: string,
+  msg: OutboundMessage,
+  env: Env = process.env,
+): Promise<DeliveryOutcome> {
   /*
    * IN_APP IS THE ONE CHANNEL THIS SERVICE MAY CALL DELIVERED.
    *
@@ -213,8 +262,16 @@ export async function deliver(channel, msg, env = process.env) {
     };
   } catch (e) {
     return { outcome: "refused", provider: p.name, providerRef: "",
-             detail: (e && e.message) || "The provider refused it." };
+             detail: messageOf(e, "The provider refused it.") };
   }
+}
+
+/** What happened when something was handed to a carrier. */
+export interface DeliveryOutcome {
+  readonly outcome: "accepted" | "unconfigured" | "refused" | "delivered";
+  readonly provider: string;
+  readonly providerRef: string;
+  readonly detail: string;
 }
 
 /** The state an outcome puts a dispatch into. One table, so it cannot drift. */

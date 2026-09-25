@@ -50,7 +50,7 @@
  * ====================================================================== */
 
 import { postJournal, reverseJournal, LedgerError } from "./ledger.js";
-import { country as marketCountry } from "./market.js";
+import { country as marketCountry } from "./market.ts";
 
 /* ---------------------------------------------------------------- *
  * WHICH ACCOUNT
