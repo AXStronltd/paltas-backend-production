@@ -43,10 +43,17 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
-import { badRequest, conflict, forbidden, notFound } from "../http/errors.ts";
+import { badRequest, conflict, enumParam, forbidden, notFound } from "../http/errors.ts";
 import { requireSession } from "../http/session.ts";
 import { actorFor } from "../domain/session-view.ts";
-import { status as supplyStatus } from "../domain/supply.ts";
+import type { Request, RequestHandler } from "express";
+import type { Prisma } from "@prisma/client";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";
+
+/** Read one property off an unknown value without asserting its shape. */
+const at = (v: unknown, key: string): unknown =>
+  (typeof v === "object" && v !== null) ? (v as Record<string, unknown>)[key] : undefined;import { status as supplyStatus } from "../domain/supply.ts";
 import { describe as storageDescribe } from "../domain/storage.ts";
 import { compareStatus } from "../domain/compare.ts";
 
@@ -70,10 +77,14 @@ const STAFF_ROLES = new Set(["OWNER", "MANAGER", "MARKETING", "COMPLIANCE", "PUB
 
 /* Exported so provisioning.js can stand behind the SAME door rather than
    growing a second one that can drift from this. */
-export function requirePlatform() {
+export function requirePlatform(): RequestHandler {
   return async (req, _res, next) => {
     try {
-      const actor = await actorFor(req.session);
+      const session = req.session;
+      if (!session) {
+        return next(forbidden("This account does not act for any organization."));
+      }
+      const actor = await actorFor(session);
       if (!actor) {
         return next(forbidden("This account does not act for any organization."));
       }
@@ -109,23 +120,25 @@ platformRoutes.use("/platform", requireSession(), requirePlatform());
  * failure must not break somebody's support call. The things that must not
  * happen are prevented above, not detected here.
  */
-async function auditRead(req, what, detail) {
+async function auditRead(
+  req: Request, what: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId,
-        actorId: req.session.userId,
-        actorName: req.actor.userName || "",
+        orgId: actorOf(req, "a platform route").orgId,
+        actorId: sessionOf(req, "a platform route").userId,
+        actorName: actorOf(req, "a platform route").userName || "",
         action: "platform.read", entity: what, entityId: "",
         detail: detail || undefined,
         ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("platform audit write failed", what, e.message); }
+  } catch (e) { console.error("platform audit write failed", what, messageOf(e)); }
 }
 
 /** Page size, capped, for the same reason as everywhere else. */
-function paging(req) {
+function paging(req: Request): { take: number; cursor: string | null } {
   const take = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
   const cursor = req.query.cursor ? String(req.query.cursor) : null;
   return { take, cursor };
@@ -172,13 +185,17 @@ platformRoutes.get("/platform/suppliers", (_req, res) => {
 platformRoutes.get("/platform/organizations", async (req, res, next) => {
   try {
     const { take, cursor } = paging(req);
-    const where = {};
+    const where: Prisma.OrganizationWhereInput = {};
     if (req.query.product) {
-      where.entitlements = { some: { product: String(req.query.product).toUpperCase(),
-                                     status: "ACTIVE" } };
+      where.entitlements = {
+        some: {
+          product: enumParam("Product", req.query["product"], "product"),
+          status: "ACTIVE",
+        },
+      };
     }
-    if (req.query.status) where.status = String(req.query.status).toUpperCase();
-    const q = String(req.query.q || "").trim();
+    where.status = enumParam("OrgStatus", req.query["status"], "company status");
+    const q = String(req.query["q"] || "").trim();
     if (q) where.name = { contains: q, mode: "insensitive" };
 
     /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
@@ -233,7 +250,7 @@ platformRoutes.get("/platform/organizations", async (req, res, next) => {
 platformRoutes.get("/platform/users", async (req, res, next) => {
   try {
     const { take, cursor } = paging(req);
-    const where = {};
+    const where: Prisma.UserWhereInput = {};
     const q = String(req.query.q || "").trim();
     if (q) {
       where.OR = [{ email: { contains: q, mode: "insensitive" } },
@@ -283,9 +300,9 @@ platformRoutes.get("/platform/users", async (req, res, next) => {
 platformRoutes.get("/platform/entitlements", async (req, res, next) => {
   try {
     const { take, cursor } = paging(req);
-    const where = {};
-    if (req.query.product) where.product = String(req.query.product).toUpperCase();
-    if (req.query.status) where.status = String(req.query.status).toUpperCase();
+    const where: Prisma.EntitlementWhereInput = {};
+    where.product = enumParam("Product", req.query["product"], "product");
+    where.status = enumParam("EntitlementStatus", req.query["status"], "entitlement status");
 
     /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
     const rows = await db.entitlement.findMany({
@@ -322,7 +339,7 @@ platformRoutes.get("/platform/entitlements", async (req, res, next) => {
 platformRoutes.get("/platform/audit", async (req, res, next) => {
   try {
     const { take, cursor } = paging(req);
-    const where = {};
+    const where: Prisma.AuditEventWhereInput = {};
     if (req.query.organization) where.orgId = String(req.query.organization);
     if (req.query.action) where.action = { startsWith: String(req.query.action) };
 
@@ -375,9 +392,9 @@ platformRoutes.get("/platform/audit", async (req, res, next) => {
 platformRoutes.get("/platform/moderation", async (req, res, next) => {
   try {
     const { take, cursor } = paging(req);
-    const where = {};
-    if (req.query.status) where.status = String(req.query.status).toUpperCase();
-    if (req.query.organization) where.orgId = String(req.query.organization);
+    const where: Prisma.ModerationItemWhereInput = {};
+    where.status = enumParam("ModerationStatus", req.query["status"], "moderation status");
+    if (req.query["organization"]) where.orgId = String(req.query["organization"]);
 
     /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
     const rows = await db.moderationItem.findMany({
@@ -415,8 +432,8 @@ platformRoutes.get("/platform/moderation", async (req, res, next) => {
 platformRoutes.get("/platform/compliance", async (req, res, next) => {
   try {
     const { take, cursor } = paging(req);
-    const where = {};
-    if (req.query.status) where.status = String(req.query.status).toUpperCase();
+    const where: Prisma.ComplianceCaseWhereInput = {};
+    where.status = enumParam("ComplianceStatus", req.query["status"], "compliance status");
 
     /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
     const rows = await db.complianceCase.findMany({
@@ -459,8 +476,8 @@ platformRoutes.get("/platform/compliance", async (req, res, next) => {
 platformRoutes.get("/platform/verifications", async (req, res, next) => {
   try {
     const { take, cursor } = paging(req);
-    const where = {};
-    if (req.query.status) where.status = String(req.query.status).toUpperCase();
+    const where: Prisma.VerificationWhereInput = {};
+    where.status = enumParam("VerificationStatus", req.query["status"], "verification status");
 
     /* CROSS-TENANT BY DESIGN — requirePlatform() above, read-only, audited below. */
     const rows = await db.verification.findMany({
@@ -495,7 +512,8 @@ platformRoutes.get("/platform/verifications", async (req, res, next) => {
            themselves. A passport scan is not something a support queue needs
            to hand out in order to say "identity is still outstanding". */
         contactName: owner ? (owner.name || owner.email) : "",
-        documentKinds: docs.map((d) => String((d && (d.kind || d.type)) || "document")),
+        documentKinds: docs.map((d: unknown) =>
+          String(at(d, "kind") || at(d, "type") || "document")),
         documentCount: docs.length,
         waitingSince: v.updatedAt,
       };
@@ -551,7 +569,7 @@ platformRoutes.get("/platform/summary", async (req, res, next) => {
       db.entitlement.groupBy({ by: ["product"], where: { status: "ACTIVE" }, _count: true }),
     ]);
 
-    await auditRead(req, "summary", null);
+    await auditRead(req, "summary");
     res.json({
       counts: { organizations, users,
                 subscriptions: { active, trialing, pastDue } },

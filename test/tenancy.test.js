@@ -336,8 +336,24 @@ test("no query against an org-owned model escapes its organization", () => {
        * wrong query. What matters is that SOMETHING from the session narrows
        * it — never nothing.
        */
-      const scoped = /orgId|organizationId|userId_orgId|userId:\s*req\.session\.userId|userId:\s*actor\.userId/
-        .test(context);
+      /*
+       * The spellings of "something from the session narrows this".
+       *
+       * `req.session.userId` was the only one when every route read the
+       * session directly. Routes now reach it through `sessionOf(req, …)`,
+       * which is the same value with the missing-session case checked — and
+       * the scanner stopped recognising it, reporting a query that had not
+       * changed its scope at all.
+       *
+       * So the pattern names the VALUE rather than one way of reaching it:
+       * a userId that came from the session, however it was spelled. What it
+       * still refuses is a userId that came from anywhere else — the body,
+       * a parameter, a header — because that is the hole this test exists
+       * for, and "nothing at all" remains a failure.
+       */
+      const SESSION_USER = /userId:\s*(req\.)?session(Of\([^)]*\))?\.userId/;
+      const scoped = /orgId|organizationId|userId_orgId|userId:\s*actor\.userId/.test(context)
+        || SESSION_USER.test(context);
       if (!scoped) {
         problems.push(`${name}:${line}  db.${m[1]}.${m[2]}()  — no organization in scope`);
       }

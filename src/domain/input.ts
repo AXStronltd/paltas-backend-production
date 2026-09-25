@@ -313,3 +313,36 @@ export function clean(
   return out;
 }
 
+
+/* ====================================================================== *
+ * READING WHAT clean() PRODUCED.
+ *
+ * `clean()` has already checked each field against the KIND its resource
+ * declared — a "string" really is a string and a "date" really is a Date by
+ * the time it returns. What the return type cannot say is WHICH field is
+ * which, because the declaration is a runtime map and the keys are not known
+ * until it runs.
+ *
+ * So these are the three readers, named the same way the registry's column
+ * readers are (statusOf, textOf, dateOf in domain/registry-types.ts). A
+ * caller says which kind it declared, and gets that kind back.
+ *
+ * They are NOT casts. Each one checks, and each one has a defined answer for
+ * a field that is absent — which is the normal case on a partial update.
+ * ====================================================================== */
+
+/** A declared "string" or "text" field. Absent reads as "". */
+export const cleanText = (data: CleanedData, key: string): string => {
+  const v = data[key];
+  return typeof v === "string" ? v : "";
+};
+
+/** A declared "date" field. Absent, or cleared, reads as null. */
+export const cleanDate = (data: CleanedData, key: string): Date | null => {
+  const v = data[key];
+  return v instanceof Date ? v : null;
+};
+
+/** Whether the body mentioned this field at all — which a PATCH turns on. */
+export const cleanHas = (data: CleanedData, key: string): boolean =>
+  Object.prototype.hasOwnProperty.call(data, key);

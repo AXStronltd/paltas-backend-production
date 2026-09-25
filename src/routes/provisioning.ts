@@ -37,7 +37,7 @@ import type { Request } from "express";
 import type { $Enums, Prisma } from "@prisma/client";
 import { actorOf, sessionOf } from "../http/request.ts";
 import { requireSession } from "../http/session.ts";
-import { requirePlatform } from "./platform.js";
+import { requirePlatform } from "./platform.ts";
 
 export const provisioningRoutes = Router();
 

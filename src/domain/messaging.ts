@@ -2,6 +2,8 @@ import type { Env } from "../config.ts";
 import { messageOf } from "../http/errors.ts";
 
 /** A provider's own words, if it sent any. Theirs beat ours. */
+
+import type { $Enums } from "@prisma/client";
 const said = (v: unknown): string => (typeof v === "string" ? v : "");
 
 /* ====================================================================== *
@@ -275,7 +277,9 @@ export interface DeliveryOutcome {
 }
 
 /** The state an outcome puts a dispatch into. One table, so it cannot drift. */
-export const STATUS_FOR = {
+export const STATUS_FOR: Readonly<
+  Record<DeliveryOutcome["outcome"], $Enums.DispatchStatus>
+> = {
   accepted: "SUBMITTED",
   unconfigured: "QUEUED",
   refused: "FAILED",

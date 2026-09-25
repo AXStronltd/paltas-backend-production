@@ -42,6 +42,13 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import type { Request } from "express";
+import type { $Enums } from "@prisma/client";
+import { messageOf } from "../http/errors.ts";
+import { sessionOf } from "../http/request.ts";
+
+/** A reservation, as the guest screens read one back. */
+type ReservationRow = NonNullable<Awaited<ReturnType<typeof db.reservation.findFirst>>>;
 import { badRequest, forbidden, hidden } from "../http/errors.ts";
 import { requireSession } from "../http/session.ts";
 import { rateLimit } from "../http/rate-limit.ts";
@@ -61,11 +68,29 @@ guestRoutes.use(requireSession());
  * them may go without it — a handler that skipped this would be a handler
  * reading somebody else's holiday.
  */
-async function asGuest(req) {
-  if (req._guest) return req._guest;
+/**
+ * Who this signed-in person is, as far as a hotel is concerned.
+ *
+ * A guest is not a member of anything; they are one or more PARTY rows that
+ * hotels created against their bookings. `partyIds` is what every read below
+ * is scoped by.
+ */
+interface GuestIdentity {
+  readonly partyIds: readonly string[];
+  readonly orgIds: readonly string[];
+  readonly names: readonly string[];
+}
+
+/* Cached on the request for the length of one call. Declared here rather
+   than on Express's Request, because nothing outside this file may read it. */
+const cache = new WeakMap<Request, GuestIdentity>();
+
+async function asGuest(req: Request): Promise<GuestIdentity> {
+  const had = cache.get(req);
+  if (had) return had;
 
   const parties = await db.party.findMany({
-    where: { userId: req.session.userId },
+    where: { userId: sessionOf(req, "a guest route").userId },
     select: { id: true, orgId: true, name: true },
   });
 
@@ -83,19 +108,20 @@ async function asGuest(req) {
       "email to your reservation, and this page opens as soon as it does.");
   }
 
-  req._guest = {
+  const identity: GuestIdentity = {
     partyIds: parties.map((p) => p.id),
     orgIds: [...new Set(parties.map((p) => p.orgId))],
     names: parties.map((p) => p.name),
   };
-  return req._guest;
+  cache.set(req, identity);
+  return identity;
 }
 
 /** A stay of this guest's, or nothing that admits it exists. */
-async function ownStay(req, id) {
+async function ownStay(req: Request, id: string) {
   const g = await asGuest(req);
   const stay = await db.reservation.findFirst({
-    where: { id, guestId: { in: g.partyIds } },
+    where: { id, guestId: { in: [...g.partyIds] } },
   });
   if (!stay) throw hidden();
   return stay;
@@ -104,7 +130,7 @@ async function ownStay(req, id) {
 /* The shape the guest screens read. Deliberately narrow: a guest is shown
    their stay, not the hotel's record of it. No rate breakdown, no source, no
    internal notes. */
-const stayWire = (r) => ({
+const stayWire = (r: ReservationRow) => ({
   id: r.id,
   ref: r.ref,
   guestName: r.guestName,
@@ -158,7 +184,7 @@ guestRoutes.post("/guest/link", async (req, res, next) => {
     /* From the SESSION, never the body. A caller naming the email to match
        would be choosing which guest to become. */
     const user = await db.user.findUnique({
-      where: { id: req.session.userId },
+      where: { id: sessionOf(req, "a guest route").userId },
       select: { id: true, email: true },
     });
     if (!user || !user.email) throw forbidden("This account has no verified email address.");
@@ -199,7 +225,7 @@ guestRoutes.post("/guest/link", async (req, res, next) => {
             detail: { by: "verified email" }, ip: req.ip || "",
           },
         });
-      } catch (e) { console.error("guest link audit failed", p.id, e.message); }
+      } catch (e) { console.error("guest link audit failed", p.id, messageOf(e)); }
     }
 
     const total = await db.party.count({ where: { userId: user.id } });
@@ -214,7 +240,7 @@ guestRoutes.get("/guest/stay", async (req, res, next) => {
   try {
     const g = await asGuest(req);
     const stays = await db.reservation.findMany({
-      where: { guestId: { in: g.partyIds } },
+      where: { guestId: { in: [...g.partyIds] } },
       orderBy: [{ arriveOn: "desc" }],
       take: 20,
     });
@@ -263,7 +289,7 @@ guestRoutes.get("/guest/services", async (req, res, next) => {
   try {
     const g = await asGuest(req);
     const services = await db.hotelService.findMany({
-      where: { orgId: { in: g.orgIds }, active: true },
+      where: { orgId: { in: [...g.orgIds] }, active: true },
       orderBy: [{ name: "asc" }],
       select: { id: true, name: true, kind: true, opensAt: true,
                 capacity: true, chargeable: true, note: true },
@@ -279,7 +305,7 @@ guestRoutes.get("/guest/requests", async (req, res, next) => {
   try {
     const g = await asGuest(req);
     const requests = await db.guestRequest.findMany({
-      where: { partyId: { in: g.partyIds } },
+      where: { partyId: { in: [...g.partyIds] } },
       orderBy: [{ createdAt: "desc" }],
       take: 100,
       select: { id: true, kind: true, detail: true, note: true, status: true,
@@ -305,14 +331,17 @@ guestRoutes.get("/guest/requests", async (req, res, next) => {
  * request and the property moves the reservation — which is also why there is
  * no endpoint here that writes Reservation.status.
  */
-const KINDS = new Set([
+const KINDS: ReadonlySet<string> = new Set([
   "SERVICE", "TRANSFER", "ISSUE", "QUESTION", "CHECK_IN", "CHECK_OUT",
 ]);
+
+/** Is this what a guest asked for one of the kinds the schema records? */
+const isRequestKind = (v: string): v is $Enums.GuestRequestKind => KINDS.has(v);
 
 guestRoutes.post("/guest/requests", async (req, res, next) => {
   try {
     const kind = String(req.body?.kind || "").trim().toUpperCase();
-    if (!KINDS.has(kind)) {
+    if (!isRequestKind(kind)) {
       throw badRequest(`kind must be one of: ${[...KINDS].join(", ").toLowerCase()}.`);
     }
     const detail = String(req.body?.detail || "").trim();
@@ -360,14 +389,14 @@ guestRoutes.post("/guest/requests", async (req, res, next) => {
       await db.auditEvent.create({
         data: {
           orgId: stay.orgId,
-          actorId: req.session.userId,
+          actorId: sessionOf(req, "a guest route").userId,
           actorName: stay.guestName || "Guest",
           action: "guest.request", entity: "guestRequest", entityId: created.id,
           detail: { kind, reservation: stay.ref },
           ip: req.ip || "",
         },
       });
-    } catch (e) { console.error("guest audit write failed", created.id, e.message); }
+    } catch (e) { console.error("guest audit write failed", created.id, messageOf(e)); }
 
     res.status(201).json({ request: created });
   } catch (e) { next(e); }
@@ -385,7 +414,7 @@ guestRoutes.post("/guest/requests/:id/cancel", async (req, res, next) => {
   try {
     const g = await asGuest(req);
     const found = await db.guestRequest.findFirst({
-      where: { id: req.params.id, partyId: { in: g.partyIds } },
+      where: { id: req.params.id, partyId: { in: [...g.partyIds] } },
     });
     if (!found) throw hidden();
     if (found.status === "DONE" || found.status === "DECLINED") {
@@ -495,7 +524,7 @@ guestRoutes.get("/guest/messages", async (req, res, next) => {
  */
 guestRoutes.post("/guest/messages",
   rateLimit({ windowMs: 3_600_000, max: 20,
-              key: (req) => "guest-message:" + (req.session && req.session.userId) }),
+              key: (req) => "guest-message:" + (req.session && sessionOf(req, "a guest route").userId) }),
   async (req, res, next) => {
   try {
     const guest = await asGuest(req);
@@ -518,7 +547,7 @@ guestRoutes.post("/guest/messages",
     }
 
     const party = await db.party.findFirst({
-      where: { orgId, userId: req.session.userId },
+      where: { orgId, userId: sessionOf(req, "a guest route").userId },
       select: { id: true, name: true },
     });
     if (!party) throw forbidden("This account is not linked to a booking at that property.");

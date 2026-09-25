@@ -27,8 +27,17 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
-import { whyNotArea } from "../domain/access.ts";
+import type { Request, RequestHandler, Response } from "express";
+import type { Prisma } from "@prisma/client";
+import type { Act } from "../domain/access.ts";
+import { messageOf } from "../http/errors.ts";
+import { actorOf, sessionOf } from "../http/request.ts";import { whyNotArea } from "../domain/access.ts";
 import { deliver, providerStatus, STATUS_FOR } from "../domain/messaging.ts";
+import type { DeliveryOutcome } from "../domain/messaging.ts";
+import type { $Enums } from "@prisma/client";
+
+/** A dispatch row, as this file reads one back. */
+type DispatchRow = NonNullable<Awaited<ReturnType<typeof db.dispatch.findFirst>>>;
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { numberFor } from "../http/resource.ts";
 import {
@@ -49,44 +58,53 @@ commsRoutes.use(requireSession(), requireOrganization(), requireOpenSubscription
  */
 const AREA = "people";
 
-function need(req, act, label) {
-  const why = whyNotArea(req.actor, AREA, act, label);
+function need(req: Request, act: Act, label?: string): void {
+  const why = whyNotArea(actorOf(req, "a comms route"), AREA, act, label);
   if (why) throw forbidden(why);
 }
 
-const route = (fn) => async (req, res, next) => {
-  try { await fn(req, res); } catch (e) { next(e); }
-};
+/** One handler, with its `try`/`catch` written once. */
+const route = (fn: (req: Request, res: Response) => Promise<unknown>): RequestHandler =>
+  async (req, res, next) => {
+    try { await fn(req, res); } catch (e) { next(e); }
+  };
 
-const who = (req) => req.view?.user?.name || req.view?.user?.email || "";
-const text = (v, max) => String(v == null ? "" : v).trim().slice(0, max);
+const who = (req: Request): string =>
+  req.view?.user?.name || req.view?.user?.email || "";
+const text = (v: unknown, max: number): string =>
+  String(v == null ? "" : v).trim().slice(0, max);
 
-async function audit(req, action, entity, entityId, detail) {
+async function audit(
+  req: Request, action: string, entity: string,
+  entityId?: string, detail?: Prisma.InputJsonValue,
+): Promise<void> {
   try {
     await db.auditEvent.create({
       data: {
-        orgId: req.actor.orgId, actorId: req.session.userId, actorName: who(req),
+        orgId: actorOf(req, "a comms route").orgId,
+        actorId: sessionOf(req, "a comms route").userId,
+        actorName: who(req),
         action, entity, entityId: entityId || "", detail: detail || undefined,
         ip: req.ip || "",
       },
     });
-  } catch (e) { console.error("audit write failed", action, e.message); }
+  } catch (e) { console.error("audit write failed", action, messageOf(e)); }
 }
 
 /* One lookup per table, named, so the scoping scanner can read them. */
-async function ownDispatch(req, id) {
-  const row = await db.dispatch.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownDispatch(req: Request, id: string) {
+  const row = await db.dispatch.findFirst({ where: { id, orgId: actorOf(req, "a comms route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownCampaign(req, id) {
-  const row = await db.campaign.findFirst({ where: { id, orgId: req.actor.orgId } });
+async function ownCampaign(req: Request, id: string) {
+  const row = await db.campaign.findFirst({ where: { id, orgId: actorOf(req, "a comms route").orgId } });
   if (!row) throw hidden();
   return row;
 }
-async function ownMeetingFor(req, id) {
+async function ownMeetingFor(req: Request, id: string) {
   const row = await db.meeting.findFirst({
-    where: { id, orgId: req.actor.orgId },
+    where: { id, orgId: actorOf(req, "a comms route").orgId },
     include: { participants: { select: { name: true, email: true, partyId: true } } },
   });
   if (!row) throw hidden();
@@ -114,7 +132,14 @@ commsRoutes.get("/comms/providers", route(async (req, res) => {
  * ====================================================================== */
 
 /** Write the state and the event in one go, so a state with no reason cannot exist. */
-async function moveDispatch(dispatch, result, byName, extra) {
+async function moveDispatch(
+  dispatch: DispatchRow,
+  result: DeliveryOutcome,
+  byName: string,
+  /* Extra columns the caller wants written in the same transaction — a
+     campaign stamps its own id onto each dispatch it queues. */
+  extra?: Prisma.DispatchUpdateInput,
+) {
   const status = STATUS_FOR[result.outcome];
   const now = new Date();
   const [row] = await db.$transaction([
@@ -131,7 +156,7 @@ async function moveDispatch(dispatch, result, byName, extra) {
         /* Cleared on a success, because a stale reason beside a submitted
            message reads as a message that failed and then went anyway. */
         error: status === "FAILED" ? text(result.detail, 1000) : "",
-        ...(extra || {}),
+        ...extra,
       },
     }),
     db.dispatchEvent.create({
@@ -169,7 +194,7 @@ commsRoutes.post("/dispatches/:id/send", route(async (req, res) => {
   const result = await deliver(dispatch.channel, {
     to: dispatch.toAddress, subject: dispatch.subject, body: dispatch.body,
   });
-  const out = await moveDispatch(dispatch, result, who(req));
+  const out = await moveDispatch(dispatch, result, who(req), undefined);
   await audit(req, "dispatch.send", "dispatch", dispatch.id,
     { ref: dispatch.ref, outcome: result.outcome, provider: result.provider });
 
@@ -227,7 +252,8 @@ commsRoutes.post("/dispatches/:id/cancel", route(async (req, res) => {
  * queued AND old, which a query string cannot say and a person asking "what
  * has not gone out?" means every time.
  */
-const OUTBOX = {
+/** The five outbox views, each a filter over Dispatch. */
+const OUTBOX: Readonly<Record<string, Prisma.DispatchWhereInput>> = {
   queued: { status: { in: ["DRAFT", "QUEUED"] } },
   stuck: { status: "QUEUED" },
   submitted: { status: "SUBMITTED" },
@@ -237,12 +263,13 @@ const OUTBOX = {
 
 commsRoutes.get("/dispatches/outbox", route(async (req, res) => {
   need(req, "list", "dispatches");
-  const view = String(req.query.view || "queued");
-  if (!OUTBOX[view]) {
-    throw badRequest(`"${req.query.view}" is not an outbox view.`, Object.keys(OUTBOX));
+  const view = String(req.query["view"] || "queued");
+  const filter = OUTBOX[view];
+  if (!filter) {
+    throw badRequest(`"${view}" is not an outbox view.`, Object.keys(OUTBOX));
   }
-  const orgId = req.actor.orgId;
-  const where = { orgId, ...OUTBOX[view] };
+  const orgId = actorOf(req, "a comms route").orgId;
+  const where: Prisma.DispatchWhereInput = { orgId, ...filter };
   /* Stuck means queued for more than an hour: long enough that a provider
      being briefly down is not reported as a problem, short enough that a
      missing configuration is. */
@@ -281,16 +308,40 @@ commsRoutes.get("/dispatches/outbox", route(async (req, res) => {
  * one person, and telling them twice is how a company looks like it does not
  * know its own customers.
  */
-async function audienceFor(req, spec) {
-  const orgId = req.actor.orgId;
-  const out = new Map();
-  const add = (name, address, partyId) => {
+/**
+ * HOW AN AUDIENCE WAS DESCRIBED.
+ *
+ * Four ways, and a campaign may use any combination — which is why the
+ * result is deduplicated by address below. A person who is both a buyer and
+ * a leaseholder is one person.
+ */
+interface AudienceSpec {
+  readonly partyKinds?: readonly string[];
+  readonly meetingId?: string;
+  readonly projectId?: string;
+  /** Addresses named by hand, which nothing in the database knows about. */
+  readonly extra?: readonly { name?: unknown; email?: unknown }[];
+}
+
+/** One person a campaign will reach. */
+interface Recipient {
+  readonly name: string;
+  readonly address: string;
+  readonly partyId: string | null;
+}
+
+async function audienceFor(req: Request, spec: AudienceSpec): Promise<Recipient[]> {
+  const orgId = actorOf(req, "a comms route").orgId;
+  const out = new Map<string, Recipient>();
+  const add = (name: unknown, address: unknown, partyId: string | null) => {
     const key = String(address || "").trim().toLowerCase();
     if (!key || out.has(key)) return;
-    out.set(key, { name: name || "", address: key, partyId: partyId || null });
+    out.set(key, { name: String(name || ""), address: key, partyId: partyId || null });
   };
 
-  const kinds = Array.isArray(spec.partyKinds) ? spec.partyKinds.filter(Boolean) : [];
+  const kinds = (Array.isArray(spec.partyKinds) ? spec.partyKinds : [])
+    .filter(Boolean)
+    .map((k) => String(k) as $Enums.PartyKind);
   if (kinds.length) {
     const parties = await db.party.findMany({
       where: { orgId, kind: { in: kinds }, NOT: { email: "" } },
@@ -321,8 +372,8 @@ async function audienceFor(req, spec) {
 }
 
 /** How the audience was described, kept as words so it reads back later. */
-function describeAudience(spec, count) {
-  const bits = [];
+function describeAudience(spec: AudienceSpec, count: number): string {
+  const bits: string[] = [];
   if (spec.partyKinds?.length) bits.push(spec.partyKinds.join(", ").toLowerCase());
   if (spec.meetingId) bits.push("a meeting's participants");
   if (spec.projectId) bits.push("buyers in one development");
@@ -359,7 +410,7 @@ commsRoutes.post("/campaigns/:id/audience", route(async (req, res) => {
 commsRoutes.post("/campaigns/:id/send", route(async (req, res) => {
   need(req, "update", "campaigns");
   const campaign = await ownCampaign(req, req.params.id);
-  const orgId = req.actor.orgId;
+  const orgId = actorOf(req, "a comms route").orgId;
 
   if (campaign.status !== "DRAFT") {
     throw conflict(
@@ -380,17 +431,17 @@ commsRoutes.post("/campaigns/:id/send", route(async (req, res) => {
 
   /* Reserve the numbers up front. nextNumber is a counter upsert, and doing it
      inside the loop is the same round trip four hundred times. */
-  const refs = [];
+  const refs: string[] = [];
   for (let i = 0; i < people.length; i += 1) refs.push(await numberFor("dispatches", orgId));
 
   await db.$transaction([
     db.dispatch.createMany({
       data: people.map((p, i) => ({
-        orgId, ref: refs[i], channel: campaign.channel, status: "QUEUED",
+        orgId, ref: String(refs[i]), channel: campaign.channel, status: "QUEUED",
         toName: p.name, toAddress: p.address, partyId: p.partyId,
         subject: campaign.subject, body: campaign.body,
         projectId: campaign.projectId, campaignId: campaign.id,
-        createdById: req.session.userId, createdByName: who(req),
+        createdById: sessionOf(req, "a comms route").userId, createdByName: who(req),
       })),
     }),
     db.campaign.update({
@@ -465,7 +516,7 @@ commsRoutes.post("/campaigns/:id/cancel", route(async (req, res) => {
   }
   const stopped = await db.dispatch.updateMany({
     where: {
-      orgId: req.actor.orgId, campaignId: campaign.id,
+      orgId: actorOf(req, "a comms route").orgId, campaignId: campaign.id,
       status: { in: ["DRAFT", "QUEUED"] },
     },
     data: { status: "CANCELLED" },

@@ -25,6 +25,7 @@ import { dnaFor } from "./identity.ts";
 import { authorityContext } from "../../authority/domain/jurisdiction.ts";
 import type { AuthenticatedRequest } from "../../../http/request.ts";
 import type { Clearance } from "../../../domain/classification.ts";
+import type { Prisma } from "@prisma/client";
 import { messageOf } from "../../../http/errors.ts";
 
 /**
@@ -148,7 +149,9 @@ export async function audit(
   action: string,
   entity: string,
   entityId: string,
-  detail?: string,
+  /* A Json column. Callers pass an object describing what was read, which
+     is what makes the trail answer "who looked at my building, and at what". */
+  detail?: Prisma.InputJsonValue,
   orgId?: string,
 ): Promise<void> {
   try {

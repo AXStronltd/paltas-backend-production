@@ -10,6 +10,8 @@
  * quote so the two can be matched up.
  * ====================================================================== */
 
+import { $Enums } from "@prisma/client";
+
 import type { ErrorRequestHandler } from "express";
 
 /**
@@ -220,4 +222,43 @@ export function errorHandler(log: ErrorLog): ErrorRequestHandler {
       reference: ref,
     });
   };
+}
+
+/* ====================================================================== *
+ * A CALLER'S STRING, CHECKED AGAINST AN ENUM THE SCHEMA DEFINES.
+ *
+ * ── WHY THIS EXISTS ────────────────────────────────────────────────────
+ *
+ * A filter like `?status=ACTIVE` was read with `String(req.query.status)`
+ * and handed straight to Prisma. That works for every value somebody types
+ * correctly, and for everything else Prisma refuses the query with an
+ * exception this service reports as a 500 — so a typo in a query string
+ * reads as "PALTAS is broken" rather than "that is not a status".
+ *
+ * The values are read from the GENERATED CLIENT rather than a list copied
+ * into this file, so an enum extended in schema.prisma is accepted here the
+ * moment `prisma generate` runs, and one removed stops being accepted. A
+ * hand-written copy is a second source of truth that drifts silently and is
+ * only noticed when a legitimate filter starts being refused.
+ * ====================================================================== */
+
+/**
+ * The caller's value, or a 400 naming what was allowed.
+ *
+ * Returns `undefined` for an absent filter — a filter nobody sent is not a
+ * filter that failed, and the caller then simply does not narrow by it.
+ */
+export function enumParam<K extends keyof typeof $Enums>(
+  name: K,
+  raw: unknown,
+  what: string,
+): (typeof $Enums)[K][keyof (typeof $Enums)[K]] | undefined {
+  if (raw === undefined || raw === null || raw === "") return undefined;
+  const values = $Enums[name] as Record<string, string>;
+  const asked = String(raw).toUpperCase();
+  if (!Object.prototype.hasOwnProperty.call(values, asked)) {
+    throw badRequest(
+      `“${String(raw)}” is not a ${what}. One of: ${Object.keys(values).join(", ")}.`);
+  }
+  return asked as (typeof $Enums)[K][keyof (typeof $Enums)[K]];
 }

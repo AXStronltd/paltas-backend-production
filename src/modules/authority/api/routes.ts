@@ -17,10 +17,51 @@ import { Router } from "express";
 import { db } from "../../../db.ts";
 import { requireSession, requireOrganization } from "../../../http/session.ts";
 import { badRequest, conflict, forbidden, hidden } from "../../../http/errors.ts";
-import { clean } from "../../../domain/input.ts";
+import { clean, cleanDate, cleanText } from "../../../domain/input.ts";
 import { mayRead, visibleRows, withheldSummary, AUTHORITY_CLASS } from "../../../domain/classification.ts";
 import { context, gate, audit } from "../../property-dna/domain/context.ts";
 import { authorityContext, mayDataset, whyNotDataset, normalisePath, contains } from "../domain/jurisdiction.ts";
+import type { AuthorityContext, AuthorityDataset } from "../domain/jurisdiction.ts";
+import type { Request } from "express";
+import type { $Enums } from "@prisma/client";
+import { enumParam } from "../../../http/errors.ts";
+import type { AuthenticatedRequest } from "../../../http/request.ts";
+import { actorOf, sessionOf } from "../../../http/request.ts";
+
+/**
+ * The same request, once the guards above have run.
+ *
+ * Every route in this file is mounted behind requireSession() and
+ * requireOrganization(), and context() and audit() name that invariant in
+ * their own signatures. The cast is on the line after the assertion those
+ * two guards make, and it is here rather than at each of the nine call
+ * sites.
+ */
+/**
+ * A comma-separated list of datasets, each one checked.
+ *
+ * `where` names what the list is for, so a refusal reads "“HOUSING” is not a
+ * dataset that could be granted" rather than a bare validation message.
+ */
+function splitDatasets(raw: unknown, where: string): AuthorityDataset[] {
+  return String(raw || "")
+    .split(",")
+    .map((d) => d.trim())
+    .filter(Boolean)
+    .map((d) => {
+      const known = enumParam("AuthorityDataset", d, `dataset that could be ${where}`);
+      /* enumParam returns undefined only for an absent value, and nothing
+         empty survives the filter above. */
+      if (!known) throw badRequest(`“${d}” is not a dataset.`);
+      return known;
+    });
+}
+
+const guarded = (req: Request): AuthenticatedRequest => {
+  actorOf(req, "an authority route");
+  sessionOf(req, "an authority route");
+  return req as AuthenticatedRequest;
+};
 
 export const authorityRoutes = Router();
 
@@ -35,8 +76,10 @@ export const authorityRoutes = Router();
 authorityRoutes.use(requireSession(), requireOrganization());
 
 /** The caller's own authority profile, or a refusal that says why. */
-async function mustBeAuthority(req) {
-  const profile = await db.authorityProfile.findFirst({ where: { orgId: req.actor.orgId } });
+async function mustBeAuthority(req: Request) {
+  const profile = await db.authorityProfile.findFirst({
+    where: { orgId: actorOf(req, "an authority route").orgId },
+  });
   if (!profile) {
     throw forbidden(
       "This is the authority interface. It is for public bodies that PALTAS " +
@@ -126,13 +169,14 @@ authorityRoutes.get("/authority/properties", async (req, res, next) => {
      * mandate covers — and can never make it larger: a path outside every
      * mandate matches nothing rather than widening the scope.
      */
-    const asked = normalisePath(req.query.path || "");
+    const asked = normalisePath(
+      typeof req.query["path"] === "string" ? req.query["path"] : "");
     const scope = asked ? paths.filter((p) => contains(p, asked) || contains(asked, p)) : paths;
     if (asked && !scope.length) {
       return res.json({ properties: [], scope: [], why: `No mandate of this authority covers ${asked}.` });
     }
 
-    const q = String(req.query.q || "").trim();
+    const q = String(req.query["q"] || "").trim();
     const take = Math.min(Number(req.query.limit) || 50, 200);
 
     /*
@@ -153,20 +197,35 @@ authorityRoutes.get("/authority/properties", async (req, res, next) => {
       take,
     });
 
+    /*
+     * WHAT THESE MANDATES REACH, built once.
+     *
+     * This was rebuilt inline three times, once per field, each time
+     * flattening every mandate's datasets again — so a search over a hundred
+     * properties did that work three hundred times and the three copies could
+     * have drifted apart without anything noticing.
+     */
+    const reach: AuthorityContext = {
+      profile: { id: profile.id, verified: profile.verified },
+      verified: true,
+      within: true,
+      mandates: [],
+      datasets: mandates.flatMap((m) => m.datasets),
+    };
+
     const out = links.map((l) => ({
       /* The property's own id is NOT returned. An authority addresses a
          property by its parcel and its Property DNA reference; handing out
          the customer's internal id invites it to be used as a key elsewhere. */
       parcelRef: l.parcel.ref,
       jurisdiction: l.parcel.jurisdiction?.path || "",
-      name: mayDataset({ within: true, datasets: mandates.flatMap((m) => m.datasets) }, "PROPERTY_IDENTITY")
-        ? l.site.name : undefined,
+      name: mayDataset(reach, "PROPERTY_IDENTITY") ? l.site.name : undefined,
       city: l.site.city, country: l.site.country,
-      lat: mayDataset({ within: true, datasets: mandates.flatMap((m) => m.datasets) }, "LOCATION") ? l.parcel.lat : undefined,
-      lng: mayDataset({ within: true, datasets: mandates.flatMap((m) => m.datasets) }, "LOCATION") ? l.parcel.lng : undefined,
+      lat: mayDataset(reach, "LOCATION") ? l.parcel.lat : undefined,
+      lng: mayDataset(reach, "LOCATION") ? l.parcel.lng : undefined,
     }));
 
-    await audit(req, "authority.search", "authorityProfile", profile.id, { scope, results: out.length, q: q || undefined });
+    await audit(guarded(req), "authority.search", "authorityProfile", profile.id, { scope, results: out.length, q: q || undefined });
     res.json({ properties: out, scope });
   } catch (e) { next(e); }
 });
@@ -189,7 +248,7 @@ authorityRoutes.get("/authority/properties", async (req, res, next) => {
  */
 authorityRoutes.get("/properties/:siteId/authority", async (req, res, next) => {
   try {
-    const { orgId, dna, site, clearance, authority } = await context(req);
+    const { orgId, dna, site, clearance, authority } = await context(guarded(req));
 
     const rows = await db.propertyAuthorityRecord.findMany({
       where: { orgId, dnaId: dna.id },
@@ -212,7 +271,7 @@ authorityRoutes.get("/properties/:siteId/authority", async (req, res, next) => {
     }
 
     if (allowed.length) {
-      await audit(req, "authority.records.read", "propertyDna", dna.id, {
+      await audit(guarded(req), "authority.records.read", "propertyDna", dna.id, {
         rows: allowed.length, as: clearance.authority ? "authority" : "customer",
       });
     }
@@ -250,7 +309,7 @@ authorityRoutes.get("/properties/:siteId/authority", async (req, res, next) => {
  */
 authorityRoutes.post("/properties/:siteId/authority", async (req, res, next) => {
   try {
-    const { orgId, dna, authority, clearance } = await context(req);
+    const { orgId, dna, authority, clearance } = await context(guarded(req));
 
     if (!clearance.authority) {
       throw forbidden(
@@ -259,6 +318,15 @@ authorityRoutes.post("/properties/:siteId/authority", async (req, res, next) => 
         "read as official — upload it as a document instead, where it will be " +
         "marked as owner-supplied."
       );
+    }
+    /*
+     * `clearance.authority` above is true only for an authority, and
+     * context() builds one from the same profile — so this is never null
+     * here. Saying it out loud keeps the reason on the page rather than in
+     * a `!` somebody would have to go and reconstruct.
+     */
+    if (!authority) {
+      throw forbidden("This account holds no authority mandate over this property.");
     }
     if (!authority.mayWrite) {
       throw forbidden("This authority's mandate is read-only.");
@@ -269,22 +337,26 @@ authorityRoutes.post("/properties/:siteId/authority", async (req, res, next) => 
       detail: "text", issuedOn: "date", expiresOn: "date", status: "string",
     } }, req.body, { partial: true });
 
-    if (!body.title) throw badRequest("An official record needs a title.");
-    if (!body.dataset) throw badRequest("Say which dataset this record belongs to.");
-    const no = whyNotDataset(authority, body.dataset, "filing this record");
+    const title = cleanText(body, "title");
+    if (!title) throw badRequest("An official record needs a title.");
+    const dataset = enumParam("AuthorityDataset", body["dataset"], "dataset");
+    if (!dataset) throw badRequest("Say which dataset this record belongs to.");
+    const kind = enumParam("AuthorityRecordKind", body["kind"], "record kind")
+      ?? "OTHER";
+    const no = whyNotDataset(authority, dataset, "filing this record");
     if (no) throw forbidden(no);
 
     const made = await db.propertyAuthorityRecord.create({
       data: {
         orgId, dnaId: dna.id,
-        kind: body.kind || "OTHER",
-        dataset: body.dataset,
-        ref: body.ref || "", title: body.title, detail: body.detail || "",
-        issuedByOrgId: req.actor.orgId,
-        issuedByName: authority.profile.legalName || "",
-        issuedOn: body.issuedOn || new Date(),
-        expiresOn: body.expiresOn || null,
-        status: body.status || "",
+        kind,
+        dataset,
+        ref: cleanText(body, "ref"), title, detail: cleanText(body, "detail"),
+        issuedByOrgId: actorOf(req, "an authority route").orgId,
+        issuedByName: String(authority.profile["legalName"] || ""),
+        issuedOn: cleanDate(body, "issuedOn") || new Date(),
+        expiresOn: cleanDate(body, "expiresOn"),
+        status: cleanText(body, "status"),
         source: "GOVERNMENT",
         verification: "AUTHORITY_VERIFIED",
         class: AUTHORITY_CLASS,
@@ -299,23 +371,23 @@ authorityRoutes.post("/properties/:siteId/authority", async (req, res, next) => 
     await db.propertyTimelineEvent.create({
       data: {
         orgId, dnaId: dna.id,
-        kind: body.kind === "BUILDING_PERMIT" ? "PERMIT_ISSUED"
-            : body.kind === "PLANNING_APPROVAL" ? "PLANNING_APPROVED"
-            : body.kind === "INSPECTION" ? "INSPECTION_PASSED"
-            : body.kind === "OCCUPANCY_APPROVAL" ? "OCCUPANCY_APPROVED"
-            : body.kind === "ZONING_DECISION" ? "ZONING_CHANGED"
+        kind: kind === "BUILDING_PERMIT" ? "PERMIT_ISSUED"
+            : kind === "PLANNING_APPROVAL" ? "PLANNING_APPROVED"
+            : kind === "INSPECTION" ? "INSPECTION_PASSED"
+            : kind === "OCCUPANCY_APPROVAL" ? "OCCUPANCY_APPROVED"
+            : kind === "ZONING_DECISION" ? "ZONING_CHANGED"
             : "OFFICIAL_NOTICE",
-        title: body.title,
-        detail: body.ref ? `Reference ${body.ref}` : "",
+        title,
+        detail: cleanText(body, "ref") ? `Reference ${cleanText(body, "ref")}` : "",
         entity: "authority-record", entityId: made.id,
-        actorName: authority.profile.legalName || "",
+        actorName: String(authority.profile["legalName"] || ""),
         source: "GOVERNMENT",
         verification: "AUTHORITY_VERIFIED",
         class: "INTERNAL",
       },
     });
 
-    await audit(req, "authority.record.file", "propertyDna", dna.id, { id: made.id, dataset: body.dataset });
+    await audit(guarded(req), "authority.record.file", "propertyDna", dna.id, { id: made.id, dataset });
     res.status(201).json({ record: { id: made.id, ref: made.ref, title: made.title, verification: made.verification } });
   } catch (e) { next(e); }
 });
@@ -340,9 +412,20 @@ authorityRoutes.post("/authority/requests", async (req, res, next) => {
       purpose: "text", reference: "string",
     } }, req.body, { partial: true });
 
-    if (!body.purpose) throw badRequest("A request needs a stated purpose.");
-    if (!body.basis) throw badRequest("A request needs a basis — consent is one of several, not the only one.");
-    const datasets = String(body.datasets || "").split(",").map((d) => d.trim()).filter(Boolean);
+    const purpose = cleanText(body, "purpose");
+    if (!purpose) throw badRequest("A request needs a stated purpose.");
+    const basis = enumParam("DataAccessBasis", body["basis"], "lawful basis");
+    if (!basis) {
+      throw badRequest("A request needs a basis — consent is one of several, not the only one.");
+    }
+    /*
+     * Each dataset checked, not just split.
+     *
+     * A name that is not a dataset used to reach Prisma as an enum value and
+     * come back as a 500. It is the caller naming something PALTAS does not
+     * hold, and it is now said as one.
+     */
+    const datasets = splitDatasets(body["datasets"], "asked for");
     if (!datasets.length) throw badRequest("Name the datasets being asked for.");
 
     const dna = body.propertyRef
@@ -353,14 +436,14 @@ authorityRoutes.post("/authority/requests", async (req, res, next) => {
     const made = await db.authorityRequest.create({
       data: {
         profileId: profile.id,
-        orgId: dna ? dna.orgId : req.actor.orgId,
+        orgId: dna ? dna.orgId : actorOf(req, "an authority route").orgId,
         dnaId: dna ? dna.id : null,
-        datasets, basis: body.basis, purpose: body.purpose,
-        reference: body.reference || "",
+        datasets, basis, purpose,
+        reference: cleanText(body, "reference"),
         status: "SUBMITTED",
       },
     });
-    await audit(req, "authority.request.submit", "authorityRequest", made.id, { datasets, basis: body.basis });
+    await audit(guarded(req), "authority.request.submit", "authorityRequest", made.id, { datasets, basis });
 
     res.status(201).json({
       request: { id: made.id, status: made.status, datasets: made.datasets },
@@ -382,7 +465,7 @@ authorityRoutes.post("/authority/requests", async (req, res, next) => {
 authorityRoutes.post("/authority/requests/:id/decide", async (req, res, next) => {
   try {
     const found = await db.authorityRequest.findFirst({
-      where: { id: req.params.id, orgId: req.actor.orgId },
+      where: { id: req.params.id, orgId: actorOf(req, "an authority route").orgId },
     });
     if (!found) throw hidden();
     if (found.status !== "SUBMITTED" && found.status !== "UNDER_REVIEW") {
@@ -398,8 +481,8 @@ authorityRoutes.post("/authority/requests/:id/decide", async (req, res, next) =>
       throw badRequest('decision must be "approved" or "refused".');
     }
 
-    const granted = decision === "APPROVED"
-      ? String(body.granted || "").split(",").map((d) => d.trim()).filter(Boolean)
+    const granted: AuthorityDataset[] = decision === "APPROVED"
+      ? splitDatasets(body["granted"], "granted")
       : [];
     /* Granting something that was not asked for is a mistake, not a kindness. */
     const extra = granted.filter((d) => !found.datasets.includes(d));
@@ -415,14 +498,14 @@ authorityRoutes.post("/authority/requests/:id/decide", async (req, res, next) =>
       where: { id: found.id },
       data: {
         status, grantedDatasets: granted,
-        decidedById: req.session.userId,
+        decidedById: sessionOf(req, "an authority route").userId,
         decidedByName: req.view?.user?.name || "",
         decidedAt: new Date(),
         decisionNote: body.note || "",
         expiresOn: body.expiresOn || null,
       },
     });
-    await audit(req, "authority.request.decide", "authorityRequest", found.id, {
+    await audit(guarded(req), "authority.request.decide", "authorityRequest", found.id, {
       status, granted, asked: found.datasets,
     });
 
@@ -440,7 +523,7 @@ authorityRoutes.post("/authority/requests/:id/decide", async (req, res, next) =>
 authorityRoutes.get("/authority/requests", async (req, res, next) => {
   try {
     const rows = await db.authorityRequest.findMany({
-      where: { orgId: req.actor.orgId },
+      where: { orgId: actorOf(req, "an authority route").orgId },
       orderBy: { createdAt: "desc" },
       include: { profile: true, dna: true },
       take: 100,

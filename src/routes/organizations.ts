@@ -14,7 +14,9 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
-import { badRequest, conflict, forbidden, requireSession } from "../http/index.ts";
+import type { $Enums } from "@prisma/client";
+import { enumParam, messageOf } from "../http/errors.ts";
+import { sessionOf } from "../http/request.ts";import { badRequest, conflict, forbidden, requireSession } from "../http/index.ts";
 import { notFound, rateLimit } from "../http/index.ts";
 import { config } from "../config.ts";
 import {
@@ -26,7 +28,7 @@ import { seedChartOfAccounts } from "../domain/ledger.ts";
 
 export const organizationRoutes = Router();
 
-const PRODUCTS = new Set([
+const PRODUCTS: ReadonlySet<string> = new Set([
   "PROPERTY_MANAGEMENT", "AGENT_HOST", "HOTEL_MANAGEMENT",
   "SECURITY_MANAGEMENT", "GUEST_PORTAL",
 ]);
@@ -46,7 +48,7 @@ const PRODUCTS = new Set([
  * each one actually needs. The question is what the company DOES; the product
  * is our answer, not theirs to pick from a list of internal names.
  */
-const WORK_LINES = {
+const WORK_LINES: Readonly<Record<string, $Enums.Product>> = {
   develop: "PROPERTY_MANAGEMENT",   // I build or develop projects
   own_let: "PROPERTY_MANAGEMENT",   // I own units and let them long-term
   manage: "PROPERTY_MANAGEMENT",    // I manage buildings for other owners
@@ -85,7 +87,7 @@ organizationRoutes.post("/", requireSession(), async (req, res, next) => {
      * colleague was added to.
      */
     const existing = await db.membership.findFirst({
-      where: { userId: req.session.userId },
+      where: { userId: sessionOf(req, "an organizations route").userId },
       include: { org: true },
     });
     if (existing) {
@@ -135,13 +137,13 @@ organizationRoutes.post("/", requireSession(), async (req, res, next) => {
           workspace: { create: { status: "ACTIVE", preferred } },
 
           entitlements: {
-            create: products.map((product) => ({ product, status: "ACTIVE" })),
+            create: products.map((product) => ({ product, status: "ACTIVE" as const })),
           },
 
           /* The person who creates the company owns it. */
           memberships: {
             create: {
-              userId: req.session.userId,
+              userId: sessionOf(req, "an organizations route").userId,
               role: "OWNER",
               scope: { all: true },
             },
@@ -153,7 +155,7 @@ organizationRoutes.post("/", requireSession(), async (req, res, next) => {
          the person signed in to nothing and wondering why the console is
          empty. */
       await tx.session.update({
-        where: { id: req.session.id },
+        where: { id: sessionOf(req, "an organizations route").id },
         data: { orgId: created.id },
       });
 
@@ -192,10 +194,12 @@ organizationRoutes.post("/", requireSession(), async (req, res, next) => {
       chart = (await seedChartOfAccounts(db, org.id)).length;
     } catch (e) {
       /* Loud in the log, invisible to the person signing up. */
-      console.error("chart of accounts not seeded for", org.id, e.message);
+      console.error("chart of accounts not seeded for", org.id, messageOf(e));
     }
 
-    const view = await sessionView({ ...req.session, orgId: org.id });
+    const view = await sessionView({
+      ...sessionOf(req, "POST /organizations"), orgId: org.id,
+    });
     res.status(201).json({ ...view, chartOfAccounts: chart });
   } catch (e) { next(e); }
 });
@@ -232,7 +236,7 @@ organizationRoutes.post("/", requireSession(), async (req, res, next) => {
  * GUEST_PORTAL and PLATFORM are deliberately absent: one is never sold, and
  * the other is PALTAS's own staff console, refused explicitly below.
  */
-const PRODUCT_NAMES = {
+const PRODUCT_NAMES: Readonly<Record<string, $Enums.Product>> = {
   property: "PROPERTY_MANAGEMENT",
   agent: "AGENT_HOST",
   host: "AGENT_HOST",
@@ -241,7 +245,7 @@ const PRODUCT_NAMES = {
 };
 
 /** A product, however it was named: key, short name, or work line. */
-function asProduct(raw) {
+function asProduct(raw: unknown): $Enums.Product | null {
   const v = String(raw || "").trim();
   if (!v) return null;
   const upper = v.toUpperCase();
@@ -250,26 +254,26 @@ function asProduct(raw) {
       "PLATFORM is PALTAS's own staff console. It is granted by PALTAS and cannot be requested at signup."
     );
   }
-  if (PRODUCTS.has(upper)) return upper;
+  if (PRODUCTS.has(upper)) return upper as $Enums.Product;
   const lower = v.toLowerCase();
   return WORK_LINES[lower] || PRODUCT_NAMES[lower] || null;
 }
 
-export function resolveProducts(body) {
-  const out = new Set();
-  for (const raw of [...toArray(body.work), ...toArray(body.products)]) {
+export function resolveProducts(body: Record<string, unknown>): $Enums.Product[] {
+  const out = new Set<$Enums.Product>();
+  for (const raw of [...toArray(body["work"]), ...toArray(body["products"])]) {
     const p = asProduct(raw);
     if (p) out.add(p);
   }
   return [...out];
 }
 
-const toArray = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+const toArray = (v: unknown): unknown[] => (Array.isArray(v) ? v : v ? [v] : []);
 
 /** GET /organizations/me — the current company, for a page that needs only that. */
 organizationRoutes.get("/me", requireSession(), async (req, res, next) => {
   try {
-    const view = await sessionView(req.session);
+    const view = await sessionView(sessionOf(req, "GET /organizations/me"));
     if (!view.organization) {
       return res.status(404).json({
         error: "no_organization",
@@ -302,7 +306,7 @@ organizationRoutes.get("/me", requireSession(), async (req, res, next) => {
  * ====================================================================== */
 
 /** The caller's membership in THIS company, or null. Never from the body. */
-async function membershipIn(userId, orgId) {
+async function membershipIn(userId: string, orgId: string) {
   return db.membership.findUnique({
     where: { userId_orgId: { userId, orgId } },
     include: { org: { select: { id: true, name: true } } },
@@ -322,7 +326,7 @@ organizationRoutes.post("/:id/invitations",
   async (req, res, next) => {
     try {
       const orgId = String(req.params.id);
-      const mine = await membershipIn(req.session.userId, orgId);
+      const mine = await membershipIn(sessionOf(req, "an organizations route").userId, orgId);
       /*
        * NOT FOUND rather than FORBIDDEN for a company that is not yours: a
        * different answer for "exists but is not yours" is a way to discover
@@ -330,7 +334,16 @@ organizationRoutes.post("/:id/invitations",
        */
       if (!mine) throw notFound("No company with that id.");
 
-      const role = String(req.body?.role || "").trim().toUpperCase();
+      /*
+       * CHECKED AGAINST THE SCHEMA'S OWN ROLES.
+       *
+       * whyNotInvite() already refuses a role this person may not grant, but
+       * it answers about roles it knows — an unrecognised string fell past it
+       * and reached Prisma as an enum value, which is a 500. It is the
+       * caller's mistake and is now said as one.
+       */
+      const role = enumParam("Role", req.body?.role, "role");
+      if (!role) throw badRequest("Which role? Send `role`.");
       const no = whyNotInvite(mine.role, role);
       if (no) throw forbidden(no);
 
@@ -363,7 +376,7 @@ organizationRoutes.post("/:id/invitations",
           scope: req.body?.scope && typeof req.body.scope === "object"
             ? req.body.scope : { all: true },
           tokenHash: hashToken(token),
-          invitedById: req.session.userId,
+          invitedById: sessionOf(req, "an organizations route").userId,
           expiresAt: new Date(Date.now() + INVITE_DAYS * 86_400_000),
         },
         include: { invitedBy: { select: { name: true, email: true } } },
@@ -385,7 +398,7 @@ organizationRoutes.post("/:id/invitations",
 organizationRoutes.get("/:id/invitations", requireSession(), async (req, res, next) => {
   try {
     const orgId = String(req.params.id);
-    const mine = await membershipIn(req.session.userId, orgId);
+    const mine = await membershipIn(sessionOf(req, "an organizations route").userId, orgId);
     if (!mine) throw notFound("No company with that id.");
     if (!grantableBy(mine.role).length) {
       throw forbidden("Only an owner or a manager can see who has been invited.");
@@ -408,7 +421,7 @@ organizationRoutes.post("/:id/invitations/:inviteId/revoke",
   requireSession(), async (req, res, next) => {
     try {
       const orgId = String(req.params.id);
-      const mine = await membershipIn(req.session.userId, orgId);
+      const mine = await membershipIn(sessionOf(req, "an organizations route").userId, orgId);
       if (!mine) throw notFound("No company with that id.");
       if (!grantableBy(mine.role).length) {
         throw forbidden("Only an owner or a manager can withdraw an invitation.");

@@ -223,20 +223,52 @@ test("a company cannot file an official record against its own property", () => 
     "a filed record no longer says the authority verified it");
 });
 
-test("a request grants nothing, and a grant cannot exceed the ask", () => {
-  const decide = routes.slice(routes.indexOf('authorityRoutes.post("/authority/requests/:id/decide"'));
-  assert.match(decide.slice(0, 2000), /const extra = granted\.filter\(\(d\) => !found\.datasets\.includes\(d\)\)/,
-    "a company can grant a dataset the authority never asked for");
-  assert.match(decide.slice(0, 2000), /PARTIALLY_APPROVED/,
-    "a partial grant is recorded as a full one");
-  /* The decision belongs to the company, not the authority. */
-  assert.match(decide.slice(0, 900), /orgId: req\.actor\.orgId/,
-    "an authority can decide its own request");
+/*
+ * ONE HANDLER, FROM ITS FIRST LINE TO ITS LAST.
+ *
+ * The slices below were character counts — `handler.slice(0, 1800)` — which
+ * is a bound that has nothing to do with where the handler ends. Adding six
+ * lines of validation to a route pushed the sentence this test checks past
+ * 1800 characters, and the test reported that the response no longer says
+ * something it says three lines further down.
+ *
+ * A handler ends where the next route begins. That is the bound.
+ */
+function handlerFor(text, declaration) {
+  const from = text.indexOf(declaration);
+  assert.notEqual(from, -1, `${declaration} is gone`);
+  const rest = text.slice(from + declaration.length);
+  const next = rest.indexOf("\nauthorityRoutes.");
+  return declaration + (next === -1 ? rest : rest.slice(0, next));
+}
 
-  const submit = routes.slice(routes.indexOf('authorityRoutes.post("/authority/requests"'));
-  assert.match(submit.slice(0, 1800), /status: "SUBMITTED"/,
+test("a request grants nothing, and a grant cannot exceed the ask", () => {
+  const decide = handlerFor(routes, 'authorityRoutes.post("/authority/requests/:id/decide"');
+  assert.match(decide, /const extra = granted\.filter\(\(d\) => !found\.datasets\.includes\(d\)\)/,
+    "a company can grant a dataset the authority never asked for");
+  assert.match(decide, /PARTIALLY_APPROVED/,
+    "a partial grant is recorded as a full one");
+  /*
+   * THE DECISION BELONGS TO THE COMPANY, NOT THE AUTHORITY.
+   *
+   * The request is looked up scoped to the CALLER'S OWN organization, so an
+   * authority cannot reach a request filed against somebody else's property
+   * and approve it for itself.
+   *
+   * This matched the literal `orgId: req.actor.orgId` and broke when the
+   * route read the actor through a helper. What matters is the pair: the
+   * lookup is scoped by the caller's own org, and that org does not come
+   * from the request.
+   */
+  assert.match(decide, /orgId:\s*(req\.)?actor(Of\([^)]*\))?\.orgId/,
+    "an authority can decide its own request");
+  assert.doesNotMatch(decide, /orgId:\s*(String\()?req\.(body|params|query)/,
+    "the request is looked up by an organization the caller sent");
+
+  const submit = handlerFor(routes, 'authorityRoutes.post("/authority/requests"');
+  assert.match(submit, /status: "SUBMITTED"/,
     "a submitted request starts in a state that already grants something");
-  assert.match(submit.slice(0, 1800), /This grants no access/,
+  assert.match(submit, /This grants no access/,
     "the response no longer says that asking is not receiving");
 });
 
