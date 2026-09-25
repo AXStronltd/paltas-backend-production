@@ -59,7 +59,15 @@ const skip = typeof mock.module === "function"
  * `typeof import(...)` is the module's own type, so these handles are checked
  * against the real thing rather than carried as `any`.
  */
-let db: typeof import("../src/db.ts")["db"];
+/*
+ * THE STAND-IN, NOT THE REAL CLIENT.
+ *
+ * createFakeDb() builds an in-memory Prisma from schema.prisma — see
+ * test/fake-prisma.ts. It implements what the routes call and not the 138
+ * methods a real PrismaClient carries, which is the point: this suite runs
+ * the real Express app with no database at all.
+ */
+let db: import("./fake-prisma.ts").FakeDb;
 let createApp: typeof import("../src/server.ts")["createApp"];
 if (!skip) {
   const { createFakeDb } = await import("./fake-prisma.ts");
@@ -83,7 +91,7 @@ let base: string;
 if (!skip) {
   test.before(async () => {
     const app = createApp();
-    await new Promise((r) => { server = app.listen(0, r); });
+    await new Promise<void>((r) => { server = app.listen(0, () => r()); });
     base = `http://127.0.0.1:${portOf(server)}`;
   });
 }

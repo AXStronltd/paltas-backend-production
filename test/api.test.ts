@@ -28,6 +28,7 @@ import crypto from "node:crypto";
 import { explain, freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 import { portOf } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -104,7 +105,7 @@ async function boot() {
   await freshSchema(pool, SCHEMA);
 
   const app = createApp();
-  await new Promise((r) => { server = app.listen(0, r); });
+  await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${portOf(server)}`;
 }
 
@@ -505,7 +506,7 @@ test("the whole workflow, by the three people it takes", { skip }, async () => {
 });
 
 test("scheduling is not publishing, even inside the dates", { skip }, async () => {
-  const paltas = await db.organization.findFirst({ where: { name: "PALTAS" } });
+  const paltas = present(await db.organization.findFirst({ where: { name: "PALTAS" } }), "no paltas — the row this test made is gone");
   const publisher = await signIn({ email: "ahmed@paltas.io", name: "Ahmed Akboole", orgId: paltas.id });
 
   const hotel = await makeCompany({
@@ -724,7 +725,7 @@ test("an address claimed by a DIFFERENT Google account is refused", { skip }, as
     "a second Google account took over an existing address");
 
   /* And the original is untouched. */
-  const owner = await db.user.findUnique({ where: { email: "shared@example.com" } });
+  const owner = present(await db.user.findUnique({ where: { email: "shared@example.com" } }), "no owner — the row this test made is gone");
   assert.equal(owner.googleSub, "sub_owner_A", "the intruder overwrote the owner's account");
   assert.equal(owner.name, "Owner A");
 });

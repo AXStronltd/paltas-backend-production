@@ -18,6 +18,7 @@ import crypto from "node:crypto";
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 import { portOf } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const SCHEMA = "test_provisioning";
@@ -66,7 +67,7 @@ async function boot() {
   pool = poolInSchema(pg, DB, SCHEMA);
   await freshSchema(pool, SCHEMA);
   const app = createApp();
-  await new Promise((r) => { server = app.listen(0, r); });
+  await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${portOf(server)}`;
 }
 
@@ -281,7 +282,7 @@ test("a company that does not exist is refused", { skip }, async () => {
 test("removing a product suspends it and never deletes it", { skip }, async () => {
   const staff = await company({ products: ["PLATFORM"], role: "OWNER" });
   const them = await company({ products: ["HOTEL_MANAGEMENT"] });
-  const row = await db.entitlement.findFirst({ where: { orgId: them.org.id } });
+  const row = present(await db.entitlement.findFirst({ where: { orgId: them.org.id } }), "no row — the row this test made is gone");
 
   const r = await call(`${GRANT}/${row.id}/suspend`, {
     method: "POST", cookie: staff.cookie, body: { why: "moved to annual billing" },
@@ -303,7 +304,7 @@ test("removing a product suspends it and never deletes it", { skip }, async () =
 test("suspending twice is refused rather than silently repeated", { skip }, async () => {
   const staff = await company({ products: ["PLATFORM"], role: "OWNER" });
   const them = await company({ products: ["AGENT_HOST"] });
-  const row = await db.entitlement.findFirst({ where: { orgId: them.org.id } });
+  const row = present(await db.entitlement.findFirst({ where: { orgId: them.org.id } }), "no row — the row this test made is gone");
 
   await call(`${GRANT}/${row.id}/suspend`, { method: "POST", cookie: staff.cookie });
   const again = await call(`${GRANT}/${row.id}/suspend`, { method: "POST", cookie: staff.cookie });
@@ -313,7 +314,7 @@ test("suspending twice is refused rather than silently repeated", { skip }, asyn
 test("a suspended product can be sold back", { skip }, async () => {
   const staff = await company({ products: ["PLATFORM"], role: "OWNER" });
   const them = await company({ products: ["AGENT_HOST"] });
-  const row = await db.entitlement.findFirst({ where: { orgId: them.org.id } });
+  const row = present(await db.entitlement.findFirst({ where: { orgId: them.org.id } }), "no row — the row this test made is gone");
 
   await call(`${GRANT}/${row.id}/suspend`, { method: "POST", cookie: staff.cookie });
   const back = await call(GRANT, {

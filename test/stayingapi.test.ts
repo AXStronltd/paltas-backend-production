@@ -15,19 +15,30 @@ const TEST_KEY = "stay_test_" + "f".repeat(20);
 const LIVE_KEY = "stay_live_" + "a".repeat(20);
 
 function fakeFetch(steps: Wire) {
-  const seen = [];
-  const queue = Array.isArray(steps) ? steps.slice() : [steps];
-  const impl = async (url: Wire, opts: Wire) => {
-    seen.push({ url: String(url), headers: (opts && opts.headers) || {} });
-    const next = queue.length > 1 ? queue.shift() : queue[0];
-    return {
-      ok: (next.status || 200) < 400,
-      status: next.status || 200,
-      headers: { get: (k: Wire) => (next.headers || {})[String(k).toLowerCase()] ?? null },
-      json: async () => next.body,
-    };
-  };
-  impl.seen = seen;
+  /* Every request the adapter made, so a test can assert on the poll URL as
+     well as on the answer. */
+  const seen: { url: string; headers: Record<string, string> }[] = [];
+  const queue: Wire[] = Array.isArray(steps) ? steps.slice() : [steps];
+
+  /* A fetch that answers from the queue, and carries its own record. The
+     intersection is what lets a caller read `f.seen` off the function. */
+  const impl: FetchLike & { seen: typeof seen } = Object.assign(
+    async (url: string, opts: Parameters<FetchLike>[1] = {}): Promise<FetchReply> => {
+      seen.push({ url: String(url), headers: opts?.headers ?? {} });
+      const next = (queue.length > 1 ? queue.shift() : queue[0]) as Wire;
+      const body = next.body;
+      return {
+        ok: (next.status || 200) < 400,
+        status: next.status || 200,
+        headers: {
+          get: (k: string) => (next.headers || {})[String(k).toLowerCase()] ?? null,
+        },
+        text: async () => JSON.stringify(body),
+        json: async () => body,
+      };
+    },
+    { seen },
+  );
   return impl;
 }
 
@@ -45,7 +56,12 @@ test("the key decides the environment, and nothing else can", () => {
     (e) => e instanceof SupplyUnavailable && /stay_test_ or stay_live_/.test(e.message));
 
   /* There is no option to override it — a sandbox key is a sandbox client. */
-  const c = stayingApi({ apiKey: TEST_KEY, sandbox: false, fetchImpl: fakeFetch({ body: {} }) });
+  /* `sandbox` is sent deliberately and is NOT in StayingApiConfig — that is
+     what this test proves: there is no option to override the key's own
+     environment, and the cast says the type already refuses one. */
+  const c = stayingApi({
+    apiKey: TEST_KEY, sandbox: false, fetchImpl: fakeFetch({ body: {} }),
+  } as Parameters<typeof stayingApi>[0]);
   assert.equal(c.sandbox, true, "a config flag overrode the key's own environment");
 });
 
@@ -92,7 +108,7 @@ test("every row it returns is marked as somebody else's, and unbookable", { }, a
   const { results } = await c.search({ location: "Madrid", checkIn: "2026-11-02", checkOut: "2026-11-05" });
   assert.equal(results.length, 2);
 
-  for (const r of results) {
+  for (const r of results as Wire[]) {
     assert.equal(r.bookable, false, `${r.id} is not marked unbookable`);
     assert.equal(r.paltasOwned, false);
     assert.equal(r.source, "stayingapi");
@@ -103,11 +119,11 @@ test("every row it returns is marked as somebody else's, and unbookable", { }, a
 
   /* Money in integer minor units, from price.totalPrice — the whole stay, which
      is what a visitor compares. */
-  assert.deepEqual(results[0].price, { amountMinor: 41250, currency: "EUR" });
-  assert.deepEqual(results[0].perNight, { amountMinor: 13750, currency: "EUR" });
-  assert.equal(results[0].city, "Madrid");
-  assert.equal(results[0].image, "https://img/1.jpg");
-  assert.equal(results[0].id, "booking:casa-de-alba");
+  assert.deepEqual((results[0] as Wire).price, { amountMinor: 41250, currency: "EUR" });
+  assert.deepEqual((results[0] as Wire).perNight, { amountMinor: 13750, currency: "EUR" });
+  assert.equal((results[0] as Wire).city, "Madrid");
+  assert.equal((results[0] as Wire).image, "https://img/1.jpg");
+  assert.equal((results[0] as Wire).id, "booking:casa-de-alba");
 
   /*
    * THE SCALE COMES FROM THE SERVICE, NOT FROM THE PLATFORM NAME.
@@ -115,10 +131,10 @@ test("every row it returns is marked as somebody else's, and unbookable", { }, a
    * 4.8 read as out of 10 is a bad hotel; out of 5 it is an excellent one. The
    * same true number, two opposite meanings.
    */
-  assert.deepEqual(results[0].rating, { score: 8.8, outOf: 10 });
-  assert.deepEqual(results[1].rating, { score: 4.9, outOf: 5 });
+  assert.deepEqual((results[0] as Wire).rating, { score: 8.8, outOf: 10 });
+  assert.deepEqual((results[1] as Wire).rating, { score: 4.9, outOf: 5 });
   /* Nothing invented where the platform gave nothing. */
-  assert.equal(results[1].perNight, null, "a per-night price was divided out of a total");
+  assert.equal((results[1] as Wire).perNight, null, "a per-night price was divided out of a total");
 });
 
 test("a rating with no scale, or past its scale, is dropped", { }, async () => {
@@ -131,10 +147,10 @@ test("a rating with no scale, or past its scale, is dropped", { }, async () => {
       url: "https://b/3", guestRating: 0, ratingScale: 10 },
   ] } } }) });
   const { results } = await c.search({ location: "Lisbon" });
-  assert.equal(results[0].rating, null, "a 9.1 on a 5-point scale was kept");
-  assert.equal(results[1].rating, null,
+  assert.equal((results[0] as Wire).rating, null, "a 9.1 on a 5-point scale was kept");
+  assert.equal((results[1] as Wire).rating, null,
     "a score with no scale was given a plausible default instead of being dropped");
-  assert.equal(results[2].rating, null, "a zero was rendered as a score");
+  assert.equal((results[2] as Wire).rating, null, "a zero was rendered as a score");
 });
 
 test("a completed job is read at data.result, not data", { }, async () => {
@@ -157,7 +173,7 @@ test("a completed job is read at data.result, not data", { }, async () => {
   const { results } = await c.search({ location: "Aspen" });
 
   assert.equal(results.length, 1, "the payload under data.result was not unwrapped");
-  assert.equal(results[0].title, "Cabin");
+  assert.equal((results[0] as Wire).title, "Cabin");
 
   /* `running` is in progress, not finished. Stopping there returns a wrapper. */
   assert.equal(f.seen.length, 3, "a running job was treated as terminal");
@@ -231,9 +247,9 @@ test("the key travels in a header and never in a URL or an error", async () => {
    */
   const leak = stayingApi({ apiKey: LIVE_KEY, fetchImpl: fakeFetch({
     status: 400, body: { message: `bad request for key ${LIVE_KEY}` } }) });
-  await assert.rejects(() => leak.search({ location: "Cairo" }), (e) => {
-    assert.ok(!e.message.includes(LIVE_KEY), "the upstream error leaked the API key");
-    assert.ok(!/stay_live_/.test(e.message), "the error carried a key-shaped string");
+  await assert.rejects(() => leak.search({ location: "Cairo" }), (e: unknown) => {
+    assert.ok(!said(e).includes(LIVE_KEY), "the upstream error leaked the API key");
+    assert.ok(!/stay_live_/.test(said(e)), "the error carried a key-shaped string");
     return true;
   });
 
@@ -244,10 +260,12 @@ test("the key travels in a header and never in a URL or an error", async () => {
 });
 
 test("money and credits are refused rather than guessed", async () => {
-  for (const [status, expected] of [[401, /rotated or revoked/], [402, /out of credits/], [429, /rate limiting/]]) {
+  const CASES: [number, RegExp][] =
+    [[401, /rotated or revoked/], [402, /out of credits/], [429, /rate limiting/]];
+  for (const [status, expected] of CASES) {
     const c = stayingApi({ apiKey: LIVE_KEY, fetchImpl: fakeFetch({ status, body: {} }) });
     await assert.rejects(() => c.search({ location: "Doha" }),
-      (e) => e instanceof SupplyUnavailable && expected.test(e.message),
+      (e: unknown) => e instanceof SupplyUnavailable && expected.test(said(e)),
       `${status} did not produce its own explanation`);
   }
 });
@@ -263,7 +281,8 @@ test("search asks for no more than it needs, and only real platforms", async () 
   assert.equal(u.searchParams.get("limit"), "40", "an unbounded limit was sent to a metered endpoint");
   assert.equal(u.searchParams.get("platforms"), "airbnb,booking", "a platform that does not exist was requested");
 
-  await assert.rejects(() => c.search({}), (e) => /needs somewhere to search/.test(e.message));
+  await assert.rejects(() => c.search({}),
+    (e: unknown) => /needs somewhere to search/.test(said(e)));
 });
 
 test("either spelling of the variable works, and a conflict is refused", () => {
@@ -274,8 +293,8 @@ test("either spelling of the variable works, and a conflict is refused", () => {
    * support round over which one the code happened to pick is a wasted
    * afternoon.
    */
-  assert.equal(fromEnv({ STAYINGAPI_KEY: TEST_KEY }).sandbox, true);
-  assert.equal(fromEnv({ STAYING_API_KEY: TEST_KEY }).sandbox, true,
+  assert.equal(present(fromEnv({ STAYINGAPI_KEY: TEST_KEY }), "fromEnv returned nothing for a key it accepts").sandbox, true);
+  assert.equal(present(fromEnv({ STAYING_API_KEY: TEST_KEY }), "fromEnv returned nothing for a key it accepts").sandbox, true,
     "the spelling most people type was not accepted");
 
   /* The same key under both names is one key, not a conflict. */
@@ -287,9 +306,9 @@ test("either spelling of the variable works, and a conflict is refused", () => {
    * either silently runs the service on a credential its operator believes
    * they replaced, which is worse than the feature not starting.
    */
-  assert.throws(() => fromEnv({ STAYINGAPI_KEY: TEST_KEY, STAYING_API_KEY: LIVE_KEY }), (e) => {
-    assert.match(e.message, /both set and hold DIFFERENT keys/);
-    assert.ok(!e.message.includes(TEST_KEY) && !e.message.includes(LIVE_KEY),
+  assert.throws(() => fromEnv({ STAYINGAPI_KEY: TEST_KEY, STAYING_API_KEY: LIVE_KEY }), (e: unknown) => {
+    assert.match(said(e), /both set and hold DIFFERENT keys/);
+    assert.ok(!said(e).includes(TEST_KEY) && !said(e).includes(LIVE_KEY),
       "the conflict message quoted the keys it was refusing to choose between");
     return true;
   });
@@ -297,7 +316,7 @@ test("either spelling of the variable works, and a conflict is refused", () => {
 
 test("fromEnv builds nothing without a key", () => {
   assert.equal(fromEnv({}), null, "a client was built with no credential");
-  const c = fromEnv({ STAYINGAPI_KEY: TEST_KEY });
+  const c = present(fromEnv({ STAYINGAPI_KEY: TEST_KEY }), "a test key built no client");
   assert.equal(c.sandbox, true);
   assert.equal(has(c.describe, "describe").call(c).name, "stayingapi");
   assert.equal(DEFAULT_BASE, "https://api.stayingapi.com/v1");
@@ -324,6 +343,9 @@ import { readFileSync } from "node:fs";
 import { sourceText } from "./src-files.ts";
 import { has } from "./wire.ts";
 import type { Wire } from "./wire.ts";
+import type { FetchLike, FetchReply } from "../src/domain/supply.ts";
+import { said } from "./threw.ts";
+import { present } from "./wire.ts";
 
 test("a key pasted with whitespace is trimmed, and a blank one is absent", () => {
   /*

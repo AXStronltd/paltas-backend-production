@@ -67,7 +67,8 @@ const ENUMS = new Map(
 );
 
 /** Prisma's scalar types, mapped the way its PostgreSQL connector maps them. */
-const SQL_TYPE = {
+/* Prisma's scalar -> the type PostgreSQL reports for the column it made. */
+const SQL_TYPE: Record<string, string> = {
   String: "text", Int: "integer", BigInt: "bigint", Float: "double precision",
   Boolean: "boolean", DateTime: "timestamp without time zone", Json: "jsonb",
   Decimal: "numeric", Bytes: "bytea",
@@ -101,14 +102,35 @@ const attrs = (body: Wire, kind: Wire) =>
  * ---------------------------------------------------------------- */
 
 let pool: import("pg").Pool;
-let db: typeof import("../src/db.ts")["db"] | null = null;
+/**
+ * THE DATABASE AS POSTGRES DESCRIBES ITSELF.
+ *
+ * Not the Prisma client — this suite runs the real migrations against a real
+ * PostgreSQL and then asks the catalogue what it actually built, so that the
+ * SQL can be compared to schema.prisma column by column.
+ *
+ * Rows come back from `pg` untyped, which is honest: they are whatever the
+ * catalogue query selected.
+ */
+interface Introspection {
+  /** table name -> column name -> the catalogue row for that column. */
+  readonly tables: Map<string, Map<string, Wire>>;
+  readonly indexes: Map<string, Wire>;
+  readonly fks: Map<string, Wire>;
+  /** enum name -> its values, in order. */
+  readonly enums: Map<string, string[]>;
+}
+
+let db: Introspection | null = null;
 
 async function introspect() {
   if (db) return db;
   pool = poolInSchema(pg, URL_, SCHEMA);
 
   const probe = new pg.Client({ connectionString: URL_ });
-  await connectOrExplain(probe, URL_);
+  /* pg.Client overloads connect() — callback and promise — and the helper
+     wants the promise one. */
+  await connectOrExplain(probe as unknown as { connect(): Promise<void> }, URL_);
   await probe.end();
 
   await freshSchema(pool, SCHEMA);
@@ -137,15 +159,15 @@ async function introspect() {
      WHERE n.nspname = '${SCHEMA}'
      ORDER BY t.typname, e.enumsortorder`);
 
-  const byTable = new Map();
+  const byTable = new Map<string, Map<string, Wire>>();
   for (const c of columns.rows) {
     if (!byTable.has(c.table_name)) byTable.set(c.table_name, new Map());
-    byTable.get(c.table_name).set(c.column_name, c);
+    byTable.get(c.table_name)?.set(c.column_name, c);
   }
-  const enumValues = new Map();
+  const enumValues = new Map<string, string[]>();
   for (const r of enums.rows) {
     if (!enumValues.has(r.name)) enumValues.set(r.name, []);
-    enumValues.get(r.name).push(r.value);
+    enumValues.get(r.name)?.push(r.value);
   }
 
   db = {
@@ -242,7 +264,7 @@ test("every enum holds exactly the values the schema declares, in order", { skip
   const d = await introspect();
   /* Only enums the schema actually uses on a column — an unused enum type is
      not created by Prisma either. */
-  const used = new Set();
+  const used = new Set<string>();
   for (const [, body] of MODELS) for (const f of fieldsOf(body)) if (ENUMS.has(f.type)) used.add(f.type);
 
   for (const name of used) {
@@ -286,7 +308,9 @@ test("every foreign key exists, and deletes the way the schema says", { skip }, 
   const problems = [];
 
   /* Postgres records the rule as one character. */
-  const RULE = { a: "NoAction", r: "Restrict", c: "Cascade", n: "SetNull", d: "SetDefault" };
+  /* postgres's one-letter confdeltype -> the name Prisma writes. */
+  const RULE: Record<string, string> =
+    { a: "NoAction", r: "Restrict", c: "Cascade", n: "SetNull", d: "SetDefault" };
 
   for (const [model, body] of MODELS) {
     for (const f of fieldsOf(body)) {
@@ -325,7 +349,9 @@ test("the isolation rule is true of the real database, not just the schema", { s
    * one a customer's data will be in.
    */
   const d = await introspect();
-  const RULE = { a: "NoAction", r: "Restrict", c: "Cascade", n: "SetNull", d: "SetDefault" };
+  /* postgres's one-letter confdeltype -> the name Prisma writes. */
+  const RULE: Record<string, string> =
+    { a: "NoAction", r: "Restrict", c: "Cascade", n: "SetNull", d: "SetDefault" };
   const wrong = [];
 
   for (const [model, cols] of d.tables) {
@@ -356,7 +382,9 @@ test("deleting a company really does take all six products with it", { skip }, a
    * has to be found here rather than by a regulator.
    */
   await introspect();
-  const q = (t: Wire, p: Wire) => pool.query(t, p);
+  /* `pg` types rows as `any` by default; these queries select one column and
+     the assertions below say which. */
+  const q = (t: string, p?: unknown[]): Promise<{ rows: Wire[] }> => pool.query(t, p);
   const id = "cascade_" + Math.random().toString(36).slice(2, 8);
 
   await q(`INSERT INTO "Organization"("id","name","updatedAt") VALUES ($1,$2,now())`, [id, "Doomed Ltd"]);
@@ -380,7 +408,7 @@ test("deleting a company really does take all six products with it", { skip }, a
   const TABLES = ["Site", "Party", "Lease", "Invoice", "InvoiceLine", "Payment",
                   "Reservation", "Folio", "FolioLine", "Listing", "Incident",
                   "IncidentEvent", "WorkOrder", "WorkOrderEvent"];
-  const left = [];
+  const left: string[] = [];
   for (const t of TABLES) {
     const { rows } = await q(`SELECT count(*)::int AS n FROM "${t}" WHERE "id" = $1`, [id]);
     if (rows[0].n !== 0) left.push(t);

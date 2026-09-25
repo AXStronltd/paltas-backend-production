@@ -60,7 +60,15 @@ let skip = typeof mock.module === "function"
  * `typeof import(...)` is the module's own type, so these handles are checked
  * against the real thing rather than carried as `any`.
  */
-let db: typeof import("../src/db.ts")["db"];
+/*
+ * THE STAND-IN, NOT THE REAL CLIENT.
+ *
+ * `createFakeDb()` builds an in-memory Prisma from schema.prisma — see
+ * test/fake-prisma.ts. It satisfies what the routes call and not the 138
+ * methods a real PrismaClient carries, which is the point: this suite runs
+ * the real Express app with no database at all.
+ */
+let db: import("./fake-prisma.ts").FakeDb;
 let createApp: typeof import("../src/server.ts")["createApp"];
 if (!skip) {
   const { createFakeDb } = await import("./fake-prisma.ts");
@@ -90,12 +98,12 @@ function parseForms() {
   const to = md.indexOf("## 3. Endpoints named");
   assert.ok(from > 0 && to > from, "§2 is no longer in contract/backend.md");
 
-  const forms = {};
+  const forms: Record<string, { button: string; fields: Record<string, string> }> = {};
   for (const line of md.slice(from, to).split("\n")) {
     const m = line.match(/^\|\s*`(\w+)`\s*\|([^|]*)\|\s*`(.+?)`\s*\|\s*$/);
     if (!m) continue;
 
-    const fields = {};
+    const fields: Record<string, string> = {};
     /* Split on commas OUTSIDE the enum parentheses — `enum(a|b, c)` would
        otherwise be torn in half. */
     let depth = 0, cur = "";
@@ -111,9 +119,9 @@ function parseForms() {
     for (const p of parts) {
       const [name, kind] = p.split(":");
       if (!name || !kind) continue;
-      fields[name.trim()] = kind.trim();
+      fields[name.trim()] = String(kind).trim();
     }
-    forms[m[1]] = { button: m[2].trim(), fields };
+    forms[String(m[1])] = { button: String(m[2]).trim(), fields };
   }
   return forms;
 }
@@ -149,7 +157,8 @@ function valueFor(consoleField: Wire, kind: Wire) {
     shift: "06:00 – 18:00", open: "18:00–23:00", eta: "14:20",
     post: "Main gate · Riverside", route: "Riverside — perimeter",
   };
-  if (REAL[consoleField]) return REAL[consoleField];
+  const known = REAL as Record<string, string>;
+  if (known[consoleField]) return known[consoleField];
 
   /*
    * Anything else is unique per call. Several of these columns carry a
@@ -166,15 +175,17 @@ function valueFor(consoleField: Wire, kind: Wire) {
 
 /* ---------------------------------------------------------------- rig */
 
-let server, base, cookie;
+let server: import("node:http").Server;
+let base: string;
+let cookie: string;
 /* The company everything below is created inside. Held so that a reference to
    a model NO RESOURCE OWNS can be made directly, the way the framework reads
    it — see referenceTo(). */
-let ORG = null;
+let ORG: import("./fake-prisma.ts").Row | null = null;
 
 async function boot() {
   const app = createApp();
-  await new Promise((r) => { server = app.listen(0, r); });
+  await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${portOf(server)}`;
 
   const org = ORG = await db.organization.create({

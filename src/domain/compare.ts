@@ -153,7 +153,7 @@ const CACHE = new Map();
 const TTL_MS = 6 * 60 * 60 * 1000;   /* six hours; OTA prices do not move faster */
 const MAX_ENTRIES = 500;
 
-function cacheGet(key: string): unknown {
+function cacheGet(key: string): ComparisonResult | null {
   const hit = CACHE.get(key);
   if (!hit) return null;
   if (Date.now() > hit.until) { CACHE.delete(key); return null; }
@@ -162,7 +162,7 @@ function cacheGet(key: string): unknown {
   return hit.value;
 }
 
-function cacheSet(key: string, value: unknown): void {
+function cacheSet(key: string, value: ComparisonResult): void {
   if (CACHE.size >= MAX_ENTRIES) {
     const oldest = CACHE.keys().next().value;
     if (oldest !== undefined) CACHE.delete(oldest);
@@ -194,9 +194,43 @@ export interface CompareQuery {
   readonly guests?: number;
 }
 
+/**
+ * WHAT A PRICE COMPARISON ANSWERS WITH.
+ *
+ * ONE shape, every time. The function returns from nine places and each
+ * spreads `base` and adds what it knows — so without this declared, the
+ * return type is a nine-way union and a caller cannot read `offers` at all
+ * without narrowing through all nine.
+ *
+ * The page reads this object directly, so the honest description is: every
+ * field is always present, and `why` says why the list is empty when it is.
+ * That is what the endpoint has always sent; it was simply never written
+ * down.
+ */
+export interface ComparisonResult {
+  readonly hotelId: string;
+  readonly checkIn: unknown;
+  readonly checkOut: unknown;
+  readonly guests: number;
+  readonly offers: readonly unknown[];
+  readonly min: unknown;
+  readonly median: unknown;
+  readonly dropped: number;
+  readonly provider: ReturnType<typeof publicCompareStatus>;
+  /** The caveat the page must print beside two totals from different sellers. */
+  readonly basis: string;
+  /** Empty when there is a list and nothing to explain. */
+  readonly why?: string;
+  /** Named when the comparison got far enough to identify the property. */
+  readonly hotel?: { name?: string | null; city?: string | null; stars?: unknown };
+  readonly currency?: unknown;
+  /** True when this answer came from the cache rather than the provider. */
+  readonly cached?: boolean;
+}
+
 export async function comparePrices({
   supplier, hotelId, country, currency = "", checkIn, checkOut, guests = 2,
-}: CompareQuery = {}) {
+}: CompareQuery = {}): Promise<ComparisonResult> {
   const base = {
     hotelId: String(hotelId || ""),
     checkIn, checkOut, guests,
@@ -266,7 +300,7 @@ export async function comparePrices({
     offers: out.offers || [],
     min: out.min || null,
     median: out.median || null,
-    dropped: out.dropped || 0,
+    dropped: Number(out.dropped) || 0,
     why: (out.offers && out.offers.length)
       ? ""
       : "No other seller published a comparable price for these dates.",

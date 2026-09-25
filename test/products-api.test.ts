@@ -32,6 +32,7 @@ import { RESOURCES } from "../src/domain/registry.ts";
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 import { portOf } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -89,7 +90,7 @@ async function boot() {
   pool = poolInSchema(pg, DB, SCHEMA);
   await freshSchema(pool, SCHEMA);
   const app = createApp();
-  await new Promise((r) => { server = app.listen(0, r); });
+  await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${portOf(server)}`;
 }
 
@@ -704,7 +705,7 @@ test("the staff directory cannot be written through", { skip }, async () => {
     assert.ok(r.status === 404 || r.status === 405,
       `${method} ${path} answered ${r.status} — the directory is writable`);
   }
-  const after = await db.membership.findFirst({ where: { orgId: c.org.id } });
+  const after = present(await db.membership.findFirst({ where: { orgId: c.org.id } }), "no after — the row this test made is gone");
   assert.equal(after.role, "MANAGER", "the role changed");
 });
 
@@ -764,7 +765,7 @@ test("a document's storage columns cannot be written by a caller", { skip }, asy
     } });
   assert.equal(tried.status, 200);
 
-  const row = await db.document.findUnique({ where: { id } });
+  const row = present(await db.document.findUnique({ where: { id } }), "no row — the row this test made is gone");
   assert.equal(row.name, "Renamed", "an ordinary field stopped being writable");
   assert.equal(row.storageKey, "", "*** a caller set its own storage key ***");
   assert.equal(row.bytes, 0, "a caller claimed a file size");

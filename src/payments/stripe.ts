@@ -348,13 +348,46 @@ export function wireAccount(account: unknown) {
  *   client        an injected Stripe instance, for tests
  *   platformName  what a company sees during onboarding
  */
+/* ====================================================================== *
+ * AS MUCH OF THE STRIPE SDK AS THIS FILE CALLS.
+ *
+ * Five methods. `client` was typed as a whole `Stripe`, which is 114
+ * properties, and a test proving that a refused charge is reported honestly
+ * had to build all of them or cast.
+ *
+ * Neither says anything true. This does: here is what the processor depends
+ * on, and a real Stripe satisfies it — the constructor below still builds a
+ * real one when no client is injected.
+ * ====================================================================== */
+
+/** The five calls, and nothing else. */
+export interface StripeLike {
+  readonly v2: {
+    readonly core: {
+      readonly accounts: {
+        create(params: unknown): Promise<unknown>;
+        retrieve(id: string, params?: unknown): Promise<unknown>;
+      };
+    };
+  };
+  readonly accountLinks: {
+    create(params: unknown): Promise<{ url: string; expires_at?: number | null }>;
+  };
+  readonly paymentIntents: {
+    create(params: unknown, options?: unknown): Promise<ChargeResult>;
+  };
+  readonly webhooks: {
+    constructEvent(body: Buffer | string, signature: string, secret: string): StripeEvent;
+  };
+}
+
 /** How the Stripe processor is configured. */
 export interface StripeConfig {
   /** STRIPE_SECRET_KEY — an rk_ restricted key for preference. */
   readonly secretKey?: string;
   readonly webhookSecret?: string;
-  /** An injected Stripe instance, for tests. */
-  readonly client?: Stripe;
+  /** An injected client, for tests. A real Stripe satisfies StripeLike. */
+  readonly client?: StripeLike;
   /** What a company sees during onboarding. */
   readonly platformName?: string;
 }
@@ -378,7 +411,8 @@ export function stripeProcessor({
    * SDK, and on a server it is worse than deprecated: it is process-global
    * mutable state on the thing that moves money.
    */
-  const stripe = client || new Stripe(String(secretKey), { apiVersion: STRIPE_API_VERSION });
+  const stripe: StripeLike =
+    client || new Stripe(String(secretKey), { apiVersion: STRIPE_API_VERSION });
   const live = /^(sk|rk)_live_/.test(String(secretKey || ""));
 
   return {

@@ -24,12 +24,13 @@ import {
   registerCompare, clearCompare, compareStatus, comparePrices, forgetComparisons,
 } from "../src/domain/compare.ts";
 import type { Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const HOTEL = { hotelId: "lp1a2b", name: "Al Marwa Rayhaan by Rotana", city: "Makkah", country: "SA", stars: 5 };
 const supplierThatSells = { hotel: async () => HOTEL };
 const supplierThatDoesNot = { hotel: async () => null };
 
-function fakeProvider(answer: Wire, log = []) {
+function fakeProvider(answer: Wire, log: Wire[] = []) {
   return {
     name: "stayingapi",
     describe: () => ({ name: "stayingapi", label: "StayingAPI", sandbox: true, why: "connected" }),
@@ -54,40 +55,47 @@ test("with no provider it says so and takes nothing off the page", async () => {
    * they have nothing to do with; the operator wording is asserted below so
    * it is clear it was moved rather than lost.
    */
-  assert.match(out.why, /not available right now/);
-  assert.match(compareStatus().why, /No price-comparison provider is connected/,
+  assert.match(String(out.why), /not available right now/);
+  assert.match(String(compareStatus().why), /No price-comparison provider is connected/,
     "the operator lost the reason no comparison is running");
 
   /* And the provider PALTAS buys from is not named to a visitor. */
-  assert.equal(out.provider.name, undefined, "the comparison provider was named publicly");
-  assert.equal(out.provider.label, undefined, "the comparison provider was named publicly");
+  /* Read by key, because the PUBLIC status type does not declare either —
+     which is the point of this assertion, now also enforced at compile time. */
+  const shown = out.provider as Record<string, unknown>;
+  assert.equal(shown["name"], undefined, "the comparison provider was named publicly");
+  assert.equal(shown["label"], undefined, "the comparison provider was named publicly");
   /* The important half: it RESOLVED rather than threw. A comparison is an
      extra, and a failing extra must not remove a bookable room. */
   assert.ok(out.basis, "the caveat is missing even when there is nothing to caveat");
 });
 
 test("a hotel PALTAS does not sell is never priced, and costs nothing", async () => {
-  const log = [];
+  const log: Wire[] = [];
   registerCompare(fakeProvider({ offers: [] }, log));
 
   const out = await comparePrices({ supplier: supplierThatDoesNot, ...STAY });
-  assert.match(out.why, /does not sell this hotel/);
+  assert.match(String(out.why), /does not sell this hotel/);
   assert.equal(log.length, 0,
     "a 30-credit comparison was requested for a hotel PALTAS does not sell");
 });
 
 test("the property name comes from the supplier, never from the caller", async () => {
-  const log = [];
+  const log: Wire[] = [];
   registerCompare(fakeProvider({ offers: [], currency: "GBP" }, log));
 
   /* A caller trying to smuggle its own property in. */
   await comparePrices({
     supplier: supplierThatSells, ...STAY,
+    /* Sent on purpose and not in CompareQuery: this test exists to prove
+       these three are IGNORED, so the property PALTAS is asked about is the
+       one it sells rather than one the caller named. The cast says the type
+       already forbids them. */
     name: "Somebody Else's Hotel", location: "Monaco", googleHotelId: "abc",
-  });
+  } as Parameters<typeof comparePrices>[0]);
 
   assert.equal(log.length, 1);
-  assert.equal(log[0].name, HOTEL.name,
+  assert.equal((log[0] as Wire).name, HOTEL.name,
     "the caller chose which property was priced at PALTAS's expense");
   assert.equal(log[0].location, "Makkah");
   assert.equal(log[0].adults, 2);
@@ -110,7 +118,7 @@ test("an offer in another currency is dropped and counted, never converted", asy
   assert.equal(out.offers.length, 2);
   assert.equal(out.dropped, 2, "the dropped count was lost, so a partial comparison looks whole");
   assert.deepEqual(out.min, { amountMinor: 39900, currency: "GBP" });
-  for (const o of out.offers) {
+  for (const o of out.offers as Wire[]) {
     assert.equal(o.price.currency, "GBP");
     assert.equal(o.bookable, false, "another seller's offer is marked bookable on PALTAS");
   }
@@ -130,7 +138,7 @@ test("the comparison always carries the sentence that keeps it honest", async ()
 });
 
 test("the same question is asked once, however many times it is put", async () => {
-  const log = [];
+  const log: Wire[] = [];
   registerCompare(fakeProvider({ currency: "GBP", offers: [] }, log));
 
   const a = await comparePrices({ supplier: supplierThatSells, ...STAY });
@@ -155,15 +163,16 @@ test("a provider that fails leaves the room alone", async () => {
 
   const out = await comparePrices({ supplier: supplierThatSells, ...STAY });
   assert.deepEqual(out.offers, []);
-  assert.match(out.why, /out of credits/);
-  assert.equal(out.hotel.name, HOTEL.name, "a failed extra lost the hotel it was attached to");
+  assert.match(String(out.why), /out of credits/);
+  assert.equal(present(out.hotel, "the result lost the hotel").name, HOTEL.name,
+    "a failed extra lost the hotel it was attached to");
 });
 
 test("a supplier that cannot look a hotel up spends nothing", async () => {
-  const log = [];
+  const log: Wire[] = [];
   registerCompare(fakeProvider({ offers: [] }, log));
   const out = await comparePrices({ supplier: {}, ...STAY });
-  assert.match(out.why, /does not sell this hotel/);
+  assert.match(String(out.why), /does not sell this hotel/);
   assert.equal(log.length, 0);
 });
 
@@ -187,10 +196,10 @@ test("'not connected' says WHICH absence it is, and never with a key", async () 
    */
   clearCompare();
   noteCompareUnavailable("STAYINGAPI_KEY is not set on this service, so no other sellers are shown.");
-  assert.match(compareStatus().why, /is not set on this service/);
+  assert.match(String(compareStatus().why), /is not set on this service/);
 
   noteCompareUnavailable("STAYINGAPI_KEY was set but rejected: A StayingAPI key must begin with stay_test_ or stay_live_.");
-  const why = compareStatus().why;
+  const why = String(compareStatus().why);
   assert.match(why, /was set but rejected/);
   /* It names the PREFIX it wanted, which is not a credential. Nothing that
      reaches this field may ever be the value itself. */
@@ -200,7 +209,7 @@ test("'not connected' says WHICH absence it is, and never with a key", async () 
   /* Connecting clears it, or a working provider carries a stale complaint. */
   registerCompare({ compare: async () => ({ offers: [] }), describe: () => ({ name: "x" }) });
   assert.equal(compareStatus().connected, true);
-  assert.ok(!/was set but rejected/.test(compareStatus().why), "a stale failure survived a successful connect");
+  assert.ok(!/was set but rejected/.test(String(compareStatus().why)), "a stale failure survived a successful connect");
   clearCompare();
 });
 
@@ -215,15 +224,15 @@ test("the diagnosis tells an empty value and a misspelt name apart", async () =>
    */
   clearCompare();
   connectComparison({});
-  assert.match(compareStatus().why, /Neither STAYINGAPI_KEY nor STAYING_API_KEY is set/);
+  assert.match(String(compareStatus().why), /Neither STAYINGAPI_KEY nor STAYING_API_KEY is set/);
 
   clearCompare();
   connectComparison({ STAYINGAPI_KEY: "   " });
-  assert.match(compareStatus().why, /exists on this service but its value is empty/);
+  assert.match(String(compareStatus().why), /exists on this service but its value is empty/);
 
   clearCompare();
   connectComparison({ STAYINGAPI_TOKEN: "whatever", STAYING_SECRET: "whatever" });
-  const why = compareStatus().why;
+  const why = String(compareStatus().why);
   /* Order-independent: the names are sorted, and "A" sorts before "_". */
   for (const name of ["STAYING_SECRET", "STAYINGAPI_TOKEN"]) {
     assert.ok(why.includes(name),
@@ -236,14 +245,14 @@ test("the diagnosis tells an empty value and a misspelt name apart", async () =>
    */
   clearCompare();
   connectComparison({ STAYINGAPI_TOKEN: "stay_live_" + "z".repeat(30) });
-  assert.ok(!/stay_live_z/.test(compareStatus().why),
+  assert.ok(!/stay_live_z/.test(String(compareStatus().why)),
     "the diagnosis printed the value of a near-miss variable");
 
   /* A key with an unrecognised prefix is a different answer again. */
   clearCompare();
   connectComparison({ STAYINGAPI_KEY: "sk_live_not_a_staying_key" });
-  assert.match(compareStatus().why, /was set but rejected/);
-  assert.ok(!/sk_live_not_a_staying_key/.test(compareStatus().why),
+  assert.match(String(compareStatus().why), /was set but rejected/);
+  assert.ok(!/sk_live_not_a_staying_key/.test(String(compareStatus().why)),
     "the rejected key was quoted back");
   clearCompare();
 });
@@ -271,7 +280,7 @@ test("health says which build is answering, and since when", async () => {
 
 test("homes are never searched without a destination", async () => {
   const { findHomes, forgetHomes } = await import("../src/domain/compare.ts");
-  const log = [];
+  const log: Wire[] = [];
   clearCompare(); forgetHomes();
   registerCompare({
     describe: () => ({ name: "stayingapi", sandbox: true }),
@@ -288,7 +297,7 @@ test("homes are never searched without a destination", async () => {
    */
   const none = await findHomes({ checkIn: "2026-11-02", checkOut: "2026-11-05" });
   assert.deepEqual(none.homes, []);
-  assert.match(none.why, /Choose a destination/);
+  assert.match(String(none.why), /Choose a destination/);
   assert.equal(log.length, 0, "a metered search ran with no destination");
 
   await findHomes({ city: "   ", checkIn: "2026-11-02", checkOut: "2026-11-05" });
@@ -296,14 +305,14 @@ test("homes are never searched without a destination", async () => {
 
   /* Dates too — a home is priced for particular nights. */
   const undated = await findHomes({ city: "Lisbon" });
-  assert.match(undated.why, /need dates/);
+  assert.match(String(undated.why), /need dates/);
   assert.equal(log.length, 0, "a metered search ran with no dates");
   clearCompare();
 });
 
 test("homes ask only for the platforms LiteAPI does not cover", async () => {
   const { findHomes, forgetHomes } = await import("../src/domain/compare.ts");
-  const log = [];
+  const log: Wire[] = [];
   clearCompare(); forgetHomes();
   registerCompare({
     describe: () => ({ name: "stayingapi", sandbox: true }),
@@ -337,7 +346,7 @@ test("homes ask only for the platforms LiteAPI does not cover", async () => {
 
 test("the same destination is searched once", async () => {
   const { findHomes, forgetHomes } = await import("../src/domain/compare.ts");
-  const log = [];
+  const log: Wire[] = [];
   clearCompare(); forgetHomes();
   registerCompare({
     describe: () => ({ name: "stayingapi", sandbox: true }),
@@ -365,6 +374,6 @@ test("a provider that fails leaves the shelf as it was", async () => {
   });
   const out = await findHomes({ city: "Oslo", checkIn: "2026-11-02", checkOut: "2026-11-05" });
   assert.deepEqual(out.homes, []);
-  assert.match(out.why, /out of credits/);
+  assert.match(String(out.why), /out of credits/);
   clearCompare();
 });

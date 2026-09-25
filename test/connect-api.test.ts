@@ -34,7 +34,10 @@ process.env.APP_URL ||= "http://127.0.0.1:8899";
 process.env.INSECURE_COOKIES = "1";
 
 let skip = DB ? false : "no TEST_DATABASE_URL — skipping PALTAS Connect API tests";
-let createApp, db, pg, channels;
+let createApp: typeof import("../src/server.ts")["createApp"];
+let db: typeof import("../src/db.ts")["db"];
+let pg: typeof import("pg")["default"];
+let channels: typeof import("../src/domain/channels.ts");
 
 if (!skip) {
   try {
@@ -59,7 +62,7 @@ async function boot() {
   pool = poolInSchema(pg, DB, SCHEMA);
   await freshSchema(pool, SCHEMA);
   const app = createApp();
-  await new Promise((r) => { server = app.listen(0, r); });
+  await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${portOf(server)}`;
 }
 

@@ -16,6 +16,7 @@ import crypto from "node:crypto";
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 import { portOf } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -506,7 +507,7 @@ test("a guest may ASK to check in; they cannot check themselves in", { skip }, a
    * and all three are the property's call. This is the line that keeps a
    * guest's tap on a phone from being a check-in.
    */
-  const stay = await db.reservation.findUnique({ where: { id: g.stay.id } });
+  const stay = present(await db.reservation.findUnique({ where: { id: g.stay.id } }), "no stay — the row this test made is gone");
   assert.equal(stay.status, "CHECKED_IN",
     "the seeded stay's own status must be untouched by the request");
 

@@ -16,6 +16,7 @@ import assert from "node:assert/strict";
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 import { portOf } from "./wire.ts";
 import type { Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const SCHEMA = "test_marketplace";
@@ -672,9 +673,9 @@ test("a booking is recorded against the person who made it", { skip }, async () 
     assert.equal(made.json.recorded, true,
       "the booking was not recorded, so PALTAS cannot show it to the guest later");
 
-    const row = await db.supplierBooking.findFirst({
+    const row = present(await db.supplierBooking.findFirst({
       where: { bookingId: made.json.booking.bookingId },
-    });
+    }), "no row — the row this test made is gone");
     assert.ok(row, "no SupplierBooking row was written");
     assert.equal(row.userId, alice.user.id, "the row is not owned by the person who booked");
     /* A sandbox booking is not travel, and the record has to know. */
@@ -733,7 +734,7 @@ test("a cancellation writes back what it actually cost", { skip }, async () => {
     const id = made.json.booking.bookingId;
 
     await withCookie("DELETE", `/marketplace/stays/${id}`, null, alice.cookie);
-    const row = await db.supplierBooking.findFirst({ where: { bookingId: id } });
+    const row = present(await db.supplierBooking.findFirst({ where: { bookingId: id } }), "no row — the row this test made is gone");
     assert.equal(row.status, "CANCELLED");
     assert.ok(row.cancelledAt, "no cancellation time recorded");
     /*
@@ -834,7 +835,7 @@ test("holding a rate requires an account, and records the pair at once", { skip 
     assert.ok(held.json.paltasBookingId, "no PALTAS booking id was returned");
 
     /* Durable BEFORE the browser is told anything — it may never come back. */
-    const row = await db.supplierBooking.findFirst({ where: { prebookId: pb } });
+    const row = present(await db.supplierBooking.findFirst({ where: { prebookId: pb } }), "no row — the row this test made is gone");
     assert.ok(row, "the prebook was not persisted");
     assert.equal(row.transactionId, tx, "the transactionId was not stored with its prebook");
     assert.equal(row.userId, alice.user.id);
@@ -873,7 +874,7 @@ test("booking uses the transactionId from ITS OWN prebook, never the caller's", 
     }, alice.cookie);
     assert.equal(made.status, 201, made.text.slice(0, 200));
 
-    const row = await db.supplierBooking.findFirst({ where: { prebookId: mine } });
+    const row = present(await db.supplierBooking.findFirst({ where: { prebookId: mine } }), "no row — the row this test made is gone");
     assert.equal(row.transactionId, a.json.hold.payment.transactionId,
       "the booking settled against a transactionId the client supplied");
     assert.notEqual(row.transactionId, other);
@@ -917,7 +918,7 @@ test("somebody else's held rate cannot be booked", { skip }, async () => {
     }, mallory.cookie);
     assert.equal(stolen.status, 404, "a stranger booked a rate somebody else was holding");
 
-    const row = await db.supplierBooking.findFirst({ where: { prebookId: held.json.hold.prebookId } });
+    const row = present(await db.supplierBooking.findFirst({ where: { prebookId: held.json.hold.prebookId } }), "no row — the row this test made is gone");
     assert.equal(row.bookingId, null, "the hold was consumed by somebody who did not own it");
   } finally { supply.clear(); }
 });

@@ -20,6 +20,9 @@ import { SignJWT, exportJWK, generateKeyPair } from "jose";
    scanner silently find nothing. See test/src-files.js. */
 import { sourceText } from "./src-files.ts";
 import type { Wire } from "./wire.ts";
+import type { SignInDeps } from "../src/auth/google.ts";
+import { present } from "./wire.ts";
+import { ok } from "node:assert/strict";
 
 /* config.js reads the environment at import time and refuses to start without
    it, which is the behaviour we want in production and something a test has to
@@ -43,7 +46,15 @@ const impostor = await generateKeyPair("RS256");
 const jwks = async () => google.publicKey;
 const impostorJwks = async () => impostor.publicKey;
 
-async function idToken(claims = {}, key = google.privateKey) {
+/** The claims a test wants on the token Google would have returned. */
+interface TokenClaims {
+  iss?: string;
+  aud?: string;
+  sub?: string;
+  [key: string]: unknown;
+}
+
+async function idToken(claims: TokenClaims = {}, key = google.privateKey) {
   return new SignJWT({
     email: "person@example.com",
     email_verified: true,
@@ -53,7 +64,7 @@ async function idToken(claims = {}, key = google.privateKey) {
   })
     .setProtectedHeader({ alg: "RS256" })
     .setIssuer(claims.iss || "https://accounts.google.com")
-    .setAudience(claims.aud || process.env.GOOGLE_CLIENT_ID)
+    .setAudience(claims.aud || String(process.env.GOOGLE_CLIENT_ID))
     .setSubject(claims.sub || "google-subject-1")
     .setIssuedAt()
     .setExpirationTime("5m")
@@ -61,10 +72,21 @@ async function idToken(claims = {}, key = google.privateKey) {
 }
 
 /** A stand-in for Google's token endpoint that records what it was sent. */
-function tokenEndpoint(token: Wire, sink = {}) {
-  return async (_url: Wire, init: Wire) => {
-    sink.body = new URLSearchParams(init.body);
-    return { ok: true, json: async () => ({ id_token: token }) };
+/** What a stubbed token endpoint recorded about the request it was sent. */
+interface Sink {
+  body?: URLSearchParams;
+}
+
+function tokenEndpoint(
+  token: Wire, sink: Sink = {},
+): NonNullable<SignInDeps["fetch"]> {
+  return async (_url, init) => {
+    sink.body = new URLSearchParams(init?.body ?? "");
+    return {
+      ok: true,
+      text: async () => JSON.stringify({ id_token: token }),
+      json: async () => ({ id_token: token }),
+    };
   };
 }
 
@@ -91,13 +113,13 @@ test("the verifier sent to Google matches the challenge shown to the browser", a
   const { url, state, cookie } = beginSignIn({});
   const challenge = new URL(url).searchParams.get("code_challenge");
 
-  const sink = {};
+  const sink: Sink = {};
   await completeSignIn({ code: "abc", state, cookie }, {
     fetch: tokenEndpoint(await idToken(), sink),
     jwks,
   });
 
-  const verifier = sink.body.get("code_verifier");
+  const verifier = present(sink.body, "the stub was never sent a body").get("code_verifier");
   assert.ok(verifier, "no code_verifier was sent — PKCE is decorative");
   const derived = crypto.createHash("sha256").update(verifier).digest("base64url");
   assert.equal(derived, challenge, "the verifier does not match the challenge");
@@ -206,7 +228,7 @@ test("a Google account with no email is refused", async () => {
   const noEmail = await new SignJWT({ email_verified: true, name: "X" })
     .setProtectedHeader({ alg: "RS256" })
     .setIssuer("https://accounts.google.com")
-    .setAudience(process.env.GOOGLE_CLIENT_ID)
+    .setAudience(String(process.env.GOOGLE_CLIENT_ID))
     .setSubject("sub-2").setIssuedAt().setExpirationTime("5m")
     .sign(google.privateKey);
   await assert.rejects(() => verifyIdToken(noEmail, { jwks }), /no email address/i);
@@ -236,9 +258,12 @@ test("`next` cannot be turned into an open redirect", async () => {
   ];
 
   for (const bad of attempts) {
-    const { state, cookie } = beginSignIn({ next: bad });
+    /* `bad` includes null and undefined on purpose — a caller sending
+       nothing at all is one of the attempts this refuses. */
+    const { state, cookie } = beginSignIn({ next: bad ?? undefined });
     const { next } = await completeSignIn({ code: "abc", state, cookie },
       { fetch: tokenEndpoint(await idToken()), jwks });
+    ok(next, "completeSignIn returned no destination at all");
     assert.ok(next.startsWith("/") && !next.startsWith("//"),
       `\`next\` of ${JSON.stringify(bad)} produced ${JSON.stringify(next)}`);
     assert.ok(!/^[a-z]+:/i.test(next), `\`next\` kept a scheme: ${next}`);
@@ -255,9 +280,12 @@ test("a legitimate path is kept", async () => {
 /* ================================================================ */
 test("a refusal from Google's token endpoint names the likely cause", async () => {
   const { state, cookie } = beginSignIn({});
-  const failing = async () => ({
+  /* Google refusing the exchange. `json` is here because a fetch reply has
+     one, not because this path reads it — the adapter reads `text`. */
+  const failing: NonNullable<SignInDeps["fetch"]> = async () => ({
     ok: false,
     text: async () => '{"error":"redirect_uri_mismatch"}',
+    json: async () => ({ error: "redirect_uri_mismatch" }),
   });
   await assert.rejects(
     () => completeSignIn({ code: "abc", state, cookie }, { fetch: failing, jwks }),
@@ -266,7 +294,13 @@ test("a refusal from Google's token endpoint names the likely cause", async () =
 
 test("a response with no ID token is refused rather than half-trusted", async () => {
   const { state, cookie } = beginSignIn({});
-  const noToken = async () => ({ ok: true, json: async () => ({ access_token: "a" }) });
+  /* A 200 with no id_token — an access token and nothing to identify
+     anybody with, which is the case this refuses. */
+  const noToken: NonNullable<SignInDeps["fetch"]> = async () => ({
+    ok: true,
+    text: async () => JSON.stringify({ access_token: "a" }),
+    json: async () => ({ access_token: "a" }),
+  });
   await assert.rejects(
     () => completeSignIn({ code: "abc", state, cookie }, { fetch: noToken, jwks }),
     /did not return an identity token/i);
@@ -317,7 +351,8 @@ test("`next` is a path on this app, and nothing else", () => {
 
   for (const [sent, want] of cases) {
     const { state, cookie } = beginSignIn({ next: sent });
-    const held = openPending(cookie);
+    const held = present(openPending(cookie),
+      "the cookie this call just produced did not open");
     assert.equal(held.state, state);
     assert.equal(held.next, want,
       `next=${JSON.stringify(sent)} became ${JSON.stringify(held.next)}, expected ${JSON.stringify(want)}`);

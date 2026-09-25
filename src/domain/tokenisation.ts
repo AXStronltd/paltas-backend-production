@@ -141,6 +141,14 @@ export interface TokenisationProvider {
   readonly name?: string;
   readonly sandbox?: boolean;
   mint(request: MintRequest): Promise<MintResult> | MintResult;
+  /**
+   * WHO HOLDS WHAT, ACCORDING TO THE PROVIDER.
+   *
+   * A READ, so the unconnected provider answers `[]` rather than throwing:
+   * "none that this service can see" is a true answer to "what does this
+   * offering have outstanding", and a screen asking it must render.
+   */
+  positionsFor?(query: { offeringRef?: string }): Promise<readonly MintResult[]>;
   describe?(): {
     name?: string;
     sandbox?: boolean;

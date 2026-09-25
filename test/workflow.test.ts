@@ -21,6 +21,7 @@ import crypto from "node:crypto";
 import { explain, freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 import { portOf } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const SCHEMA = "test_workflow";
@@ -76,7 +77,7 @@ async function boot() {
   pool = poolInSchema(pg, DB, SCHEMA);
   await freshSchema(pool, SCHEMA);
   const app = createApp();
-  await new Promise((r) => { server = app.listen(0, r); });
+  await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${portOf(server)}`;
 }
 
@@ -100,10 +101,10 @@ async function company() {
     method: "POST", cookie, body: { name: `Statements Co ${n}`, work: ["property"], country: "ke" },
   });
   assert.equal(made.status, 201, made.text.slice(0, 200));
-  const me = await db.session.findFirst({
+  const me = present(await db.session.findFirst({
     where: { tokenHash: crypto.createHash("sha256").update(token).digest("hex") },
     select: { orgId: true, userId: true },
-  });
+  }), "no me — the row this test made is gone");
   /* The name matters: "assigned to me" matches the account OR the name, because
      plenty of people are given work before they ever sign in. */
   return { cookie, session, orgId: me.orgId, userId: me.userId, name: `Person ${n}` };

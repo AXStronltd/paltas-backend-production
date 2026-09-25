@@ -150,9 +150,15 @@ export function explain(raw: unknown, url: unknown): string | null {
 }
 
 /** Wrap a connection attempt so the failure explains itself. */
-/** Only what this helper calls. `pg.Client` satisfies it. */
+/**
+ * Only what this helper calls.
+ *
+ * `connect()` is overloaded on pg.Client — callback and promise forms — so
+ * the promise one is named rather than the class, which would drag the whole
+ * driver into every file that wants this helper's error messages.
+ */
 export interface Connectable {
-  connect(): Promise<void>;
+  connect(): Promise<void> | void;
 }
 
 /**

@@ -59,7 +59,7 @@ async function boot() {
   pool = poolInSchema(pg, DB, SCHEMA);
   await freshSchema(pool, SCHEMA);
   const app = createApp();
-  await new Promise((r) => { server = app.listen(0, r); });
+  await new Promise<void>((r) => { server = app.listen(0, () => r()); });
   base = `http://127.0.0.1:${portOf(server)}`;
 }
 
@@ -99,7 +99,7 @@ async function company(name: Wire) {
     body: { name, work: ["act_for"] },
   });
   assert.equal(r.status, 201, r.text.slice(0, 160));
-  const org = await db.organization.findFirst({ where: { name } });
+  const org = present(await db.organization.findFirst({ where: { name } }), "no org — the row this test made is gone");
   return { owner, org };
 }
 
@@ -164,7 +164,7 @@ test("the token is never stored, and never comes back", { skip }, async () => {
   });
   const token = new URL(made.json.link).searchParams.get("token");
 
-  const row = await db.invitation.findFirst({ where: { orgId: org.id } });
+  const row = present(await db.invitation.findFirst({ where: { orgId: org.id } }), "no row — the row this test made is gone");
   assert.notEqual(row.tokenHash, token, "the plaintext token is in the database");
   assert.equal(row.tokenHash, hashToken(token), "the stored hash is not the token's");
 
@@ -368,7 +368,7 @@ test("accepting needs a session", { skip }, async () => {
 
 test("somebody already in the company is not re-invited", { skip }, async () => {
   const { owner, org } = await company("Already Ltd");
-  const me = await db.user.findUnique({ where: { id: owner.user.id } });
+  const me = present(await db.user.findUnique({ where: { id: owner.user.id } }), "no me — the row this test made is gone");
   const r = await call(`/organizations/${org.id}/invitations`, {
     method: "POST", cookie: owner.cookie,
     body: { email: me.email, role: "FRONT_DESK" },
@@ -418,6 +418,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join as joinPath, resolve as resolvePath } from "node:path";
 import { portOf } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolvePath(process.cwd(), "..", "paltas-frontend 2");

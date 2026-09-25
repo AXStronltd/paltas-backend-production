@@ -22,6 +22,7 @@ import crypto from "node:crypto";
 import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 import { portOf } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
+import { present } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -235,8 +236,8 @@ test("reading one record by id is narrowed too — not just the list",
   await db.membership.updateMany({
     where: { orgId: c.org.id }, data: { scope: { sites: [c.north.id] } } });
 
-  const south = await db.incident.findFirst({
-    where: { orgId: c.org.id, siteId: c.south.id } });
+  const south = present(await db.incident.findFirst({
+    where: { orgId: c.org.id, siteId: c.south.id } }), "no south — the row this test made is gone");
 
   const r = await call("/incidents/" + south.id, { cookie: c.cookie });
   assert.equal(r.status, 404,
@@ -248,8 +249,8 @@ test("and writing it, and deleting it", { skip }, async () => {
   await db.membership.updateMany({
     where: { orgId: c.org.id }, data: { scope: { sites: [c.north.id] } } });
 
-  const south = await db.incident.findFirst({
-    where: { orgId: c.org.id, siteId: c.south.id } });
+  const south = present(await db.incident.findFirst({
+    where: { orgId: c.org.id, siteId: c.south.id } }), "no south — the row this test made is gone");
 
   const patch = await call("/incidents/" + south.id,
     { method: "PATCH", body: { title: "changed" }, cookie: c.cookie });
@@ -487,7 +488,7 @@ test("a scoped member's request for one site cannot land on a different one", { 
     (read.json && read.json.site ? ` with "${read.json.site.name}"` : ""));
 
   /* Writing to it must not land on the one they may. */
-  const before = await db.site.findUnique({ where: { id: c.north.id } });
+  const before = present(await db.site.findUnique({ where: { id: c.north.id } }), "no before — the row this test made is gone");
   const edit = await call(`/sites/${c.south.id}`, {
     method: "PATCH", cookie: c.cookie, body: { name: "Renamed by an outsider" } });
   assert.equal(edit.status, 404, "an out-of-scope site was editable");

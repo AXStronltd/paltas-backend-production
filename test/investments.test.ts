@@ -25,6 +25,7 @@ import {
 import * as tokens from "../src/domain/tokenisation.ts";
 import { portOf } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
+import { has, present } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const SCHEMA = "test_investments";
@@ -102,7 +103,19 @@ async function call(
 let seq = 0;
 
 /** A company, optionally an approved issuer, with a development to raise on. */
-async function company({ role = "OWNER", issuer = null, platform = false } = {}) {
+/** An issuer profile to create alongside the company, when one is wanted. */
+interface IssuerFixture {
+  readonly status?: import("@prisma/client").$Enums.IssuerStatus;
+  readonly jurisdictions?: string;
+}
+
+async function company(
+  { role = "OWNER", issuer = null, platform = false }: {
+    role?: import("@prisma/client").$Enums.Role;
+    issuer?: IssuerFixture | null;
+    platform?: boolean;
+  } = {},
+) {
   const n = ++seq;
   const org = await db.organization.create({
     data: {
@@ -110,7 +123,10 @@ async function company({ role = "OWNER", issuer = null, platform = false } = {})
       subscription: { create: { status: "ACTIVE" } },
       verification: { create: { status: "COMPLETE" } },
       workspace: { create: { status: "ACTIVE" } },
-      entitlements: { create: (platform ? ["PLATFORM"] : ["PROPERTY_MANAGEMENT"]).map((p) => ({ product: p })) },
+      entitlements: {
+        create: (platform ? ["PLATFORM"] : ["PROPERTY_MANAGEMENT"] as const)
+          .map((p) => ({ product: p as import("@prisma/client").$Enums.Product })),
+      },
     },
   });
   if (issuer) {
@@ -149,11 +165,15 @@ async function completeOffering(c: Wire, { sandbox = false, units = 1000, price 
       minUnits: 1, sandbox,
     },
   });
-  for (const role of ["PROPERTY_OWNER", "ISSUER", "TOKENISATION_PROVIDER"]) {
+  const PARTIES: import("@prisma/client").$Enums.PartyRole[] =
+    ["PROPERTY_OWNER", "ISSUER", "TOKENISATION_PROVIDER"];
+  for (const role of PARTIES) {
     await db.offeringParty.create({
       data: { offeringId: o.id, role, legalName: `${role} Ltd`, jurisdiction: "KE" } });
   }
-  for (const role of ["PROSPECTUS", "RISK_DISCLOSURE"]) {
+  const DOCS: import("@prisma/client").$Enums.OfferingDocRole[] =
+    ["PROSPECTUS", "RISK_DISCLOSURE"];
+  for (const role of DOCS) {
     const doc = await db.document.create({
       data: { orgId: c.org.id, name: `${role}.pdf`, kind: "OTHER" } });
     await db.offeringDocument.create({
@@ -168,8 +188,9 @@ async function completeOffering(c: Wire, { sandbox = false, units = 1000, price 
 
 test("no path reaches LIVE without passing through approve", () => {
   const T = OFFERING_TRANSITIONS;
-  const paths = [];
-  (function walk(state, seen, path) {
+  /* Every route from DRAFT to LIVE, as the sequence of moves that walks it. */
+  const paths: string[][] = [];
+  (function walk(state: string, seen: Set<string>, path: string[]) {
     if (seen.has(state)) return;
     if (state === "LIVE") { paths.push(path); return; }
     for (const [name, rule] of Object.entries(T)) {
@@ -223,7 +244,8 @@ test("no customer role can approve its own offering", () => {
 });
 
 test("a refusal says what state it would have to be in", () => {
-  const why = offeringRefusal({ role: "OWNER" }, "submit", { status: "LIVE" });
+  const why = present(offeringRefusal({ role: "OWNER" }, "submit", { status: "LIVE" }),
+    "a submit from LIVE was allowed");
   assert.match(why, /live/i);
   assert.match(why, /draft/i, "the refusal should name the states it is possible from");
 });
@@ -268,11 +290,15 @@ test("the property owner and the issuer must both be named", () => {
  * 3. COMPLIANCE GATING.
  * ================================================================ */
 
+/** A refusal that must be one. `null` means the sale was allowed. */
+const refused = (why: string | null): string =>
+  present(why, "this investor was allowed to be sold the offering");
+
 test("an investor with unfinished checks cannot be sold anything", () => {
   const live = { status: "LIVE", jurisdictions: "KE", eligibility: "RETAIL_PERMITTED" };
-  assert.match(eligibilityRefusal(live, { kyc: "PENDING", aml: "CLEAR" }), /identity checks/i);
-  assert.match(eligibilityRefusal(live, { kyc: "VERIFIED", aml: "BLOCKED" }), /blocked/i);
-  assert.match(eligibilityRefusal(live, { kyc: "VERIFIED", aml: "REVIEW" }), /screening/i);
+  assert.match(refused(eligibilityRefusal(live, { kyc: "PENDING", aml: "CLEAR" })), /identity checks/i);
+  assert.match(refused(eligibilityRefusal(live, { kyc: "VERIFIED", aml: "BLOCKED" })), /blocked/i);
+  assert.match(refused(eligibilityRefusal(live, { kyc: "VERIFIED", aml: "REVIEW" })), /screening/i);
   assert.equal(eligibilityRefusal(live,
     { kyc: "VERIFIED", aml: "CLEAR", jurisdiction: "KE", classifiedAs: "RETAIL_PERMITTED" }), null);
 });
@@ -280,19 +306,19 @@ test("an investor with unfinished checks cannot be sold anything", () => {
 test("jurisdiction and classification both bite", () => {
   const keOnly = { status: "LIVE", jurisdictions: "KE", eligibility: "RETAIL_PERMITTED" };
   const clear = { kyc: "VERIFIED", aml: "CLEAR", classifiedAs: "RETAIL_PERMITTED" };
-  assert.match(eligibilityRefusal(keOnly, { ...clear, jurisdiction: "GB" }), /not available in GB/);
-  assert.match(eligibilityRefusal(keOnly, { ...clear, jurisdiction: "" }), /not recorded/);
+  assert.match(refused(eligibilityRefusal(keOnly, { ...clear, jurisdiction: "GB" })), /not available in GB/);
+  assert.match(refused(eligibilityRefusal(keOnly, { ...clear, jurisdiction: "" })), /not recorded/);
 
   const pro = { status: "LIVE", jurisdictions: "KE", eligibility: "ACCREDITED_ONLY" };
   assert.match(
-    eligibilityRefusal(pro, { ...clear, jurisdiction: "KE", classifiedAs: "PROFESSIONAL_ONLY" }),
+    refused(eligibilityRefusal(pro, { ...clear, jurisdiction: "KE", classifiedAs: "PROFESSIONAL_ONLY" })),
     /accredited only/i);
 });
 
 test("an offering that is not LIVE is not open, whatever the investor looks like", () => {
   const clear = { kyc: "VERIFIED", aml: "CLEAR", jurisdiction: "KE", classifiedAs: "RETAIL_PERMITTED" };
   for (const status of ["DRAFT", "SUBMITTED", "APPROVED", "SCHEDULED", "CLOSED"]) {
-    assert.match(eligibilityRefusal({ status, jurisdictions: "KE" }, clear),
+    assert.match(refused(eligibilityRefusal({ status, jurisdictions: "KE" }, clear)),
       /not open for investment/, `${status} was treated as open`);
   }
 });
@@ -308,7 +334,9 @@ test("with no provider connected, issuing refuses and records nothing", async ()
   assert.match(st.why, /No tokenisation provider is connected/);
 
   await assert.rejects(
-    () => tokens.provider().mint({ offeringRef: "OFF-1", investorRef: "I-1", units: 10 }),
+    /* `mint` may answer synchronously — a provider that refuses does — and
+       assert.rejects wants a promise either way. */
+    async () => tokens.provider().mint({ offeringRef: "OFF-1", investorRef: "I-1", units: 10 }),
     (e: Wire) => {
       assert.equal(e.name, "TokenisationUnavailable");
       assert.equal(e.status, 503, "a missing capability is 503, not 500 — nothing is broken");
@@ -318,7 +346,10 @@ test("with no provider connected, issuing refuses and records nothing", async ()
     "tells an investor they own units that do not exist.");
 
   /* Reading, by contrast, answers: "none that this service can see" is true. */
-  assert.deepEqual(await tokens.provider().positionsFor({ offeringRef: "OFF-1" }), []);
+  assert.deepEqual(
+    await has(tokens.provider().positionsFor, "positionsFor")
+      .call(tokens.provider(), { offeringRef: "OFF-1" }),
+    []);
 });
 
 test("every sandbox reference is marked as one", async () => {
@@ -418,7 +449,7 @@ test("the company cannot approve it, and cannot put it live", { skip }, async ()
       { method: "POST", cookie: c.cookie });
     assert.equal(r.status, 403, `${action} was allowed: ${r.text.slice(0, 160)}`);
   }
-  const after = await db.offering.findUnique({ where: { id: o.id } });
+  const after = present(await db.offering.findUnique({ where: { id: o.id } }), "no after — the row this test made is gone");
   assert.equal(after.status, "SUBMITTED", "the offering moved anyway");
 });
 
@@ -491,7 +522,7 @@ test("a live offering's terms are fixed", { skip }, async () => {
   const r = await call(`/investments/offerings/${o.id}`,
     { method: "PATCH", cookie: c.cookie, body: { unitPrice: 1 } });
   assert.equal(r.status, 409, r.text.slice(0, 200));
-  const after = await db.offering.findUnique({ where: { id: o.id } });
+  const after = present(await db.offering.findUnique({ where: { id: o.id } }), "no after — the row this test made is gone");
   assert.equal(after.unitPrice, 1000n, "the price changed under a live offering");
 });
 

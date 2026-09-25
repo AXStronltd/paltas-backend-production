@@ -99,14 +99,40 @@ export interface ModelSpec {
 export type Row = Record<string, unknown>;
 
 /**
+ * ONE MODEL'S ACCESSOR — `db.offer`, `db.organization`, and 130 more.
+ *
+ * The operations this stand-in implements, which is a shorter list than the
+ * real client's on purpose: anything not here throws by name rather than
+ * being quietly ignored, because a fake that drops an operation turns a real
+ * bug into a green tick.
+ *
+ * The rows come back as `Row` — the schema's columns, read as what they are.
+ * A test asserting on one is asserting about a shape the fake built from
+ * schema.prisma, and the assertion is what checks it.
+ */
+export interface FakeDelegate {
+  findMany(args?: QueryArgs): Promise<(Row | null)[]>;
+  findFirst(args?: QueryArgs): Promise<Row | null>;
+  findUnique(args?: QueryArgs): Promise<Row | null>;
+  count(args?: QueryArgs): Promise<number>;
+  create(args?: QueryArgs): Promise<Row>;
+  update(args?: QueryArgs): Promise<Row>;
+  updateMany(args?: QueryArgs): Promise<{ count: number }>;
+  upsert(args?: QueryArgs): Promise<Row>;
+  delete(args?: QueryArgs): Promise<Row>;
+  deleteMany(args?: QueryArgs): Promise<{ count: number }>;
+}
+
+/**
  * The stand-in client, as a test holds one.
  *
- * The four `$` methods are named because tests call them directly. The index
- * signature is for the model accessors, which are attached by name in a loop
- * from MODEL_BY_ACCESSOR — declaring 132 of them here would be the
- * hand-written copy of schema.prisma this whole file exists to avoid.
+ * An intersection rather than an interface with an index signature: the four
+ * `$` methods and the two `__` ones have their own shapes, and the model
+ * accessors are attached by name in a loop from MODEL_BY_ACCESSOR. Declaring
+ * 132 of those here would be the hand-written copy of schema.prisma this
+ * whole file exists to avoid.
  */
-export interface FakeDb {
+export type FakeDb = {
   $queryRaw(): Promise<{ "?column?": number }[]>;
   $executeRaw(): Promise<number>;
   $disconnect(): Promise<void>;
@@ -114,8 +140,7 @@ export interface FakeDb {
   /** Everything in the store, for a test that wants to look directly. */
   __tables: Map<string, Map<string, Row>>;
   __reset(): void;
-  [accessor: string]: unknown;
-}
+} & Record<string, FakeDelegate>;
 
 /**
  * WHAT THIS FAKE UNDERSTANDS OF A PRISMA QUERY.
@@ -764,7 +789,9 @@ export function createFakeDb() {
    * is the same shape the real client returns — a Row, checked by the
    * assertions the test then makes about it.
    */
-  const db: FakeDb = {
+  /* Built in two steps: the literal below, then one accessor per model. The
+     cast is on the line before the loop that completes it. */
+  const db = {
     async $queryRaw() { return [{ "?column?": 1 }]; },
     async $executeRaw() { return 0; },
     async $disconnect() {},
@@ -781,10 +808,11 @@ export function createFakeDb() {
     __reset() { for (const t of tables.values()) t.clear(); },
   };
 
+  const client = db as unknown as FakeDb;
   for (const [accessor, modelName] of MODEL_BY_ACCESSOR) {
-    db[accessor] = delegate(modelName);
+    client[accessor] = delegate(modelName) as FakeDelegate;
   }
-  return db;
+  return client;
 }
 
 export { MODELS, MODEL_BY_ACCESSOR };

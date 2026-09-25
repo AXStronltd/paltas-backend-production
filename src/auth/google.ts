@@ -141,7 +141,15 @@ export interface CompletedSignIn {
  * about sign-in is stubbed.
  */
 export interface SignInDeps {
-  readonly fetch?: typeof globalThis.fetch;
+  /*
+   * As much of `fetch` as this file calls — three fields of a response.
+   * Typed as the whole thing, a test stubbing Google's token endpoint had to
+   * build a complete Response or cast; neither says what this depends on.
+   */
+  readonly fetch?: (
+    url: string,
+    init?: { method?: string; headers?: Record<string, string>; body?: string },
+  ) => Promise<{ ok: boolean; text(): Promise<string>; json(): Promise<unknown> }>;
   readonly jwks?: Parameters<typeof jwtVerify>[1];
 }
 
