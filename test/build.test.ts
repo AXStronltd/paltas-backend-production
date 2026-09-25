@@ -115,16 +115,17 @@ function skipUnbuilt() {
    * build is broken" when the truth is "nobody has rebuilt". Saying which it
    * is costs two lines and saves the wrong five minutes.
    */
-  const newest = (dir) => walk(dir).reduce((t, f) => Math.max(t, statSync(f).mtimeMs), 0);
+  const newest = (dir: string): number =>
+    walk(dir).reduce((t, f) => Math.max(t, statSync(f).mtimeMs), 0);
   if (newest(join(ROOT, "src")) > newest(join(ROOT, "dist"))) {
     return "dist/ is older than src/ — run `npm run build` to check the emitted tree";
   }
   return false;
 }
 
-function walk(dir) {
-  const out = [];
-  const go = (d) => {
+function walk(dir: string): string[] {
+  const out: string[] = [];
+  const go = (d: string): void => {
     for (const e of readdirSync(d, { withFileTypes: true })) {
       const p = join(d, e.name);
       if (e.isDirectory()) { go(p); continue; }

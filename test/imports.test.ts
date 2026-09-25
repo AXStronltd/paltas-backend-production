@@ -42,23 +42,23 @@ const SPECIFIER = /(?:^|\n)\s*(?:import|export)[\s\S]{0,200}?from\s+["'](\.[^"']
  * count is the same trick tenancy.test.js uses, and for the same reason: a
  * false alarm is what gets a test deleted.
  */
-function code(text) {
+function code(text: string): string {
   return text
     .replace(/\/\*[\s\S]*?\*\//g, (c) => c.replace(/[^\n]/g, " "))
     .replace(/(^|[^:])\/\/.*$/gm, "$1");
 }
 
-function specifiersIn(raw) {
+function specifiersIn(raw: string): string[] {
   const text = code(raw);
-  const out = [];
-  for (const m of text.matchAll(SPECIFIER)) out.push(m[1]);
+  const out: string[] = [];
+  for (const m of text.matchAll(SPECIFIER)) out.push(String(m[1]));
   /* Dynamic imports too — `await import("./x.js")` is just as breakable. */
-  for (const m of text.matchAll(/\bimport\(\s*["'](\.[^"']+)["']\s*\)/g)) out.push(m[1]);
+  for (const m of text.matchAll(/\bimport\(\s*["'](\.[^"']+)["']\s*\)/g)) out.push(String(m[1]));
   return out;
 }
 
-function unresolved(files) {
-  const bad = [];
+function unresolved(files: readonly string[]): string[] {
+  const bad: string[] = [];
   for (const file of files) {
     const text = readFileSync(file, "utf8");
     for (const spec of specifiersIn(text)) {

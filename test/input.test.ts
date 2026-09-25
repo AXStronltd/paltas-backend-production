@@ -18,6 +18,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { clean } from "../src/domain/input.ts";
 import { RESOURCES } from "../src/domain/registry.ts";
+import { said, threw } from "./threw.ts";
 
 const INVOICE = RESOURCES.invoices;
 const PAYMENT = RESOURCES.payments;
@@ -81,8 +82,10 @@ test("an error names every problem, not only the first", () => {
     clean(RESOURCES.deals, { value: "x", fee: "y" }, { partial: true });
     assert.fail("should have thrown");
   } catch (e) {
-    assert.equal(e.status, 400);
-    assert.ok(Array.isArray(e.details) && e.details.length === 2, "only one problem reported");
+    const refusal = threw(e);
+    assert.equal(refusal.status, 400);
+    assert.ok(Array.isArray(refusal.details) && refusal.details.length === 2,
+      "only one problem reported");
   }
 });
 
@@ -118,7 +121,8 @@ test("text has a ceiling, and the ceiling says what it is", () => {
   assert.throws(() => clean(SITE, { name: "x".repeat(400) }, { partial: true }), /longer than 300/);
   assert.throws(() => clean(SITE, { note: "x".repeat(5000) }, { partial: true }), /longer than 4000/);
   /* A long note is fine — that is what a note is for. */
-  assert.ok(clean(SITE, { note: "x".repeat(3999) }, { partial: true }).note.length === 3999);
+  assert.equal(String(clean(SITE, { note: "x".repeat(3999) }, { partial: true })["note"]).length,
+    3999);
 });
 
 test("an empty id clears the link rather than storing an empty string", () => {
@@ -146,7 +150,7 @@ test("every resource can be created from its own required fields alone", () => {
    * fails and no single test would have named it.
    */
   for (const [slug, r] of Object.entries(RESOURCES)) {
-    const body = {};
+    const body: Record<string, unknown> = {};
     for (const key of r.required || []) {
       const kind = r.fields[key];
       assert.ok(kind, `${slug} requires "${key}", which it does not declare as a field`);
@@ -182,7 +186,8 @@ test("an enum value the schema does not have is refused, not a 500", () => {
 
   assert.throws(
     () => clean(r, { status: "PAID" }, { partial: true }),
-    (e) => e.status === 400 && /has to be one of/.test(e.message) && /SENT/.test(e.message),
+    (e: unknown) => threw(e).status === 400
+      && /has to be one of/.test(said(e)) && /SENT/.test(said(e)),
     "an invented enum value was accepted, and will 500 at the database"
   );
 

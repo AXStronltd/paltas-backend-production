@@ -13,6 +13,7 @@ import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
 import { sourceText } from "./src-files.ts";
+import type { Wire } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 const SCHEMA = "test_compare";
@@ -26,8 +27,23 @@ process.env.PUBLIC_URL ||= "http://127.0.0.1:8080";
 process.env.APP_URL ||= "http://127.0.0.1:8899";
 process.env.INSECURE_COOKIES = "1";
 
-let skip = DB ? false : "no TEST_DATABASE_URL — skipping compare route tests";
-let createApp, db, pg, supply, compare;
+let skip: string | false = DB ? false : "no TEST_DATABASE_URL — skipping compare route tests";
+
+/*
+ * LOADED INSIDE A `try`, SO THEY ARE DECLARED OUTSIDE IT.
+ *
+ * Importing the service pulls in the Prisma client, and a checkout where
+ * nobody has run `prisma generate` throws on that import rather than failing
+ * a test — which is a setup problem and is reported as one below.
+ *
+ * `typeof import(...)` is the module's own type, so these handles are checked
+ * against the real thing rather than carried as `any`.
+ */
+let createApp: typeof import("../src/server.ts")["createApp"];
+let db: typeof import("../src/db.ts")["db"];
+let pg: typeof import("pg")["default"];
+let supply: typeof import("../src/domain/supply.ts");
+let compare: typeof import("../src/domain/compare.ts");
 
 if (!skip) {
   try {
@@ -38,15 +54,18 @@ if (!skip) {
     compare = await import("../src/domain/compare.ts");
     await db.$queryRaw`SELECT 1`;
   } catch (e) {
-    const m = String(e && e.message);
+    const m = e instanceof Error ? e.message : String(e);
     skip = /did not initialize|locate the Query Engine|generate/.test(m)
       ? "RUN `npx prisma generate` FIRST"
       : "database unreachable: " + m.slice(0, 90);
   }
 }
 
-let server, base, pool;
-const asked = [];
+let server: import("node:http").Server;
+let base: string;
+let pool: ReturnType<typeof poolInSchema>;
+/* Every query the comparison provider was asked, in order. */
+const asked: Record<string, unknown>[] = [];
 
 const HOTEL = { hotelId: "lp82798", name: "Conrad Jabal Omar Makkah", city: "Makkah", country: "SA", stars: 5 };
 
@@ -56,27 +75,31 @@ test.before(async () => {
   await freshSchema(pool, SCHEMA);
   server = createApp().listen(0);
   await new Promise((r) => server.once("listening", r));
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${(server.address() as import("node:net").AddressInfo).port}`;
 
   supply.register({
     name: "liteapi",
     search: async () => ({ offers: [] }),
-    hotel: async ({ hotelId }) => (hotelId === HOTEL.hotelId ? HOTEL : null),
+    hotel: async ({ hotelId }: { hotelId?: string }) =>
+      (hotelId === HOTEL.hotelId ? HOTEL : null),
   });
   compare.registerCompare({
     name: "stayingapi",
     describe: () => ({ name: "stayingapi", label: "StayingAPI", sandbox: true, why: "sandbox" }),
-    compare: async (args) => {
+    /* The provider is handed a query built by domain/compare.ts; the fake
+       echoes four of its fields back so the route's own shaping is what the
+       assertions below are about. */
+    compare: async (args: Record<string, unknown>) => {
       asked.push(args);
       return {
-        property: args.name, checkIn: args.checkIn, checkOut: args.checkOut,
-        currency: args.currency || "USD",
+        property: args["name"], checkIn: args["checkIn"], checkOut: args["checkOut"],
+        currency: args["currency"] || "USD",
         offers: [
-          { ota: "Booking.com", price: { amountMinor: 84900, currency: args.currency || "USD" },
+          { ota: "Booking.com", price: { amountMinor: 84900, currency: args["currency"] || "USD" },
             url: "https://www.booking.com/x", bookable: false },
         ],
-        min: { amountMinor: 84900, currency: args.currency || "USD" },
-        median: { amountMinor: 84900, currency: args.currency || "USD" },
+        min: { amountMinor: 84900, currency: args["currency"] || "USD" },
+        median: { amountMinor: 84900, currency: args["currency"] || "USD" },
         dropped: 1,
       };
     },
@@ -90,14 +113,14 @@ test.after(async () => {
   if (pool) await pool.end();
 });
 
-const url = (q) => `${base}/marketplace/hotels/${HOTEL.hotelId}/compare?${q}`;
+const url = (q: string) => `${base}/marketplace/hotels/${HOTEL.hotelId}/compare?${q}`;
 const OK = "checkIn=2026-11-02&checkOut=2026-11-05&guests=2&country=SA&currency=USD";
 
 test("it is public — choosing a room is browsing", { skip }, async () => {
   compare.forgetComparisons();
   const r = await fetch(url(OK));
   assert.equal(r.status, 200, "a signed-out visitor cannot see what a hotel costs elsewhere");
-  const b = await r.json();
+  const b: Wire = await r.json();
   assert.equal(b.offers.length, 1);
   assert.equal(b.offers[0].ota, "Booking.com");
   assert.equal(b.offers[0].bookable, false, "another seller's offer is marked bookable");
@@ -121,7 +144,7 @@ test("a hotel PALTAS does not sell costs nothing to ask about", { skip }, async 
   const before = asked.length;
   const r = await fetch(`${base}/marketplace/hotels/not-ours/compare?${OK}`);
   assert.equal(r.status, 200, "an unknown hotel should answer, not fail");
-  const b = await r.json();
+  const b: Wire = await r.json();
   assert.deepEqual(b.offers, []);
   assert.match(b.why, /does not sell this hotel/);
   assert.equal(asked.length, before, "a 30-credit comparison was bought for a hotel PALTAS does not sell");
@@ -132,15 +155,15 @@ test("the caller cannot choose which property is priced", { skip }, async () => 
   const before = asked.length;
   await fetch(url(OK + "&name=Ritz%20Paris&location=Paris&googleHotelId=abc"));
   assert.equal(asked.length, before + 1);
-  const last = asked[asked.length - 1];
-  assert.equal(last.name, HOTEL.name, "the query string chose the property, at PALTAS's expense");
-  assert.equal(last.location, "Makkah");
-  assert.equal(last.currency, "USD");
+  const last = asked[asked.length - 1] as Record<string, unknown>;
+  assert.equal(last["name"], HOTEL.name, "the query string chose the property, at PALTAS's expense");
+  assert.equal(last["location"], "Makkah");
+  assert.equal(last["currency"], "USD");
 });
 
 test("the answer carries its caveat and its dropped count", { skip }, async () => {
   compare.forgetComparisons();
-  const b = await (await fetch(url(OK))).json();
+  const b: Wire = await (await fetch(url(OK))).json();
   assert.match(b.basis, /Room type, board basis and cancellation terms may differ/,
     "two totals are shown side by side with nothing saying they are not like-for-like");
   assert.equal(b.dropped, 1, "an offer dropped for being in another currency was not disclosed");

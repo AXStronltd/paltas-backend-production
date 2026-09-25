@@ -63,8 +63,27 @@ function stubEngines() {
   return { query, schema };
 }
 
-function runPrisma(args) {
-  const env = {
+/**
+ * WHAT `execFileSync` THROWS WHEN A COMMAND FAILS.
+ *
+ * Node puts the child's two streams on the Error, and they are the whole
+ * value of this test: prisma's complaint is in them and nowhere else.
+ * Neither is on the built-in Error, so both are named here.
+ */
+interface ChildFailure extends Error {
+  readonly stdout?: Buffer | string;
+  readonly stderr?: Buffer | string;
+  readonly status?: number;
+}
+
+/** A failed command's two streams, and its message, as one block of text. */
+function outputOf(e: unknown): string {
+  const f = e as ChildFailure | null;
+  return [f?.stdout, f?.stderr, f?.message].filter(Boolean).join("\n").trim();
+}
+
+function runPrisma(args: readonly string[]): string {
+  const env: NodeJS.ProcessEnv = {
     ...process.env,
     /* validate only parses the datasource block; it never connects. */
     DATABASE_URL: process.env.DATABASE_URL || "postgresql://validate@127.0.0.1:5432/validate",
@@ -89,7 +108,7 @@ test("prisma validate accepts the schema", { timeout: 120_000 }, () => {
   try {
     out = runPrisma(["validate"]);
   } catch (e) {
-    const said = [e.stdout, e.stderr].filter(Boolean).join("\n").trim();
+    const said = outputOf(e);
 
     /*
      * Tell the two failures apart. A schema Prisma rejects is a real,
@@ -125,7 +144,7 @@ test("prisma format would change nothing", { timeout: 120_000 }, () => {
   try {
     runPrisma(["format"]);
   } catch (e) {
-    const said = [e.stdout, e.stderr, e.message].filter(Boolean).join("\n");
+    const said = outputOf(e);
     if (/Failed to fetch|ENOTFOUND|EAI_AGAIN|403 Forbidden|getaddrinfo/.test(said)) return;
     throw e;
   }

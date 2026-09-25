@@ -54,9 +54,9 @@ function consoleRoles() {
     i++;
   }
   const block = src.slice(start, i);
-  const out = {};
+  const out: Record<string, string> = {};
   for (const m of block.matchAll(/key:\s*"([A-Z_]+)",\s*name:\s*"([^"]+)"/g)) {
-    out[m[1]] = m[2];
+    out[String(m[1])] = String(m[2]);
   }
   return out;
 }
@@ -73,9 +73,12 @@ test("the database and the server agree on which roles exist", () => {
 test("every role names a real level in every real area", () => {
   for (const [role, areas] of Object.entries(ROLE_AREAS)) {
     for (const [area, level] of Object.entries(areas)) {
-      assert.ok(AREAS.includes(area),
+      /* `AREAS` is the service's own list, so it is typed as the nine names.
+         What comes out of the stored table is a string, and whether it is
+         one of the nine is exactly what this line asks. */
+      assert.ok((AREAS as readonly string[]).includes(area),
         `${role} grants "${area}", which is not one of the ${AREAS.length} areas`);
-      assert.ok(LEVELS.includes(level),
+      assert.ok((LEVELS as readonly string[]).includes(String(level)),
         `${role} grants "${level}" on ${area}, which is not a level`);
     }
     for (const area of AREAS) {
@@ -135,9 +138,10 @@ test("no two roles are shown by the same name", { skip: skipFE }, () => {
    * locks somebody out of it.
    */
   const names = consoleRoles();
-  const byName = {};
+  /* label -> every role key that displays under it. */
+  const byName: Record<string, string[]> = {};
   for (const [key, name] of Object.entries(names)) {
-    (byName[name] = byName[name] || []).push(key);
+    (byName[name] = byName[name] ?? []).push(key);
   }
   const clashes = Object.entries(byName).filter(([, keys]) => keys.length > 1);
   assert.deepEqual(clashes, [],

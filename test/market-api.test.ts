@@ -15,6 +15,8 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
+import { portOf } from "./wire.ts";
+import type { Wire } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
 
@@ -36,17 +38,20 @@ process.env.INSECURE_COOKIES = "1";
 const { createApp } = await import("../src/server.ts");
 const { catalogueSize } = await import("../src/domain/market.ts");
 
-let server, base;
+let server: import("node:http").Server;
+let base: string;
 test.before(async () => {
   server = createApp().listen(0);
   await new Promise((r) => server.once("listening", r));
-  base = `http://127.0.0.1:${server.address().port}`;
+  base = `http://127.0.0.1:${portOf(server)}`;
 });
 test.after(() => server && server.close());
 
-const get = async (p) => {
+const get = async (p: string): Promise<{
+  status: number; json: Wire; cache: string | null;
+}> => {
   const r = await fetch(base + p, { headers: { Accept: "application/json" } });
-  let json = null;
+  let json: Wire = null;
   try { json = await r.json(); } catch { /* not every response is JSON */ }
   return { status: r.status, json, cache: r.headers.get("cache-control") };
 };
@@ -79,7 +84,7 @@ test("GET /market/config returns every country the platform knows", async () => 
 
   /* The exact shape the frontend reads — a missing key here is a country
      picker with no flag, or money formatted in the wrong locale. */
-  const ke = r.json.countries.find((c) => c.code === "KE");
+  const ke = r.json.countries.find((c: Wire) => c.code === "KE");
   assert.ok(ke, "Kenya is not in the catalogue");
   for (const k of ["code", "name", "flag", "currency", "locale", "langs", "region", "dial", "cities"]) {
     assert.ok(k in ke, `country is missing "${k}"`);
@@ -94,7 +99,7 @@ test("GET /payment-methods/available answers for a market, and insists on one", 
   assert.equal(r.json.country, "KE");
   assert.ok(Array.isArray(r.json.methods) && r.json.methods.length > 0);
 
-  const ids = r.json.methods.map((m) => m.id);
+  const ids = r.json.methods.map((m: Wire) => m.id);
   assert.ok(ids.includes("mpesa"), `Kenya without M-Pesa: ${ids.join(",")}`);
   for (const k of ["id", "name", "type", "provider", "feeLabel", "eligible"]) {
     assert.ok(k in r.json.methods[0], `method is missing "${k}"`);
@@ -116,8 +121,8 @@ test("GET /payment-methods/available answers for a market, and insists on one", 
 test("a market with different rails gets different rails", async () => {
   const ke = await get("/payment-methods/available?country=KE");
   const gb = await get("/payment-methods/available?country=GB");
-  const keIds = ke.json.methods.map((m) => m.id).sort().join(",");
-  const gbIds = gb.json.methods.map((m) => m.id).sort().join(",");
+  const keIds = ke.json.methods.map((m: Wire) => m.id).sort().join(",");
+  const gbIds = gb.json.methods.map((m: Wire) => m.id).sort().join(",");
   assert.notEqual(keIds, gbIds, "every market returned the same methods — the filter is not running");
   assert.ok(!gbIds.includes("mpesa"), "M-Pesa offered in the United Kingdom");
 });

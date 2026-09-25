@@ -24,6 +24,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
 import { join, resolve } from "node:path";
+import type { Foreign } from "./wire.ts";
 
 const FE = process.env.PALTAS_FRONTEND
   || resolve(process.cwd(), "..", "paltas-frontend 2");
@@ -31,20 +32,29 @@ const BRIDGE = join(FE, "assets/paltas-session-bridge.js");
 const skip = existsSync(BRIDGE) ? undefined : `no frontend at ${FE}`;
 
 /** Load the bridge with just enough of a window for it to attach. */
-function loadBridge({ session, blank }) {
-  const win = {
+/**
+ * A window with just enough of PALTAS on it for the bridge to attach.
+ *
+ * `Record<string, unknown>` because the bridge's whole job is to define
+ * things on it — `win.PALTAS.SessionBridge` does not exist until the script
+ * being tested has run, which is what the assertions below are about.
+ */
+function loadBridge(
+  { session, blank }: { session?: unknown; blank?: unknown },
+): { PALTAS: Foreign; [key: string]: unknown } {
+  const win: Record<string, unknown> = {
     PALTAS: {
       Data: {
         configured: () => true,
         Session: { read: () => Promise.resolve(session) },
       },
-      Session: { blank, write: (s) => { win.__written = s; return s; } },
+      Session: { blank, write: (s: unknown) => { win["__written"] = s; return s; } },
     },
     console: { error() {} },
   };
   const src = readFileSync(BRIDGE, "utf8");
   new Function("window", src + "\n;(function(){ }());")(win);
-  return win;
+  return win as { PALTAS: Foreign; [key: string]: unknown };
 }
 
 /* console.js's blank(), copied here so the test states the shape it relies on
@@ -112,7 +122,7 @@ test("an entitlement that is not ACTIVE does not open a product", { skip }, () =
   };
   const win = loadBridge({ session: view, blank });
   const s = win.PALTAS.SessionBridge.map(view);
-  assert.deepEqual(s.entitlements.map((e) => e.product), ["AGENT_HOST"],
+  assert.deepEqual(s.entitlements.map((e: Foreign) => e.product), ["AGENT_HOST"],
     "a suspended entitlement would open a product the company cannot use");
 });
 
@@ -164,8 +174,9 @@ test("the bridge writes and repaints once the session arrives", { skip }, async 
 
   /* The bridge fires its own read() on load; give the promise a turn. */
   await new Promise((r) => setTimeout(r, 10));
-  assert.ok(win.__written, "the session was never written — paintShell still reads null");
-  assert.equal(win.__written.organization.name, "Alma Real Estate");
+  const written = win["__written"] as Foreign;
+  assert.ok(written, "the session was never written — paintShell still reads null");
+  assert.equal(written.organization.name, "Alma Real Estate");
 });
 
 test("a signed-out visitor is left alone", { skip }, async () => {
@@ -199,7 +210,8 @@ test("no dashboard ships a company name in its HTML", { skip }, () => {
    */
   for (const p of ["admin", "agent", "guest", "hotel", "index", "property", "security"]) {
     const html = readFileSync(join(FE, `dashboard/${p}.html`), "utf8");
-    const shell = (id) => (html.match(new RegExp(`id="${id}">([^<]*)<`)) || [, ""])[1];
+    const shell = (id: string): string =>
+      html.match(new RegExp(`id="${id}">([^<]*)<`))?.[1] ?? "";
 
     assert.equal(shell("bname"), "PALTAS", `${p}.html names a company before it knows one`);
     assert.equal(shell("uname"), "", `${p}.html names a person before it knows one`);
@@ -223,7 +235,7 @@ test("no dashboard ships a company name in its HTML", { skip }, () => {
  * broken product rather than somebody else's product.
  * ====================================================================== */
 
-const HELD = (products) => ({
+const HELD = (products: readonly string[]) => ({
   signedIn: true,
   user: { id: "u1", name: "A", email: "a@example.com", phone: "" },
   organization: { id: "o1", name: "Kabole LTD", country: "ke", city: "", size: "", status: "ACTIVE" },
@@ -236,18 +248,32 @@ const HELD = (products) => ({
 });
 
 /** The bridge, with just enough console.Session to exercise the gate. */
-function gateRig({ page, system, products, openKeys, search }) {
-  let replaced = null;
+/** How one run of the gate is set up. */
+interface GateRig {
+  readonly page: string;
+  readonly system: string;
+  readonly products: readonly string[];
+  readonly openKeys: readonly string[];
+  readonly search?: string;
+}
+
+function gateRig({ page, system, products, openKeys, search }: GateRig) {
+  let replaced: string | null = null;
   const session = HELD(products);
-  const win = {
+  const win: Record<string, unknown> = {
     PALTAS_BOOT: { system },
-    location: { pathname: `/dashboard/${page}`, search: search || "", replace: (u) => { replaced = u; } },
+    location: {
+      pathname: `/dashboard/${page}`, search: search || "",
+      replace: (u: string) => { replaced = u; },
+    },
     history: { replaceState() {} },
-    toast: (msg, tone) => { win.__toast = { msg, tone }; },
+    toast: (msg: unknown, tone: unknown) => { win["__toast"] = { msg, tone }; },
     PALTAS: {
       Data: { configured: () => true, Session: { read: () => Promise.resolve(session) } },
       Session: {
-        blank, write: (s) => { win.__written = s; return s; }, read: () => win.__written,
+        blank,
+        write: (s: unknown) => { win["__written"] = s; return s; },
+        read: () => win["__written"],
         /*
          * SHAPED LIKE THE REAL PRODUCTS TABLE, because the first version of
          * this rig returned { key: "agent" } and the gate compared that to
@@ -257,12 +283,13 @@ function gateRig({ page, system, products, openKeys, search }) {
          * their own dashboards. A rig that agrees with the assumption instead
          * of the data is worse than no rig.
          */
-        openable: () => openKeys.map((k) => ({
+        openable: () => openKeys.map((k: string) => ({
           key: k.toUpperCase() === "AGENT" ? "AGENT_HOST" : k.toUpperCase() + "_MANAGEMENT",
           legacy: k,
           home: "dashboard/" + k + ".html",
         })),
-        destination: (_s, base) => (base || "") + "dashboard/" + openKeys[0] + ".html",
+        destination: (_s: unknown, base?: string) =>
+          (base || "") + "dashboard/" + openKeys[0] + ".html",
       },
     },
     console: { error() {} },
@@ -324,10 +351,11 @@ test("the console that receives them says why they are there", { skip }, async (
     openKeys: ["agent"], search: "?need=property",
   });
   await new Promise((r) => setTimeout(r, 15));
-  assert.ok(win.__toast, "they arrived with no account of why they were moved");
-  assert.match(win.__toast.msg, /Property Management/,
+  const toast = win["__toast"] as { msg?: string; tone?: string } | undefined;
+  assert.ok(toast, "they arrived with no account of why they were moved");
+  assert.match(String(toast.msg), /Property Management/,
     "the message does not name the product they asked for");
-  assert.equal(win.__toast.tone, "warn");
+  assert.equal(toast.tone, "warn");
 });
 
 test("an ordinary visit explains nothing", { skip }, async () => {

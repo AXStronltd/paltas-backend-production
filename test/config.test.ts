@@ -12,6 +12,7 @@ import { readFileSync } from "node:fs";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
 import { sourceText } from "./src-files.ts";
+import { said } from "./threw.ts";
 
 /*
  * config.js validates the environment AT IMPORT TIME and throws if anything is
@@ -47,11 +48,11 @@ test("a complete environment is accepted", () => {
 
 test("a missing setting stops the service, and the message says which", () => {
   for (const key of Object.keys(ok)) {
-    const env = { ...ok };
+    const env: Record<string, string> = { ...ok };
     delete env[key];
-    assert.throws(() => readConfig(env), (e) => {
-      assert.match(e.message, new RegExp(key), `the error does not name ${key}`);
-      assert.match(e.message, /cannot start/i);
+    assert.throws(() => readConfig(env), (e: unknown) => {
+      assert.match(said(e), new RegExp(key), `the error does not name ${key}`);
+      assert.match(said(e), /cannot start/i);
       return true;
     }, `a missing ${key} was allowed`);
   }
@@ -208,8 +209,11 @@ test("the cookie is set and cleared with the same same-site value", async () => 
   /* A cookie cleared with different attributes is a cookie the browser keeps —
      which is somebody pressing sign out and staying signed in. */
   const sessions = sourceText("auth", "sessions.js");
-  const set = sessions.match(/setSessionCookie[\s\S]*?\n\}/)[0];
-  const clear = sessions.match(/clearSessionCookie[\s\S]*?\n\}/)[0];
+  /* Both are in that file — a missing one is a renamed function and the
+     message says so rather than reading [0] of null. */
+  const set = sessions.match(/setSessionCookie[\s\S]*?\n\}/)?.[0];
+  const clear = sessions.match(/clearSessionCookie[\s\S]*?\n\}/)?.[0];
+  assert.ok(set && clear, "setSessionCookie or clearSessionCookie is gone");
   for (const attr of ["httpOnly", "secure", "sameSite", "path"]) {
     assert.ok(set.includes(attr), `setSessionCookie does not set ${attr}`);
     assert.ok(clear.includes(attr), `clearSessionCookie does not match on ${attr}`);

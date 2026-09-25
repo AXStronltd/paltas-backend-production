@@ -168,9 +168,10 @@ test("§3 still lists 45 endpoints", () => {
 });
 
 test("every endpoint the product names has been decided about", () => {
-  const undecided = [];
+  const undecided: string[] = [];
+  const decided = STATUS as Record<string, readonly string[] | undefined>;
   for (const { verb, path } of NAMED) {
-    if (!STATUS[`${verb} ${path}`]) undecided.push(`${verb} ${path}`);
+    if (!decided[`${verb} ${path}`]) undecided.push(`${verb} ${path}`);
   }
   assert.deepEqual(undecided, [],
     "The product speaks these endpoint names aloud and nobody has said what they are:\n  " +

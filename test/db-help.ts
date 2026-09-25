@@ -220,28 +220,28 @@ export function urlForSchema(url: unknown, schema: string): string {
  * connecting, because a Pool opens connections lazily and replaces them:
  * anything set on one connection is not true of the next one handed out.
  */
-/**
- * Only what this file uses of `pg`, and of what it hands back.
+/*
+ * `pg`'s OWN TYPES, not a hand-written stand-in.
  *
- * The package is imported dynamically by each caller — `await import("pg")` —
- * so there is no value here to infer a type from, and naming the two methods
- * is more useful than naming the package.
+ * This file first named the two methods it uses and stopped there, because
+ * the package shipped no declarations. `@types/pg` is now a devDependency,
+ * so the real ones are used — a stand-in beside a package that has types is
+ * a second source of truth waiting to drift.
+ *
+ * Imported for its TYPES only. Each caller still loads the package itself
+ * with `await import("pg")`, because nothing here may pull a database driver
+ * into a run that has no database.
  */
-export interface PgPool {
-  query(sql: string): Promise<unknown>;
-  end(): Promise<void>;
-}
-
-export interface PgModule {
-  Pool: new (options: { connectionString: unknown; options?: string }) => PgPool;
-}
-
-export function poolInSchema(pg: PgModule, url: unknown, schema: string): PgPool {
-  return new pg.Pool({ connectionString: url, options: `-c search_path=${schema}` });
+export function poolInSchema(
+  pg: typeof import("pg")["default"], url: unknown, schema: string,
+): import("pg").Pool {
+  return new pg.Pool({
+    connectionString: String(url), options: `-c search_path=${schema}`,
+  });
 }
 
 /** Empty `schema`, then apply every migration into it in Prisma's order. */
-export async function freshSchema(pool: PgPool, schema: string): Promise<void> {
+export async function freshSchema(pool: import("pg").Pool, schema: string): Promise<void> {
   await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE; CREATE SCHEMA "${schema}";`);
   const root = join(HERE, "..", "prisma", "migrations");
   for (const dir of readdirSync(root).sort()) {
