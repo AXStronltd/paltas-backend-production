@@ -58,6 +58,7 @@
  */
 
 import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
+import type { FetchLike, FetchReply } from "../domain/supply.ts";
 
 export const DEFAULT_BASE = "https://api.stayingapi.com/v1";
 
@@ -148,7 +149,7 @@ export interface StayingApiConfig {
   readonly pollMs?: number;
   readonly maxPolls?: number;
   /** Injected for tests; defaults to global fetch. */
-  readonly fetchImpl?: typeof globalThis.fetch;
+  readonly fetchImpl?: FetchLike;
 }
 
 /** What a multi-platform search is asked for. */
@@ -288,7 +289,7 @@ export function stayingApi({
   ): Promise<{ status: number; body: unknown; retryAfter: number }> {
     const stop = new AbortController();
     const t = setTimeout(() => stop.abort(), timeoutMs);
-    let res: Response;
+    let res: FetchReply;
     try {
       res = await http(url, {
         method: "GET",

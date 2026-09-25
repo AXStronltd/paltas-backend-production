@@ -50,9 +50,10 @@
  * because an API that echoes your request is how a key reaches a log.
  * ====================================================================== */
 
-import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
+import { SupplyUnavailable, toMinor 
+} from "../domain/supply.ts";
 import type {
-  AccommodationSupplier, BookRequest, BookingGuest, BookingQuery, HotelQuery,
+  AccommodationSupplier, FetchLike, FetchReply, BookRequest, BookingGuest, BookingQuery, HotelQuery,
   PrebookQuery, RawOffer, RoomsQuery, SupplierDescription, SupplyQuery, SupplyResult,
 } from "../domain/supply.ts";
 import { messageOf } from "../http/errors.ts";
@@ -311,7 +312,7 @@ export interface LiteApiConfig {
   readonly stripePkTest?: string;
   readonly stripePkLive?: string;
   /** Injected for tests. */
-  readonly fetchImpl?: typeof globalThis.fetch;
+  readonly fetchImpl?: FetchLike;
   /** A supplier that hangs must not hang the homepage. */
   readonly timeoutMs?: number;
 }
@@ -412,7 +413,7 @@ export function liteApi({
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res: Response;
+    let res: FetchReply;
     try {
       res = await http(url.toString(), {
         method,

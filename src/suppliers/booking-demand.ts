@@ -46,9 +46,10 @@
  * request is how a token reaches a log file.
  * ====================================================================== */
 
-import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
+import { SupplyUnavailable, toMinor 
+} from "../domain/supply.ts";
 import type {
-  AccommodationSupplier, RawOffer, SupplierDescription, SupplyQuery, SupplyResult,
+  AccommodationSupplier, FetchLike, FetchReply, RawOffer, SupplierDescription, SupplyQuery, SupplyResult,
 } from "../domain/supply.ts";
 import { messageOf } from "../http/errors.ts";
 
@@ -111,9 +112,11 @@ export interface BookingDemandConfig {
   /** `{ "city,cc": "booking_city_id" }` — Booking prices by city id, not name. */
   readonly cities?: Readonly<Record<string, unknown>>;
   /** Injected for tests. */
-  readonly fetchImpl?: typeof globalThis.fetch;
+  readonly fetchImpl?: FetchLike;
   /** A supplier that hangs must not hang the homepage. */
   readonly timeoutMs?: number;
+  /** Overridable base, for a proxy or a test that must not reach the network. */
+  readonly baseUrl?: string;
 }
 
 export function bookingDemand({
@@ -123,6 +126,7 @@ export function bookingDemand({
   cities = {},
   fetchImpl,
   timeoutMs = 6000,
+  baseUrl = BASE,
 }: BookingDemandConfig = {}): AccommodationSupplier {
   if (!token || !affiliateId) {
     throw new SupplyUnavailable(
@@ -156,9 +160,9 @@ export function bookingDemand({
   async function call(path: string, body: Json, travellerIp?: string): Promise<unknown> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res: Response;
+    let res: FetchReply;
     try {
-      res = await http(BASE + path, {
+      res = await http(baseUrl + path, {
         method: "POST",
         signal: controller.signal,
         headers: {

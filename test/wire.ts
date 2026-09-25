@@ -64,7 +64,10 @@ export interface Reply {
   readonly status: number;
   readonly json: Wire;
   readonly text: string;
-  readonly headers: Headers;
+  /* Optional because a handful of these helpers do not return it — the
+     suites that assert on a redirect or a Set-Cookie do, and the rest read
+     only the body. */
+  readonly headers?: Headers;
 }
 
 /**
@@ -87,4 +90,86 @@ export function portOf(server: import("node:http").Server): number {
     throw new Error("the test server is not listening on a TCP port");
   }
   return at.port;
+}
+
+/**
+ * WHAT A TEST ASKS THE API FOR.
+ *
+ * Twenty-three suites each carry their own `call()` helper — near-identical,
+ * and deliberately so: a shared one would have to grow a flag for every
+ * difference between them, and each file states its own base URL and cookie
+ * handling in the four lines where a reader is looking.
+ *
+ * What they DID share was an options bag written as a destructure with
+ * defaults, which infers `{ method?: string }` from `{ method = "GET" }` and
+ * rejects every other option. Naming it once is the whole fix.
+ */
+export interface CallOptions {
+  readonly method?: string;
+  /** Serialised as JSON. A GET carries none. */
+  readonly body?: unknown;
+  readonly cookie?: string;
+  readonly headers?: Record<string, string>;
+}
+
+/**
+ * A CAPABILITY THE THING UNDER TEST IS SUPPOSED TO HAVE.
+ *
+ * Several interfaces in this service declare optional methods, and correctly:
+ * `describe()` on a supplier, `book()` on one that can sell, `prebook()` on
+ * one that holds rates. Most adapters have some and none has all.
+ *
+ * A test that builds an adapter and then calls one of them is asserting it
+ * is there. This says so — and if it is not, the failure names the method,
+ * rather than being a TypeError inside somebody else's stack.
+ */
+export function has<T>(method: T | undefined, what: string): T {
+  if (method === undefined || method === null) {
+    throw new Error(`the adapter under test has no ${what}()`);
+  }
+  return method;
+}
+
+/**
+ * A COMPLETE REPLY FROM A STUBBED `fetch`.
+ *
+ * The supplier suites inject fake responses to prove that an adapter handles
+ * a refusal, a timeout or a malformed body. Each fake was an object literal
+ * carrying the two or three members that adapter happened to read — which
+ * meant a stub written for one adapter could not be handed to another, and
+ * that a stub was quietly claiming to be something it was not.
+ *
+ * This builds a whole one. `text()` and `json()` agree with each other,
+ * which is what a real response does and what a stub asserting on either
+ * ought to do.
+ */
+export function reply(body: unknown, status = 200): import("../src/domain/supply.ts").FetchReply {
+  const text = typeof body === "string" ? body : JSON.stringify(body);
+  return {
+    ok: status >= 200 && status < 300,
+    status,
+    text: async () => text,
+    json: async () => JSON.parse(text),
+    headers: { get: () => null },
+  };
+}
+
+/**
+ * A VALUE THAT MUST BE THERE, ASSERTED AND NARROWED IN ONE LINE.
+ *
+ * `assert.ok(x)` is declared as an assertion in @types/node, but TypeScript
+ * will not narrow through it: an assertion signature requires every name in
+ * the call target to have an explicit type annotation, and `assert.ok` is a
+ * property of a default import. So the assertion passes at runtime and the
+ * compiler still believes the value may be null on the next line.
+ *
+ * Rather than a `!` after every such assert — which asserts rather than
+ * checks, and would be a lie the day the assertion above it is deleted —
+ * this does both, and its message is the one the test author wrote.
+ */
+export function present<T>(value: T | null | undefined, because: string): T {
+  if (value === null || value === undefined) {
+    throw new Error(because);
+  }
+  return value;
 }

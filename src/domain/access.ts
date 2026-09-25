@@ -202,9 +202,25 @@ export interface Actor {
  * ====================================================================== */
 
 /** What this actor may do in an area. Unknown role → nothing. */
-export function levelFor(actor: Actor | null | undefined, area: Area): Level {
+/**
+ * WHO IS ASKING, AS FAR AS THE AREA TABLE IS CONCERNED.
+ *
+ * A role and nothing else, because a role and nothing else is what the three
+ * functions below read. The same shape rights.ts already uses for
+ * PromotionActor, and for the same reason: a function that demands a whole
+ * Actor to look up one column cannot be called from a test, a job, or
+ * anywhere else that has a role and no session — without inventing eight
+ * fields it will not read.
+ *
+ * A full Actor satisfies it, so nothing that already calls these changes.
+ */
+export interface AreaActor {
+  readonly role?: string;
+}
+
+export function levelFor(actor: AreaActor | null | undefined, area: Area): Level {
   if (!actor) return "none";
-  const row = ROLE_AREAS[actor.role];
+  const row = actor.role ? ROLE_AREAS[actor.role] : undefined;
   if (!row) return "none";
   return row[area] || "none";
 }
@@ -219,7 +235,7 @@ export const ACT_LEVEL = {
 /** One of the five things a caller can ask to do. */
 export type Act = keyof typeof ACT_LEVEL;
 
-export function allows(actor: Actor | null | undefined, area: Area, act: Act): boolean {
+export function allows(actor: AreaActor | null | undefined, area: Area, act: Act): boolean {
   const need = ACT_LEVEL[act];
   if (!need) return false;
   return RANK[levelFor(actor, area)] >= RANK[need];
@@ -233,7 +249,7 @@ export function allows(actor: Actor | null | undefined, area: Area, act: Act): b
  * something that tells them what to do next.
  */
 export function whyNotArea(
-  actor: Actor | null | undefined,
+  actor: AreaActor | null | undefined,
   area: Area,
   act: Act,
   label?: string,

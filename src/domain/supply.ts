@@ -95,6 +95,40 @@ export interface SupplierDescription {
   readonly [key: string]: unknown;
 }
 
+/* ====================================================================== *
+ * WHAT AN ADAPTER NEEDS OF `fetch`, AND NO MORE.
+ *
+ * Each of these adapters took `typeof globalThis.fetch`, which demands a
+ * function returning a whole Response — every header, every body method, the
+ * streaming interface. They use five fields of it.
+ *
+ * The difference shows up where it matters: a test injects a stub to prove
+ * that a supplier returning nonsense does not break the marketplace, and
+ * that stub had to either be cast or grow a dozen methods nothing calls.
+ * Neither says anything true. This does: here is the shape an adapter
+ * depends on, and a real `fetch` satisfies it.
+ * ====================================================================== */
+
+/** As much of a Response as the adapters read. */
+export interface FetchReply {
+  readonly ok: boolean;
+  readonly status: number;
+  text(): Promise<string>;
+  json(): Promise<unknown>;
+  readonly headers: { get(name: string): string | null };
+}
+
+/** As much of `fetch` as the adapters call. A real one satisfies it. */
+export type FetchLike = (
+  url: string,
+  init?: {
+    method?: string;
+    headers?: Record<string, string>;
+    body?: string;
+    signal?: AbortSignal;
+  },
+) => Promise<FetchReply>;
+
 /** What a supplier is asked. `travellerIp` is passed through, never stored. */
 export interface SupplyQuery {
   readonly city?: string;
@@ -189,6 +223,10 @@ export interface PrebookResult {
   readonly currency?: string | null;
   /** Anything other than 0 means the price moved between show and hold. */
   readonly priceDifferencePercent?: number | null;
+  /** The supplier restated the cancellation terms while holding the rate. */
+  readonly cancellationChanged?: boolean;
+  /** The board basis changed — breakfast that was included, and is not. */
+  readonly boardChanged?: boolean;
   readonly sandbox?: boolean;
   /** Present only when the guest pays through the supplier's own form. */
   readonly payment?: {

@@ -68,9 +68,10 @@
  * ====================================================================== */
 
 import { createHash } from "node:crypto";
-import { SupplyUnavailable, toMinor } from "../domain/supply.ts";
+import { SupplyUnavailable, toMinor 
+} from "../domain/supply.ts";
 import type {
-  AccommodationSupplier, RawOffer, SupplierDescription, SupplyQuery, SupplyResult,
+  AccommodationSupplier, FetchLike, FetchReply, RawOffer, SupplierDescription, SupplyQuery, SupplyResult,
 } from "../domain/supply.ts";
 import { messageOf } from "../http/errors.ts";
 
@@ -212,7 +213,7 @@ export interface ExpediaRapidConfig {
   /** `{ "city,cc": "region_id" }` — Rapid prices by opaque region id. */
   readonly regions?: Readonly<Record<string, unknown>>;
   /** Injected for tests; defaults to global fetch. */
-  readonly fetchImpl?: typeof globalThis.fetch;
+  readonly fetchImpl?: FetchLike;
   /** A supplier that hangs must not hang the homepage. */
   readonly timeoutMs?: number;
   /** Injected clock, so the signature is testable. */
@@ -261,7 +262,7 @@ export function expediaRapid({
 
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
-    let res: Response;
+    let res: FetchReply;
     try {
       res = await http(url.toString(), {
         method: "GET",

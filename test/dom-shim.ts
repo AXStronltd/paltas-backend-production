@@ -71,9 +71,12 @@ export interface ShimNode {
 
 /** What the shim recorded while a page ran. */
 export interface ShimCalls {
-  fetch: unknown[];
-  warn: unknown[];
-  error: unknown[];
+  /* Every URL a page asked for, as the string it asked with. Nothing here
+     reaches the network — the shim's fetch rejects — so this is the record
+     of what a page WOULD have called. */
+  fetch: string[];
+  warn: string[];
+  error: string[];
 }
 
 export function makeWindow({ href = "https://paltas.io/" }: { href?: string } = {}) {
