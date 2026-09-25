@@ -36,7 +36,7 @@ import type {
 } from "../domain/promotions.ts";
 import type { Prisma } from "@prisma/client";
 import type { Actor } from "../http/request.ts";
-import { actorOf } from "../http/request.ts";
+import { actorOf, param } from "../http/request.ts";
 
 export const promotionRoutes = Router();
 
@@ -148,7 +148,7 @@ promotionRoutes.get("/", async (req, res, next) => {
 /** GET /promotions/:ref */
 promotionRoutes.get("/:ref", async (req, res, next) => {
   try {
-    const p = await load(req.params.ref);
+    const p = await load(param(req, "ref"));
     if (!p) throw notFound("No promotion with that reference.");
     if (!mayRead(actorOf(req, "a promotions route"), p)) throw hidden();
     res.setHeader("Cache-Control", "no-store, private");
@@ -163,7 +163,7 @@ promotionRoutes.get("/:ref", async (req, res, next) => {
  */
 promotionRoutes.get("/:ref/checks", async (req, res, next) => {
   try {
-    const p = await load(req.params.ref);
+    const p = await load(param(req, "ref"));
     if (!p) throw notFound("No promotion with that reference.");
     if (!mayRead(actorOf(req, "a promotions route"), p)) throw hidden();
     res.json({ content: contentCheck(p), creative: creativeCheck(p.imageMeta) });
@@ -213,7 +213,7 @@ promotionRoutes.post("/", async (req, res, next) => {
  */
 promotionRoutes.patch("/:ref", async (req, res, next) => {
   try {
-    const p = await load(req.params.ref);
+    const p = await load(param(req, "ref"));
     if (!p) throw notFound("No promotion with that reference.");
     if (!mayWrite(actorOf(req, "a promotions route"), p)) throw hidden();
 
@@ -279,7 +279,7 @@ for (const [path, spec] of Object.entries(ACTIONS)) {
       const no = whyNot(actor, t.right);
       if (no) throw forbidden(no);
 
-      const p = await load(req.params.ref);
+      const p = await load(param(req, "ref"));
       if (!p) throw notFound("No promotion with that reference.");
 
       /* A customer may only act on their own; PALTAS staff act on anybody's. */

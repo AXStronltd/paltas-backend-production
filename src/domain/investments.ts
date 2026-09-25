@@ -84,7 +84,7 @@ export const OFFERING_RIGHTS: Readonly<Record<string, OfferingGrants>> = {
  */
 export function offeringRights({ role, isPlatform }: OfferingActor): OfferingGrants {
   if (isPlatform && (role === "OWNER" || role === "MANAGER")) {
-    return OFFERING_RIGHTS.PUBLISHER;
+    return OFFERING_RIGHTS["PUBLISHER"] ?? {};
   }
   /* A platform COMPLIANCE or MARKETING role keeps its reviewing rights; a
      customer's own staff never gain them, because these keys only appear on

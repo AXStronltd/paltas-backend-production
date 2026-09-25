@@ -190,7 +190,9 @@ export function presignUpload(
        deployment is put together. */
     return { ok: false, why: publicDescribe(env).why };
 
-  const type = String(contentType || "").toLowerCase().split(";")[0].trim();
+  /* "application/pdf; charset=..." — the type is the part before the
+     first semicolon, and a header with none is the whole string. */
+  const type = (String(contentType || "").toLowerCase().split(";")[0] ?? "").trim();
   if (!ALLOWED_TYPES.has(type)) {
     return { ok: false, why: `A ${type || "file of unknown type"} cannot be uploaded. ` +
       `Documents may be PDF, an image, Word or Excel.` };
@@ -288,7 +290,7 @@ export async function head(
   return {
     ok: true,
     bytes: Number(res.headers.get("content-length") || 0),
-    mimeType: String(res.headers.get("content-type") || "").split(";")[0].trim(),
+    mimeType: (String(res.headers.get("content-type") || "").split(";")[0] ?? "").trim(),
     checksum: String(res.headers.get("etag") || "").replace(/"/g, ""),
   };
 }

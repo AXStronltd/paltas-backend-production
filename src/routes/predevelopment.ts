@@ -31,7 +31,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import type { $Enums } from "@prisma/client";
 import { enumParam } from "../http/errors.ts";
 import { whyNotArea } from "../domain/access.ts";
@@ -137,7 +137,7 @@ async function ownPermit(req: Request, id: string) {
  */
 predevRoutes.post("/acquisitions/:id/status", route(async (req, res) => {
   needMoney(req, "update", "acquisitions");
-  const a = await ownAcquisition(req, req.params.id);
+  const a = await ownAcquisition(req, param(req, "id"));
   const orgId = actorOf(req, "a predevelopment route").orgId;
 
   const to = enumParam("AcquisitionStatus", req.body?.status, "acquisition state");
@@ -235,7 +235,7 @@ predevRoutes.post("/acquisitions/:id/status", route(async (req, res) => {
 /** POST /acquisitions/:id/diligence — something else that must be checked. */
 predevRoutes.post("/acquisitions/:id/diligence", route(async (req, res) => {
   need(req, "update", "acquisitions");
-  const a = await ownAcquisition(req, req.params.id);
+  const a = await ownAcquisition(req, param(req, "id"));
   const title = text(req.body?.title, 300);
   if (!title) throw badRequest("A check needs to say what is being checked.");
 
@@ -261,8 +261,8 @@ predevRoutes.post("/acquisitions/:id/diligence", route(async (req, res) => {
  */
 predevRoutes.post("/acquisitions/:id/diligence/:itemId", route(async (req, res) => {
   need(req, "update", "acquisitions");
-  const a = await ownAcquisition(req, req.params.id);
-  const item = await ownDiligence(req, req.params.itemId);
+  const a = await ownAcquisition(req, param(req, "id"));
+  const item = await ownDiligence(req, param(req, "itemId"));
   if (item.acquisitionId !== a.id) throw hidden();
 
   const to = enumParam("DiligenceStatus", req.body?.status, "check result");
@@ -312,7 +312,7 @@ predevRoutes.post("/acquisitions/:id/diligence/:itemId", route(async (req, res) 
  */
 predevRoutes.post("/feasibilities/:id/decide", route(async (req, res) => {
   needMoney(req, "update", "feasibilities");
-  const f = await ownFeasibility(req, req.params.id);
+  const f = await ownFeasibility(req, param(req, "id"));
 
   if (!["DRAFT", "UNDER_REVIEW"].includes(f.status)) {
     throw conflict(
@@ -376,7 +376,7 @@ predevRoutes.post("/feasibilities/:id/decide", route(async (req, res) => {
  */
 predevRoutes.post("/feasibilities/:id/supersede", route(async (req, res) => {
   needMoney(req, "create", "feasibilities");
-  const f = await ownFeasibility(req, req.params.id);
+  const f = await ownFeasibility(req, param(req, "id"));
   if (f.status === "SUPERSEDED") throw conflict(`${f.ref} has already been replaced.`);
   const orgId = actorOf(req, "a predevelopment route").orgId;
 
@@ -416,7 +416,7 @@ predevRoutes.post("/feasibilities/:id/supersede", route(async (req, res) => {
  */
 predevRoutes.post("/drawings/:id/issue", route(async (req, res) => {
   need(req, "update", "drawings");
-  const d = await ownDrawing(req, req.params.id);
+  const d = await ownDrawing(req, param(req, "id"));
 
   if (d.status === "SUPERSEDED") {
     throw conflict(`${d.number} rev ${d.revision} has been superseded. Issue the current revision.`);
@@ -460,7 +460,7 @@ predevRoutes.post("/drawings/:id/issue", route(async (req, res) => {
  */
 predevRoutes.post("/drawings/:id/revise", route(async (req, res) => {
   need(req, "create", "drawings");
-  const d = await ownDrawing(req, req.params.id);
+  const d = await ownDrawing(req, param(req, "id"));
   const orgId = actorOf(req, "a predevelopment route").orgId;
 
   if (d.status === "SUPERSEDED") {
@@ -549,7 +549,7 @@ predevRoutes.get("/drawings/current", route(async (req, res) => {
  */
 predevRoutes.post("/permits/:id/status", route(async (req, res) => {
   need(req, "update", "permits");
-  const p = await ownPermit(req, req.params.id);
+  const p = await ownPermit(req, param(req, "id"));
 
   const to = enumParam("PermitStatus", req.body?.status, "permit state");
   if (!to) throw badRequest("Which state? Send `status`.");

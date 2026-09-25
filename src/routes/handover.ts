@@ -30,7 +30,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import type { $Enums } from "@prisma/client";
 import { enumParam } from "../http/errors.ts";
 
@@ -141,7 +141,7 @@ async function blockingDefects(orgId: string, unitId: string | null | undefined)
 /** GET /handovers/:id/readiness — what still stands in the way, before anybody drives over. */
 handoverRoutes.get("/handovers/:id/readiness", route(async (req, res) => {
   need(req, "get", "handovers");
-  const h = await ownHandover(req, req.params.id);
+  const h = await ownHandover(req, param(req, "id"));
   const orgId = actorOf(req, "a handover route").orgId;
 
   const [defects, items] = await Promise.all([
@@ -181,7 +181,7 @@ handoverRoutes.get("/handovers/:id/readiness", route(async (req, res) => {
 /** POST /handovers/:id/items — keys, meters, manuals, warranties. */
 handoverRoutes.post("/handovers/:id/items", route(async (req, res) => {
   need(req, "update", "handovers");
-  const h = await ownHandover(req, req.params.id);
+  const h = await ownHandover(req, param(req, "id"));
   if (h.status === "COMPLETED") {
     throw conflict(`${h.ref} is done. Its list is the record of what was handed over.`);
   }
@@ -203,8 +203,8 @@ handoverRoutes.post("/handovers/:id/items", route(async (req, res) => {
 /** POST /handovers/:id/items/:itemId — what happened to it on the day. */
 handoverRoutes.post("/handovers/:id/items/:itemId", route(async (req, res) => {
   need(req, "update", "handovers");
-  const h = await ownHandover(req, req.params.id);
-  const item = await ownItem(req, req.params.itemId);
+  const h = await ownHandover(req, param(req, "id"));
+  const item = await ownItem(req, param(req, "itemId"));
   if (item.handoverId !== h.id) throw hidden();
   if (h.status === "COMPLETED") {
     throw conflict(`${h.ref} is done. What was handed over that day does not change afterwards.`);
@@ -240,7 +240,7 @@ handoverRoutes.post("/handovers/:id/items/:itemId", route(async (req, res) => {
  */
 handoverRoutes.post("/handovers/:id/complete", route(async (req, res) => {
   need(req, "update", "handovers");
-  const h = await ownHandover(req, req.params.id);
+  const h = await ownHandover(req, param(req, "id"));
   const orgId = actorOf(req, "a handover route").orgId;
 
   if (h.status === "COMPLETED") throw conflict(`${h.ref} has already been handed over.`);
@@ -307,7 +307,7 @@ handoverRoutes.post("/handovers/:id/complete", route(async (req, res) => {
  */
 handoverRoutes.post("/handovers/:id/refuse", route(async (req, res) => {
   need(req, "update", "handovers");
-  const h = await ownHandover(req, req.params.id);
+  const h = await ownHandover(req, param(req, "id"));
   if (h.status === "COMPLETED") {
     throw conflict(`${h.ref} was completed. A complaint afterwards is a defect, not a refusal.`);
   }
@@ -395,7 +395,7 @@ const CONTRACT_NEXT: Readonly<Record<string, readonly $Enums.ContractStatus[]>> 
  */
 handoverRoutes.post("/contracts/:id/status", route(async (req, res) => {
   needMoney(req, "update", "contracts");
-  const c = await ownContract(req, req.params.id);
+  const c = await ownContract(req, param(req, "id"));
   const orgId = actorOf(req, "a handover route").orgId;
 
   const to = enumParam("ContractStatus", req.body?.status, "contract state");
@@ -474,7 +474,7 @@ handoverRoutes.post("/contracts/:id/status", route(async (req, res) => {
 /** GET /contracts/:id/balance — value, received, owed. Computed every time. */
 handoverRoutes.get("/contracts/:id/balance", route(async (req, res) => {
   needMoney(req, "get", "contracts");
-  const c = await ownContract(req, req.params.id);
+  const c = await ownContract(req, param(req, "id"));
   const b = await balanceOf(actorOf(req, "a handover route").orgId, c);
   res.json({
     contract: { id: c.id, ref: c.ref, currency: c.currency, status: c.status },
@@ -498,7 +498,7 @@ handoverRoutes.get("/contracts/:id/balance", route(async (req, res) => {
 handoverRoutes.post("/projects/:id/team", route(async (req, res) => {
   need(req, "update", "project-team");
   const orgId = actorOf(req, "a handover route").orgId;
-  const project = await db.project.findFirst({ where: { id: req.params.id, orgId } });
+  const project = await db.project.findFirst({ where: { id: param(req, "id"), orgId } });
   if (!project) throw hidden();
 
   const b = req.body || {};
@@ -556,8 +556,8 @@ handoverRoutes.post("/projects/:id/team", route(async (req, res) => {
 handoverRoutes.post("/projects/:id/team/:memberId/leave", route(async (req, res) => {
   need(req, "update", "project-team");
   const orgId = actorOf(req, "a handover route").orgId;
-  const member = await ownMember(req, req.params.memberId);
-  if (member.projectId !== req.params.id) throw hidden();
+  const member = await ownMember(req, param(req, "memberId"));
+  if (member.projectId !== param(req, "id")) throw hidden();
   if (member.leftOn) throw conflict(`${member.name} already left this job.`);
 
   const out = await db.projectMember.update({
@@ -601,7 +601,7 @@ handoverRoutes.post("/projects/:id/team/:memberId/leave", route(async (req, res)
 handoverRoutes.get("/projects/:id/team", route(async (req, res) => {
   need(req, "get", "project-team");
   const orgId = actorOf(req, "a handover route").orgId;
-  const project = await db.project.findFirst({ where: { id: req.params.id, orgId } });
+  const project = await db.project.findFirst({ where: { id: param(req, "id"), orgId } });
   if (!project) throw hidden();
 
   const all = await db.projectMember.findMany({

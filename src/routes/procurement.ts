@@ -30,7 +30,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 
 /** One line of a purchase order, as this file reads one back. */
 type PurchaseLineRow = NonNullable<Awaited<ReturnType<typeof db.purchaseLine.findFirst>>>;
@@ -159,7 +159,7 @@ async function ownContract(req: Request, id: string) {
 /** POST /rfqs/:id/issue — it goes out, and stops being a draft. */
 procurementRoutes.post("/rfqs/:id/issue", route(async (req, res) => {
   need(req, "update", "rfqs");
-  const rfq = await ownRfq(req, req.params.id);
+  const rfq = await ownRfq(req, param(req, "id"));
   if (rfq.status !== "DRAFT") throw conflict(`${rfq.ref} has already been issued.`);
 
   const out = await db.rfq.update({
@@ -184,7 +184,7 @@ procurementRoutes.post("/rfqs/:id/issue", route(async (req, res) => {
  */
 procurementRoutes.post("/rfqs/:id/award", route(async (req, res) => {
   need(req, "create", "purchase-orders");
-  const rfq = await ownRfq(req, req.params.id);
+  const rfq = await ownRfq(req, param(req, "id"));
   const orgId = actorOf(req, "a procurement route").orgId;
 
   if (rfq.status === "AWARDED") {
@@ -276,7 +276,7 @@ async function retotal(orgId: string, orderId: string, tax?: bigint) {
 /** POST /purchase-orders/:id/lines — what is being bought. */
 procurementRoutes.post("/purchase-orders/:id/lines", route(async (req, res) => {
   need(req, "update", "purchase-orders");
-  const order = await ownOrder(req, req.params.id);
+  const order = await ownOrder(req, param(req, "id"));
   if (order.status !== "DRAFT") {
     throw conflict(
       `${order.ref} has been issued. Changing what was ordered afterwards is a ` +
@@ -308,12 +308,12 @@ procurementRoutes.post("/purchase-orders/:id/lines", route(async (req, res) => {
 /** DELETE /purchase-orders/:id/lines/:lineId — while it is still a draft. */
 procurementRoutes.delete("/purchase-orders/:id/lines/:lineId", route(async (req, res) => {
   need(req, "update", "purchase-orders");
-  const order = await ownOrder(req, req.params.id);
+  const order = await ownOrder(req, param(req, "id"));
   if (order.status !== "DRAFT") {
     throw conflict(`${order.ref} has been issued. Its lines are what was ordered.`);
   }
   const removed = await db.purchaseLine.deleteMany({
-    where: { orgId: actorOf(req, "a procurement route").orgId, orderId: order.id, id: req.params.lineId },
+    where: { orgId: actorOf(req, "a procurement route").orgId, orderId: order.id, id: param(req, "lineId") },
   });
   if (!removed.count) throw hidden();
   const out = await retotal(actorOf(req, "a procurement route").orgId, order.id, order.tax);
@@ -321,7 +321,7 @@ procurementRoutes.delete("/purchase-orders/:id/lines/:lineId", route(async (req,
      half to miss: taking something off an order changes what is being bought
      and leaves nothing behind to say it was ever on it. */
   await audit(req, "purchase.line.remove", "purchaseOrder", order.id,
-    { ref: order.ref, lineId: req.params.lineId });
+    { ref: order.ref, lineId: param(req, "lineId") });
   res.json({ order: out });
 }));
 
@@ -334,7 +334,7 @@ procurementRoutes.delete("/purchase-orders/:id/lines/:lineId", route(async (req,
  */
 procurementRoutes.post("/purchase-orders/:id/issue", route(async (req, res) => {
   need(req, "update", "purchase-orders");
-  const order = await ownOrderWithLines(req, req.params.id);
+  const order = await ownOrderWithLines(req, param(req, "id"));
 
   if (order.status !== "DRAFT") throw conflict(`${order.ref} has already been issued.`);
   if (!order.lines.length && order.total === 0n) {
@@ -380,7 +380,7 @@ procurementRoutes.post("/purchase-orders/:id/issue", route(async (req, res) => {
  */
 procurementRoutes.post("/purchase-orders/:id/receive", route(async (req, res) => {
   need(req, "update", "purchase-orders");
-  const order = await ownOrderWithLines(req, req.params.id);
+  const order = await ownOrderWithLines(req, param(req, "id"));
   const orgId = actorOf(req, "a procurement route").orgId;
 
   if (!["ISSUED", "PARTIALLY_RECEIVED"].includes(order.status)) {
@@ -479,7 +479,7 @@ procurementRoutes.post("/purchase-orders/:id/receive", route(async (req, res) =>
  */
 procurementRoutes.post("/purchase-orders/:id/invoice", route(async (req, res) => {
   need(req, "create", "expenses");
-  const order = await ownOrder(req, req.params.id);
+  const order = await ownOrder(req, param(req, "id"));
 
   if (order.status === "DRAFT") {
     throw conflict(`${order.ref} has not been issued. There is nothing to be invoiced for.`);
@@ -526,7 +526,7 @@ procurementRoutes.post("/purchase-orders/:id/invoice", route(async (req, res) =>
 /** POST /purchase-orders/:id/cancel — before anything arrives. */
 procurementRoutes.post("/purchase-orders/:id/cancel", route(async (req, res) => {
   need(req, "update", "purchase-orders");
-  const order = await ownOrderWithLines(req, req.params.id);
+  const order = await ownOrderWithLines(req, param(req, "id"));
   if (order.expenseId) {
     throw conflict(`${order.ref} has been invoiced. Cancelling it would not unspend the money.`);
   }
@@ -580,7 +580,7 @@ procurementRoutes.get("/purchase-orders/committed", route(async (req, res) => {
 /** POST /change-orders/:id/submit — it goes for a decision. */
 procurementRoutes.post("/change-orders/:id/submit", route(async (req, res) => {
   need(req, "update", "change-orders");
-  const co = await ownChange(req, req.params.id);
+  const co = await ownChange(req, param(req, "id"));
   if (co.status !== "DRAFT") throw conflict(`${co.ref} has already been submitted.`);
   if (co.amount === 0n && co.days === 0) {
     throw badRequest(
@@ -602,7 +602,7 @@ procurementRoutes.post("/change-orders/:id/submit", route(async (req, res) => {
  */
 procurementRoutes.post("/change-orders/:id/decide", route(async (req, res) => {
   need(req, "update", "change-orders");
-  const co = await ownChange(req, req.params.id);
+  const co = await ownChange(req, param(req, "id"));
 
   if (co.status !== "SUBMITTED") {
     throw conflict(
@@ -648,7 +648,7 @@ procurementRoutes.post("/change-orders/:id/decide", route(async (req, res) => {
 /** POST /change-orders/:id/withdraw — taken back before anybody decided. */
 procurementRoutes.post("/change-orders/:id/withdraw", route(async (req, res) => {
   need(req, "update", "change-orders");
-  const co = await ownChange(req, req.params.id);
+  const co = await ownChange(req, param(req, "id"));
   if (["APPROVED", "REJECTED"].includes(co.status)) {
     throw conflict(`${co.ref} was already decided. It cannot be taken back afterwards.`);
   }
@@ -711,8 +711,8 @@ async function contractValue(req: Request, contractId: string) {
  */
 procurementRoutes.get("/contracts/:id/value", route(async (req, res) => {
   need(req, "get", "contracts");
-  await ownContract(req, req.params.id);
-  const value = await contractValue(req, req.params.id);
+  await ownContract(req, param(req, "id"));
+  const value = await contractValue(req, param(req, "id"));
   res.json({
     contract: value,
     means: "The signed figure is what the contract was agreed at and never changes. " +

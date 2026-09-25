@@ -143,3 +143,28 @@ export function sessionOf(req: Request, where = "a route"): SessionWithUser {
 
 /** Levels, re-exported so a route can name one without reaching into access. */
 export type { Level };
+
+/**
+ * A ROUTE PARAMETER, ON A ROUTE THAT DECLARES IT.
+ *
+ * Express types `req.params` as `{ [key: string]: string }`, so under
+ * `noUncheckedIndexedAccess` every `req.params.id` reads as
+ * `string | undefined`. On a route registered as `/offers/:id` that can never
+ * be true — Express would not have matched the request at all.
+ *
+ * So this is not a null check that will ever fire in production. It is the
+ * same trade actorOf() makes: name the invariant once, and if a route is
+ * renamed while a handler still reads the old parameter, fail at the first
+ * line with a sentence saying which parameter and which route — rather than
+ * passing `undefined` into a `where` clause and returning somebody else's
+ * row, or none, with no explanation.
+ */
+export function param(req: Request, name: string): string {
+  const value = req.params[name];
+  if (typeof value !== "string") {
+    throw new Error(
+      `${req.method} ${req.route?.path ?? req.path} read the route parameter ` +
+      `":${name}", which it does not declare`);
+  }
+  return value;
+}

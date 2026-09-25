@@ -37,6 +37,7 @@ import { Router } from "express";
 import { db } from "../db.ts";
 import { messageOf } from "../http/errors.ts";
 import type { $Enums } from "@prisma/client";
+import { param } from "../http/request.ts";
 
 export const commsWebhookRoutes = Router();
 
@@ -101,7 +102,7 @@ commsWebhookRoutes.post("/hooks/comms/:provider", async (req, res) => {
     return res.status(401).json({ error: "unauthorized" });
   }
 
-  const provider = String(req.params.provider || "").toLowerCase().slice(0, 40);
+  const provider = String(param(req, "provider") || "").toLowerCase().slice(0, 40);
   const b = req.body || {};
 
   /* The three names a provider might use for its own id, and the three for

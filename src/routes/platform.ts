@@ -237,7 +237,7 @@ platformRoutes.get("/platform/organizations", async (req, res, next) => {
     }));
 
     await auditRead(req, "organization", { returned: organizations.length, q: q || undefined });
-    res.json({ organizations, nextCursor: more ? rows[take - 1].id : null });
+    res.json({ organizations, nextCursor: more ? (rows[take - 1]?.id ?? null) : null });
   } catch (e) { next(e); }
 });
 
@@ -287,7 +287,7 @@ platformRoutes.get("/platform/users", async (req, res, next) => {
     }));
 
     await auditRead(req, "user", { returned: users.length, q: q || undefined });
-    res.json({ users, nextCursor: more ? rows[take - 1].id : null });
+    res.json({ users, nextCursor: more ? (rows[take - 1]?.id ?? null) : null });
   } catch (e) { next(e); }
 });
 
@@ -326,7 +326,7 @@ platformRoutes.get("/platform/entitlements", async (req, res, next) => {
     }));
 
     await auditRead(req, "entitlement", { returned: entitlements.length });
-    res.json({ entitlements, nextCursor: more ? rows[take - 1].id : null });
+    res.json({ entitlements, nextCursor: more ? (rows[take - 1]?.id ?? null) : null });
   } catch (e) { next(e); }
 });
 
@@ -374,7 +374,7 @@ platformRoutes.get("/platform/audit", async (req, res, next) => {
     }));
 
     await auditRead(req, "auditEvent", { returned: events.length });
-    res.json({ events, nextCursor: more ? rows[take - 1].id : null });
+    res.json({ events, nextCursor: more ? (rows[take - 1]?.id ?? null) : null });
   } catch (e) { next(e); }
 });
 
@@ -422,7 +422,7 @@ platformRoutes.get("/platform/moderation", async (req, res, next) => {
     }));
 
     await auditRead(req, "moderationItem", { returned: items.length });
-    res.json({ items, nextCursor: more ? rows[take - 1].id : null });
+    res.json({ items, nextCursor: more ? (rows[take - 1]?.id ?? null) : null });
   } catch (e) { next(e); }
 });
 
@@ -463,7 +463,7 @@ platformRoutes.get("/platform/compliance", async (req, res, next) => {
     }));
 
     await auditRead(req, "complianceCase", { returned: cases.length });
-    res.json({ cases, nextCursor: more ? rows[take - 1].id : null });
+    res.json({ cases, nextCursor: more ? (rows[take - 1]?.id ?? null) : null });
   } catch (e) { next(e); }
 });
 
@@ -520,7 +520,7 @@ platformRoutes.get("/platform/verifications", async (req, res, next) => {
     });
 
     await auditRead(req, "verification", { returned: queue.length });
-    res.json({ queue, nextCursor: more ? rows[take - 1].id : null });
+    res.json({ queue, nextCursor: more ? (rows[take - 1]?.id ?? null) : null });
   } catch (e) { next(e); }
 });
 

@@ -31,7 +31,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";import { whyNotArea } from "../domain/access.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";import { whyNotArea } from "../domain/access.ts";
 import { deliver, providerStatus, STATUS_FOR } from "../domain/messaging.ts";
 import type { DeliveryOutcome } from "../domain/messaging.ts";
 import type { $Enums } from "@prisma/client";
@@ -178,7 +178,7 @@ async function moveDispatch(
  */
 commsRoutes.post("/dispatches/:id/send", route(async (req, res) => {
   need(req, "update", "dispatches");
-  const dispatch = await ownDispatch(req, req.params.id);
+  const dispatch = await ownDispatch(req, param(req, "id"));
 
   if (["SUBMITTED", "DELIVERED"].includes(dispatch.status)) {
     throw conflict(
@@ -219,7 +219,7 @@ commsRoutes.post("/dispatches/:id/send", route(async (req, res) => {
  */
 commsRoutes.post("/dispatches/:id/cancel", route(async (req, res) => {
   need(req, "update", "dispatches");
-  const dispatch = await ownDispatch(req, req.params.id);
+  const dispatch = await ownDispatch(req, param(req, "id"));
   if (["SUBMITTED", "DELIVERED"].includes(dispatch.status)) {
     throw conflict(
       `${dispatch.ref} is already with a provider. It cannot be recalled from here.`);
@@ -389,7 +389,7 @@ function describeAudience(spec: AudienceSpec, count: number): string {
  */
 commsRoutes.post("/campaigns/:id/audience", route(async (req, res) => {
   need(req, "update", "campaigns");
-  const campaign = await ownCampaign(req, req.params.id);
+  const campaign = await ownCampaign(req, param(req, "id"));
   const people = await audienceFor(req, req.body || {});
   res.json({
     campaign: { id: campaign.id, ref: campaign.ref, name: campaign.name },
@@ -409,7 +409,7 @@ commsRoutes.post("/campaigns/:id/audience", route(async (req, res) => {
  */
 commsRoutes.post("/campaigns/:id/send", route(async (req, res) => {
   need(req, "update", "campaigns");
-  const campaign = await ownCampaign(req, req.params.id);
+  const campaign = await ownCampaign(req, param(req, "id"));
   const orgId = actorOf(req, "a comms route").orgId;
 
   if (campaign.status !== "DRAFT") {
@@ -510,7 +510,7 @@ commsRoutes.post("/campaigns/:id/send", route(async (req, res) => {
 /** POST /campaigns/:id/cancel — and every message of it that has not gone. */
 commsRoutes.post("/campaigns/:id/cancel", route(async (req, res) => {
   need(req, "update", "campaigns");
-  const campaign = await ownCampaign(req, req.params.id);
+  const campaign = await ownCampaign(req, param(req, "id"));
   if (["SENT", "CANCELLED"].includes(campaign.status)) {
     throw conflict(`${campaign.ref} is ${campaign.status.toLowerCase()} — there is nothing left to stop.`);
   }

@@ -41,7 +41,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import { enumParam } from "../http/errors.ts";
 import type { MintResult } from "../domain/tokenisation.ts";
 import type { $Enums } from "@prisma/client";
@@ -341,7 +341,7 @@ guarded.get("/investments/offerings", async (req, res, next) => {
 guarded.get("/investments/offerings/:id", async (req, res, next) => {
   try {
     needRead(req, "get", "offerings");
-  const o = await ownOfferingFull(req, req.params.id);
+  const o = await ownOfferingFull(req, param(req, "id"));
     const profile = await issuer(req, { mustBeApproved: false });
     res.json({
       offering: offeringWire(o),
@@ -376,7 +376,10 @@ guarded.post("/investments/offerings", async (req, res, next) => {
         "Name exactly one of projectId, siteId or unitId — the development, " +
         "site or unit this offering is raised against.");
     }
+    /* Exactly one, checked immediately above — the guard is what tells the
+       compiler so, rather than a `!` on each of the three reads below. */
     const key = subjects[0];
+    if (!key) throw badRequest("Name the development, site or unit this offering is raised against.");
     const scope = { id: String(b[key]), orgId: actorOf(req, "an investments route").orgId };
 
     /*
@@ -449,7 +452,7 @@ guarded.patch("/investments/offerings/:id", async (req, res, next) => {
   try {
     need(req, "update", "offerings");
     const profile = await issuer(req);
-    const o = await ownOffering(req, req.params.id);
+    const o = await ownOffering(req, param(req, "id"));
 
     if (!EDITABLE_STATES.has(o.status)) {
       throw conflict(
@@ -515,7 +518,7 @@ guarded.patch("/investments/offerings/:id", async (req, res, next) => {
  * ---------------------------------------------------------------- */
 guarded.post("/investments/offerings/:id/:action", async (req, res, next) => {
   try {
-    const action = String(req.params.action);
+    const action = String(param(req, "action"));
     const rule = OFFERING_TRANSITIONS[action as keyof typeof OFFERING_TRANSITIONS];
     /* Not a lifecycle action — let the more specific routes below try. */
     if (!rule) return next();
@@ -534,7 +537,7 @@ guarded.post("/investments/offerings/:id/:action", async (req, res, next) => {
      * the only gate on a transition is offeringRefusal(), which checks the
      * named right — and no customer role holds `approve` or `goLive`.
      */
-    const o = await ownOfferingWithFile(req, req.params.id);
+    const o = await ownOfferingWithFile(req, param(req, "id"));
     const reason = String((req.body && (req.body.reason || req.body.note)) || "");
 
     const refusal = offeringRefusal(actorOf(req, "an investments route"), action, o, { reason });
@@ -595,7 +598,7 @@ guarded.post("/investments/offerings/:id/:action", async (req, res, next) => {
 guarded.get("/investments/offerings/:id/parties", async (req, res, next) => {
   try {
     needRead(req, "get", "offering parties");
-    const o = await ownOffering(req, req.params.id);
+    const o = await ownOffering(req, param(req, "id"));
     const parties = await db.offeringParty.findMany({
       where: { offeringId: o.id }, orderBy: [{ role: "asc" }, { legalName: "asc" }],
     });
@@ -607,7 +610,7 @@ guarded.post("/investments/offerings/:id/parties", async (req, res, next) => {
   try {
     need(req, "create", "offering parties");
     await issuer(req);
-    const o = await ownOffering(req, req.params.id);
+    const o = await ownOffering(req, param(req, "id"));
     if (!EDITABLE_STATES.has(o.status)) {
       throw conflict(
         "The parties to an offering cannot change once it has been submitted. " +
@@ -642,15 +645,15 @@ guarded.post("/investments/offerings/:id/parties", async (req, res, next) => {
 guarded.delete("/investments/offerings/:id/parties/:partyId", async (req, res, next) => {
   try {
     need(req, "delete", "offering parties");
-    const o = await ownOffering(req, req.params.id);
+    const o = await ownOffering(req, param(req, "id"));
     if (!EDITABLE_STATES.has(o.status)) {
       throw conflict("The parties to a submitted offering cannot be removed.");
     }
     const { count } = await db.offeringParty.deleteMany({
-      where: { id: String(req.params.partyId), offeringId: o.id },
+      where: { id: String(param(req, "partyId")), offeringId: o.id },
     });
     if (!count) throw hidden();
-    await audit(req, "investment.party.remove", "offeringParty", req.params.partyId, {});
+    await audit(req, "investment.party.remove", "offeringParty", param(req, "partyId"), {});
     res.status(204).end();
   } catch (e) { next(e); }
 });
@@ -662,7 +665,7 @@ guarded.delete("/investments/offerings/:id/parties/:partyId", async (req, res, n
 guarded.get("/investments/offerings/:id/documents", async (req, res, next) => {
   try {
     needRead(req, "get", "offering documents");
-    const o = await ownOffering(req, req.params.id);
+    const o = await ownOffering(req, param(req, "id"));
     const rows = await db.offeringDocument.findMany({
       where: { offeringId: o.id },
       include: {
@@ -685,7 +688,7 @@ guarded.post("/investments/offerings/:id/documents", async (req, res, next) => {
   try {
     need(req, "create", "offering documents");
     await issuer(req);
-    const o = await ownOffering(req, req.params.id);
+    const o = await ownOffering(req, param(req, "id"));
     const b = (req.body as Record<string, unknown> | undefined) ?? {};
 
     /* The document must already exist, and be this company's. Uploading is the
@@ -727,7 +730,7 @@ guarded.post("/investments/offerings/:id/orders", async (req, res, next) => {
   try {
     need(req, "create", "investment orders");
     await issuer(req);
-    const o = await ownOffering(req, req.params.id);
+    const o = await ownOffering(req, param(req, "id"));
     const b = (req.body as Record<string, unknown> | undefined) ?? {};
 
     const investor = await db.investor.findFirst({
@@ -806,7 +809,7 @@ guarded.post("/investments/orders/:id/cancel", async (req, res, next) => {
     if (!reason) throw badRequest("Say why this order is being cancelled.");
 
     const order = await db.investmentOrder.findFirst({
-      where: { id: String(req.params.id), orgId: actorOf(req, "an investments route").orgId },
+      where: { id: String(param(req, "id")), orgId: actorOf(req, "an investments route").orgId },
     });
     if (!order) throw hidden();
     if (["SETTLED", "ALLOCATED", "CANCELLED", "REFUNDED"].includes(order.status)) {
@@ -846,7 +849,7 @@ guarded.post("/tokenization/offerings/:id/issue", async (req, res, next) => {
       throw forbidden("Your role cannot issue units.");
     }
     await issuer(req);
-    const o = await ownOffering(req, req.params.id);
+    const o = await ownOffering(req, param(req, "id"));
 
     /*
      * Units are issued against a SETTLED order and nothing else. Issuing

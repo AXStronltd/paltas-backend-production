@@ -25,7 +25,7 @@ import { Router } from "express";
 import { db } from "../db.ts";
 import type { Request, RequestHandler, Response } from "express";
 import type { Act } from "../domain/access.ts";
-import { actorOf } from "../http/request.ts";import { levelFor, whyNotArea } from "../domain/access.ts";
+import { actorOf, param } from "../http/request.ts";import { levelFor, whyNotArea } from "../domain/access.ts";
 import { RESOURCES } from "../domain/registry.ts";
 import { forbidden, hidden } from "../http/errors.ts";
 import {
@@ -82,7 +82,7 @@ const section = <T extends object>(total: number, body: T) =>
 reportRoutes.get("/projects/:id/report", route(async (req, res) => {
   need(req, "get", "projects");
   const orgId = actorOf(req, "a reports route").orgId;
-  const project = await db.project.findFirst({ where: { id: req.params.id, orgId } });
+  const project = await db.project.findFirst({ where: { id: param(req, "id"), orgId } });
   if (!project) throw hidden();
 
   const now = new Date();
@@ -381,7 +381,7 @@ async function projectClauses(
 reportRoutes.get("/projects/:id/activity", route(async (req, res) => {
   need(req, "get", "projects");
   const orgId = actorOf(req, "a reports route").orgId;
-  const project = await db.project.findFirst({ where: { id: req.params.id, orgId } });
+  const project = await db.project.findFirst({ where: { id: param(req, "id"), orgId } });
   if (!project) throw hidden();
 
   /* Which models this person may hear about at all. */

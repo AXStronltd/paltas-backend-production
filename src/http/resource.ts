@@ -31,7 +31,7 @@
 import { Router } from "express";
 import type { Request, RequestHandler } from "express";
 
-import type { AfterWriteContext, ResourceDeclaration } from "../domain/registry-types.ts";
+import type { AfterWriteContext, ModelKey, ResourceDeclaration } from "../domain/registry-types.ts";
 import type { Act } from "../domain/access.ts";
 import type { Actor, AuthenticatedRequest } from "./request.ts";
 import type { ModelDelegate, Row } from "../db.ts";
@@ -47,6 +47,7 @@ import { scopeWhere, scopedSites } from "../domain/scope.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "./session.ts";
+import { param } from "./request.ts";
 
 /* ====================================================================== *
  * THE CHECKS A HAND-WRITTEN ROUTE FORGETS.
@@ -71,7 +72,17 @@ async function checkReferences(
     if (!kind.startsWith("id:")) continue;
     const value = data[key];
     if (!value) continue;
-    const target = RESOURCES[pluralOf(kind.slice(3))] || { model: kind.slice(3) };
+    /*
+     * The referenced resource, or the model name the kind itself carries.
+     *
+     * `id:unit` names a MODEL, and RESOURCES is keyed by the plural slug —
+     * so a kind whose plural is not a registered resource falls back to the
+     * bare model, which is what `delegate()` wants either way. The cast is
+     * on that fallback and nothing else: the kind was written in the registry
+     * by hand, and registry-types.ts checks it against Prisma.ModelName.
+     */
+    const target = RESOURCES[pluralOf(kind.slice(3))]
+      ?? { model: kind.slice(3) as ModelKey };
     jobs.push(
       delegate(target.model).findFirst({ where: { id: value, orgId }, select: { id: true } })
         .then((row) => (row ? null : key))
@@ -327,7 +338,7 @@ export function resourceRouter(slug: string): Router {
 
       res.json({
         [slug]: rolled.map((r) => onRead(resource, r)),
-        nextCursor: more ? rows[take - 1].id : null,
+        nextCursor: more ? (rows[take - 1]?.id ?? null) : null,
       });
     } catch (e) { next(e); }
   });
@@ -339,7 +350,7 @@ export function resourceRouter(slug: string): Router {
     try {
       const row = await model().findFirst({
         where: {
-          id: req.params.id, orgId: actorOf(req).orgId,
+          id: param(req, "id"), orgId: actorOf(req).orgId,
           /*
            * AND, NOT SPREAD. The `sites` resource narrows on its OWN id —
            * scopeWhere returns { id: { in: allowed } } — and a spread puts
@@ -446,7 +457,7 @@ export function resourceRouter(slug: string): Router {
     try {
       const before = await model().findFirst({
         where: {
-          id: req.params.id, orgId: actorOf(req).orgId,
+          id: param(req, "id"), orgId: actorOf(req).orgId,
           /*
            * AND, NOT SPREAD. The `sites` resource narrows on its OWN id —
            * scopeWhere returns { id: { in: allowed } } — and a spread puts
@@ -517,7 +528,7 @@ export function resourceRouter(slug: string): Router {
 
       const { count } = await model().deleteMany({
         where: {
-          id: req.params.id, orgId: actorOf(req).orgId,
+          id: param(req, "id"), orgId: actorOf(req).orgId,
           /*
            * AND, NOT SPREAD. The `sites` resource narrows on its OWN id —
            * scopeWhere returns { id: { in: allowed } } — and a spread puts
@@ -538,8 +549,8 @@ export function resourceRouter(slug: string): Router {
       });
       if (!count) throw hidden();
 
-      await audit(req, "delete", resource.model, req.params.id, null);
-      res.json({ deleted: req.params.id });
+      await audit(req, "delete", resource.model, param(req, "id"), null);
+      res.json({ deleted: param(req, "id") });
     } catch (e) { next(e); }
   });
 

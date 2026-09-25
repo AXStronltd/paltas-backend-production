@@ -45,7 +45,7 @@ import { db } from "../db.ts";
 import type { Request } from "express";
 import type { $Enums } from "@prisma/client";
 import { messageOf } from "../http/errors.ts";
-import { sessionOf } from "../http/request.ts";
+import { sessionOf, param } from "../http/request.ts";
 
 /** A reservation, as the guest screens read one back. */
 type ReservationRow = NonNullable<Awaited<ReturnType<typeof db.reservation.findFirst>>>;
@@ -257,7 +257,7 @@ guestRoutes.get("/guest/stay", async (req, res, next) => {
  * ---------------------------------------------------------------- */
 guestRoutes.get("/guest/stay/:id/folio", async (req, res, next) => {
   try {
-    const stay = await ownStay(req, req.params.id);
+    const stay = await ownStay(req, param(req, "id"));
     const folio = await db.folio.findFirst({
       where: { reservationId: stay.id, orgId: stay.orgId },
       include: { lines: { orderBy: { at: "asc" } } },
@@ -414,7 +414,7 @@ guestRoutes.post("/guest/requests/:id/cancel", async (req, res, next) => {
   try {
     const g = await asGuest(req);
     const found = await db.guestRequest.findFirst({
-      where: { id: req.params.id, partyId: { in: [...g.partyIds] } },
+      where: { id: param(req, "id"), partyId: { in: [...g.partyIds] } },
     });
     if (!found) throw hidden();
     if (found.status === "DONE" || found.status === "DECLINED") {
@@ -537,7 +537,13 @@ guestRoutes.post("/guest/messages",
        guest of two, they must say which — guessing would send a complaint to
        the wrong hotel. */
     const orgIds = [...guest.orgIds];
+    /*
+     * asGuest() refuses when a person is linked to no property at all, so the
+     * list is never empty here. The guard says so rather than leaving the
+     * company on a message as `string | undefined`.
+     */
     let orgId = orgIds[0];
+    if (!orgId) throw forbidden("This account is not linked to a booking yet.");
     if (orgIds.length > 1) {
       const asked = String((req.body && req.body.hotel) || "");
       if (!orgIds.includes(asked)) {

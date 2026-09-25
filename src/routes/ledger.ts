@@ -44,7 +44,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import { enumParam } from "../http/errors.ts";
 import type { JournalLineInput } from "../domain/ledger.ts";
 import { whyNotArea } from "../domain/access.ts";
@@ -304,7 +304,7 @@ ledgerRoutes.post("/ledger/accounts", route(async (req, res) => {
 ledgerRoutes.patch("/ledger/accounts/:id", route(async (req, res) => {
   need(req, "update", "the chart of accounts");
   const orgId = actorOf(req, "a ledger route").orgId;
-  const account = await db.ledgerAccount.findFirst({ where: { id: req.params.id, orgId } });
+  const account = await db.ledgerAccount.findFirst({ where: { id: param(req, "id"), orgId } });
   if (!account) throw hidden();
 
   const b = req.body || {};
@@ -337,7 +337,7 @@ ledgerRoutes.get("/ledger/accounts/:id/balance", route(async (req, res) => {
   need(req, "get", "the ledger");
   const balance = await accountBalance(db, {
     orgId: actorOf(req, "a ledger route").orgId,
-    accountId: req.params.id,
+    accountId: param(req, "id"),
     from: when(req.query.from, "from"),
     to: when(req.query.to, "to"),
   });
@@ -397,7 +397,7 @@ ledgerRoutes.post("/ledger/periods", route(async (req, res) => {
 ledgerRoutes.post("/ledger/periods/:id/close", route(async (req, res) => {
   need(req, "delete", "closing a financial period");
   const orgId = actorOf(req, "a ledger route").orgId;
-  const period = await db.financialPeriod.findFirst({ where: { id: req.params.id, orgId } });
+  const period = await db.financialPeriod.findFirst({ where: { id: param(req, "id"), orgId } });
   if (!period) throw hidden();
   if (period.status === "CLOSED") throw conflict(`“${period.label}” is already closed.`);
 
@@ -424,7 +424,7 @@ ledgerRoutes.post("/ledger/periods/:id/reopen", route(async (req, res) => {
   if (!reason) {
     throw badRequest("Reopening a closed period needs a reason. It changes figures that have already been reported.");
   }
-  const period = await db.financialPeriod.findFirst({ where: { id: req.params.id, orgId } });
+  const period = await db.financialPeriod.findFirst({ where: { id: param(req, "id"), orgId } });
   if (!period) throw hidden();
   if (period.status !== "CLOSED") throw conflict(`“${period.label}” is not closed.`);
 
@@ -493,7 +493,7 @@ ledgerRoutes.get("/ledger/entries", route(async (req, res) => {
 ledgerRoutes.get("/ledger/entries/:id", route(async (req, res) => {
   need(req, "get", "the journal");
   const entry = await db.journalEntry.findFirst({
-    where: { id: req.params.id, orgId: actorOf(req, "a ledger route").orgId },
+    where: { id: param(req, "id"), orgId: actorOf(req, "a ledger route").orgId },
     include: {
       lines: {
         include: { account: { select: { id: true, code: true, name: true, type: true, normal: true } } },
@@ -611,7 +611,7 @@ ledgerRoutes.post("/ledger/entries/:id/reverse", route(async (req, res) => {
   /* Asked here so an id from another company answers 404 rather than the
      domain's "no such entry", which says the same thing less carefully. */
   const original = await db.journalEntry.findFirst({
-    where: { id: req.params.id, orgId }, select: { id: true, ref: true },
+    where: { id: param(req, "id"), orgId }, select: { id: true, ref: true },
   });
   if (!original) throw hidden();
 

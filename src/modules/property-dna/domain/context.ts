@@ -27,6 +27,7 @@ import type { AuthenticatedRequest } from "../../../http/request.ts";
 import type { Clearance } from "../../../domain/classification.ts";
 import type { Prisma } from "@prisma/client";
 import { messageOf } from "../../../http/errors.ts";
+import { param } from "../../../http/request.ts";
 
 /**
  * Open a property for this caller.
@@ -64,7 +65,7 @@ type PropertyRelationshipRow =
 
 export async function context(req: AuthenticatedRequest): Promise<PropertyContext> {
   const actorOrgId = req.actor.orgId;
-  const siteId = req.params.siteId;
+  const siteId = param(req, "siteId");
 
   /*
    * THE ONE PLACE A CROSS-TENANT READ IS LEGITIMATE, AND WHY.

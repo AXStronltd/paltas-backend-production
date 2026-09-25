@@ -77,18 +77,31 @@ export function looseDate(raw: unknown): Date | null | undefined {
   const now = new Date();
   let m;
 
+  /*
+   * `?? ""` ON EVERY CAPTURED GROUP BELOW.
+   *
+   * A group in a pattern with no `?` always matched if the pattern did, so
+   * these are never actually undefined. TypeScript cannot know that — a
+   * regex's shape is not in its type — and the alternative is a `!` on each,
+   * which asserts rather than handles. An empty string reaches the same
+   * `indexOf` and `Number()` that a missing one would, and both already have
+   * a defined answer for it.
+   */
+
   /* "02:00" or "14:20" — a time today. */
   if ((m = v.match(/^(\d{1,2}):(\d{2})$/))) {
-    return at(now.getFullYear(), now.getMonth(), now.getDate(), +m[1], +m[2]);
+    return at(now.getFullYear(), now.getMonth(), now.getDate(),
+      Number(m[1] ?? ""), Number(m[2] ?? ""));
   }
 
   /* "Thu 10:00" — the next such weekday, at that time. */
   if ((m = v.match(/^([A-Za-z]{3,9})\s+(\d{1,2}):(\d{2})$/))) {
     const days = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
-    const want = days.indexOf(m[1].slice(0, 3).toLowerCase());
+    const want = days.indexOf((m[1] ?? "").slice(0, 3).toLowerCase());
     if (want >= 0) {
       const ahead = (want - now.getDay() + 7) % 7;
-      const d = at(now.getFullYear(), now.getMonth(), now.getDate() + ahead, +m[2], +m[3]);
+      const d = at(now.getFullYear(), now.getMonth(), now.getDate() + ahead,
+        Number(m[2] ?? ""), Number(m[3] ?? ""));
       return d;
     }
   }
@@ -108,7 +121,7 @@ export function looseDate(raw: unknown): Date | null | undefined {
     : monthFirst ? [monthFirst[2] ?? "", monthFirst[1] ?? ""]
     : null;
   if (parts) {
-    const mon = MONTHS.indexOf(parts[1].slice(0, 3).toLowerCase());
+      const mon = MONTHS.indexOf(parts[1].slice(0, 3).toLowerCase());
     const day = Number(parts[0]);
     if (mon >= 0 && day >= 1 && day <= 31) {
       return at(now.getFullYear(), mon, day, 0, 0);
@@ -117,7 +130,7 @@ export function looseDate(raw: unknown): Date | null | undefined {
 
   /* "Oct" — the first of that month, this year. */
   if ((m = v.match(/^([A-Za-z]{3,9})$/))) {
-    const mon = MONTHS.indexOf(m[1].slice(0, 3).toLowerCase());
+    const mon = MONTHS.indexOf((m[1] ?? "").slice(0, 3).toLowerCase());
     if (mon >= 0) return at(now.getFullYear(), mon, 1, 0, 0);
   }
 
@@ -309,7 +322,7 @@ export function clean(
     }
   }
 
-  if (problems.length) throw badRequest(problems[0], problems);
+  if (problems.length) throw badRequest(String(problems[0]), problems);
   return out;
 }
 

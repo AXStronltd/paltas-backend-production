@@ -51,7 +51,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import { badRequest, unavailable, notFound } from "../http/errors.ts";
 import { rateLimit } from "../http/rate-limit.ts";
 import { requireSession } from "../http/session.ts";
@@ -131,7 +131,7 @@ stayRoutes.get("/marketplace/hotels/:hotelId/rooms",
         throw unavailable("Rooms for this hotel cannot be listed right now.");
       }
       const stay = stayOf(req.query);
-      const out = await s.rooms({ hotelId: String(req.params.hotelId), ...stay });
+      const out = await s.rooms({ hotelId: String(param(req, "hotelId")), ...stay });
 
       /* A wholesale quote is live and its terms restrict storing it. */
       res.set("Cache-Control", "no-store");
@@ -180,7 +180,7 @@ stayRoutes.get("/marketplace/hotels/:hotelId/compare",
 
       const out = await comparePrices({
         supplier: live(),
-        hotelId: String(req.params.hotelId),
+        hotelId: String(param(req, "hotelId")),
         country, currency, ...stay,
       });
 
@@ -514,11 +514,11 @@ stayRoutes.get("/marketplace/stays/:bookingId",
       }
       /* Theirs, or it does not exist. Checked BEFORE the supplier is asked, so a
          stranger's id cannot even be used to probe whether it is real. */
-      const own = await ownedBy(sessionOf(req, "a stays route"), req.params.bookingId);
+      const own = await ownedBy(sessionOf(req, "a stays route"), param(req, "bookingId"));
 
       let booking;
       try {
-        booking = await s.booking({ bookingId: String(req.params.bookingId) });
+        booking = await s.booking({ bookingId: String(param(req, "bookingId")) });
       } catch (e) {
         /* A supplier 404 is a 404 here, not a 503 — the booking is the thing
            that does not exist, and the supplier is fine. */
@@ -551,9 +551,9 @@ stayRoutes.delete("/marketplace/stays/:bookingId",
       }
       /* Cancelling somebody else's holiday is the worst thing these routes could
          allow, so ownership is established before anything is sent. */
-      await ownedBy(sessionOf(req, "a stays route"), req.params.bookingId);
+      await ownedBy(sessionOf(req, "a stays route"), param(req, "bookingId"));
 
-      const result = await s.cancel({ bookingId: String(req.params.bookingId) });
+      const result = await s.cancel({ bookingId: String(param(req, "bookingId")) });
 
       /*
        * Written back, including what it cost. A non-refundable cancellation
@@ -562,7 +562,7 @@ stayRoutes.delete("/marketplace/stays/:bookingId",
        */
       try {
         await db.supplierBooking.updateMany({
-          where: { bookingId: String(req.params.bookingId), userId: sessionOf(req, "a stays route").userId },
+          where: { bookingId: String(param(req, "bookingId")), userId: sessionOf(req, "a stays route").userId },
           data: {
             status: result.status || "CANCELLED",
             cancelledAt: new Date(),

@@ -30,7 +30,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import type { $Enums } from "@prisma/client";
 import { enumParam } from "../http/errors.ts";
 
@@ -138,7 +138,7 @@ const text = (v: unknown, max: number): string =>
 /** POST /meetings/:id/participants — who is in the room. */
 workflowRoutes.post("/meetings/:id/participants", route(async (req, res) => {
   need(req, "update", "meetings");
-  const meeting = await ownMeeting(req, req.params.id);
+  const meeting = await ownMeeting(req, param(req, "id"));
   const b = req.body || {};
 
   /* A party where they are one of the company's contacts, a name where they
@@ -165,9 +165,9 @@ workflowRoutes.post("/meetings/:id/participants", route(async (req, res) => {
 
 workflowRoutes.delete("/meetings/:id/participants/:pid", route(async (req, res) => {
   need(req, "update", "meetings");
-  const meeting = await ownMeeting(req, req.params.id);
+  const meeting = await ownMeeting(req, param(req, "id"));
   const { count } = await db.meetingParticipant.deleteMany({
-    where: { id: req.params.pid, meetingId: meeting.id, orgId: actorOf(req, "a workflow route").orgId },
+    where: { id: param(req, "pid"), meetingId: meeting.id, orgId: actorOf(req, "a workflow route").orgId },
   });
   if (!count) throw hidden();
   await audit(req, "meeting.participant.remove", "meeting", meeting.id, {});
@@ -183,7 +183,7 @@ workflowRoutes.delete("/meetings/:id/participants/:pid", route(async (req, res) 
  */
 workflowRoutes.post("/meetings/:id/hold", route(async (req, res) => {
   need(req, "update", "meetings");
-  const meeting = await ownMeeting(req, req.params.id);
+  const meeting = await ownMeeting(req, param(req, "id"));
   if (meeting.status === "CANCELLED") throw conflict("That meeting was cancelled.");
   if (meeting.status === "HELD") throw conflict("That meeting is already recorded as held.");
 
@@ -211,7 +211,7 @@ workflowRoutes.post("/meetings/:id/hold", route(async (req, res) => {
 
 workflowRoutes.post("/meetings/:id/cancel", route(async (req, res) => {
   need(req, "update", "meetings");
-  const meeting = await ownMeeting(req, req.params.id);
+  const meeting = await ownMeeting(req, param(req, "id"));
   if (meeting.status === "HELD") {
     throw conflict("That meeting was held. A meeting that happened cannot be cancelled — its minutes are the record.");
   }
@@ -232,7 +232,7 @@ workflowRoutes.post("/meetings/:id/cancel", route(async (req, res) => {
  */
 workflowRoutes.post("/meetings/:id/minutes", route(async (req, res) => {
   need(req, "update", "meetings");
-  const meeting = await ownMeetingWithParticipants(req, req.params.id);
+  const meeting = await ownMeetingWithParticipants(req, param(req, "id"));
 
   const minutes = text(req.body?.minutes, 20000);
   if (!minutes) throw badRequest("Minutes need something in them.");
@@ -375,7 +375,7 @@ function sentence(dispatched: readonly DispatchRow[]): string {
 workflowRoutes.post("/decisions/:id/status", route(async (req, res) => {
   need(req, "update", "decisions");
   const orgId = actorOf(req, "a workflow route").orgId;
-  const decision = await ownDecision(req, req.params.id);
+  const decision = await ownDecision(req, param(req, "id"));
 
   const to = enumParam("DecisionStatus", req.body?.status, "decision state");
   if (!to) throw badRequest("Which state? Send `status`.");
@@ -429,7 +429,7 @@ workflowRoutes.post("/decisions/:id/status", route(async (req, res) => {
 /** POST /tasks/:id/assign — to somebody, by name or by account. */
 workflowRoutes.post("/tasks/:id/assign", route(async (req, res) => {
   need(req, "update", "tasks");
-  const task = await ownTask(req, req.params.id);
+  const task = await ownTask(req, param(req, "id"));
   const b = req.body || {};
 
   let assigneeId = null;
@@ -467,7 +467,7 @@ workflowRoutes.post("/tasks/:id/assign", route(async (req, res) => {
  */
 workflowRoutes.post("/tasks/:id/done", route(async (req, res) => {
   need(req, "update", "tasks");
-  const task = await ownTask(req, req.params.id);
+  const task = await ownTask(req, param(req, "id"));
   if (task.status === "DONE") throw conflict("That task is already done.");
   if (task.status === "CANCELLED") throw conflict("That task was cancelled. Reopen it first if it still needs doing.");
 
@@ -489,7 +489,7 @@ workflowRoutes.post("/tasks/:id/done", route(async (req, res) => {
 
 workflowRoutes.post("/tasks/:id/reopen", route(async (req, res) => {
   need(req, "update", "tasks");
-  const task = await ownTask(req, req.params.id);
+  const task = await ownTask(req, param(req, "id"));
   if (task.status !== "DONE" && task.status !== "CANCELLED") {
     throw conflict("That task is already open.");
   }
@@ -506,7 +506,7 @@ workflowRoutes.post("/tasks/:id/reopen", route(async (req, res) => {
 
 workflowRoutes.post("/tasks/:id/checklist", route(async (req, res) => {
   need(req, "update", "tasks");
-  const task = await ownTask(req, req.params.id);
+  const task = await ownTask(req, param(req, "id"));
   const t = text(req.body?.text, 400);
   if (!t) throw badRequest("A checklist item needs something in it.");
 
@@ -525,9 +525,9 @@ workflowRoutes.post("/tasks/:id/checklist", route(async (req, res) => {
 
 workflowRoutes.post("/tasks/:id/checklist/:itemId/toggle", route(async (req, res) => {
   need(req, "update", "tasks");
-  const task = await ownTask(req, req.params.id);
+  const task = await ownTask(req, param(req, "id"));
   const item = await db.taskChecklistItem.findFirst({
-    where: { id: req.params.itemId, taskId: task.id, orgId: actorOf(req, "a workflow route").orgId },
+    where: { id: param(req, "itemId"), taskId: task.id, orgId: actorOf(req, "a workflow route").orgId },
   });
   if (!item) throw hidden();
 
@@ -542,7 +542,7 @@ workflowRoutes.post("/tasks/:id/checklist/:itemId/toggle", route(async (req, res
 
 workflowRoutes.post("/tasks/:id/comments", route(async (req, res) => {
   need(req, "update", "tasks");
-  const task = await ownTask(req, req.params.id);
+  const task = await ownTask(req, param(req, "id"));
   const body = text(req.body?.body, 4000);
   if (!body) throw badRequest("A comment needs something in it.");
 

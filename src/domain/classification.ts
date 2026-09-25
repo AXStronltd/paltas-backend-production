@@ -94,7 +94,19 @@ export interface AuthorityMandate {
   readonly why?: string;
 }
 
-export const CLASS_RANK: Readonly<Record<string, number>> = {
+/**
+ * THE SIX RUNGS, as a type as well as a table.
+ *
+ * `Record<string, number>` said a rank could be looked up by any string, so
+ * `CLASS_RANK.PUBLIC` was `number | undefined` — a constant this file wrote
+ * three lines above, read back as possibly missing. Naming the keys is both
+ * more honest and what makes the reads below need no guard.
+ */
+export type LadderClass =
+  | "PUBLIC" | "INTERNAL" | "RESTRICTED"
+  | "CONFIDENTIAL" | "OWNER_ONLY" | "LEGAL_RESTRICTED";
+
+export const CLASS_RANK: Readonly<Record<LadderClass, number>> = {
   PUBLIC: 0,
   INTERNAL: 1,
   RESTRICTED: 2,
@@ -102,6 +114,10 @@ export const CLASS_RANK: Readonly<Record<string, number>> = {
   OWNER_ONLY: 4,
   LEGAL_RESTRICTED: 5,
 };
+
+/** Is this string one of the six? For a class that came from a caller. */
+export const isLadderClass = (v: string): v is LadderClass =>
+  Object.prototype.hasOwnProperty.call(CLASS_RANK, v);
 
 /**
  * OFF THE LADDER, EACH GRANTED ON ITS OWN TERMS.
@@ -132,7 +148,7 @@ export const ALL_CLASSES = [...Object.keys(CLASS_RANK), ...OFF_LADDER];
  * These are ceilings, not grants: a relationship never LOWERS what somebody
  * already had through their role, and never raises them past this line.
  */
-export const RELATION_CEILING: Readonly<Record<string, string>> = {
+export const RELATION_CEILING: Readonly<Record<string, LadderClass>> = {
   OWNER: "LEGAL_RESTRICTED",
   CO_OWNER: "OWNER_ONLY",
   /* An executor is trusted with the estate and nothing else. They are given
@@ -161,7 +177,7 @@ export const RELATION_CEILING: Readonly<Record<string, string>> = {
  * property's owner. A managing agent runs other people's buildings; that is
  * the whole business. So they stop at CONFIDENTIAL.
  */
-export const ROLE_CEILING: Readonly<Record<string, string>> = {
+export const ROLE_CEILING: Readonly<Record<string, LadderClass>> = {
   OWNER: "CONFIDENTIAL",
   MANAGER: "CONFIDENTIAL",
   GM: "CONFIDENTIAL",
@@ -234,8 +250,8 @@ export function clearanceFor(
     return { rank: -1, label: "NONE", security: false, authority: false, via: authority.why || "no mandate here" };
   }
 
-  const roleLabel = (actor.role ? ROLE_CEILING[actor.role] : undefined) ?? "PUBLIC";
-  let best = CLASS_RANK[roleLabel] ?? 0;
+  const roleLabel: LadderClass = (actor.role ? ROLE_CEILING[actor.role] : undefined) ?? "PUBLIC";
+  let best = CLASS_RANK[roleLabel];
   let via = `role ${actor.role}`;
 
   const live = (relations ?? []).filter((r) => r && r.active !== false);
@@ -245,8 +261,11 @@ export function clearanceFor(
     /* A relationship may carry an explicit, narrower clearance — an owner who
        has deliberately limited a co-owner, say. The lower of the two wins,
        because a ceiling is a ceiling. */
-    const ceiling = CLASS_RANK[label] ?? 0;
-    const explicit = rel.clearance !== undefined ? CLASS_RANK[rel.clearance] : undefined;
+    const ceiling = CLASS_RANK[label];
+    /* A relationship's own clearance came from a column and may name anything,
+       so it is checked before it is ranked. */
+    const explicit = typeof rel.clearance === "string" && isLadderClass(rel.clearance)
+      ? CLASS_RANK[rel.clearance] : undefined;
     const capped = explicit !== undefined ? Math.min(ceiling, explicit) : ceiling;
     if (capped > best) { best = capped; via = `${rel.relation} of this property`; }
   }
@@ -255,7 +274,8 @@ export function clearanceFor(
     (actor.role !== undefined && SECURITY_ROLES.has(actor.role)) ||
     live.some((r) => SECURITY_RELATIONS.has(r.relation));
 
-  const label = Object.keys(CLASS_RANK).find((k) => CLASS_RANK[k] === best) || "PUBLIC";
+  const label = (Object.keys(CLASS_RANK) as LadderClass[])
+    .find((k) => CLASS_RANK[k] === best) || "PUBLIC";
   /* A customer never reads the authority room, however senior. What the state
      holds about a property is shown to the property's own people through the
      records they are given, not by climbing. */
@@ -285,9 +305,8 @@ export function mayRead(clearance: Clearance | null | undefined, cls: string): b
   if (cls === AUTHORITY_CLASS) {
     return !!clearance.authority || clearance.rank >= CLASS_RANK.RESTRICTED;
   }
-  const need = CLASS_RANK[cls];
-  if (need === undefined) return false;          /* an unknown class is refused */
-  return clearance.rank >= need;
+  if (!isLadderClass(cls)) return false;         /* an unknown class is refused */
+  return clearance.rank >= CLASS_RANK[cls];
 }
 
 /**

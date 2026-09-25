@@ -24,7 +24,7 @@ import {
 } from "../http/index.ts";
 import { stateOf } from "../domain/invitations.ts";
 import type { InviteRow } from "../domain/invitations.ts";
-import { sessionOf } from "../http/request.ts";
+import { sessionOf, param } from "../http/request.ts";
 /* The token lookup lives in auth/ beside the session's, because its key IS
    the credential — see the header of that file. */
 import { findByToken } from "../auth/invitations.ts";
@@ -56,7 +56,7 @@ invitationRoutes.get("/:token",
   rateLimit({ windowMs: 60_000, max: 60 }),
   async (req, res, next) => {
     try {
-      const invite = await findByToken(req.params.token);
+      const invite = await findByToken(param(req, "token"));
       if (!invite) throw notFound("That invitation link is not valid.");
 
       res.setHeader("Cache-Control", "no-store, private");
@@ -87,7 +87,7 @@ invitationRoutes.post("/:token/accept",
   rateLimit({ windowMs: 60_000, max: 30 }),
   async (req, res, next) => {
     try {
-      const invite = await findByToken(req.params.token);
+      const invite = await findByToken(param(req, "token"));
       if (!invite) throw notFound("That invitation link is not valid.");
 
       const no = whyNotAcceptable(invite);

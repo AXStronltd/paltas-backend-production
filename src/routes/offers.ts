@@ -35,7 +35,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import type { $Enums } from "@prisma/client";
 import { whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
@@ -141,7 +141,7 @@ function check(offer: { status: $Enums.OfferStatus }, act: OfferAct): void {
 
 offerRoutes.post("/offers/:id/send", route(async (req, res) => {
   need(req, "update", "offers");
-  const offer = await expireIfLapsed(await own(req, req.params.id));
+  const offer = await expireIfLapsed(await own(req, param(req, "id")));
   check(offer, "send");
 
   if (!offer.buyerId) throw badRequest("An offer needs a buyer before it can be sent.");
@@ -167,7 +167,7 @@ offerRoutes.post("/offers/:id/send", route(async (req, res) => {
  */
 offerRoutes.post("/offers/:id/view", route(async (req, res) => {
   need(req, "update", "offers");
-  const offer = await expireIfLapsed(await own(req, req.params.id));
+  const offer = await expireIfLapsed(await own(req, param(req, "id")));
   if (offer.status === "VIEWED") return res.json({ offer, already: true });
   check(offer, "view");
 
@@ -188,7 +188,7 @@ offerRoutes.post("/offers/:id/accept", route(async (req, res) => {
      edit: it opens a reservation that did not exist. */
   need(req, "create", "accepting an offer");
   const orgId = actorOf(req, "an offers route").orgId;
-  const offer = await expireIfLapsed(await own(req, req.params.id));
+  const offer = await expireIfLapsed(await own(req, param(req, "id")));
   check(offer, "accept");
 
   if (!offer.unitId) throw badRequest("An offer with no unit cannot be accepted — there is nothing to reserve.");
@@ -303,7 +303,7 @@ offerRoutes.post("/offers/:id/accept", route(async (req, res) => {
 
 offerRoutes.post("/offers/:id/reject", route(async (req, res) => {
   need(req, "update", "offers");
-  const offer = await expireIfLapsed(await own(req, req.params.id));
+  const offer = await expireIfLapsed(await own(req, param(req, "id")));
   check(offer, "reject");
 
   const reason = String((req.body || {}).reason || "").trim();

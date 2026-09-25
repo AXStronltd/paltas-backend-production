@@ -82,6 +82,23 @@
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
+
+    /* ── ON, AND IT PAID FOR ITSELF ────────────────────────────────────
+     *
+     * `CLASS_RANK` was `Record<string, number>`, so `CLASS_RANK.PUBLIC` — a
+     * constant declared three lines above — read back as possibly missing.
+     * Naming the six rungs as a union is both more honest and what a
+     * classification ladder should have said from the start; a class that
+     * came from a column is now checked by `isLadderClass()` before it is
+     * ranked, which it was not before.
+     *
+     * The rest was `req.params.id`, 66 times. Express types params as
+     * `{ [key: string]: string }`, so every one read as possibly undefined —
+     * never true on a route that declares `:id`. They go through `param()`
+     * in http/request.ts, which names the invariant once and fails with a
+     * sentence if a route is renamed while a handler still reads the old
+     * parameter. That beats passing undefined into a `where` clause. */
+    "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
     "noFallthroughCasesInSwitch": true,
     "forceConsistentCasingInFileNames": true,

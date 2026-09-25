@@ -30,7 +30,7 @@ import type { Request } from "express";
 import type { Act, Area } from "../domain/access.ts";
 import type { ModelKey } from "../domain/registry-types.ts";
 import type { Actor } from "../http/request.ts";
-import { actorOf as sharedActorOf } from "../http/request.ts";import type { Row } from "../db.ts";
+import { actorOf as sharedActorOf, param } from "../http/request.ts";import type { Row } from "../db.ts";
 
 import { db, delegate } from "../db.ts";
 import { RESOURCES } from "../domain/registry.ts";
@@ -301,7 +301,7 @@ export async function recomputeInvoice(invoiceId: string, orgId: string) {
 guarded.post("/invoices/:id/lines", async (req, res, next) => {
   try {
     need(req, "finance", "create", "invoices");
-    const invoice = await own("invoice", req.params.id, actorOf(req).orgId);
+    const invoice = await own("invoice", param(req, "id"), actorOf(req).orgId);
     if (invoice.status === "VOID") throw conflict("That invoice is void. Raise a new one.");
     if (invoice.status === "PAID") {
       throw conflict("That invoice is paid. Adding to it would change what somebody has already settled.");
@@ -330,17 +330,17 @@ guarded.post("/invoices/:id/lines", async (req, res, next) => {
 guarded.delete("/invoices/:id/lines/:lineId", async (req, res, next) => {
   try {
     need(req, "finance", "update", "invoices");
-    const invoice = await own("invoice", req.params.id, actorOf(req).orgId);
+    const invoice = await own("invoice", param(req, "id"), actorOf(req).orgId);
     if (invoice.status === "PAID" || invoice.status === "VOID") {
       throw conflict(`That invoice is ${invoice.status.toLowerCase()}; its lines are settled.`);
     }
     const { count } = await db.invoiceLine.deleteMany({
-      where: { id: req.params.lineId, invoiceId: invoice.id },
+      where: { id: param(req, "lineId"), invoiceId: invoice.id },
     });
     if (!count) throw hidden();
 
     const updated = await recomputeInvoice(invoice.id, actorOf(req).orgId);
-    await audit(req, "invoice.line.remove", "invoice", invoice.id, { lineId: req.params.lineId });
+    await audit(req, "invoice.line.remove", "invoice", invoice.id, { lineId: param(req, "lineId") });
     res.json({ invoice: updated });
   } catch (e) { next(e); }
 });
@@ -352,7 +352,12 @@ guarded.delete("/invoices/:id/lines/:lineId", async (req, res, next) => {
 guarded.post("/payments", async (req, res, next) => {
   try {
     need(req, "finance", "create", "payments");
-    const data = clean(RESOURCES.payments, req.body, { partial: false });
+    /* `payments` is declared in the registry — registry.ts is the file this
+       one is mounted beside — and clean() needs the declaration, not a
+       maybe-declaration. */
+    const declared = RESOURCES["payments"];
+    if (!declared) throw new Error("the registry no longer declares `payments`");
+    const data = clean(declared, req.body, { partial: false });
 
     if (!Number.isFinite(data.amount) || data.amount === 0) {
       throw badRequest("amount must be a whole number of minor units, and not zero.");
@@ -437,7 +442,7 @@ guarded.post("/payments/:id/void", async (req, res, next) => {
         "only this sentence to go on.");
     }
 
-    const payment = await own("payment", req.params.id, actorOf(req).orgId);
+    const payment = await own("payment", param(req, "id"), actorOf(req).orgId);
     if (payment.voided) throw conflict("That payment is already void.");
 
     await db.payment.update({
@@ -474,7 +479,7 @@ guarded.post("/payments/:id/void", async (req, res, next) => {
 guarded.get("/reservations/:id/folio", async (req, res, next) => {
   try {
     need(req, "hotel", "get", "folios");
-    const reservation = await own("reservation", req.params.id, actorOf(req).orgId);
+    const reservation = await own("reservation", param(req, "id"), actorOf(req).orgId);
 
     let folio = await db.folio.findFirst({
       where: { reservationId: reservation.id, orgId: actorOf(req).orgId },
@@ -502,7 +507,7 @@ guarded.get("/reservations/:id/folio", async (req, res, next) => {
 guarded.post("/reservations/:id/folio/lines", async (req, res, next) => {
   try {
     need(req, "hotel", "create", "folios");
-    const reservation = await own("reservation", req.params.id, actorOf(req).orgId);
+    const reservation = await own("reservation", param(req, "id"), actorOf(req).orgId);
     const folio = await db.folio.findFirst({
       where: { reservationId: reservation.id, orgId: actorOf(req).orgId },
     });
@@ -534,7 +539,7 @@ guarded.post("/reservations/:id/folio/lines", async (req, res, next) => {
 guarded.post("/reservations/:id/folio/close", async (req, res, next) => {
   try {
     need(req, "hotel", "update", "folios");
-    const reservation = await own("reservation", req.params.id, actorOf(req).orgId);
+    const reservation = await own("reservation", param(req, "id"), actorOf(req).orgId);
     const folio = await db.folio.findFirst({
       where: { reservationId: reservation.id, orgId: actorOf(req).orgId },
       include: { lines: true },
@@ -576,7 +581,7 @@ guarded.post("/visits/:id/decide", async (req, res, next) => {
       throw badRequest("Refusing somebody entry needs a reason on the record.");
     }
 
-    const visit = await own("visit", req.params.id, actorOf(req).orgId);
+    const visit = await own("visit", param(req, "id"), actorOf(req).orgId);
     if (visit.status !== "WAITING") {
       throw conflict(`That visit is already ${visit.status.toLowerCase()}.`);
     }
@@ -600,7 +605,7 @@ guarded.post("/visits/:id/decide", async (req, res, next) => {
 guarded.post("/visits/:id/leave", async (req, res, next) => {
   try {
     need(req, "security", "update", "visits");
-    const visit = await own("visit", req.params.id, actorOf(req).orgId);
+    const visit = await own("visit", param(req, "id"), actorOf(req).orgId);
     if (visit.leftAt) throw conflict("That visitor is already signed out.");
 
     const row = await db.visit.update({
@@ -804,7 +809,7 @@ guarded.post("/channels/:id/sync", async (req, res, next) => {
   try {
     need(req, "hotel", "update", "channels");
 
-    const channel = await own("channel", req.params.id, actorOf(req).orgId);
+    const channel = await own("channel", param(req, "id"), actorOf(req).orgId);
     if (channel.status === "PAUSED") {
       throw conflict(
         `${channel.name} is paused. Resume it before syncing, or it will be ` +
@@ -1021,7 +1026,7 @@ guarded.post("/documents/:id/upload-url", async (req, res, next) => {
   try {
     need(req, "documents", "update", "documents");
     const orgId = actorOf(req).orgId;
-    const doc = await own("document", String(req.params.id), orgId);
+    const doc = await own("document", String(param(req, "id")), orgId);
 
     const out = presignUpload({
       orgId, documentId: doc.id,
@@ -1061,7 +1066,7 @@ guarded.post("/documents/:id/attached", async (req, res, next) => {
   try {
     need(req, "documents", "update", "documents");
     const orgId = actorOf(req).orgId;
-    const doc = await own("document", String(req.params.id), orgId);
+    const doc = await own("document", String(param(req, "id")), orgId);
     if (!doc.storageKey) throw badRequest("No upload was started for this document.");
 
     const found = await storageHead({ storageKey: doc.storageKey, orgId });
@@ -1081,7 +1086,7 @@ guarded.get("/documents/:id/download-url", async (req, res, next) => {
   try {
     need(req, "documents", "get", "documents");
     const orgId = actorOf(req).orgId;
-    const doc = await own("document", String(req.params.id), orgId);
+    const doc = await own("document", String(param(req, "id")), orgId);
 
     /*
      * own() has already established the row is this company's. The key is

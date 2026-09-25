@@ -27,7 +27,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { $Enums, Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import { enumParam } from "../http/errors.ts";
 
 /** Read one field off a caller's object without asserting its shape. */
@@ -173,7 +173,7 @@ function event(
  */
 siteRoutes.post("/rfis/:id/answer", route(async (req, res) => {
   need(req, "update", "rfis");
-  const rfi = await ownRfi(req, req.params.id);
+  const rfi = await ownRfi(req, param(req, "id"));
 
   if (rfi.status === "VOID") {
     throw conflict(`${rfi.ref} was withdrawn. Raise a new question rather than answering a dead one.`);
@@ -210,7 +210,7 @@ siteRoutes.post("/rfis/:id/answer", route(async (req, res) => {
 /** POST /rfis/:id/close — only once there is an answer to close on. */
 siteRoutes.post("/rfis/:id/close", route(async (req, res) => {
   need(req, "update", "rfis");
-  const rfi = await ownRfi(req, req.params.id);
+  const rfi = await ownRfi(req, param(req, "id"));
 
   if (rfi.status === "OPEN") {
     throw conflict(
@@ -231,7 +231,7 @@ siteRoutes.post("/rfis/:id/close", route(async (req, res) => {
 /** POST /rfis/:id/void — the question stopped mattering, and we say why. */
 siteRoutes.post("/rfis/:id/void", route(async (req, res) => {
   need(req, "update", "rfis");
-  const rfi = await ownRfi(req, req.params.id);
+  const rfi = await ownRfi(req, param(req, "id"));
   if (rfi.status === "CLOSED") throw conflict(`${rfi.ref} is closed. It cannot be withdrawn afterwards.`);
 
   const reason = text(req.body?.reason, 1000);
@@ -283,7 +283,7 @@ const SUBMITTAL_DECIDED: readonly $Enums.SubmittalStatus[] =
 /** POST /submittals/:id/submit — DRAFT becomes a thing somebody must look at. */
 siteRoutes.post("/submittals/:id/submit", route(async (req, res) => {
   need(req, "update", "submittals");
-  const s = await ownSubmittal(req, req.params.id);
+  const s = await ownSubmittal(req, param(req, "id"));
   if (s.status !== "DRAFT") {
     throw conflict(`${s.ref} has already been submitted.`);
   }
@@ -308,7 +308,7 @@ siteRoutes.post("/submittals/:id/submit", route(async (req, res) => {
  */
 siteRoutes.post("/submittals/:id/review", route(async (req, res) => {
   need(req, "update", "submittals");
-  const s = await ownSubmittal(req, req.params.id);
+  const s = await ownSubmittal(req, param(req, "id"));
 
   if (s.status === "DRAFT") {
     throw conflict(`${s.ref} has not been submitted yet. There is nothing to review.`);
@@ -390,7 +390,7 @@ const INSPECTION_RESULTS: readonly $Enums.InspectionStatus[] =
  */
 siteRoutes.post("/inspections/:id/record", route(async (req, res) => {
   need(req, "update", "inspections");
-  const ins = await ownInspection(req, req.params.id);
+  const ins = await ownInspection(req, param(req, "id"));
 
   if (ins.status !== "SCHEDULED") {
     throw conflict(
@@ -464,7 +464,7 @@ siteRoutes.post("/inspections/:id/record", route(async (req, res) => {
 /** POST /defects/:id/assign — somebody owns it, or nobody does. */
 siteRoutes.post("/defects/:id/assign", route(async (req, res) => {
   need(req, "update", "defects");
-  const d = await ownDefect(req, req.params.id);
+  const d = await ownDefect(req, param(req, "id"));
   const to = text(req.body?.assigneeName, 160);
   if (!to) throw badRequest("A defect is assigned to somebody by name.");
 
@@ -484,7 +484,7 @@ siteRoutes.post("/defects/:id/assign", route(async (req, res) => {
 /** POST /defects/:id/fixed — somebody says it is done. Not the end. */
 siteRoutes.post("/defects/:id/fixed", route(async (req, res) => {
   need(req, "update", "defects");
-  const d = await ownDefect(req, req.params.id);
+  const d = await ownDefect(req, param(req, "id"));
   if (["VERIFIED", "CLOSED", "REJECTED"].includes(d.status)) {
     throw conflict(`${d.ref} is ${d.status.toLowerCase()}. It is not waiting for a fix.`);
   }
@@ -516,7 +516,7 @@ siteRoutes.post("/defects/:id/fixed", route(async (req, res) => {
  */
 siteRoutes.post("/defects/:id/verify", route(async (req, res) => {
   need(req, "update", "defects");
-  const d = await ownDefect(req, req.params.id);
+  const d = await ownDefect(req, param(req, "id"));
 
   if (d.status !== "FIXED") {
     throw conflict(
@@ -544,7 +544,7 @@ siteRoutes.post("/defects/:id/verify", route(async (req, res) => {
 /** POST /defects/:id/reject — it was not a defect, and here is why. */
 siteRoutes.post("/defects/:id/reject", route(async (req, res) => {
   need(req, "update", "defects");
-  const d = await ownDefect(req, req.params.id);
+  const d = await ownDefect(req, param(req, "id"));
   if (["VERIFIED", "CLOSED"].includes(d.status)) {
     throw conflict(`${d.ref} is ${d.status.toLowerCase()} — it is too late to say it was never a defect.`);
   }
@@ -672,7 +672,7 @@ siteRoutes.post("/site-diary", route(async (req, res) => {
  */
 siteRoutes.patch("/site-diary/:id", route(async (req, res) => {
   need(req, "update", "site-diary");
-  const diary = await ownDiary(req, req.params.id);
+  const diary = await ownDiary(req, param(req, "id"));
 
   /* Locked on write for a past day; locked here the moment the day is over,
      so a page left open in a browser overnight cannot rewrite yesterday. */
@@ -715,7 +715,7 @@ siteRoutes.patch("/site-diary/:id", route(async (req, res) => {
  */
 siteRoutes.post("/site-diary/:id/amend", route(async (req, res) => {
   need(req, "update", "site-diary");
-  const diary = await ownDiary(req, req.params.id);
+  const diary = await ownDiary(req, param(req, "id"));
 
   const note = text(req.body?.note, 20000);
   if (!note) throw badRequest("An amendment needs to say what is being corrected.");

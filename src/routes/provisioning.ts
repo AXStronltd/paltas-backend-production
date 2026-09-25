@@ -35,7 +35,7 @@ import { db } from "../db.ts";
 import { badRequest, conflict, messageOf, notFound } from "../http/errors.ts";
 import type { Request } from "express";
 import type { $Enums, Prisma } from "@prisma/client";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import { requireSession } from "../http/session.ts";
 import { requirePlatform } from "./platform.ts";
 
@@ -163,7 +163,7 @@ provisioningRoutes.post("/provisioning/entitlements/:id/suspend", async (req, re
     /* CROSS-TENANT BY DESIGN — requirePlatform() above; the suspend below is
        written to the customer's own audit trail. */
     const row = await db.entitlement.findUnique({
-      where: { id: String(req.params.id) },
+      where: { id: String(param(req, "id")) },
       include: { org: { select: { id: true, name: true } } },
     });
     if (!row) throw notFound("No entitlement with that id.");

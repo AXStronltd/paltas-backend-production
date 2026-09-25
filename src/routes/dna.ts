@@ -26,7 +26,7 @@ import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
 import { messageOf } from "../http/errors.ts";
-import { actorOf, sessionOf } from "../http/request.ts";
+import { actorOf, sessionOf, param } from "../http/request.ts";
 import { requireSession, requireOrganization, requireOpenSubscription } from "../http/session.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { clean } from "../domain/input.ts";
@@ -495,7 +495,7 @@ dnaRoutes.post("/properties/:siteId/succession/:caseId/beneficiaries", async (re
     gate(clearance, "LEGAL_RESTRICTED", "recording a beneficiary");
 
     const found = await db.successionCase.findFirst({
-      where: { id: req.params.caseId, orgId, dnaId: dna.id },
+      where: { id: param(req, "caseId"), orgId, dnaId: dna.id },
     });
     if (!found) throw hidden();
     if (found.status === "COMPLETED" || found.status === "CANCELLED") {
@@ -564,7 +564,7 @@ dnaRoutes.post("/properties/:siteId/succession/:caseId/advance", async (req, res
     if (!body.to) throw badRequest("Say which status the case is moving to.");
 
     const found = await db.successionCase.findFirst({
-      where: { id: req.params.caseId, orgId, dnaId: dna.id },
+      where: { id: param(req, "caseId"), orgId, dnaId: dna.id },
     });
     if (!found) throw hidden();
 
@@ -721,11 +721,11 @@ dnaRoutes.post("/properties/:siteId/scan/:scanId/findings/:findingId", async (re
     }
 
     const scan = await db.propertyScan.findFirst({
-      where: { id: req.params.scanId, orgId, dnaId: dna.id },
+      where: { id: param(req, "scanId"), orgId, dnaId: dna.id },
     });
     if (!scan) throw hidden();
     const finding = await db.propertyScanFinding.findFirst({
-      where: { id: req.params.findingId, orgId, scanId: scan.id },
+      where: { id: param(req, "findingId"), orgId, scanId: scan.id },
     });
     if (!finding) throw hidden();
 

@@ -26,7 +26,7 @@ import type { Request } from "express";
 import type { $Enums } from "@prisma/client";
 import { enumParam } from "../../../http/errors.ts";
 import type { AuthenticatedRequest } from "../../../http/request.ts";
-import { actorOf, sessionOf } from "../../../http/request.ts";
+import { actorOf, param, sessionOf } from "../../../http/request.ts";
 
 /**
  * The same request, once the guards above have run.
@@ -465,7 +465,7 @@ authorityRoutes.post("/authority/requests", async (req, res, next) => {
 authorityRoutes.post("/authority/requests/:id/decide", async (req, res, next) => {
   try {
     const found = await db.authorityRequest.findFirst({
-      where: { id: req.params.id, orgId: actorOf(req, "an authority route").orgId },
+      where: { id: param(req, "id"), orgId: actorOf(req, "an authority route").orgId },
     });
     if (!found) throw hidden();
     if (found.status !== "SUBMITTED" && found.status !== "UNDER_REVIEW") {

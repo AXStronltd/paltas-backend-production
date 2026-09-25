@@ -16,7 +16,7 @@ import { Router } from "express";
 import { db } from "../db.ts";
 import type { $Enums } from "@prisma/client";
 import { enumParam, messageOf } from "../http/errors.ts";
-import { sessionOf } from "../http/request.ts";import { badRequest, conflict, forbidden, requireSession } from "../http/index.ts";
+import { sessionOf, param } from "../http/request.ts";import { badRequest, conflict, forbidden, requireSession } from "../http/index.ts";
 import { notFound, rateLimit } from "../http/index.ts";
 import { config } from "../config.ts";
 import {
@@ -325,7 +325,7 @@ organizationRoutes.post("/:id/invitations",
   rateLimit({ windowMs: 60_000, max: 30 }),
   async (req, res, next) => {
     try {
-      const orgId = String(req.params.id);
+      const orgId = String(param(req, "id"));
       const mine = await membershipIn(sessionOf(req, "an organizations route").userId, orgId);
       /*
        * NOT FOUND rather than FORBIDDEN for a company that is not yours: a
@@ -397,7 +397,7 @@ organizationRoutes.post("/:id/invitations",
 /** GET /organizations/:id/invitations — what is outstanding. Never a token. */
 organizationRoutes.get("/:id/invitations", requireSession(), async (req, res, next) => {
   try {
-    const orgId = String(req.params.id);
+    const orgId = String(param(req, "id"));
     const mine = await membershipIn(sessionOf(req, "an organizations route").userId, orgId);
     if (!mine) throw notFound("No company with that id.");
     if (!grantableBy(mine.role).length) {
@@ -420,7 +420,7 @@ organizationRoutes.get("/:id/invitations", requireSession(), async (req, res, ne
 organizationRoutes.post("/:id/invitations/:inviteId/revoke",
   requireSession(), async (req, res, next) => {
     try {
-      const orgId = String(req.params.id);
+      const orgId = String(param(req, "id"));
       const mine = await membershipIn(sessionOf(req, "an organizations route").userId, orgId);
       if (!mine) throw notFound("No company with that id.");
       if (!grantableBy(mine.role).length) {
@@ -428,7 +428,7 @@ organizationRoutes.post("/:id/invitations/:inviteId/revoke",
       }
 
       const invite = await db.invitation.findFirst({
-        where: { id: String(req.params.inviteId), orgId },
+        where: { id: String(param(req, "inviteId")), orgId },
       });
       if (!invite) throw notFound("No invitation with that id.");
       if (invite.acceptedAt) {
