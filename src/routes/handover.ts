@@ -43,6 +43,7 @@ import {
   buildPlan, certifyMilestone, dueUninvoiced, livePlanFor, setPlan,
 } from "../domain/plans.ts";
 import type { PlanInput } from "../domain/plans.ts";
+import { buyer360 } from "../domain/buyer360.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
@@ -804,3 +805,17 @@ function planFrom(body: unknown): PlanInput {
     `"${b["kind"]}" is not a kind of payment plan.`,
     ["TIME_BASED", "CONSTRUCTION_LINKED"]);
 }
+
+/* ====================================================================== *
+ * BUYER 360.
+ *
+ * One read, every figure derived. See domain/buyer360.ts on why nothing
+ * here is stored — a balance held in a column is a balance that goes stale,
+ * and when it disagrees with the invoices nobody can tell which is lying.
+ * ====================================================================== */
+
+handoverRoutes.get("/contracts/:id/buyer", route(async (req, res) => {
+  needMoney(req, "get", "a buyer's position");
+  const orgId = actorOf(req, "a contract route").orgId;
+  res.json(await buyer360(db, orgId, param(req, "id")));
+}));
