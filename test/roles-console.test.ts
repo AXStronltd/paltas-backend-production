@@ -66,7 +66,8 @@ function open(product: string, role: string) {
   const w = makeWindow({ href: `https://paltas.io/dashboard/${page}.html` });
   w.win["PALTAS_BOOT"] = { system: page };
   w.loadCode(readFileSync(join(FE, "assets", "console.js"), "utf8") +
-    "\n;window.__navFor=navFor;window.__first=firstScreenOf;window.__S=SCREENS;",
+    "\n;window.__navFor=navFor;window.__first=firstScreenOf;window.__S=SCREENS;" +
+    "\n;window.__A=ACTIONS;window.__B=BUYER;",
     "console.js");
 
   const G = (w.win["PALTAS"] as Foreign).Session;
@@ -336,4 +337,50 @@ test("the form map never offers a create the service refuses", { skip }, async (
     `an engineer is offered the same ${owner} forms an owner is. The permission ` +
     `filter on /console/forms is not doing anything.`);
   assert.ok(engineer > 0, "an engineer was left with no form at all, which is not right either");
+});
+
+/* ==================================================================== *
+ * THE BUYER DETAIL VIEW FETCHES ITS OWN RECORD.
+ *
+ * Every other screen in the console renders from an array loaded before
+ * anybody chose a row. This one cannot: a buyer's position is three
+ * records deep and is only worth reading for the contract somebody has
+ * actually opened. It follows the Property DNA pattern — an id, a fetch,
+ * a screen that renders what came back — and these assertions are what
+ * stop that pattern quietly becoming a screen that renders seed data.
+ * ==================================================================== */
+
+test("the buyer view asks the server, and admits when it cannot", { skip }, () => {
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const S = w.win["__S"] as Foreign;
+  const A = (w.win["__A"] ?? {}) as Foreign;
+
+  assert.equal(typeof S["pm_buyer"], "function", "pm_buyer is not a screen");
+  for (const act of ["buyerOpen", "buyerBack", "buyerTab"]) {
+    assert.equal(typeof A[act], "function", `${act} is not wired to a button`);
+  }
+
+  /* Nothing chosen: it says so rather than drawing an empty table that
+     looks like a buyer who owes nothing. */
+  const empty = String((S["pm_buyer"] as () => string)());
+  assert.match(empty, /No buyer chosen/i,
+    "with no contract picked the screen should say so");
+  assert.doesNotMatch(empty, /\b0\.00\b/,
+    "an unchosen buyer was drawn with figures, which reads as a buyer who owes nothing");
+});
+
+test("a refused buyer position shows no figures at all", { skip }, () => {
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const S = w.win["__S"] as Foreign;
+  const B = w.win["__B"] as Foreign;
+
+  B.contractId = "c1";
+  B.error = "That contract does not exist.";
+  const html = String((S["pm_buyer"] as () => string)());
+
+  assert.match(html, /deliberately left/i,
+    "a screen that could not load should say the emptiness is deliberate");
+  assert.doesNotMatch(html, /Outstanding|Overdue/,
+    "*** a refused position still drew its KPI labels, so a reader sees " +
+    "'Outstanding' next to nothing and takes it for zero ***");
 });
