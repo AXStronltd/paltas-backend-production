@@ -381,6 +381,8 @@ model Organization {
   SiteDiary          SiteDiary[]
   SiteEvent          SiteEvent[]
   TaxRule            TaxRule[]
+  BankAccount        BankAccount[]
+  BankTransaction    BankTransaction[]
 }
 
 model Subscription {
@@ -2482,6 +2484,19 @@ model Payment {
   voided     Boolean   @default(false)
   voidReason String    @default("")
   voidedAt   DateTime?
+
+  /// CONFIRMED AGAINST THE BANK, OR NOT YET.
+  ///
+  /// Null means nobody has seen this money arrive on a statement. It does NOT
+  /// mean the payment is not real: a card payment is confirmed by the
+  /// processor and a cash receipt by the person who took it, and this service
+  /// has always recorded and booked a payment at the moment it is taken.
+  ///
+  /// What this answers is the pair of questions reconciliation exists for —
+  /// money sitting in the bank that nobody has claimed, and payments on the
+  /// books that never turned up. See domain/banking.ts.
+  reconciledAt    DateTime?
+  bankTransaction BankTransaction?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -4687,8 +4702,9 @@ model LedgerAccount {
 
   lines JournalLine[]
 
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+  BankAccount BankAccount[]
 
   @@unique([orgId, code])
   @@index([orgId, type])
@@ -6522,4 +6538,101 @@ model TaxRule {
 enum TaxKind {
   OUTPUT
   WITHHOLDING
+}
+
+/// WHERE THE MONEY PHYSICALLY LANDS.
+///
+/// A ledger account says a receipt was banked. It does not say which bank, in
+/// which currency, or let anybody compare what the ledger believes against
+/// what the bank actually holds. That comparison is reconciliation, and it
+/// needs the statement — so it needs somewhere to put one.
+///
+/// `mobile_money` is a first-class kind rather than a flavour of bank: an
+/// M-PESA paybill has an account number a payer quotes as the reference, which
+/// is the single most useful thing for matching a payment to a person in this
+/// market, and it settles on its own timetable.
+model BankAccount {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  name     String
+  kind     BankAccountKind @default(BANK)
+  currency String          @default("KES")
+
+  /// The account number, paybill or till a payer quotes. Not a secret — it is
+  /// printed on invoices — but it is how an unattributed receipt is traced.
+  externalRef String @default("")
+
+  /// The ledger account this money is booked to. A statement can only be
+  /// reconciled against the ledger if it knows which side of it to look at.
+  ledgerAccountId String?
+  ledgerAccount   LedgerAccount? @relation(fields: [ledgerAccountId], references: [id], onDelete: SetNull)
+
+  /// Withdrawn accounts keep their history and stop taking new statements.
+  active Boolean @default(true)
+
+  transactions BankTransaction[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, active])
+}
+
+enum BankAccountKind {
+  BANK
+  MOBILE_MONEY
+  CARD_PROCESSOR
+}
+
+/// ONE LINE OF A BANK STATEMENT, AS THE BANK STATED IT.
+///
+/// Never edited. A bank statement is somebody else's record of what happened
+/// and correcting it here would destroy the only independent account of the
+/// money. What changes is which payment it is matched to.
+///
+/// `amount` is signed: positive is money in, negative is money out. Matching
+/// only ever considers money in — a payment is a receipt.
+model BankTransaction {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  bankAccountId String
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  /// The value date the bank gave it, not the day it was imported.
+  valueOn  DateTime
+  amount   BigInt
+  currency String   @default("KES")
+
+  /// What the payer quoted. Kept exactly as the bank sent it, because it is
+  /// evidence.
+  reference String @default("")
+  /// The same reference with spaces, hyphens and case removed. Stored rather
+  /// than computed so a duplicate line can be found by an index, and so a
+  /// payer who writes "INV 001" and "inv-001" is recognised as one reference.
+  refNorm   String @default("")
+  payerName String @default("")
+
+  /// The payment this line proves. At most one — the unique constraint is the
+  /// guard, not a check somewhere in a handler.
+  matchedPaymentId String?   @unique
+  matchedPayment   Payment?  @relation(fields: [matchedPaymentId], references: [id], onDelete: SetNull)
+  matchedAt        DateTime?
+  /// "auto" when the reference and amount agreed on their own; a person's name
+  /// when somebody decided. Worth keeping apart: an auto-match that turns out
+  /// wrong is a rule to fix, and a hand-match that does is a conversation.
+  matchedBy        String    @default("")
+
+  importedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, bankAccountId, matchedPaymentId])
+  /// The duplicate-import guard, and the auto-match lookup, in one index.
+  @@index([orgId, bankAccountId, valueOn, amount, refNorm])
 }

@@ -93,6 +93,10 @@ const NEVER_WRITABLE = {
                "verified Stripe webhook. A caller who could send it could file a " +
                "payment that never happened as one Stripe had confirmed, which is " +
                "the difference between a claim and a receipt",
+  reconciledAt: "written ONLY by the reconciliation path, when a bank statement " +
+                "line proves the money arrived. A caller who could send it could " +
+                "mark their own payment as confirmed by the bank without a bank " +
+                "line existing — which is the entire point of reconciling",
   voided: "a payment is voided through its own endpoint, with a reason",
   voidReason: "written by the void endpoint",
   voidedAt: "written by the void endpoint",

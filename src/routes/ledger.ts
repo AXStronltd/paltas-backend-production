@@ -41,6 +41,9 @@
 import { Router } from "express";
 import { db } from "../db.ts";
 import { addRule, endRule, OUT_OF_SCOPE, rateFor, taxOn } from "../domain/tax.ts";
+import {
+  autoMatch, importStatement, reconcile, unreconcile, unreconciled,
+} from "../domain/banking.ts";
 import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
@@ -947,4 +950,177 @@ ledgerRoutes.get("/tax/rate", route(async (req, res) => {
 
   const base = BigInt(Math.max(0, Math.round(Number(req.query["base"]) || 0)));
   res.json({ ...answer, base: String(base), tax: String(taxOn(base, answer.rateBp)) });
+}));
+
+/* ====================================================================== *
+ * BANKING AND RECONCILIATION.
+ *
+ * In the finance area for the obvious reason: this is the company's money,
+ * and comparing the books against the bank is the most sensitive read in
+ * the service. See domain/banking.ts for what each refusal protects.
+ * ====================================================================== */
+
+ledgerRoutes.get("/banking/accounts", route(async (req, res) => {
+  need(req, "list", "the bank accounts");
+  const orgId = actorOf(req, "a ledger route").orgId;
+
+  const accounts = await db.bankAccount.findMany({
+    where: { orgId },
+    include: { ledgerAccount: { select: { code: true, name: true } } },
+    orderBy: [{ active: "desc" }, { name: "asc" }],
+  });
+
+  /* The unmatched count per account, because "is this reconciled" is the
+     only question anybody opens this screen to ask. */
+  const withCounts = await Promise.all(accounts.map(async (a) => ({
+    ...a,
+    unmatched: await db.bankTransaction.count({
+      where: { orgId, bankAccountId: a.id, matchedPaymentId: null, amount: { gt: 0n } },
+    }),
+  })));
+
+  res.json({ accounts: withCounts });
+}));
+
+ledgerRoutes.post("/banking/accounts", route(async (req, res) => {
+  need(req, "create", "the bank accounts");
+  const orgId = actorOf(req, "a ledger route").orgId;
+  const b = req.body || {};
+
+  const name = String(b.name || "").trim();
+  if (!name) throw badRequest("A bank account needs a name somebody will recognise.");
+
+  const kind = b.kind ? enumParam("BankAccountKind", b.kind, "account kind") : "BANK";
+  if (b.kind && !kind) {
+    throw badRequest(`"${b.kind}" is not a kind of account.`,
+      ["BANK", "MOBILE_MONEY", "CARD_PROCESSOR"]);
+  }
+
+  /* The ledger account is named by CODE, as everywhere else in this file: a
+     chart is what an accountant reads and types, and ids are not in front
+     of them. */
+  let ledgerAccountId: string | null = null;
+  if (b.ledgerAccount) {
+    const account = await db.ledgerAccount.findFirst({
+      where: { orgId, code: String(b.ledgerAccount).trim() },
+      select: { id: true },
+    });
+    if (!account) {
+      throw badRequest(`There is no account ${b.ledgerAccount} in the chart.`);
+    }
+    ledgerAccountId = account.id;
+  }
+
+  const account = await db.bankAccount.create({
+    data: {
+      orgId, name, kind: kind as never,
+      currency: String(b.currency || "KES").toUpperCase(),
+      externalRef: String(b.externalRef || "").trim(),
+      ledgerAccountId,
+    },
+  });
+  await audit(req, "banking.account.add", "bankAccount", account.id,
+    { name, kind: account.kind, currency: account.currency });
+
+  res.status(201).json({ account });
+}));
+
+/* A statement in. See domain/banking.ts on why a duplicate line is reported
+   rather than thrown. */
+ledgerRoutes.post("/banking/accounts/:id/statement", route(async (req, res) => {
+  need(req, "create", "a bank statement");
+  const orgId = actorOf(req, "a ledger route").orgId;
+
+  const raw = Array.isArray(req.body?.lines) ? req.body.lines : null;
+  if (!raw) throw badRequest("Send `lines`: the statement, one object per row.");
+  if (!raw.length) throw badRequest("That statement has no lines in it.");
+  if (raw.length > 2000) {
+    throw badRequest(
+      "That is more than two thousand lines. Split the file by month — a " +
+      "single import that fails half way is harder to reason about than two " +
+      "that do not.");
+  }
+
+  const lines = raw.map((l: Record<string, unknown>, i: number) => {
+    const valueOn = new Date(String(l["valueOn"] ?? l["date"] ?? ""));
+    if (Number.isNaN(valueOn.getTime())) {
+      throw badRequest(`Line ${i + 1} has no value date.`);
+    }
+    const amount = Math.round(Number(l["amount"]));
+    if (!Number.isFinite(amount)) {
+      throw badRequest(`Line ${i + 1} has no amount in minor units.`);
+    }
+    return {
+      valueOn, amount: BigInt(amount),
+      reference: String(l["reference"] ?? ""),
+      payerName: String(l["payerName"] ?? ""),
+      ...(l["currency"] ? { currency: String(l["currency"]) } : {}),
+    };
+  });
+
+  const out = await importStatement(db, orgId, param(req, "id"), lines);
+  await audit(req, "banking.statement.import", "bankAccount", param(req, "id"),
+    { imported: out.imported, duplicates: out.duplicates.length });
+
+  res.status(201).json({
+    ...out,
+    said: out.duplicates.length
+      ? `${out.imported} lines imported. ${out.duplicates.length} were already ` +
+        `on file and were left alone.`
+      : `${out.imported} lines imported.`,
+  });
+}));
+
+ledgerRoutes.get("/banking/unreconciled", route(async (req, res) => {
+  need(req, "get", "the reconciliation");
+  const orgId = actorOf(req, "a ledger route").orgId;
+  const account = req.query["bankAccountId"] ? String(req.query["bankAccountId"]) : undefined;
+  res.json(await unreconciled(db, orgId, account));
+}));
+
+ledgerRoutes.post("/banking/accounts/:id/auto-match", route(async (req, res) => {
+  need(req, "update", "the reconciliation");
+  const orgId = actorOf(req, "a ledger route").orgId;
+
+  const out = await autoMatch(db, orgId, param(req, "id"), "auto");
+  await audit(req, "banking.automatch", "bankAccount", param(req, "id"),
+    { matched: out.matched.length, ambiguous: out.ambiguous.length });
+
+  res.json({
+    ...out,
+    said: out.ambiguous.length
+      ? `${out.matched.length} matched. ${out.ambiguous.length} could be more ` +
+        `than one payment and were left for somebody to decide — a wrong match ` +
+        `sends the receipt to the wrong buyer.`
+      : `${out.matched.length} matched, ${out.unmatchedLines} still unclaimed.`,
+  });
+}));
+
+ledgerRoutes.post("/banking/match", route(async (req, res) => {
+  need(req, "update", "the reconciliation");
+  const orgId = actorOf(req, "a ledger route").orgId;
+
+  const paymentId = String(req.body?.paymentId || "").trim();
+  const transactionId = String(req.body?.transactionId || "").trim();
+  if (!paymentId || !transactionId) {
+    throw badRequest("Matching needs both a paymentId and a transactionId.");
+  }
+
+  const who = req.view?.user?.name || req.view?.user?.email || "a person";
+  const out = await reconcile(db, orgId, paymentId, transactionId, who);
+  await audit(req, "banking.match", "payment", paymentId,
+    { transactionId, amount: out.amount, reference: out.reference });
+
+  res.json({ matched: out });
+}));
+
+ledgerRoutes.post("/banking/transactions/:id/unmatch", route(async (req, res) => {
+  need(req, "update", "the reconciliation");
+  const orgId = actorOf(req, "a ledger route").orgId;
+
+  const out = await unreconcile(db, orgId, param(req, "id"));
+  await audit(req, "banking.unmatch", "payment", out.paymentId,
+    { transactionId: param(req, "id") });
+
+  res.json({ unmatched: out });
 }));
