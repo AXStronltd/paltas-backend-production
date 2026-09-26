@@ -485,6 +485,10 @@ export async function postForPayment(
  */
 /** An expense as this bridge reads it. */
 export interface ExpenseForPosting {
+  /* The two development dimensions, carried onto every line of the entry so
+     "what did the foundations come to" is a query. See the JournalLine model. */
+  readonly costCodeId?: string | null;
+  readonly projectId?: string | null;
   readonly id: string;
   readonly amount: unknown;
   readonly category?: string | null;
@@ -517,13 +521,20 @@ export async function postForExpense(
     date: expense.spentOn || new Date(),
     memo: expense.detail || "Expense",
     currency: expense.currency,
-    /* An expense already names its property and its vendor. */
+    /*
+     * An expense already names its property and its vendor. It now also names
+     * its development and its cost code, and BOTH lines carry them — the cost
+     * side so spend groups by code, and the payable side so the same grouping
+     * works from what is still owed rather than only from what is booked.
+     */
     lines: [
       { accountId: cost.id, debit: Number(amount), memo: expense.category || "",
-        siteId: expense.siteId || null },
+        siteId: expense.siteId || null,
+        projectId: expense.projectId || null, costCodeId: expense.costCodeId || null },
       /* What is owed to the vendor is the vendor's line. */
       { accountId: payable.id, credit: Number(amount), memo: expense.detail || "",
-        siteId: expense.siteId || null, partyId: expense.partyId || null },
+        siteId: expense.siteId || null, partyId: expense.partyId || null,
+        projectId: expense.projectId || null, costCodeId: expense.costCodeId || null },
     ],
     userId,
   });

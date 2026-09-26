@@ -339,6 +339,11 @@ test("role and scope are two walls, and both stand", { skip }, async () => {
  * person?" a question with a different answer per reader.
  */
 const EXPECTED_UNNARROWABLE = [
+  /* A cost code is a CHART, not a property record. It hangs off a project
+     when it hangs off anything, and a site-scoped member has every business
+     reading the company's list of codes — they post costs against them. Not
+     narrowing this one is the decision, not an oversight. */
+  "cost-codes",
   "audit-tasks", "campaigns", "capital-calls", "channels", "contracts", "conversations",
   "deals", "decisions", "distributions", "documents", "group-bookings", "guest-requests",
   "meetings",

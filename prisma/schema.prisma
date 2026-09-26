@@ -1172,6 +1172,8 @@ model Project {
   Defect        Defect[]
   SiteDiary     SiteDiary[]
   CostCode      CostCode[]
+  Expense       Expense[]
+  JournalLine   JournalLine[]
 
   @@index([orgId])
   @@index([orgId, stage])
@@ -2645,8 +2647,26 @@ model Expense {
   updatedAt     DateTime       @updatedAt
   purchaseOrder PurchaseOrder?
 
+  /// THE TWO DEVELOPMENT DIMENSIONS.
+  ///
+  /// `category` above is the heading somebody typed and stays as it is; every
+  /// existing expense carries one and a code is no reason to lose the words.
+  /// These are the formal counterparts: `category` answers "what did they call
+  /// it", `costCode` answers "which budget line", `project` answers "which
+  /// development". Both are stamped onto the journal lines the expense posts,
+  /// which is what makes "what did the foundations come to" a query.
+  ///
+  /// SetNull on both: withdrawing a code or closing a project must not delete
+  /// the spend that was recorded against it.
+  costCodeId String?
+  costCode   CostCode? @relation(fields: [costCodeId], references: [id], onDelete: SetNull)
+  projectId  String?
+  project    Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
   @@index([orgId, spentOn])
   @@index([orgId, status])
+  @@index([costCodeId])
+  @@index([projectId])
 }
 
 enum ExpenseStatus {
@@ -4833,8 +4853,18 @@ model JournalLine {
   unitId     String?
   leaseId    String?
   partyId    String?
+  /// THE TWO DEVELOPMENT DIMENSIONS.
+  ///
+  /// The five above answer "which property, which letting, whose". These
+  /// answer "which development, and what kind of cost" — which is what makes
+  /// "what did the foundations come to" a query rather than an afternoon with
+  /// a spreadsheet. Stamped from the source document, never typed on the line.
+  projectId  String?
+  costCodeId String?
 
-  createdAt DateTime @default(now())
+  createdAt DateTime  @default(now())
+  costCode  CostCode? @relation(fields: [costCodeId], references: [id], onDelete: SetNull)
+  project   Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
 
   @@index([orgId, accountId])
   @@index([entryId])
@@ -6757,6 +6787,9 @@ model CostCode {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  expenses     Expense[]
+  journalLines JournalLine[]
 
   @@unique([orgId, projectId, code])
   @@index([orgId])

@@ -1705,12 +1705,25 @@ const DECLARATIONS = {
       } },
   },
 
+  "cost-codes": {
+    model: "costCode", area: "finance", product: null,
+    label: "cost codes",
+    fields: {
+      projectId: "id:project", code: "string", name: "string", active: "bool",
+    },
+    required: ["code", "name"],
+    search: ["code", "name"],
+    order: [{ code: "asc" }],
+    include: { project: { select: { id: true, name: true } } },
+  },
+
   expenses: {
     model: "expense", area: "finance", product: null,
     label: "expenses",
     fields: {
       siteId: "id:site", partyId: "id:party", detail: "string",
       category: "string", amount: "money", currency: "string",
+      costCodeId: "id:costCode", projectId: "id:project",
       spentOn: "date", recoverable: "bool",
       status: "enum:ExpenseStatus", note: "text",
     },
@@ -1755,6 +1768,12 @@ const DECLARATIONS = {
           spentOn: dateOf(row, "spentOn"),
           siteId: textOf(row, "siteId") || null,
           partyId: textOf(row, "partyId") || null,
+          /* The two development dimensions. Without these the cost code is
+             recorded on the expense and never reaches the ledger, so spend
+             can be tagged and never reported — which is the same as not
+             having cost codes at all. */
+          costCodeId: textOf(row, "costCodeId") || null,
+          projectId: textOf(row, "projectId") || null,
         },
         userId: req.session.userId,
       });

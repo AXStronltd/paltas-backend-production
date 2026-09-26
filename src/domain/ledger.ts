@@ -254,6 +254,10 @@ export interface JournalLineInput {
   readonly unitId?: string | null;
   readonly leaseId?: string | null;
   readonly partyId?: string | null;
+  /** Which development. Stamped from the source document, never typed here. */
+  readonly projectId?: string | null;
+  /** What kind of cost. The formal counterpart of Expense.category. */
+  readonly costCodeId?: string | null;
 }
 
 /** The same line once the reporting-currency figures are filled in. */
@@ -434,6 +438,8 @@ export async function postJournal(db: Db, {
             unitId: l.unitId || null,
             leaseId: l.leaseId || null,
             partyId: l.partyId || null,
+            projectId: l.projectId || null,
+            costCodeId: l.costCodeId || null,
           })),
         },
       },
@@ -508,6 +514,12 @@ export async function reverseJournal(
       memo: l.memo,
       siteId: l.siteId, buildingId: l.buildingId,
       unitId: l.unitId, leaseId: l.leaseId, partyId: l.partyId,
+      /* THE REVERSAL CARRIES THE SAME DIMENSIONS.
+         Without this a reversed expense would stay in a by-cost-code report for
+         ever: the original line is stamped with the code and the correction is
+         not, so the two never net out and the foundations look more expensive
+         than they were. */
+      projectId: l.projectId, costCodeId: l.costCodeId,
     })),
   });
 }
