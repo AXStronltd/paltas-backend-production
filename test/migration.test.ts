@@ -303,6 +303,51 @@ test("every index the schema asks for exists", { skip }, async () => {
     "\n\nA missing @@unique is not slow — it is a duplicate the database will accept.");
 });
 
+test("the migrations create no index the schema does not declare", { skip }, async () => {
+  /*
+   * THE MIRROR OF THE TEST ABOVE, AND IT WAS MISSING.
+   *
+   * That one asks "does the database have everything the schema declares".
+   * This asks the other direction, and the gap was real: two indexes on
+   * JournalLine were created by a hand-written migration and never added to
+   * the model, so the database carried something Prisma did not know about.
+   *
+   * That is not cosmetic. `prisma migrate dev` generates its next migration
+   * by diffing the schema against the database, so an index the schema does
+   * not declare is one the NEXT migration silently DROPS — on a table whose
+   * whole purpose is to be grouped by, and nobody would notice until a report
+   * that used to return started timing out.
+   *
+   * The primary key and the implicit relation indexes are excluded: Postgres
+   * and Prisma both create those without being asked.
+   */
+  const d = await introspect();
+
+  const declared = new Set<string>();
+  for (const [model, body] of MODELS) {
+    for (const cols of attrs(body, "index")) declared.add(`${model}_${cols.join("_")}_idx`);
+    for (const cols of attrs(body, "unique")) declared.add(`${model}_${cols.join("_")}_key`);
+    for (const f of fieldsOf(body)) {
+      if (f.list || MODELS.has(f.type)) continue;
+      if (/@unique\b/.test(f.rest)) declared.add(`${model}_${f.name}_key`);
+      if (/@id\b/.test(f.rest)) declared.add(`${model}_pkey`);
+    }
+    /* A single-column @@index or @@unique written with one column. */
+    declared.add(`${model}_pkey`);
+  }
+
+  const extra = [...d.indexes.keys()]
+    .filter((name) => !declared.has(name))
+    .sort();
+
+  assert.deepEqual(extra, [],
+    "Indexes the database has that schema.prisma does not declare:\n  " +
+    extra.join("\n  ") +
+    "\n\nAdd the @@index to the model. The next `prisma migrate dev` diffs " +
+    "the schema against the database and will DROP anything the schema does " +
+    "not ask for.");
+});
+
 test("every foreign key exists, and deletes the way the schema says", { skip }, async () => {
   const d = await introspect();
   const problems = [];

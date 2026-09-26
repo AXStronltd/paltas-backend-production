@@ -4871,6 +4871,12 @@ model JournalLine {
   @@index([orgId, siteId])
   @@index([orgId, unitId])
   @@index([orgId, partyId])
+  /// The two development dimensions exist to be grouped by — "what did the
+  /// foundations come to" reads the whole ledger for one code otherwise.
+  /// Declared here as well as in the migration: an index the database has and
+  /// the schema does not know about is one `prisma migrate dev` will drop.
+  @@index([orgId, projectId])
+  @@index([orgId, costCodeId])
 }
 
 /// A MEETING, AND WHAT CAME OUT OF IT.
