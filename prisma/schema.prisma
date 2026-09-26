@@ -380,6 +380,7 @@ model Organization {
   Defect             Defect[]
   SiteDiary          SiteDiary[]
   SiteEvent          SiteEvent[]
+  TaxRule            TaxRule[]
 }
 
 model Subscription {
@@ -6467,4 +6468,58 @@ model ProjectMember {
   @@index([orgId])
   @@index([projectId])
   @@index([orgId, projectId, leftOn])
+}
+
+/// A TAX RATE IS DATA WITH A DATE ON IT, NOT A NUMBER IN A FORM.
+///
+/// Before this table, `InvoiceLine.taxBps` was the only record of a rate and
+/// it was typed in by hand, line by line. Nothing said where 1600 came from,
+/// nothing stopped somebody entering 1800, and nothing could answer "what was
+/// the rate in March" once it had changed.
+///
+/// A rate change is a NEW ROW with a new effective date. The old row stays,
+/// because an invoice raised under it must keep reading the same way for as
+/// long as it is kept. `InvoiceLine.taxBps` goes on holding the resolved rate
+/// for exactly that reason — this table decides it, the line records it.
+///
+/// `confirmedBy` is required and is a name, not a flag. A tax rate nobody will
+/// put their name to is not a rate this service will apply.
+model TaxRule {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// ISO-3166 alpha-2. Rates are national, so the country is part of the key.
+  country String
+  /// The company's own code: VAT_STANDARD, VAT_EXEMPT, WHT_CONTRACTOR.
+  /// Not an enum: which taxes exist differs by country, and a schema change
+  /// is the wrong way to learn that a market has a levy this one does not.
+  taxCode String
+  kind    TaxKind @default(OUTPUT)
+
+  /// Basis points, whole numbers only. 1600 is 16.00%. Integer because a
+  /// percentage held as a float is how a total ends in .9999999.
+  rateBp Int
+
+  effectiveFrom DateTime
+  /// Inclusive. Open-ended while null — the rate in force today.
+  effectiveTo   DateTime?
+
+  /// Who confirmed this rate. An adviser, a firm, or a named person.
+  confirmedBy String
+  label       String @default("")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, country, taxCode, effectiveFrom])
+}
+
+/// OUTPUT is tax this company charges and owes on. WITHHOLDING is tax it must
+/// hold back from somebody else's payment and remit on their behalf — the two
+/// post to different accounts and are never netted against each other.
+enum TaxKind {
+  OUTPUT
+  WITHHOLDING
 }

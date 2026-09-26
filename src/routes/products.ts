@@ -44,6 +44,7 @@ import {
 } from "../http/session.ts";
 import { sync as syncChannel, status as channelStatus } from "../domain/channels.ts";
 import { postForPayment, reverseFor } from "../domain/posting.ts";
+import { rateFor } from "../domain/tax.ts";
 import {
   presignUpload, presignDownload, head as storageHead,
   publicDescribe as storagePublicDescribe,
@@ -312,16 +313,50 @@ guarded.post("/invoices/:id/lines", async (req, res, next) => {
 
     const quantity = Math.max(1, Math.round(Number(req.body?.quantity) || 1));
     const unitPrice = Math.round(Number(req.body?.unitPrice) || 0);
-    const taxBps = Math.max(0, Math.min(10000, Math.round(Number(req.body?.taxBps) || 0)));
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       throw badRequest("unitPrice must be a whole number of minor units, and not negative.");
+    }
+
+    /*
+     * THE RATE COMES FROM THE RULE TABLE WHEN A CODE IS GIVEN.
+     *
+     * `taxBps` stays accepted, because every existing caller sends it and
+     * breaking them has no business being part of adding a feature. But a raw
+     * rate is a number with no provenance: nothing says who decided it or when
+     * it started applying. Sending `taxCode` instead resolves it from
+     * domain/tax.ts.
+     *
+     * RESOLVED AGAINST THE INVOICE'S OWN DATE, never today's. An invoice dated
+     * in March is taxed at March's rate however late somebody types the line,
+     * which is the whole reason the rule table carries dates.
+     *
+     * The resolved figure is still written to taxBps: this decides it, the
+     * line records it. So a rule added next year cannot restate an invoice
+     * that was settled last year.
+     */
+    const taxCode = String(req.body?.taxCode || "").trim();
+    let taxBps = Math.max(0, Math.min(10000, Math.round(Number(req.body?.taxBps) || 0)));
+    let taxFrom: string | null = null;
+    if (taxCode) {
+      const org = await db.organization.findFirst({
+        where: { id: actorOf(req).orgId }, select: { country: true },
+      });
+      const answer = await rateFor(db, {
+        orgId: actorOf(req).orgId,
+        country: (org?.country || "ke").toUpperCase(),
+        taxCode,
+        on: invoice.issuedOn || invoice.createdAt,
+      });
+      taxBps = answer.rateBp;
+      taxFrom = answer.ruleId;
     }
 
     await db.invoiceLine.create({
       data: { invoiceId: invoice.id, detail, quantity, unitPrice, taxBps },
     });
     const updated = await recomputeInvoice(invoice.id, actorOf(req).orgId);
-    await audit(req, "invoice.line.add", "invoice", invoice.id, { detail, quantity, unitPrice });
+    await audit(req, "invoice.line.add", "invoice", invoice.id,
+      { detail, quantity, unitPrice, taxBps, ...(taxFrom ? { taxRuleId: taxFrom } : {}) });
 
     res.status(201).json({ invoice: updated });
   } catch (e) { next(e); }

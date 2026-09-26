@@ -40,6 +40,7 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import { addRule, endRule, OUT_OF_SCOPE, rateFor, taxOn } from "../domain/tax.ts";
 import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
@@ -829,4 +830,121 @@ ledgerRoutes.get("/ledger/statement", route(async (req, res) => {
     rows: st.rows,
     totals: st.totals,
   });
+}));
+
+/* ====================================================================== *
+ * TAX RULES.
+ *
+ * In the finance area rather than a product route, because a rate belongs
+ * to the company and every product that invoices reads the same one. The
+ * chain is deliberately the same as the chart of accounts above: a thing
+ * only finance may change, that everything else consumes.
+ *
+ * See domain/tax.ts for why a rate is a dated row and not a number.
+ * ====================================================================== */
+
+ledgerRoutes.get("/tax/rules", route(async (req, res) => {
+  need(req, "list", "the tax rules");
+  const orgId = actorOf(req, "a ledger route").orgId;
+
+  const rules = await db.taxRule.findMany({
+    where: { orgId },
+    orderBy: [{ country: "asc" }, { taxCode: "asc" }, { effectiveFrom: "desc" }],
+  });
+
+  /* Which rule is in force TODAY, said out loud rather than left for the
+     reader to work out from two dates and a null. */
+  const today = new Date();
+  res.json({
+    rules: rules.map((r) => ({
+      ...r,
+      inForce: r.effectiveFrom <= today && (!r.effectiveTo || today <= r.effectiveTo),
+    })),
+  });
+}));
+
+ledgerRoutes.post("/tax/rules", route(async (req, res) => {
+  need(req, "create", "the tax rules");
+  const orgId = actorOf(req, "a ledger route").orgId;
+  const b = req.body || {};
+
+  const country = String(b.country || "").trim().toUpperCase();
+  const taxCode = String(b.taxCode || "").trim().toUpperCase();
+  if (country.length !== 2) {
+    throw badRequest("A country is its two-letter code — KE, TZ, AE.");
+  }
+  if (!taxCode) {
+    throw badRequest("A rule needs a tax code, such as VAT_STANDARD.");
+  }
+  if (taxCode === OUT_OF_SCOPE) {
+    throw badRequest(
+      `"${OUT_OF_SCOPE}" already means outside the scope of tax and needs no ` +
+      `rule. A rate for it would never be read.`);
+  }
+
+  const from = new Date(String(b.effectiveFrom || ""));
+  if (Number.isNaN(from.getTime())) {
+    throw badRequest("A rule needs the date its rate starts applying.");
+  }
+  const to = b.effectiveTo ? new Date(String(b.effectiveTo)) : null;
+  if (to && Number.isNaN(to.getTime())) throw badRequest("effectiveTo is not a date.");
+
+  const kind = b.kind ? enumParam("TaxKind", b.kind, "tax kind") : undefined;
+  if (b.kind && !kind) throw badRequest(`"${b.kind}" is not a kind of tax.`, ["OUTPUT", "WITHHOLDING"]);
+
+  const rule = await addRule(db, orgId, {
+    country, taxCode, rateBp: Number(b.rateBp),
+    effectiveFrom: from, effectiveTo: to,
+    confirmedBy: String(b.confirmedBy || ""),
+    label: String(b.label || "").trim(),
+    ...(kind ? { kind } : {}),
+  });
+
+  await audit(req, "tax.rule.add", "taxRule", rule.id, {
+    country, taxCode, rateBp: rule.rateBp,
+    from: from.toISOString().slice(0, 10), confirmedBy: rule.confirmedBy,
+  });
+
+  res.status(201).json({ rule });
+}));
+
+/* The only edit a rule allows. Everything else about a rule that has been
+   applied to an invoice is history — see domain/tax.ts. */
+ledgerRoutes.post("/tax/rules/:id/end", route(async (req, res) => {
+  need(req, "update", "the tax rules");
+  const orgId = actorOf(req, "a ledger route").orgId;
+
+  const on = new Date(String(req.body?.effectiveTo || ""));
+  if (Number.isNaN(on.getTime())) {
+    throw badRequest("Ending a rule needs the last date it applies.");
+  }
+
+  const rule = await endRule(db, orgId, param(req, "id"), on);
+  await audit(req, "tax.rule.end", "taxRule", rule.id,
+    { to: on.toISOString().slice(0, 10) });
+
+  res.json({ rule });
+}));
+
+/* What rate would be applied, without raising anything. The screen that
+   asks before it commits, and the answer a person can check. */
+ledgerRoutes.get("/tax/rate", route(async (req, res) => {
+  need(req, "get", "the tax rules");
+  const orgId = actorOf(req, "a ledger route").orgId;
+
+  const org = await db.organization.findFirst({
+    where: { id: orgId }, select: { country: true },
+  });
+  const on = req.query["on"] ? new Date(String(req.query["on"])) : new Date();
+  if (Number.isNaN(on.getTime())) throw badRequest("`on` is not a date.");
+
+  const answer = await rateFor(db, {
+    orgId,
+    country: String(req.query["country"] || org?.country || "ke").toUpperCase(),
+    taxCode: String(req.query["taxCode"] || "").trim().toUpperCase(),
+    on,
+  });
+
+  const base = BigInt(Math.max(0, Math.round(Number(req.query["base"]) || 0)));
+  res.json({ ...answer, base: String(base), tax: String(taxOn(base, answer.rateBp)) });
 }));
