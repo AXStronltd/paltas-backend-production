@@ -110,14 +110,21 @@ async function company(role: import("@prisma/client").$Enums.Role = "OWNER") {
   return { org, user, cookie: `paltas_session=${token}` };
 }
 
-/** A bank account through the API a finance screen would use. */
+/**
+ * A bank account, through the resource the console's ＋ form posts to.
+ *
+ * This was a hand-written POST /banking/accounts. It is an ordinary resource
+ * now: the framework gives list, create, permissions, audit and a form the
+ * console can draw, and a hand-written create meant a ＋ button with no form
+ * behind it — the dead button this release went to some trouble to remove.
+ */
 async function account(cookie: string, over: Record<string, unknown> = {}) {
-  const made = await call("/banking/accounts", {
+  const made = await call("/bank-accounts", {
     method: "POST", cookie,
     body: { name: `Equity KES ${++seq}`, kind: "BANK", currency: "KES", ...over },
   });
   assert.equal(made.status, 201, made.text.slice(0, 240));
-  return made.json.account;
+  return made.json.bankAccount;
 }
 
 /** A payment recorded directly, as a receipt taken at a desk would be. */
@@ -457,8 +464,9 @@ test("one company cannot see or match another's bank lines", { skip }, async () 
   const line = present(
     await db.bankTransaction.findFirst({ where: { bankAccountId: theirAcct.id } }), "no line");
 
-  const listed = await call("/banking/accounts", { cookie: mine.cookie });
-  assert.equal(listed.json.accounts.length, 0, "*** one company saw another's bank accounts ***");
+  const listed = await call("/bank-accounts", { cookie: mine.cookie });
+  assert.equal(listed.json["bank-accounts"].length, 0,
+    "*** one company saw another's bank accounts ***");
 
   const peeked = await call("/banking/unreconciled", { cookie: mine.cookie });
   assert.equal(peeked.json.lines.length, 0, "*** one company saw another's bank statement ***");
@@ -488,7 +496,7 @@ test("only somebody trusted with the money may reconcile", { skip }, async () =>
   const acct = await account(owner.cookie);
   const { cookie } = await company("HOUSEKEEPING");
 
-  assert.equal((await call("/banking/accounts", { cookie })).status, 403);
+  assert.equal((await call("/bank-accounts", { cookie })).status, 403);
   assert.equal((await call(`/banking/accounts/${acct.id}/auto-match`,
     { method: "POST", cookie })).status, 403);
   assert.equal((await call("/banking/unreconciled", { cookie })).status, 403,
@@ -504,18 +512,36 @@ test("every match and unmatch is on the record", { skip }, async () => {
   });
   const line = present(
     await db.bankTransaction.findFirst({ where: { bankAccountId: acct.id } }), "no line");
-  await call("/banking/match", {
+  /* Asserted rather than assumed: a silent 4xx here would leave the trail
+     short and send the reader looking at the audit code instead of the call
+     that never happened. */
+  const matched = await call("/banking/match", {
     method: "POST", cookie, body: { paymentId: p.id, transactionId: line.id },
   });
-  await call(`/banking/transactions/${line.id}/unmatch`, { method: "POST", cookie });
+  assert.equal(matched.status, 200, matched.text.slice(0, 240));
+  const undone = await call(`/banking/transactions/${line.id}/unmatch`, {
+    method: "POST", cookie,
+  });
+  assert.equal(undone.status, 200, undone.text.slice(0, 240));
+
+  /* Two conventions, both deliberate. Creating the account goes through the
+     resource framework, which audits every create the same way whatever the
+     model is; the reconciliation acts are hand-written and name what they
+     did. Both are asserted, because "it is audited somewhere" is not the
+     same as "the trail says what happened". */
+  const made = await db.auditEvent.findMany({
+    where: { orgId: org.id, entity: "bankAccount", action: "create" },
+  });
+  assert.equal(made.length, 1, "creating a bank account left no trail");
 
   const trail = await db.auditEvent.findMany({
     where: { orgId: org.id, action: { startsWith: "banking." } },
     orderBy: { at: "asc" },
   });
   assert.deepEqual(trail.map((e) => e.action),
-    ["banking.account.add", "banking.statement.import", "banking.match", "banking.unmatch"]);
-  assert.ok(trail.every((e) => e.actorName), "a reconciliation with nobody attached to it");
+    ["banking.statement.import", "banking.match", "banking.unmatch"]);
+  assert.ok([...made, ...trail].every((e) => e.actorName),
+    "a reconciliation with nobody attached to it");
 });
 
 test("a hand match records who decided, an auto match records that it was automatic", { skip }, async () => {

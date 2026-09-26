@@ -960,70 +960,18 @@ ledgerRoutes.get("/tax/rate", route(async (req, res) => {
  * the service. See domain/banking.ts for what each refusal protects.
  * ====================================================================== */
 
-ledgerRoutes.get("/banking/accounts", route(async (req, res) => {
-  need(req, "list", "the bank accounts");
-  const orgId = actorOf(req, "a ledger route").orgId;
-
-  const accounts = await db.bankAccount.findMany({
-    where: { orgId },
-    include: { ledgerAccount: { select: { code: true, name: true } } },
-    orderBy: [{ active: "desc" }, { name: "asc" }],
-  });
-
-  /* The unmatched count per account, because "is this reconciled" is the
-     only question anybody opens this screen to ask. */
-  const withCounts = await Promise.all(accounts.map(async (a) => ({
-    ...a,
-    unmatched: await db.bankTransaction.count({
-      where: { orgId, bankAccountId: a.id, matchedPaymentId: null, amount: { gt: 0n } },
-    }),
-  })));
-
-  res.json({ accounts: withCounts });
-}));
-
-ledgerRoutes.post("/banking/accounts", route(async (req, res) => {
-  need(req, "create", "the bank accounts");
-  const orgId = actorOf(req, "a ledger route").orgId;
-  const b = req.body || {};
-
-  const name = String(b.name || "").trim();
-  if (!name) throw badRequest("A bank account needs a name somebody will recognise.");
-
-  const kind = b.kind ? enumParam("BankAccountKind", b.kind, "account kind") : "BANK";
-  if (b.kind && !kind) {
-    throw badRequest(`"${b.kind}" is not a kind of account.`,
-      ["BANK", "MOBILE_MONEY", "CARD_PROCESSOR"]);
-  }
-
-  /* The ledger account is named by CODE, as everywhere else in this file: a
-     chart is what an accountant reads and types, and ids are not in front
-     of them. */
-  let ledgerAccountId: string | null = null;
-  if (b.ledgerAccount) {
-    const account = await db.ledgerAccount.findFirst({
-      where: { orgId, code: String(b.ledgerAccount).trim() },
-      select: { id: true },
-    });
-    if (!account) {
-      throw badRequest(`There is no account ${b.ledgerAccount} in the chart.`);
-    }
-    ledgerAccountId = account.id;
-  }
-
-  const account = await db.bankAccount.create({
-    data: {
-      orgId, name, kind: kind as never,
-      currency: String(b.currency || "KES").toUpperCase(),
-      externalRef: String(b.externalRef || "").trim(),
-      ledgerAccountId,
-    },
-  });
-  await audit(req, "banking.account.add", "bankAccount", account.id,
-    { name, kind: account.kind, currency: account.currency });
-
-  res.status(201).json({ account });
-}));
+/*
+ * A BANK ACCOUNT IS AN ORDINARY RESOURCE.
+ *
+ * It was two hand-written handlers here. The framework already gives list,
+ * read, create, update and delete with org scoping, permissions, audit and a
+ * ＋ form the console can draw — and a hand-written create means the console
+ * has a button with no form behind it, which is the dead button this release
+ * went to some trouble to remove. See `bank-accounts` in domain/registry.ts.
+ *
+ * What stays hand-written below is everything that is NOT CRUD: importing a
+ * statement, matching, unmatching, and the report of what does not agree.
+ */
 
 /* A statement in. See domain/banking.ts on why a duplicate line is reported
    rather than thrown. */
@@ -1075,7 +1023,11 @@ ledgerRoutes.get("/banking/unreconciled", route(async (req, res) => {
   need(req, "get", "the reconciliation");
   const orgId = actorOf(req, "a ledger route").orgId;
   const account = req.query["bankAccountId"] ? String(req.query["bankAccountId"]) : undefined;
-  res.json(await unreconciled(db, orgId, account));
+  const out = await unreconciled(db, orgId, account);
+  res.json({
+    lines: out.lines,
+    payments: out.payments,
+  });
 }));
 
 ledgerRoutes.post("/banking/accounts/:id/auto-match", route(async (req, res) => {

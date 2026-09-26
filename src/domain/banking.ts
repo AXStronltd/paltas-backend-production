@@ -320,6 +320,9 @@ export interface Unreconciled {
   readonly lines: readonly {
     readonly id: string; readonly valueOn: Date; readonly amount: string;
     readonly reference: string; readonly payerName: string;
+    /* Which account it landed in, so a screen listing accounts can show the
+       unclaimed count against each without asking a second time. */
+    readonly bankAccountId: string;
   }[];
   /** Receipts on the books that never appeared on a statement. */
   readonly payments: readonly {
@@ -361,6 +364,7 @@ export async function unreconciled(
     lines: lines.map((l) => ({
       id: l.id, valueOn: l.valueOn, amount: String(l.amount),
       reference: l.reference, payerName: l.payerName,
+      bankAccountId: l.bankAccountId,
     })),
     payments: payments.map((p) => ({
       id: p.id, receivedAt: p.receivedAt, amount: String(p.amount),

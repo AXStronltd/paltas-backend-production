@@ -339,6 +339,11 @@ test("role and scope are two walls, and both stand", { skip }, async () => {
  * person?" a question with a different answer per reader.
  */
 const EXPECTED_UNNARROWABLE = [
+  /* A bank account belongs to the company, not to a site: the money lands in
+     one account whichever property earned it, and a site-scoped member has
+     every business reading which accounts exist. Same decision as the cost
+     codes below, for the same reason. */
+  "bank-accounts",
   /* A cost code is a CHART, not a property record. It hangs off a project
      when it hangs off anything, and a site-scoped member has every business
      reading the company's list of codes — they post costs against them. Not

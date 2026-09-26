@@ -1705,6 +1705,20 @@ const DECLARATIONS = {
       } },
   },
 
+  "bank-accounts": {
+    model: "bankAccount", area: "finance", product: null,
+    label: "bank accounts",
+    fields: {
+      name: "string", kind: "enum:BankAccountKind", currency: "string",
+      externalRef: "string", ledgerAccountId: "id:ledgerAccount",
+      active: "bool",
+    },
+    required: ["name"],
+    search: ["name", "externalRef"],
+    order: [{ name: "asc" }],
+    include: { ledgerAccount: { select: { id: true, code: true, name: true } } },
+  },
+
   "cost-codes": {
     model: "costCode", area: "finance", product: null,
     label: "cost codes",
