@@ -61,6 +61,12 @@ export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
 
   /* ---------------------------------------------------- agent & host */
 
+  fin_costcodes: {
+    resource: "cost-codes",
+    label: "＋ Add a code",
+    fields: { code: "code", n: "name", proj: "projectId" },
+  },
+
   fin_banking: {
     resource: "bank-accounts",
     label: "＋ Add an account",
