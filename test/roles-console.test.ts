@@ -67,7 +67,8 @@ function open(product: string, role: string) {
   w.win["PALTAS_BOOT"] = { system: page };
   w.loadCode(readFileSync(join(FE, "assets", "console.js"), "utf8") +
     "\n;window.__navFor=navFor;window.__first=firstScreenOf;window.__S=SCREENS;" +
-    "\n;window.__A=ACTIONS;window.__B=BUYER;",
+    "\n;window.__A=ACTIONS;window.__B=BUYER;window.__R=RECON;" +
+    "\n;window.__BA=BANKACCTS;window.__U=UNRECONCILED;window.__N=UNCONFIRMED;",
     "console.js");
 
   const G = (w.win["PALTAS"] as Foreign).Session;
@@ -383,4 +384,68 @@ test("a refused buyer position shows no figures at all", { skip }, () => {
   assert.doesNotMatch(html, /Outstanding|Overdue/,
     "*** a refused position still drew its KPI labels, so a reader sees " +
     "'Outstanding' next to nothing and takes it for zero ***");
+});
+
+/* ==================================================================== *
+ * A SCREEN THAT SHOWS A PROBLEM MUST OFFER THE FIX.
+ *
+ * The reconciliation screen shipped listing every unclaimed statement
+ * line and offering no way to claim one: no import, no auto-match, no
+ * match, no unmatch. It displayed a problem it could not solve, which is
+ * a page rather than a feature.
+ *
+ * These assertions are what stop that happening again to this screen.
+ * ==================================================================== */
+
+test("reconciliation offers every act it needs, not just the list", { skip }, () => {
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const A = (w.win["__A"] ?? {}) as Foreign;
+
+  for (const act of ["reconImport", "reconAuto", "reconPick", "reconMatch", "reconUnmatch"]) {
+    assert.equal(typeof A[act], "function",
+      `${act} has no handler, so its button does nothing`);
+  }
+
+  const S = w.win["__S"] as Foreign;
+  const accounts = w.win["__BA"] as Wire[];
+  const unclaimed = w.win["__U"] as Wire[];
+  const unconfirmed = w.win["__N"] as Wire[];
+  const state = w.win["__R"] as Foreign;
+
+  accounts.push({ m: "all", id: "a1", n: "Equity KES", kind: "Bank",
+                  currency: "KES", ref: "", account: "1000 Bank", active: true });
+  unclaimed.push({ m: "all", id: "t1", date: "2026-03-01", amount: 45000,
+                   ref: "TRF-991", payer: "A Buyer", acct: "a1" });
+  unconfirmed.push({ m: "all", id: "p1", date: "2026-03-01", amount: 45000,
+                     ref: "TRF-991", method: "Bank" });
+
+  const listing = String((S["fin_banking"] as () => string)());
+  assert.match(listing, /data-recon-lines/, "no way to import a statement");
+  assert.match(listing, /reconAuto/, "no way to auto-match");
+  assert.match(listing, /reconPick/, "no way to choose an unclaimed line");
+
+  /* Choosing a line must offer the receipts it could prove. Without this the
+     screen is two lists side by side and the matching is done in somebody's
+     head. */
+  state["picked"] = "t1";
+  const picked = String((S["fin_banking"] as () => string)());
+  assert.match(picked, /reconMatch/,
+    "*** choosing a statement line offered no receipt to match it to ***");
+
+  state["picked"] = "";
+});
+
+test("a reconciliation failure says what the server said", { skip }, () => {
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const S = w.win["__S"] as Foreign;
+  const state = w.win["__R"] as Foreign;
+
+  state["err"] = "That statement line already proves another payment.";
+  const html = String((S["fin_banking"] as () => string)());
+  assert.match(html, /already proves another payment/,
+    "the server's own sentence was swallowed — it is the only thing that knows " +
+    "whether the amounts differed, the line was used, or the payment was voided");
+  assert.match(html, /Nothing was changed/,
+    "a failed act should say plainly that nothing moved");
+  state["err"] = "";
 });
