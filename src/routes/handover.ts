@@ -40,6 +40,10 @@ import { whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden } from "../http/errors.ts";
 import { numberFor } from "../http/resource.ts";
 import {
+  buildPlan, certifyMilestone, dueUninvoiced, livePlanFor, setPlan,
+} from "../domain/plans.ts";
+import type { PlanInput } from "../domain/plans.ts";
+import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
 
@@ -648,3 +652,155 @@ handoverRoutes.get("/projects/:id/team", route(async (req, res) => {
     unstated: current.filter((m) => !m.responsible).length,
   });
 }));
+
+/* ====================================================================== *
+ * PAYMENT PLANS.
+ *
+ * On the contract routes rather than in finance, because a plan is a term
+ * of the sale — it is negotiated with the buyer, not set by the accounts
+ * department. The money it produces posts through the ordinary invoice and
+ * payment path, which is where finance owns it. See domain/plans.ts.
+ * ====================================================================== */
+
+/* Shown before it is agreed to. Writes nothing — a buyer is entitled to see
+   the schedule before signing it, and a preview that saves is not one. */
+handoverRoutes.post("/contracts/:id/plan/preview", route(async (req, res) => {
+  needMoney(req, "get", "a payment plan");
+  const orgId = actorOf(req, "a contract route").orgId;
+  const contract = await db.contract.findFirst({
+    where: { id: param(req, "id"), orgId },
+  });
+  if (!contract) throw hidden();
+
+  const draft = buildPlan(contract.price, contract.deposit, planFrom(req.body));
+  res.json({
+    currency: contract.currency,
+    total: String(draft.reduce((a, i) => a + i.amount, 0n)),
+    price: String(contract.price),
+    instalments: draft.map((i) => ({
+      ...i, amount: String(i.amount),
+    })),
+  });
+}));
+
+handoverRoutes.get("/contracts/:id/plan", route(async (req, res) => {
+  needMoney(req, "get", "a payment plan");
+  const orgId = actorOf(req, "a contract route").orgId;
+  const plan = await livePlanFor(db, orgId, param(req, "id"));
+  if (!plan) return res.json({ plan: null, said: "This contract has no payment plan." });
+
+  const total = plan.instalments.reduce((a, i) => a + i.amount, 0n);
+  const invoiced = plan.instalments.filter((i) => i.invoiceId);
+  res.json({
+    plan: {
+      ...plan,
+      instalments: plan.instalments.map((i) => ({ ...i, amount: String(i.amount) })),
+      total: String(total),
+      invoicedCount: invoiced.length,
+      /* Named rather than left to the reader: a construction-linked plan with
+         dates on none of its lines is normal, not broken. */
+      awaitingMilestone: plan.instalments.filter((i) => i.milestone && !i.dueOn).length,
+    },
+  });
+}));
+
+handoverRoutes.post("/contracts/:id/plan", route(async (req, res) => {
+  /* Agreeing what a buyer pays and when is a money decision, not a filing
+     one. Same guard the balance gate on /status uses. */
+  needMoney(req, "create", "a payment plan");
+  const orgId = actorOf(req, "a contract route").orgId;
+  const who = req.view?.user?.name || req.view?.user?.email || "";
+
+  const plan = await setPlan(db, orgId, param(req, "id"), planFrom(req.body), who);
+  await audit(req, "contract.plan.set", "contract", param(req, "id"), {
+    kind: plan.kind, instalments: plan.instalments.length,
+    total: String(plan.instalments.reduce((a, i) => a + i.amount, 0n)),
+  });
+
+  res.status(201).json({
+    plan: {
+      ...plan,
+      instalments: plan.instalments.map((i) => ({ ...i, amount: String(i.amount) })),
+    },
+  });
+}));
+
+/* A stage was certified. Every instalment waiting on it becomes due — across
+   every live plan, because a milestone is reached for the building and not for
+   one buyer at a time. */
+handoverRoutes.post("/plans/milestones/:name/certify", route(async (req, res) => {
+  /* Certifying a stage makes money fall due, so it is a money act even though
+     the fact being certified is a construction one. */
+  needMoney(req, "update", "a payment plan");
+  const orgId = actorOf(req, "a contract route").orgId;
+  const dueOn = req.body?.dueOn ? new Date(String(req.body.dueOn)) : new Date();
+  if (Number.isNaN(dueOn.getTime())) throw badRequest("`dueOn` is not a date.");
+
+  const out = await certifyMilestone(db, orgId, param(req, "name"), dueOn);
+  await audit(req, "plan.milestone.certify", "paymentInstalment", undefined,
+    { milestone: param(req, "name"), became: out.made });
+
+  res.json({
+    ...out,
+    said: out.made
+      ? `${out.made} instalment(s) are now due.`
+      : `Nothing was waiting on that stage.`,
+  });
+}));
+
+/* What a job would work through daily. See domain/plans.ts on why this is an
+   endpoint today rather than a schedule. */
+handoverRoutes.get("/plans/due", route(async (req, res) => {
+  needMoney(req, "list", "payment plans");
+  const orgId = actorOf(req, "a contract route").orgId;
+  const asAt = req.query["asAt"] ? new Date(String(req.query["asAt"])) : new Date();
+  if (Number.isNaN(asAt.getTime())) throw badRequest("`asAt` is not a date.");
+
+  const due = await dueUninvoiced(db, orgId, asAt);
+  res.json({
+    due: due.map((i) => ({
+      id: i.id, description: i.description, amount: String(i.amount),
+      dueOn: i.dueOn, currency: i.plan.currency, contract: i.plan.contract,
+    })),
+  });
+}));
+
+/** The plan a request is asking for, checked before anything is built. */
+function planFrom(body: unknown): PlanInput {
+  const b = (body || {}) as Record<string, unknown>;
+  const depositBp = Math.round(Number(b["depositBp"]) || 0);
+  const kind = String(b["kind"] || "").toUpperCase();
+
+  if (kind === "CONSTRUCTION_LINKED") {
+    const depositDue = new Date(String(b["depositDue"] || ""));
+    if (Number.isNaN(depositDue.getTime())) {
+      throw badRequest("A construction-linked plan needs a date the deposit is due.");
+    }
+    const raw = Array.isArray(b["milestones"]) ? b["milestones"] : [];
+    const milestones = raw.map((m: Record<string, unknown>) => ({
+      name: String(m["name"] || "").trim(),
+      shareBp: Math.round(Number(m["shareBp"]) || 0),
+    }));
+    if (milestones.some((m) => !m.name)) {
+      throw badRequest("Every milestone on a plan needs a name.");
+    }
+    return { kind: "CONSTRUCTION_LINKED", depositBp, depositDue, milestones };
+  }
+
+  if (kind === "TIME_BASED") {
+    const firstDue = new Date(String(b["firstDue"] || ""));
+    if (Number.isNaN(firstDue.getTime())) {
+      throw badRequest("A time-based plan needs the date the first payment is due.");
+    }
+    return {
+      kind: "TIME_BASED", depositBp,
+      count: Math.round(Number(b["count"]) || 0),
+      everyMonths: Math.round(Number(b["everyMonths"]) || 0),
+      firstDue,
+    };
+  }
+
+  throw badRequest(
+    `"${b["kind"]}" is not a kind of payment plan.`,
+    ["TIME_BASED", "CONSTRUCTION_LINKED"]);
+}

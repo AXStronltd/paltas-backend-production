@@ -383,6 +383,9 @@ model Organization {
   TaxRule            TaxRule[]
   BankAccount        BankAccount[]
   BankTransaction    BankTransaction[]
+  PaymentPlan        PaymentPlan[]
+  PaymentInstalment  PaymentInstalment[]
+  CostCode           CostCode[]
 }
 
 model Subscription {
@@ -1168,6 +1171,7 @@ model Project {
   Inspection    Inspection[]
   Defect        Defect[]
   SiteDiary     SiteDiary[]
+  CostCode      CostCode[]
 
   @@index([orgId])
   @@index([orgId, stage])
@@ -1386,6 +1390,7 @@ model Contract {
   changeOrders ChangeOrder[]
   handovers    Handover[]
   Invoice      Invoice[]
+  PaymentPlan  PaymentPlan[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -2412,9 +2417,10 @@ model Invoice {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  lines            InvoiceLine[]
-  payments         Payment[]
-  investmentOrders InvestmentOrder[]
+  lines             InvoiceLine[]
+  payments          Payment[]
+  investmentOrders  InvestmentOrder[]
+  PaymentInstalment PaymentInstalment?
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -6635,4 +6641,124 @@ model BankTransaction {
   @@index([orgId, bankAccountId, matchedPaymentId])
   /// The duplicate-import guard, and the auto-match lookup, in one index.
   @@index([orgId, bankAccountId, valueOn, amount, refNorm])
+}
+
+/// HOW A BUYER PAYS FOR A UNIT, WRITTEN DOWN ONCE.
+///
+/// A contract carries a price and a deposit. It never carried the schedule, so
+/// "what does this buyer owe in July" was answered by somebody reading a PDF,
+/// and the invoice for each instalment was raised from memory.
+///
+/// THE INVARIANT THE WHOLE TABLE EXISTS FOR: the instalments add up to the
+/// contract price EXACTLY. Not approximately, and not after a rounding
+/// adjustment somebody makes at the end — the last instalment carries whatever
+/// the division left over, so the total is the price to the shilling.
+model PaymentPlan {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// One live plan per contract. Re-planning supersedes rather than edits, so
+  /// what a buyer was told in March is still readable in September.
+  contractId String
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+
+  kind      PaymentPlanKind
+  currency  String          @default("KES")
+  /// The deposit as a share of the price, in basis points. Kept as the share
+  /// rather than only the resulting figure, because the share is the term that
+  /// was negotiated and the figure is derived from it.
+  depositBp Int             @default(0)
+
+  /// A superseded plan keeps its instalments and stops being the one that
+  /// governs. Never deleted: it is what somebody agreed to.
+  supersededAt DateTime?
+  supersededBy String?
+
+  instalments PaymentInstalment[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId])
+  @@index([orgId, contractId, supersededAt])
+}
+
+enum PaymentPlanKind {
+  /// Fixed dates: a deposit and N instalments every M months.
+  TIME_BASED
+  /// Due when construction reaches a stage, and not before. The dates are
+  /// unknown when the plan is made, which is the whole point.
+  CONSTRUCTION_LINKED
+}
+
+/// ONE LINE OF A PAYMENT PLAN.
+///
+/// `dueOn` is null on a construction-linked line until its milestone is
+/// certified. That is not missing data — it is the honest answer. A buyer
+/// cannot be invoiced for a stage the building has not reached, and inventing
+/// a date would produce an arrears figure for money nobody owes yet.
+model PaymentInstalment {
+  id     String       @id @default(cuid())
+  orgId  String
+  org    Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  planId String
+  plan   PaymentPlan  @relation(fields: [planId], references: [id], onDelete: Cascade)
+
+  seq         Int
+  description String
+  /// Minor units, tax-exclusive. Tax is added by the invoice from the rule
+  /// table — see domain/tax.ts.
+  amount      BigInt
+
+  dueOn     DateTime?
+  /// The construction stage this waits on, by name. Matched against the
+  /// project's own milestones when one is certified.
+  milestone String?
+
+  /// The invoice raised for this instalment, once it has been. At most one:
+  /// the unique is what stops the same instalment being invoiced twice, which
+  /// is how a buyer ends up billed for the same stage in two months.
+  invoiceId String?  @unique
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([planId, seq])
+  @@index([orgId])
+  @@index([orgId, dueOn, invoiceId])
+  @@index([orgId, milestone])
+}
+
+/// A CODE TO POST A COST AGAINST.
+///
+/// Without one, every expense on a development lands in one heap and "what did
+/// the foundations cost" has no answer. A journal line can already carry a
+/// project; this is the second dimension — what KIND of cost it was.
+model CostCode {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Scoped to a project when it belongs to one, company-wide when it does not.
+  ///
+  /// SetNull rather than Cascade, because the column is optional and a code
+  /// that can stand alone should not be destroyed by the project closing. A
+  /// deleted project leaves its codes company-wide, where the history that
+  /// was posted against them is still readable.
+  projectId String?
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+
+  code   String
+  name   String
+  /// Withdrawn codes keep their history and take no new postings.
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, projectId, code])
+  @@index([orgId])
+  @@index([orgId, active])
 }
