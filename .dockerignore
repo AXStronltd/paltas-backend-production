@@ -43,11 +43,14 @@ test/
 # appears that is neither excluded here nor the one file the service reads — so
 # the cost of being explicit is paid by a test, not by a surprise.
 # ----------------------------------------------------------------------
+# contract/netlify.toml was removed: it was a stale snapshot of the frontend's
+# real one, missing about a hundred market redirects, and nothing in this
+# service ever read it. test/deploy.test.js reads the FRONTEND's copy, which is
+# the one that governs the proxy.
 contract/backend.md
 contract/homepage-feed.html
 contract/homepage-intake.js
 contract/js43.js
-contract/netlify.toml
 
 *.md
 !README.md

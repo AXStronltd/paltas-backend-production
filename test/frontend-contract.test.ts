@@ -5500,3 +5500,71 @@ test("signing out of the console ends the session on the server", { skip }, () =
   /* And it must be findable: people look for it under their own name. */
   assert.match(con, /side-out/, "there is no sign-out in the sidebar under the user");
 });
+
+/* ==================================================================== *
+ * THE FILES THAT EXIST TWICE MUST BE THE SAME FILE.
+ *
+ * Two of them live in both repositories: `backend.md`, which is the API
+ * contract sixteen test files read, and `market-config.js`, which the
+ * server loads with readFileSync at import time and the marketplace page
+ * loads in the browser.
+ *
+ * Nothing kept them in step. They happen to agree today, and the day they
+ * stop the failure is quiet in the worst way: the backend validates
+ * against one list of markets and the page renders another, or a contract
+ * test passes here against a document the frontend has already changed.
+ * Neither repository's own suite would notice, because each only ever
+ * reads its own copy.
+ *
+ * A release is the two repositories deployed together. This is the check
+ * that they are still describing the same product.
+ * ==================================================================== */
+
+test("the files that exist in both repositories are identical", { skip }, async () => {
+  /* This file already imports readFileSync and resolves paths from cwd, which
+     is the repository root when the suite runs. Using that rather than adding
+     an import this file has managed without. */
+  const HERE_ROOT = resolve(process.cwd());
+
+  /* left: this repository. right: where the same file lives in the frontend. */
+  const SHARED: readonly [string, string][] = [
+    ["contract/backend.md", "backend.md"],
+    ["contract/market-config.js", "assets/market-config.js"],
+  ];
+
+  const drifted: string[] = [];
+  let compared = 0;
+
+  for (const [ours, theirs] of SHARED) {
+    const a = join(HERE_ROOT, ours);
+    const b = join(FE, theirs);
+    if (!existsSync(a)) { drifted.push(`${ours} is gone from this repository`); continue; }
+    if (!existsSync(b)) { drifted.push(`${theirs} is gone from the frontend`); continue; }
+    compared += 1;
+
+    const mine = readFileSync(a, "utf8");
+    const yours = readFileSync(b, "utf8");
+    if (mine === yours) continue;
+
+    /* Name the first line that differs. "They are not identical" sends
+       somebody to a 20,000-character diff; a line number sends them to the
+       edit. */
+    const l = mine.split("\n");
+    const r = yours.split("\n");
+    let at = 0;
+    while (at < l.length && at < r.length && l[at] === r[at]) at += 1;
+    drifted.push(
+      `${ours} and the frontend's ${theirs} differ from line ${at + 1}:\n` +
+      `        here:     ${JSON.stringify((l[at] ?? "(end of file)").slice(0, 90))}\n` +
+      `        frontend: ${JSON.stringify((r[at] ?? "(end of file)").slice(0, 90))}`);
+  }
+
+  assert.equal(compared, SHARED.length,
+    "not every shared file was compared, so this test is not proving what it says");
+
+  assert.deepEqual(drifted, [],
+    "These files exist in both repositories and have stopped agreeing:\n  " +
+    drifted.join("\n  ") +
+    "\n\nCopy whichever is right over the other and release the two together. " +
+    "Neither repository's own suite can catch this — each reads only its own copy.");
+});
