@@ -17,7 +17,7 @@ import { freshSchema, poolInSchema, urlForSchema } from "./db-help.ts";
 /* Source is read through one helper so a rename to .ts cannot make this
    scanner silently find nothing. See test/src-files.js. */
 import { sourceText } from "./src-files.ts";
-import { portOf } from "./wire.ts";
+import { portOf, present } from "./wire.ts";
 import type { CallOptions, Reply, Wire } from "./wire.ts";
 
 const DB = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
@@ -470,4 +470,78 @@ test("the console is only offered forms its role may actually submit", { skip },
       `${role} was offered the same ${ownerCount} forms an owner is, so the ` +
       `permission filter on /console/forms is not doing anything at all`);
   }
+});
+
+/* ==================================================================== *
+ * A REFUSED ATTEMPT AT THE STAFF CONSOLE LEAVES A TRACE.
+ *
+ * The door refused correctly and said nothing to anybody. An account
+ * trying every /platform/* endpoint in turn was invisible, and the first
+ * anyone would have known of it is the one that eventually worked.
+ *
+ * A refusal is the more interesting of the two events: a successful staff
+ * read is somebody doing their job, a refused one is either a stale tab or
+ * somebody finding out what is behind the wall — and telling those apart
+ * needs both written down.
+ * ==================================================================== */
+
+test("a customer refused the staff console is recorded", { skip }, async () => {
+  const cust = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+
+  const tried = await call("/platform/organizations", { cookie: cust.cookie });
+  assert.equal(tried.status, 403, "a customer reached the staff console");
+
+  const trail = await db.auditEvent.findMany({
+    where: { orgId: cust.org.id, action: "platform.refused" },
+  });
+  assert.equal(trail.length, 1,
+    "*** somebody tried the PALTAS staff console and left no trace. An account " +
+    "working through every /platform endpoint in turn would be invisible. ***");
+
+  const row = present(trail[0], "no row");
+  assert.equal(row.actorName, cust.user.name || cust.user.email,
+    "the trail should name who tried");
+  assert.match(String((row.detail as Wire)?.path), /platform\/organizations/,
+    "the trail should say what they tried to open");
+  assert.match(String((row.detail as Wire)?.why), /not a PALTAS staff account/,
+    "the reason is recorded even though it is deliberately not said out loud");
+});
+
+test("the caller still learns nothing from the refusal", { skip }, async () => {
+  const cust = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+
+  const tried = await call("/platform/organizations", { cookie: cust.cookie });
+  assert.match(String(tried.json.message), /not available to this account/);
+  assert.doesNotMatch(String(tried.text), /PLATFORM|entitlement|staff role/i,
+    "*** the refusal told a prober exactly what to go looking for ***");
+});
+
+test("every refused endpoint is recorded, not only the first", { skip }, async () => {
+  const cust = await company({ products: ["PROPERTY_MANAGEMENT"], role: "OWNER" });
+
+  for (const path of ["/platform/organizations", "/platform/users", "/platform/entitlements"]) {
+    assert.equal((await call(path, { cookie: cust.cookie })).status, 403);
+  }
+
+  const trail = await db.auditEvent.findMany({
+    where: { orgId: cust.org.id, action: "platform.refused" },
+  });
+  assert.equal(trail.length, 3,
+    "working along the endpoints one by one is the shape of probing, and it is " +
+    "only visible if each attempt is written down");
+  assert.equal(
+    new Set(trail.map((e) => String((e.detail as Wire)?.path))).size, 3,
+    "the trail should say which endpoints were tried, not merely how many times");
+});
+
+test("a refusal that cannot be attributed is not filed under somebody else", { skip }, async () => {
+  /* No cookie at all: there is no organization to write the row against, and
+     inventing one would put a stranger's act in a customer's trail. */
+  const before = await db.auditEvent.count({ where: { action: "platform.refused" } });
+  const tried = await call("/platform/organizations");
+  assert.ok(tried.status === 401 || tried.status === 403, `got ${tried.status}`);
+
+  const after = await db.auditEvent.count({ where: { action: "platform.refused" } });
+  assert.equal(after, before,
+    "an unattributable refusal was filed against somebody's organization");
 });

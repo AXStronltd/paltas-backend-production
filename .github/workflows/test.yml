@@ -69,7 +69,10 @@ jobs:
       # builds from source too, so a broken Dockerfile is a broken deploy and
       # this is where it should be found.
       - name: Build the image
-        run: docker build -t paltas-api:ci .
+        # --build-arg, so the image CI builds identifies itself exactly as the
+        # one Render builds will. An identity that only appears in production
+        # is one nothing has ever tested.
+        run: docker build --build-arg GIT_COMMIT=${{ github.sha }} -t paltas-api:ci .
 
   # ------------------------------------------------------------------
   # A second, cheap job whose only purpose is to fail loudly if a secret

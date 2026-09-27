@@ -370,3 +370,46 @@ test("API responses are not cacheable unless they are genuinely public", () => {
       "proxied responses, so it does nothing while looking like protection");
   }
 });
+
+/* ==================================================================== *
+ * THE RUNNING BUILD CAN SAY WHICH BUILD IT IS.
+ *
+ * /health reports a commit so "did my push actually deploy" has an answer
+ * that is not somebody's memory. It read RENDER_GIT_COMMIT alone — a
+ * variable the platform injects at runtime, which is true of its native
+ * runtimes and not something a Dockerfile should rely on the platform to
+ * do for it.
+ *
+ * Baked in at build time now, with the runtime value still read as a
+ * fallback so nothing that works today stops working.
+ * ==================================================================== */
+
+test("the image is built with an identity, and says so", () => {
+  /* DOCKERFILE is read once at the top of this file, as every other test
+     here uses it. */
+  const dockerfile = DOCKERFILE;
+
+  assert.match(dockerfile, /^ARG GIT_COMMIT/m,
+    "the Dockerfile takes no commit, so an image cannot know which build it is");
+  assert.match(dockerfile, /^ENV BUILD_COMMIT=\$GIT_COMMIT/m,
+    "the build argument never becomes an environment variable, so nothing can read it");
+
+  /* The argument must come AFTER the compile, or every source change would
+     miss the layer cache for a value that changes on every commit. */
+  assert.ok(dockerfile.indexOf("ARG GIT_COMMIT") > dockerfile.indexOf("RUN npm run build"),
+    "ARG GIT_COMMIT sits above the build, so every commit busts the cache for " +
+    "the whole compile — a slower deploy for a value nothing compiles against");
+
+  const server = sourceText("server.js");
+  assert.match(server, /BUILD_COMMIT/,
+    "the service never reads the identity its image was built with");
+  assert.match(server, /RENDER_GIT_COMMIT/,
+    "the runtime fallback is gone, which breaks the deploys that rely on it");
+});
+
+test("CI builds the image the same way the platform will", () => {
+  const ci = readFileSync(".github/workflows/test.yml", "utf8");
+  assert.match(ci, /--build-arg GIT_COMMIT=/,
+    "CI builds the image without an identity, so the one thing production does " +
+    "differently is the thing nothing has ever tested");
+});

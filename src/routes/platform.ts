@@ -46,6 +46,7 @@ import { db } from "../db.ts";
 import { badRequest, conflict, enumParam, forbidden, notFound } from "../http/errors.ts";
 import { requireSession } from "../http/session.ts";
 import { actorFor } from "../domain/session-view.ts";
+import type { Actor } from "../http/request.ts";
 import type { Request, RequestHandler } from "express";
 import type { Prisma } from "@prisma/client";
 import { messageOf } from "../http/errors.ts";
@@ -77,15 +78,66 @@ const STAFF_ROLES = new Set(["OWNER", "MANAGER", "MARKETING", "COMPLIANCE", "PUB
 
 /* Exported so provisioning.js can stand behind the SAME door rather than
    growing a second one that can drift from this. */
+/**
+ * WHAT A REFUSED ATTEMPT AT THE STAFF CONSOLE LEAVES BEHIND.
+ *
+ * Nothing, until this existed. The door refused correctly and said nothing
+ * to anybody — so an account trying every /platform/* endpoint in turn was
+ * invisible, and the first anyone would know of it is when one of them
+ * eventually worked.
+ *
+ * A refusal is the more interesting event of the two. A successful staff
+ * read is somebody doing their job; a refused one is either a stale tab or
+ * somebody finding out what is behind the wall, and the difference is only
+ * visible if both are written down.
+ *
+ * WRITTEN AGAINST THE CALLER'S OWN ORGANIZATION. It is a fact about their
+ * user and their session, so their administrator should be able to see it —
+ * and PALTAS can still find it across tenants through /platform/audit. That
+ * is the mirror of auditRead() below, which writes a staff read against
+ * PALTAS's own organization for exactly the same reason: the row belongs to
+ * whoever the act was by.
+ *
+ * Best-effort and never fatal, like every other audit write here. A caller
+ * who should be refused is refused whether or not the note gets written; the
+ * refusal is the protection, this is only the record of it.
+ *
+ * Bounded by the global rate limit in server.ts — 600 requests a minute per
+ * address — so a script cannot turn this into a way of filling the table.
+ */
+async function auditRefused(req: Request, actor: Actor | null, why: string): Promise<void> {
+  /* No organization means no row: AuditEvent is org-scoped by design, and
+     inventing an owner for this would put a stranger's act in somebody's
+     trail. The console log is the only honest place for it. */
+  if (!actor) {
+    console.warn("platform refused, unattributable", why, req.ip || "");
+    return;
+  }
+  try {
+    await db.auditEvent.create({
+      data: {
+        orgId: actor.orgId,
+        actorId: req.session?.userId || null,
+        actorName: actor.userName || "",
+        action: "platform.refused", entity: "platform", entityId: "",
+        detail: { why, path: req.originalUrl, role: actor.role },
+        ip: req.ip || "",
+      },
+    });
+  } catch (e) { console.error("platform refusal audit failed", messageOf(e)); }
+}
+
 export function requirePlatform(): RequestHandler {
   return async (req, _res, next) => {
     try {
       const session = req.session;
       if (!session) {
+        await auditRefused(req, null, "no session");
         return next(forbidden("This account does not act for any organization."));
       }
       const actor = await actorFor(session);
       if (!actor) {
+        await auditRefused(req, null, "session belongs to no organization");
         return next(forbidden("This account does not act for any organization."));
       }
       if (!actor.isPlatform) {
@@ -95,10 +147,16 @@ export function requirePlatform(): RequestHandler {
          * A caller probing this console learns only that it is not for them.
          * "You need the PLATFORM entitlement" tells somebody exactly what to
          * go looking for.
+         *
+         * The REASON is recorded even though it is not said out loud — the
+         * point of one sentence is that the caller learns nothing, not that
+         * we do.
          */
+        await auditRefused(req, actor, "not a PALTAS staff account");
         return next(forbidden("The PALTAS staff console is not available to this account."));
       }
       if (!STAFF_ROLES.has(actor.role)) {
+        await auditRefused(req, actor, `role ${actor.role} is not a staff role`);
         return next(forbidden("The PALTAS staff console is not available to this account."));
       }
       req.actor = actor;

@@ -267,11 +267,37 @@ test("health says which build is answering, and since when", async () => {
    * A commit SHA identifies a build. It is not a credential and grants nothing.
    */
   const src = sourceText("server.js");
-  const h = src.slice(src.indexOf('app.get("/health"'), src.indexOf('app.get("/", (_req'));
 
-  assert.match(h, /RENDER_GIT_COMMIT/, "health does not say which build is answering");
-  assert.match(h, /startedAt: STARTED_AT/, "health does not say when the process started");
-  assert.match(h, /\.slice\(0, 7\)/, "the full SHA is published where a short one identifies the build");
+  /*
+   * READ FROM THE IDENTITY HELPER, NOT FROM INSIDE THE HANDLER.
+   *
+   * This used to slice out the /health handler and look for the fields in
+   * it. That broke the day the two were written once and spread into both
+   * branches — the healthy reply and the database-unreachable one — which
+   * is a change that made the thing this test cares about MORE true, not
+   * less. A test that fails when the code improves is testing the spelling.
+   *
+   * The behaviour itself is asserted in api.test.js against a live server,
+   * including the branch where the database is down. What is checked here
+   * is what only the source can say: that the identity is built in one
+   * place, so the two branches cannot drift apart.
+   */
+  const ident = src.slice(src.indexOf("const identity = () => ({"),
+                          src.indexOf("/* Render polls this."));
+  assert.ok(ident.length > 40, "the identity helper is gone; health may have two copies again");
+
+  assert.match(ident, /RENDER_GIT_COMMIT/, "health does not say which build is answering");
+  assert.match(ident, /BUILD_COMMIT/,
+    "the identity baked into the image at build time is not read");
+  assert.match(ident, /startedAt: STARTED_AT/, "health does not say when the process started");
+  assert.match(ident, /\.slice\(0, 7\)/, "the full SHA is published where a short one identifies the build");
+
+  /* And it really is spread into both replies, which is the point of having
+     written it once. */
+  const h = src.slice(src.indexOf('app.get("/health"'), src.indexOf('app.get("/", (_req'));
+  assert.equal((h.match(/\.\.\.identity\(\)/g) || []).length, 2,
+    "the identity reaches only one branch of health — the one it misses will " +
+    "be the error path, which is the branch somebody reads during an incident");
 
   /* Fixed at import — the process's age, not the request's clock. */
   assert.match(src, /const STARTED_AT = new Date\(\)\.toISOString\(\);/,

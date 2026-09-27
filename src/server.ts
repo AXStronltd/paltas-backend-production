@@ -131,6 +131,19 @@ export function createApp() {
   app.use(commsWebhookRoutes);
   app.use(withSession());
 
+  /*
+   * WHICH BUILD IS ANSWERING, AND SINCE WHEN.
+   *
+   * Written once and spread into both branches of /health below. Two copies
+   * would be two things to keep in step, and the one that gets forgotten is
+   * always the error path — which is the branch that matters most.
+   */
+  const identity = () => ({
+    commit: String(process.env.BUILD_COMMIT || process.env.RENDER_GIT_COMMIT || "")
+      .slice(0, 7) || null,
+    startedAt: STARTED_AT,
+  });
+
   /* Render polls this. It touches the database on purpose: a service that
      answers "healthy" while its database is unreachable has told you nothing
      worth knowing. */
@@ -152,13 +165,37 @@ export function createApp() {
          * which is the other half of the same question.
          *
          * A commit SHA identifies a build; it is not a credential and grants
-         * nothing. Render sets RENDER_GIT_COMMIT on every deploy.
+         * nothing.
+         *
+         * BUILD_COMMIT first, because the Dockerfile bakes it in and an image
+         * that knows what it is cannot be wrong about it. RENDER_GIT_COMMIT
+         * second, which the platform injects at runtime — that is what this
+         * read before, and dropping it would break a deploy that works today.
+         *
+         * Neither set is null rather than a guess. An image built by hand has
+         * no commit, and saying so is better than claiming one.
          */
-        commit: String(process.env.RENDER_GIT_COMMIT || "").slice(0, 7) || null,
-        startedAt: STARTED_AT,
+        ...identity(),
       });
     } catch (e) {
-      res.status(503).json({ ok: false, error: "database_unreachable" });
+      /*
+       * THE BUILD IS REPORTED EVEN WHEN THE DATABASE IS NOT REACHABLE.
+       *
+       * It did not used to be, and that was backwards: an unreachable
+       * database is precisely the moment somebody needs to know which build
+       * is answering — "did the deploy I just made break this, or was it
+       * already broken" is the first question of every incident, and it had
+       * no answer at exactly the point it mattered.
+       *
+       * The commit and the start time are facts about the PROCESS. They do
+       * not depend on the database being up, so they are not withheld
+       * because it is down. `ok` is still false and the status is still 503,
+       * so nothing that reads this as a health check is misled.
+       */
+      res.status(503).json({
+        ok: false, error: "database_unreachable", service: "paltas-api",
+        ...identity(),
+      });
     }
   });
 

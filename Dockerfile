@@ -105,6 +105,27 @@ COPY --from=builder /app/dist ./dist
 # in any containerised deployment, migrate on start.
 # ======================================================================
 
+# ======================================================================
+# WHICH BUILD THIS IS.
+#
+# /health reports a commit so that "did my push deploy" has an answer that
+# is not somebody's memory. It read RENDER_GIT_COMMIT alone, which the
+# platform injects at RUNTIME — true for its native runtimes, and not
+# something a Dockerfile should depend on the platform to do.
+#
+# Baked in at BUILD time instead, so the image knows what it is wherever it
+# runs: locally, in CI, or on a platform that names the variable something
+# else. The runtime value is still read as a fallback, so nothing that works
+# today stops working.
+#
+#   docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) .
+#
+# Unset is not a failure. An image built by hand has no commit and says so,
+# which is better than claiming one.
+# ======================================================================
+ARG GIT_COMMIT=""
+ENV BUILD_COMMIT=$GIT_COMMIT
+
 ENV NODE_ENV=production
 # Render sets PORT; this is only the fallback.
 ENV PORT=8080

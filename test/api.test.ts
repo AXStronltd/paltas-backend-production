@@ -767,3 +767,52 @@ test("a new account can sign in and reach its own data", { skip }, async () => {
   assert.ok(Array.isArray(stays.stays || stays.bookings || []),
     "the bookings endpoint did not return a list");
 });
+
+/* ==================================================================== *
+ * AN UNHEALTHY SERVICE STILL SAYS WHICH BUILD IT IS.
+ *
+ * /health reported the commit only on the happy path. That is backwards:
+ * an unreachable database is precisely when somebody needs to know which
+ * build is answering, because "did the deploy I just made break this, or
+ * was it already broken" is the first question of every incident — and it
+ * had no answer at exactly the point it mattered.
+ * ==================================================================== */
+
+test("health reports the build whether or not the database answers", { skip }, async () => {
+  const good = await call("/health");
+  assert.equal(good.status, 200, good.text.slice(0, 200));
+  assert.ok("commit" in good.json, "a healthy service does not say which build it is");
+  assert.ok(good.json.startedAt, "and does not say since when");
+
+  /* The same question with the database taken away. Asked of the handler
+     directly: pointing the whole suite at a dead database to test one
+     branch would cost every other test in this file. */
+  const { createApp: make } = await import("../src/server.ts");
+  const app = make();
+  const layer = (app as Wire)._router.stack
+    .find((l: Wire) => l.route && l.route.path === "/health");
+  assert.ok(layer, "there is no /health route to test");
+
+  let body: Wire = null;
+  let status = 0;
+  const res = {
+    status(code: number) { status = code; return this; },
+    json(payload: Wire) { body = payload; return this; },
+  };
+  /* A db that refuses, which is what an outage looks like from here. */
+  const realQuery = db.$queryRaw;
+  (db as Wire).$queryRaw = () => Promise.reject(new Error("connection refused"));
+  try {
+    await layer.route.stack[0].handle({}, res, () => {});
+  } finally {
+    (db as Wire).$queryRaw = realQuery;
+  }
+
+  assert.equal(status, 503, "an unreachable database must still be a 503");
+  assert.equal(body.ok, false, "and must not claim to be healthy");
+  assert.ok("commit" in body,
+    "*** the service would not say which build it was while its database was " +
+    "down — the one moment somebody needs to know ***");
+  assert.ok(body.startedAt,
+    "and would not say when it started, which answers 'did it just restart'");
+});
