@@ -26,6 +26,7 @@ import {
 import { sessionView } from "../domain/session-view.ts";
 import { seedChartOfAccounts } from "../domain/ledger.ts";
 import { runMigration } from "../domain/migration.ts";
+import { integrationsReport } from "../domain/integrations.ts";
 import { actorOf } from "../http/request.ts";
 import { levelFor, whyNotArea } from "../domain/access.ts";
 import { requireOrganization } from "../http/session.ts";
@@ -560,6 +561,73 @@ organizationRoutes.post("/migration/commit",
         ...report,
         said: `${report.created} rows imported. ${report.skipped} were already here ` +
               `and were left as they are.`,
+      });
+    } catch (e) { next(e); }
+  });
+
+/* ====================================================================== *
+ * INTEGRATIONS — every outside service, and whether it actually answers.
+ *
+ * See domain/integrations.ts for why "configured" and "answering" are
+ * different questions and why the difference is the expensive one.
+ * ====================================================================== */
+
+/**
+ * GET /organizations/integrations — settings only. Free, and safe to poll.
+ *
+ * No outbound calls, so a screen may read this on every render. It answers
+ * "what is set up", which is the question a person has most of the time.
+ */
+organizationRoutes.get("/integrations",
+  requireSession(), requireOrganization(),
+  async (req, res, next) => {
+    try {
+      /*
+       * Any member may SEE which integrations exist. It says nothing about
+       * the company's data — only which of PALTAS's own connections are in
+       * place — and somebody wondering why their email did not send should
+       * not need an admin to find out.
+       */
+      const report = await integrationsReport({ probe: false });
+      res.json({
+        ...report,
+        said: report.integrations.some((i) => i.reach === "configured")
+          ? "Nothing has been asked of these yet. Run a check to find out which " +
+            "are actually answering."
+          : "Nothing is configured.",
+      });
+    } catch (e) { next(e); }
+  });
+
+/**
+ * POST /organizations/integrations/check — ask each one something.
+ *
+ * A POST rather than a GET because it has an effect on the world: outbound
+ * requests to somebody else's API, which count against a rate limit that is
+ * not ours. Rate-limited on top of the global one for the same reason, and
+ * the answer is cached for a minute inside the domain.
+ */
+organizationRoutes.post("/integrations/check",
+  requireSession(), requireOrganization(),
+  rateLimit({ windowMs: 60_000, max: 6 }),
+  async (req, res, next) => {
+    try {
+      /*
+       * Probing is an owner's act. It spends somebody else's rate limit and
+       * exposes which of our providers are down, which is operational detail
+       * rather than a company's own data.
+       */
+      const why = whyNotArea(actorOf(req, "an integrations route"), "documents",
+                            "update", "an integration check");
+      if (why) throw forbidden(why);
+
+      const report = await integrationsReport({ probe: true });
+      res.json({
+        ...report,
+        said: report.failing.length
+          ? `${report.failing.length} configured and not answering: ` +
+            `${report.failing.join(", ")}. Each line says what the provider said.`
+          : "Everything configured is answering.",
       });
     } catch (e) { next(e); }
   });
