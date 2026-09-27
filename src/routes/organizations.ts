@@ -25,6 +25,11 @@ import {
 } from "../domain/invitations.ts";
 import { sessionView } from "../domain/session-view.ts";
 import { seedChartOfAccounts } from "../domain/ledger.ts";
+import { runMigration } from "../domain/migration.ts";
+import { actorOf } from "../http/request.ts";
+import { levelFor, whyNotArea } from "../domain/access.ts";
+import { requireOrganization } from "../http/session.ts";
+import type { Request } from "express";
 
 export const organizationRoutes = Router();
 
@@ -443,5 +448,118 @@ organizationRoutes.post("/:id/invitations/:inviteId/revoke",
         include: { invitedBy: { select: { name: true, email: true } } },
       });
       res.json({ invitation: toWire(row) });
+    } catch (e) { next(e); }
+  });
+
+/* ====================================================================== *
+ * MIGRATION — bringing a client's existing records in.
+ *
+ * On the organizations router because it is an act of setting the company
+ * up, not of running it: it is done once, by somebody senior, on day one.
+ * See domain/migration.ts for the four rules it keeps.
+ * ====================================================================== */
+
+/** Rows as a request sends them, checked before the domain sees them. */
+function rowsFrom(body: unknown): { kind: string; [k: string]: unknown }[] {
+  const b = (body || {}) as Record<string, unknown>;
+  const raw = b["rows"];
+  if (!Array.isArray(raw)) {
+    throw badRequest("Send `rows`: one object per line of the file, each with a `kind`.");
+  }
+  return raw.map((r, i) => {
+    if (!r || typeof r !== "object" || Array.isArray(r)) {
+      throw badRequest(`Row ${i + 1} is not an object.`);
+    }
+    const row = r as Record<string, unknown>;
+    if (!row["kind"]) {
+      throw badRequest(`Row ${i + 1} does not say what it is. Use kind: unit, tenant or lease.`);
+    }
+    return row as { kind: string; [k: string]: unknown };
+  });
+}
+
+function mayMigrate(req: Request): void {
+  /*
+   * THE LEVEL, NOT AN ACT.
+   *
+   * An import writes hundreds of records at once and is the single act most
+   * able to make a mess of a company's data, so it wants `manage` — and
+   * somebody who may add one unit is not automatically somebody who may
+   * replace the inventory.
+   *
+   * The five acts only reach `manage` through `delete`, and asking "may you
+   * delete property records" is the wrong question about an import. So this
+   * reads the level itself. whyNotArea() is still used for the `create`
+   * refusal, so somebody with no property access at all gets that sentence
+   * rather than this one.
+   */
+  const actor = actorOf(req, "a migration route");
+  const denied = whyNotArea(actor, "property", "create", "an import");
+  if (denied) throw forbidden(denied);
+  if (levelFor(actor, "property") !== "manage") {
+    throw forbidden(
+      "An import replaces a company's inventory in one act, so it needs full " +
+      "control of the property area — not only the right to add a record.");
+  }
+}
+
+/**
+ * POST /organizations/migration/preview — what WOULD happen. Writes nothing.
+ *
+ * The same code the commit runs, so the two cannot disagree. Somebody moving
+ * their company into a new system is entitled to see the outcome first.
+ */
+organizationRoutes.post("/migration/preview",
+  requireSession(), requireOrganization(),
+  async (req, res, next) => {
+    try {
+      mayMigrate(req);
+      const orgId = actorOf(req, "a migration route").orgId;
+      const report = await runMigration(db, orgId, rowsFrom(req.body), false);
+      res.json({
+        ...report,
+        said: report.clean
+          ? `${report.created} rows would be added, ${report.skipped} are already here.`
+          : `${report.refused} rows cannot be imported. Nothing will be added until ` +
+            `they are fixed — the list says which and why.`,
+      });
+    } catch (e) { next(e); }
+  });
+
+/**
+ * POST /organizations/migration/commit — all of it, or none of it.
+ */
+organizationRoutes.post("/migration/commit",
+  requireSession(), requireOrganization(),
+  async (req, res, next) => {
+    try {
+      mayMigrate(req);
+      const orgId = actorOf(req, "a migration route").orgId;
+      const rows = rowsFrom(req.body);
+      const report = await runMigration(db, orgId, rows, true);
+
+      /* One audit row for the import, with the counts. Not one per record:
+         a migration is a single decision somebody made, and four hundred
+         rows in the trail would bury the day it happened. */
+      try {
+        await db.auditEvent.create({
+          data: {
+            orgId,
+            actorId: sessionOf(req, "a migration route").userId,
+            actorName: req.view?.user?.name || req.view?.user?.email || "",
+            action: "organization.migration", entity: "organization", entityId: orgId,
+            detail: {
+              rows: rows.length, created: report.created, skipped: report.skipped,
+            },
+            ip: req.ip || "",
+          },
+        });
+      } catch (e) { console.error("migration audit failed", messageOf(e)); }
+
+      res.status(201).json({
+        ...report,
+        said: `${report.created} rows imported. ${report.skipped} were already here ` +
+              `and were left as they are.`,
+      });
     } catch (e) { next(e); }
   });
