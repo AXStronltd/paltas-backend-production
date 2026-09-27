@@ -67,6 +67,27 @@ export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
     fields: { code: "code", n: "name", proj: "projectId" },
   },
 
+  /*
+   * RAISING AN INVOICE, which the console could not do.
+   *
+   * POST /invoices has existed all along as an ordinary resource and no
+   * screen offered it — so the one act the finance area exists for was
+   * reachable only with curl. Found while giving the invoices screen an
+   * empty state: the state wanted a button and there was nothing to point it
+   * at.
+   *
+   * The lines that carry the money hang off the invoice and are added after
+   * it exists, which is why this asks only who it is for and when.
+   */
+  fin_invoices: {
+    resource: "invoices",
+    label: "＋ Raise an invoice",
+    fields: {
+      who: "partyId", lease: "leaseId", cur: "currency",
+      issued: "issuedOn", due: "dueOn",
+    },
+  },
+
   fin_banking: {
     resource: "bank-accounts",
     label: "＋ Add an account",

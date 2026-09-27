@@ -69,7 +69,9 @@ function open(product: string, role: string) {
     "\n;window.__navFor=navFor;window.__first=firstScreenOf;window.__S=SCREENS;" +
     "\n;window.__A=ACTIONS;window.__B=BUYER;window.__R=RECON;" +
     "\n;window.__BA=BANKACCTS;window.__U=UNRECONCILED;window.__N=UNCONFIRMED;" +
-    "\n;window.__I=IMPORT;window.__T=TAX;window.__P=PLAN;",
+    "\n;window.__I=IMPORT;window.__T=TAX;window.__P=PLAN;" +
+    "\n;window.__GUIDE=GUIDE;window.__guidance=guidance;" +
+    "\n;window.__wipe=function(){[PROPS,BUILDINGS,UNITS,TENANTS,BUYERS,OFFERS,MAINT,VENDORS].forEach(function(a){a.length=0;});};",
     "console.js");
 
   const G = (w.win["PALTAS"] as Foreign).Session;
@@ -526,4 +528,97 @@ test("the import will not commit before somebody has looked", { skip }, () => {
     "a file with nothing wrong offered no way to import it");
 
   state["report"] = null;
+});
+
+/* ==================================================================== *
+ * GUIDANCE MAY NOT DESCRIBE A PRODUCT THAT DOES NOT EXIST.
+ *
+ * Guidance that names a workflow the product does not have is worse than
+ * no guidance: somebody goes looking for a screen that is not there and
+ * concludes the product is broken rather than that the writing was wrong.
+ *
+ * Three things a reader might reasonably expect are deliberately absent,
+ * and this test is what stops them being added back by somebody who
+ * assumes they must be there:
+ *
+ *   FLOOR   a unit records its floor NUMBER; there is no floor record
+ *   RECEIPT a payment IS the record; nothing issues a numbered receipt
+ *   BANK    nothing connects to a bank; statements are pasted in
+ *
+ * And "Ask PALTAS" may not appear at all, because no model is called
+ * anywhere in this service.
+ * ==================================================================== */
+
+test("guidance claims nothing the product does not have", { skip }, () => {
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const guide = (w.win["__GUIDE"] ?? {}) as Record<string, Wire>;
+  const render = w.win["__guidance"] as (k: string) => string;
+
+  assert.ok(Object.keys(guide).length >= 11,
+    `only ${Object.keys(guide).length} sections have guidance`);
+
+  const everything = Object.keys(guide).map((k) => String(render(k))).join(" ");
+
+  const forbidden: [RegExp, string][] = [
+    [/\bFloor\b/, "Floor is not a record — a unit carries a floor number, and " +
+                  "naming a floor sends somebody looking for a screen"],
+    [/\bReceipts?\b/, "there is no receipt document; a payment is the record"],
+    [/connect (a )?bank/i, "nothing talks to a bank — a statement is pasted in"],
+    [/Ask PALTAS/i, "no model is called anywhere in this service"],
+  ];
+  const lies = forbidden
+    .filter(([re]) => re.test(everything))
+    .map(([, why]) => why);
+
+  assert.deepEqual(lies, [],
+    "The guidance describes functionality this product does not have:\n    " +
+    lies.join("\n    "));
+});
+
+test("every step guidance offers opens a screen that exists", { skip }, () => {
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const guide = (w.win["__GUIDE"] ?? {}) as Record<string, Wire>;
+  const S = w.win["__S"] as Foreign;
+
+  const dead: string[] = [];
+  for (const [section, g] of Object.entries(guide)) {
+    for (const step of ((g as Wire).first ?? []) as Wire[]) {
+      /* A step for a screen this product does not have is DROPPED at render
+         — but a step that exists on no product at all is a typo, and would
+         silently never appear. */
+      const onAny = typeof S[String(step[0])] === "function";
+      if (!onAny) dead.push(`${section}: "${step[1]}" points at ${step[0]}`);
+    }
+  }
+  assert.deepEqual(dead, [],
+    "Guidance offers a first step whose screen does not exist. It would be " +
+    "dropped silently, so the section would quietly have no starting point:\n    " +
+    dead.join("\n    "));
+});
+
+test("an empty state that offers an action points at something real", { skip }, () => {
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const wipe = w.win["__wipe"] as (() => void) | undefined;
+  if (typeof wipe === "function") wipe();
+
+  const S = w.win["__S"] as Foreign;
+  const FORMS = new Set(Object.keys(CONSOLE_FORMS));
+  const wrong: string[] = [];
+
+  for (const key of Object.keys(S)) {
+    let html = "";
+    try { html = String((S[key] as () => string)()); } catch { continue; }
+    /* Every empty-state button this release added carries data-arg with the
+       screen whose form it opens. */
+    for (const m of html.matchAll(/data-act="newOpen" data-arg="([a-z_]+)"/g)) {
+      const target = String(m[1]);
+      if (!FORMS.has(target)) {
+        wrong.push(`${key}: offers a form for ${target}, which has none`);
+      }
+    }
+  }
+  assert.deepEqual(wrong, [],
+    "An empty state offers a button that opens nothing. That is the dead " +
+    "button this release has twice gone to trouble to remove:\n    " +
+    wrong.join("\n    "));
 });
