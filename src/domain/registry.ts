@@ -126,6 +126,11 @@ const DECLARATIONS = {
       address: "string", city: "string", country: "string",
       lat: "float", lng: "float", note: "text", status: "string",
       unitCount: "int", value: "money",
+      /* What this property's money is in. Writable, because a property in one
+         country held by a company in another is the ordinary case and only the
+         property knows. Left blank it resolves from `country` — see
+         domain/currency.ts. */
+      currency: "string",
     },
     required: ["name"],
     search: ["name", "city", "address"],

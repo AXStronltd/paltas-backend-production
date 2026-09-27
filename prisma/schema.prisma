@@ -734,10 +734,23 @@ model Site {
   unitCount Int      @default(0)
   value     BigInt   @default(0)
   country   String   @default("")
-  lat       Float?
-  lng       Float?
-  note      String   @default("")
-  status    String   @default("ACTIVE")
+
+  /// THE CURRENCY THIS PROPERTY'S MONEY IS IN.
+  ///
+  /// A multinational is the ordinary case: a Kenyan tower held by a Swedish
+  /// company bills in KES, so asking the COMPANY gives the wrong answer and
+  /// asking the property gives the right one. Units, leases and invoices
+  /// resolve through here — see domain/currency.ts.
+  ///
+  /// Blank means "nobody has said", not "no currency". The resolver then falls
+  /// back to this property's own `country`, and only then to the company's.
+  /// A default of KES here would have reintroduced exactly the bug the
+  /// resolver exists to fix.
+  currency String @default("")
+  lat      Float?
+  lng      Float?
+  note     String @default("")
+  status   String @default("ACTIVE")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

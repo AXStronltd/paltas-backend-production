@@ -41,6 +41,7 @@ import { RESOURCES } from "../domain/registry.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
 import { badRequest, conflict, forbidden, hidden, messageOf } from "./errors.ts";
 import { clean } from "../domain/input.ts";
+import { currencyFor } from "../domain/currency.ts";
 /* Site scope lives in the domain, not here — products.js needs the same
    rule for its summary counts, and one copy of a filter is the point. */
 import { scopeWhere, scopedSites } from "../domain/scope.ts";
@@ -412,6 +413,28 @@ export function resourceRouter(slug: string): Router {
         throw forbidden(
           "That site is not part of your remit. You can only add " + label +
           " at the sites you are assigned to.");
+      }
+
+      /*
+       * WHAT CURRENCY THIS IS IN, when the caller did not say.
+       *
+       * The column default is 'KES' on thirty-one models. That is right for
+       * storage and wrong here: it applied to every country, so a Swedish
+       * company's invoice was created in KES, disagreed with books resolved
+       * from its country, and domain/posting.ts refused to post it. The
+       * accounting chain stopped outside Kenya.
+       *
+       * Resolved from the most specific thing that already knows — the lease,
+       * the unit, the property — and only then from the company, because a
+       * Kenyan tower held by a Swedish company bills in KES. The create body
+       * IS the hint object: those are columns the registry already collects.
+       *
+       * A stated currency is never overridden, and an unresolvable one leaves
+       * the column default alone rather than guessing.
+       */
+      if (resource.fields["currency"] && !data["currency"]) {
+        const resolved = await currencyFor(db, actorOf(req).orgId, data);
+        if (resolved) data["currency"] = resolved;
       }
 
       if (resource.numbered) data[resource.numbered] = await nextNumber(resource, slug, actorOf(req).orgId);

@@ -37,6 +37,7 @@
 
 import { Router } from "express";
 import { db } from "../db.ts";
+import { currencyFor } from "../domain/currency.ts";
 import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
@@ -415,6 +416,8 @@ guarded.post("/investments/offerings", async (req, res, next) => {
         `Its licence covers: ${allowed.join(", ")}.`);
     }
 
+    /* What the caller stated, if anything. It always wins. */
+    const stated = b["currency"] ? String(b["currency"]).trim().toUpperCase() : "";
     const sandbox = b["sandbox"] === true;
     const ref = await nextRef(sandbox ? "SBX" : "OFF", actorOf(req, "an investments route").orgId);
 
@@ -425,7 +428,18 @@ guarded.post("/investments/offerings", async (req, res, next) => {
         ref, title,
         summary: String(b["summary"] || ""),
         structure: enumParam("OfferingStructure", b["structure"], "structure"),
-        currency: String(b["currency"] || "KES"),
+        /*
+         * NOT `|| "KES"`, which is what stood here.
+         *
+         * A hard-coded literal in a route bypasses both the column default and
+         * the resolver, so every offering raised outside Kenya was created in
+         * shillings — and InvestmentOrder inherits it, which put the wrong
+         * currency on `targetRaise`, `unitPrice`, `minInvestment` and every
+         * order amount. Resolved from the project or property this offering is
+         * ON, and only then from the company; `key` above is one of those two.
+         */
+        currency: stated || await currencyFor(db, actorOf(req, "an investments route").orgId,
+                                              { [key]: String(b[key]) }) || "KES",
         targetRaise: big(b["targetRaise"]),
         tokenUnits: Number(b["tokenUnits"]) || 0,
         unitPrice: big(b["unitPrice"]),

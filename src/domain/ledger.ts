@@ -628,8 +628,24 @@ export async function trialBalance(
     const b = await accountBalance(db, { orgId, accountId: a.id, from, to });
     if (b.lineCount === 0) continue;   // an account nobody used is not a row
     rows.push(b);
-    debit += b.debit;
-    credit += b.credit;
+    /*
+     * THE TOTALS ARE IN THE REPORTING CURRENCY, and that is the whole point of
+     * a trial balance.
+     *
+     * These summed `b.debit` and `b.credit` — the amounts as TRANSACTED. For a
+     * company keeping one set of books in one currency those are the same
+     * numbers, which is why it read as correct for so long. For a company that
+     * posts a cross-currency entry by hand — which is exactly what
+     * domain/posting.ts tells it to do — it added shillings to kronor and
+     * reported the result as a total.
+     *
+     * It stayed `balanced` too, because each entry balances in both currencies,
+     * so the sums still matched. A wrong figure that passes its own check is
+     * the worst kind, and the converted amounts were already stored on every
+     * line waiting to be used.
+     */
+    debit += b.baseDebit;
+    credit += b.baseCredit;
   }
 
   return { rows, debit, credit, balanced: debit === credit, difference: debit - credit };
@@ -681,11 +697,13 @@ export async function balanceSheet(
   for (const row of tb.rows) {
     const where = SHEET[row.type];
     if (where) { side[where].push(row); continue; }
-    if (row.type === "INCOME") income += row.balance;
-    if (row.type === "EXPENSE") expenses += row.balance;
+    if (row.type === "INCOME") income += row.baseBalance;
+    if (row.type === "EXPENSE") expenses += row.baseBalance;
   }
 
-  const total = (rows: readonly AccountBalance[]) => rows.reduce((t, r) => t + r.balance, 0n);
+  /* In the reporting currency, for the reason given in trialBalance: a sheet
+     that adds two currencies together does not balance against anything. */
+  const total = (rows: readonly AccountBalance[]) => rows.reduce((t, r) => t + r.baseBalance, 0n);
   const assets = total(side.assets);
   const liabilities = total(side.liabilities);
   const equity = total(side.equity);
@@ -720,7 +738,9 @@ export async function incomeStatement(
 
   const income = tb.rows.filter((r) => r.type === "INCOME");
   const expenses = tb.rows.filter((r) => r.type === "EXPENSE");
-  const total = (rows: readonly AccountBalance[]) => rows.reduce((t, r) => t + r.balance, 0n);
+  /* Base, not transacted — see trialBalance. Earning 1,000 in two currencies
+     is not earning 2,000 of either. */
+  const total = (rows: readonly AccountBalance[]) => rows.reduce((t, r) => t + r.baseBalance, 0n);
 
   const earned = total(income);
   const spent = total(expenses);

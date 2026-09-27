@@ -1,0 +1,17 @@
+-- A PROPERTY STATES ITS OWN CURRENCY.
+--
+-- Thirty-one models default their currency to 'KES'. That is correct for
+-- storage and wrong at creation: a Swedish company's invoice came out KES,
+-- disagreed with books resolved from the company's country, and
+-- domain/posting.ts then refused to post it. The accounting chain stopped for
+-- every organization outside Kenya.
+--
+-- Site is where the chain needed an anchor. A unit resolves from its property,
+-- a lease from its unit, an invoice from its lease — and a property in Kenya
+-- held by a Swedish company must say KES, which only the property knows.
+--
+-- DEFAULT IS THE EMPTY STRING, DELIBERATELY. Blank means "nobody has said", so
+-- the resolver falls through to this site's `country` and then to the
+-- company's. Defaulting to 'KES' here would reintroduce the bug one level up.
+-- Every existing row therefore keeps resolving exactly as it does today.
+ALTER TABLE "Site" ADD COLUMN "currency" TEXT NOT NULL DEFAULT '';

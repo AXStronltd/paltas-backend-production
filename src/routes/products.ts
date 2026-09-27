@@ -34,6 +34,7 @@ import { actorOf as sharedActorOf, param } from "../http/request.ts";import type
 
 import { db, delegate } from "../db.ts";
 import { RESOURCES } from "../domain/registry.ts";
+import { currencyFor } from "../domain/currency.ts";
 import { resourceRouter } from "../http/resource.ts";
 import { clean } from "../domain/input.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
@@ -405,6 +406,20 @@ guarded.post("/payments", async (req, res, next) => {
       /* Currency is taken FROM THE INVOICE when one is named. Two numbers in
          two currencies added together is a wrong total that looks right. */
       data["currency"] = invoice.currency;
+    }
+
+    /*
+     * A PAYMENT WITH NO INVOICE IS STILL IN SOMETHING.
+     *
+     * The invoice is the best answer and is taken above. Without one the
+     * column default applied — 'KES', in every country — so a Swedish
+     * company's cash receipt was recorded in the wrong currency and then
+     * would not post against SEK books. Resolved from the company, or left
+     * to the caller when even that is unknown.
+     */
+    if (!data["currency"]) {
+      const resolved = await currencyFor(db, actorOf(req).orgId, data);
+      if (resolved) data["currency"] = resolved;
     }
 
     let payment;
