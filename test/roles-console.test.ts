@@ -68,7 +68,8 @@ function open(product: string, role: string) {
   w.loadCode(readFileSync(join(FE, "assets", "console.js"), "utf8") +
     "\n;window.__navFor=navFor;window.__first=firstScreenOf;window.__S=SCREENS;" +
     "\n;window.__A=ACTIONS;window.__B=BUYER;window.__R=RECON;" +
-    "\n;window.__BA=BANKACCTS;window.__U=UNRECONCILED;window.__N=UNCONFIRMED;",
+    "\n;window.__BA=BANKACCTS;window.__U=UNRECONCILED;window.__N=UNCONFIRMED;" +
+    "\n;window.__I=IMPORT;window.__T=TAX;window.__P=PLAN;",
     "console.js");
 
   const G = (w.win["PALTAS"] as Foreign).Session;
@@ -448,4 +449,81 @@ test("a reconciliation failure says what the server said", { skip }, () => {
   assert.match(html, /Nothing was changed/,
     "a failed act should say plainly that nothing moved");
   state["err"] = "";
+});
+
+/* ==================================================================== *
+ * EVERY WRITE THIS RELEASE ADDED HAS A BUTTON.
+ *
+ * The audit that prompted this found the shape of the problem: every READ
+ * had a screen and almost no WRITE had a way to trigger it. Eleven
+ * endpoints existed that nothing in the console could call.
+ *
+ * This test is the one that would have caught that, so it is written as a
+ * list of the acts rather than a list of the screens — a screen can exist
+ * and offer nothing, which is exactly what happened.
+ * ==================================================================== */
+
+test("every act this release added is reachable from the console", { skip }, () => {
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const A = (w.win["__A"] ?? {}) as Foreign;
+
+  const acts: Record<string, string> = {
+    reconImport: "import a bank statement",
+    reconAuto: "auto-match a statement",
+    reconMatch: "match a payment by hand",
+    reconUnmatch: "undo a match",
+    importPreview: "check what an import would do",
+    importCommit: "import a company's records",
+    planPreview: "show a payment schedule",
+    planAgree: "agree a payment plan",
+    planCertify: "certify a construction stage",
+    taxEnd: "end a tax rate",
+    buyerOpen: "open a buyer's position",
+  };
+
+  const unreachable = Object.entries(acts)
+    .filter(([fn]) => typeof A[fn] !== "function")
+    .map(([fn, what]) => `${what} (${fn})`);
+
+  assert.deepEqual(unreachable, [],
+    "These are endpoints with no way to call them. A capability a person " +
+    "cannot reach is not a feature, whatever the test count says:\n    " +
+    unreachable.join("\n    "));
+});
+
+test("the import will not commit before somebody has looked", { skip }, () => {
+  const { w } = open("PROPERTY_MANAGEMENT", "OWNER");
+  const S = w.win["__S"] as Foreign;
+
+  const fresh = String((S["org_import"] as () => string)());
+  assert.match(fresh, /data-import-rows/, "there is nowhere to paste the rows");
+  assert.match(fresh, /importPreview/, "there is no way to check the file");
+  assert.doesNotMatch(fresh, /importCommit/,
+    "the commit button is offered before anything has been checked");
+
+  /*
+   * THE STATE THAT ACTUALLY MATTERS: a file that HAS been checked and has
+   * bad rows in it. An earlier version of this test only looked at the fresh
+   * screen, which returns before the commit branch is even reached — so
+   * breaking that branch left it passing. This is the case a client is
+   * really in: they pasted, it found problems, and the button must not be
+   * there while nothing can be imported.
+   */
+  const state = w.win["__I"] as Foreign;
+  state["report"] = { rows: [], created: 2, skipped: 0, refused: 1, clean: false };
+  state["committed"] = false;
+  const dirty = String((S["org_import"] as () => string)());
+  assert.doesNotMatch(dirty, /importCommit/,
+    "*** a file with rows that cannot be imported still offered the import " +
+    "button. One bad row stops everything, so offering it is offering a " +
+    "refusal. ***");
+  assert.match(dirty, /Fix the rows/i, "and it should say what to do instead");
+
+  /* Clean, and it appears. */
+  state["report"] = { rows: [], created: 2, skipped: 0, refused: 0, clean: true };
+  const clean = String((S["org_import"] as () => string)());
+  assert.match(clean, /importCommit/,
+    "a file with nothing wrong offered no way to import it");
+
+  state["report"] = null;
 });
