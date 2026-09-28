@@ -99,6 +99,46 @@ export async function commandCentre(db: Db, q: CommandCentreQuery) {
   });
 
   const attention: AttentionItem[] = [];
+
+  /*
+   * FOLLOW-UPS THAT HAVE COME DUE.
+   *
+   * A follow-up date nobody is shown is a note somebody has to remember. These
+   * are the ones whose day has arrived or passed, on both a client and a lead —
+   * the two places a relationship is worked from.
+   */
+  const [dueClients, dueLeads] = await Promise.all([
+    db.party.findMany({
+      where: { orgId, nextFollowUpOn: { not: null, lte: now } },
+      select: { id: true, name: true, nextFollowUpOn: true },
+      orderBy: { nextFollowUpOn: "asc" }, take: 10,
+    }),
+    db.lead.findMany({
+      where: { orgId, nextFollowUpOn: { not: null, lte: now },
+               stage: { notIn: ["CLOSED", "LOST"] } },
+      select: { id: true, name: true, nextFollowUpOn: true, stage: true },
+      orderBy: { nextFollowUpOn: "asc" }, take: 10,
+    }),
+  ]);
+  const lateBy = (d: Date) => Math.floor((now.getTime() - d.getTime()) / 86_400_000);
+  for (const c of dueClients) {
+    attention.push({
+      kind: "follow-up-due",
+      what: `${c.name} — follow-up due ${c.nextFollowUpOn!.toISOString().slice(0, 10)}`,
+      entity: "party", entityId: c.id, when: c.nextFollowUpOn,
+      priority: lateBy(c.nextFollowUpOn!) > 7 ? "high" : "medium",
+      screen: "pm_buyers",
+    });
+  }
+  for (const l of dueLeads) {
+    attention.push({
+      kind: "lead-follow-up-due",
+      what: `${l.name} — ${String(l.stage).toLowerCase()} lead, follow-up due`,
+      entity: "lead", entityId: l.id, when: l.nextFollowUpOn,
+      priority: lateBy(l.nextFollowUpOn!) > 7 ? "high" : "medium",
+      screen: "ag_leads",
+    });
+  }
   for (const l of expiring) {
     attention.push({
       kind: "lease-expiring",

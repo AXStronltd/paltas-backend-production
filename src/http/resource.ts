@@ -82,6 +82,30 @@ async function checkReferences(
      * on that fallback and nothing else: the kind was written in the registry
      * by hand, and registry-types.ts checks it against Prisma.ModelName.
      */
+    /*
+     * A USER IS NOT SCOPED BY A COLUMN, BECAUSE THEY DO NOT HAVE ONE.
+     *
+     * Every other model carries `orgId`, so "is this row this company's" is a
+     * where clause. A User belongs to companies through Membership and has no
+     * orgId at all — so the clause below threw, and any field declared
+     * `id:user` answered 500 the first time somebody set it. Two already
+     * existed (a work order's assignee, a project's user) before the CRM
+     * added more.
+     *
+     * Membership is also the right question to ask. "Is this person one of
+     * ours" is exactly what must be true before a client can be assigned to
+     * them, and it stops a company assigning its accounts to somebody in
+     * another one.
+     */
+    if (kind === "id:user") {
+      jobs.push(
+        db.membership.findFirst({
+          where: { userId: String(value), orgId }, select: { id: true },
+        }).then((row) => (row ? null : key)),
+      );
+      continue;
+    }
+
     const target = RESOURCES[pluralOf(kind.slice(3))]
       ?? { model: kind.slice(3) as ModelKey };
     jobs.push(

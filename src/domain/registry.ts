@@ -307,6 +307,13 @@ const DECLARATIONS = {
       name: "string", kind: "enum:PartyKind", email: "string",
       phone: "string", note: "text", since: "date",
       unit: "string", cars: "int",
+      /* WHOSE RELATIONSHIP THIS IS, where it came from, and when somebody
+         should next speak to them. Writable because they are a company's own
+         words about its own clients — a source or a status nobody can set is
+         a column nobody can use. */
+      assignedToId: "id:user", source: "string", status: "string",
+      tags: "string", city: "string", country: "string",
+      nextFollowUpOn: "date",
     },
     required: ["name"],
     search: ["name", "email", "phone"],
@@ -1460,6 +1467,12 @@ const DECLARATIONS = {
       name: "string", wants: "string", property: "string",
       budget: "money", currency: "string",
       stage: "enum:LeadStage", source: "string", note: "text",
+      /* How to reach them, whose it is, and what happens next — without these
+         a lead is a note rather than something anybody can work. `partyId` is
+         the link that turns a converted lead into a client. */
+      email: "string", phone: "string", partyId: "id:party",
+      assignedToId: "id:user", priority: "enum:WorkPriority",
+      nextFollowUpOn: "date",
     },
     required: ["name"],
     search: ["name", "wants"],
@@ -1485,6 +1498,10 @@ const DECLARATIONS = {
     fields: {
       partyId: "id:party", name: "string", value: "money", fee: "money",
       currency: "string", stage: "enum:DealStage", closesOn: "date",
+      /* Which unit it is for, and who is working it. An opportunity worth a
+         number but attached to no unit cannot be reconciled against what was
+         actually sold or let. */
+      unitId: "id:unit", assignedToId: "id:user",
     },
     required: ["name"],
     search: ["name"],

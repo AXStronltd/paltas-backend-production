@@ -30,6 +30,7 @@ import { country as marketCountry } from "../domain/market.ts";
 import { LIVE_LEASE_STATES } from "../domain/occupancy.ts";
 import { rentDueIn, rentPeriod } from "../domain/rent.ts";
 import { commandCentre } from "../domain/command-centre.ts";
+import { client360 } from "../domain/client360.ts";
 import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act, Area } from "../domain/access.ts";
@@ -311,6 +312,33 @@ companyRoutes.get("/organization/settings", route(async (req, res) => {
     warning: c ? null
       : "This company's country is not one the market catalogue knows, so the ledger cannot work out a reporting currency on its own.",
   });
+}));
+
+/**
+ * GET /clients/:id/360
+ *
+ * ONE CLIENT, EVERYTHING — assembled, never stored.
+ *
+ * Every record here belongs to the system that owns it: leases to property
+ * management, invoices and arrears to finance, offers and reservations to
+ * sales, history to the audit trail. This is the relationship, which is the
+ * one thing no single system owns.
+ *
+ * Money is omitted for a role that may not see it, rather than zeroed.
+ */
+companyRoutes.get("/clients/:id/360", route(async (req, res) => {
+  need(req, "people", "get", "a client");
+  const orgId = actorOf(req, "a company route").orgId;
+
+  const out = await client360(db, {
+    orgId,
+    partyId: String(req.params["id"] || ""),
+    money: levelFor(actorOf(req, "a company route"), "finance") !== "none",
+  });
+  /* Hidden rather than "not found": whether another company's contact exists
+     is not this company's business. */
+  if (!out) throw hidden();
+  res.json(out);
 }));
 
 /**

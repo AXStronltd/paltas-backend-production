@@ -135,7 +135,7 @@ model User {
   sessions        Session[]
   /// The company records that are this person — see Party.userId. A guest
   /// staying at two hotels is two parties and one user.
-  parties         Party[]
+  parties         Party[]           @relation("PartyUser")
   /**
    * An investor register entry this person signs in as. Additive.
    */
@@ -165,6 +165,10 @@ model User {
   Task              Task[]
   Dispatch          Dispatch[]
   projectRoles      ProjectMember[]         @relation("ProjectMemberUser")
+
+  assignedParties Party[] @relation("PartyAssignee")
+  assignedLeads   Lead[]  @relation("LeadAssignee")
+  assignedDeals   Deal[]  @relation("DealAssignee")
 
   @@index([googleSub])
 }
@@ -899,6 +903,8 @@ model Unit {
   defects     Defect[]
   handovers   Handover[]
 
+  deals Deal[]
+
   @@unique([orgId, ref])
   @@index([orgId])
   @@index([orgId, status])
@@ -947,7 +953,7 @@ model Party {
   /// SetNull on delete: the company's record of the person outlives their
   /// account. Deleting a login must not delete a tenant.
   userId String?
-  user   User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user   User?   @relation("PartyUser", fields: [userId], references: [id], onDelete: SetNull)
 
   name  String
   kind  PartyKind @default(CONTACT)
@@ -959,6 +965,34 @@ model Party {
   cars  Int       @default(0)
   note  String    @default("")
   since DateTime?
+
+  /// WHO IN THIS COMPANY OWNS THE RELATIONSHIP.
+  ///
+  /// SetNull, not Cascade: a member of staff leaving must not delete the
+  /// clients they looked after. Without this nobody can be asked how their
+  /// accounts are doing, and "agent performance" is not a report anybody can
+  /// run — it is a question the data cannot answer.
+  assignedToId String?
+  assignedTo   User?   @relation("PartyAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+
+  /// Where the relationship came from and where it stands. Free text rather
+  /// than enums: a referral source is a company's own vocabulary, and an enum
+  /// would mean a migration every time somebody won work a new way.
+  source String @default("")
+  status String @default("ACTIVE")
+  /// Comma-separated, like `jurisdictions` elsewhere in this schema.
+  tags   String @default("")
+
+  /// Where they are. A contact with no city cannot be segmented by one.
+  city    String @default("")
+  country String @default("")
+
+  /// THE NEXT TIME SOMEBODY SHOULD SPEAK TO THEM.
+  ///
+  /// The one date a relationship turns on. Without it a follow-up is a note
+  /// somebody has to remember, and nothing can put an overdue one in front of
+  /// the person who owes it.
+  nextFollowUpOn DateTime?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -989,12 +1023,16 @@ model Party {
   handoversTo        Handover[]             @relation("HandoverTo")
   projectRoles       ProjectMember[]        @relation("ProjectMemberParty")
 
+  leads Lead[]
+
   @@index([orgId])
   @@index([orgId, kind])
   @@index([orgId, name])
   /// The guest portal's first query on every request: "which parties am I?"
   /// It is not allowed to be a table scan.
   @@index([userId])
+  @@index([orgId, assignedToId])
+  @@index([orgId, nextFollowUpOn])
 }
 
 enum PartyKind {
@@ -2007,6 +2045,30 @@ model Lead {
   source   String    @default("PALTAS")
   note     String    @default("")
 
+  /// HOW TO REACH THEM. A lead nobody can telephone is a note, not a lead.
+  email String @default("")
+  phone String @default("")
+
+  /**
+   * THE CLIENT THIS LEAD BECAME, OR IS.
+   * The link that was missing, and the one the whole chain runs through: a
+   * lead that converted had no path to the client record, so the offer, the
+   * reservation, the invoice and the payment that followed belonged to
+   * somebody the pipeline could not name.
+   * Optional, because somebody who has sent one email is not yet a contact
+   * worth keeping. SetNull, because merging or removing a contact must not
+   * delete the record of where the enquiry came from.
+   */
+  partyId String?
+  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+
+  /// Who is working it, and when they said they would next make contact.
+  assignedToId String?
+  assignedTo   User?        @relation("LeadAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  priority     WorkPriority @default(NORMAL)
+
+  nextFollowUpOn DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2014,12 +2076,23 @@ model Lead {
   Task     Task[]
 
   @@index([orgId, stage])
+  @@index([orgId, assignedToId])
+  @@index([orgId, nextFollowUpOn])
+  @@index([orgId, partyId])
 }
 
 enum LeadStage {
   NEW
+  /// Somebody has spoken to them. The difference between NEW and CONTACTED is
+  /// the whole of the first day's work, and a pipeline that cannot show what
+  /// has been touched cannot be worked from.
+  CONTACTED
+  QUALIFIED
   VIEWING
   OFFER
+  /// Terms are moving. An offer being argued over is not the same state as one
+  /// that has been sent and is waiting.
+  NEGOTIATION
   RESERVED
   CLOSED
   LOST
@@ -2060,6 +2133,14 @@ model Deal {
   currency String    @default("KES")
   stage    DealStage @default(OFFER)
   closesOn DateTime?
+
+  /// WHICH UNIT THIS IS FOR. An opportunity worth a number but attached to no
+  /// unit cannot be reconciled against what was actually sold or let.
+  unitId String?
+  unit   Unit?   @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  assignedToId String?
+  assignedTo   User?   @relation("DealAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
