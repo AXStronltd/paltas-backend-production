@@ -342,6 +342,9 @@ const DECLARATIONS = {
      */
     fields: {
       name: "string", kind: "enum:DocumentKind", about: "string",
+      /* Whose it is, when it is somebody's. `about` stays for a document about
+         a property or a project — this is for the person. */
+      partyId: "id:party",
       expiresAt: "date",
     },
     required: ["name"],

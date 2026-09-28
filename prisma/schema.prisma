@@ -1025,6 +1025,8 @@ model Party {
 
   leads Lead[]
 
+  documents Document[]
+
   @@index([orgId])
   @@index([orgId, kind])
   @@index([orgId, name])
@@ -1053,10 +1055,26 @@ model Document {
   orgId String
   org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
 
-  name      String
-  kind      DocumentKind @default(OTHER)
-  /// Who or what it is about, as free text until it needs to be a relation.
-  about     String       @default("")
+  name  String
+  kind  DocumentKind @default(OTHER)
+  /// Who or what it is about, as free text. Still here, and still the right
+  /// column for a subject that is not a person — a property, a project, a
+  /// permit. `partyId` below is for when the subject IS somebody.
+  about String       @default("")
+
+  /**
+   * THE PERSON OR COMPANY THIS DOCUMENT BELONGS TO.
+   * The comment above used to end "until it needs to be a relation". It needs
+   * to be one: Client 360 could not list a client's documents, because
+   * "this client's files" could only be guessed at by matching a name against
+   * free text — and a guess there shows one client's identity document under
+   * another client's name, on a screen somebody reads to a customer.
+   * Optional, because most documents are about a property or a project rather
+   * than a person. SetNull, because merging or removing a contact must not
+   * delete their signed lease.
+   */
+  partyId   String?
+  party     Party?    @relation(fields: [partyId], references: [id], onDelete: SetNull)
   expiresAt DateTime?
 
   /// WHERE THE BYTES ACTUALLY ARE. A key in object storage, never content.
@@ -1074,6 +1092,7 @@ model Document {
   authorityRecords PropertyAuthorityRecord[]
   drawings         Drawing[]
 
+  @@index([orgId, partyId])
   @@index([orgId])
   @@index([orgId, kind])
   @@index([orgId, expiresAt])

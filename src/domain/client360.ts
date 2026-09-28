@@ -62,7 +62,7 @@ export async function client360(db: Db, q: Client360Query) {
    * tenant whatever the column says, and the relationship is what a person on
    * the telephone needs to know.
    */
-  const [leases, contracts, offers, deals, viewings, reservations, leads] =
+  const [leases, contracts, offers, deals, viewings, reservations, leads, documents] =
     await Promise.all([
       db.lease.findMany({
         where: { orgId, tenantId: partyId },
@@ -105,19 +105,26 @@ export async function client360(db: Db, q: Client360Query) {
                   currency: true, nextFollowUpOn: true },
         orderBy: { createdAt: "desc" }, take: 10,
       }),
+      /*
+       * THEIR DOCUMENTS, asked of the database rather than guessed at.
+       *
+       * This was absent while Document had only a free-text `about`: matching a
+       * name against it would show one client's identity document under
+       * another client's name. It has a partyId now, so the question can be
+       * asked properly.
+       *
+       * The bytes are never here — only what the file is and when it expires.
+       * Reading it is a signed download from the documents service.
+       */
+      db.document.findMany({
+        where: { orgId, partyId },
+        select: { id: true, name: true, kind: true, expiresAt: true,
+                  mimeType: true, bytes: true, createdAt: true },
+        orderBy: { createdAt: "desc" }, take: 25,
+      }),
     ]);
 
-    /*
-     * DOCUMENTS ARE NOT LISTED HERE, AND THAT IS NOT AN OMISSION TO PAPER OVER.
-     *
-     * Document has no foreign key to a party. It carries a free-text `about`
-     * column, so "this client's documents" cannot be asked of the database —
-     * only guessed at by matching a string. A guess would show one client's
-     * file against another's name, which on a screen somebody reads to a
-     * customer is worse than showing nothing.
-     *
-     * Giving Document a real partyId is the fix, and it is its own change.
-     */
+
 
   /*
    * MONEY, WHERE THE ROLE MAY SEE IT — and from finance, which owns it.
@@ -198,7 +205,7 @@ export async function client360(db: Db, q: Client360Query) {
       activeLeases: leases.filter(
         (l) => (LIVE_LEASE_STATES as readonly string[]).includes(l.status)).length,
     },
-    leases, contracts, offers, deals, viewings, reservations, leads,
+    leases, contracts, offers, deals, viewings, reservations, leads, documents,
     finance,
     activity,
   };

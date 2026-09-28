@@ -422,3 +422,63 @@ test("a user reference that does not exist is refused, not a 500", { skip }, asy
     method: "PATCH", cookie, body: { assignedToId: "nobody" } });
   assert.ok(res.status >= 400 && res.status < 500, `got ${res.status}`);
 });
+
+/* ====================================================================== *
+ * A DOCUMENT CAN SAY WHOSE IT IS
+ * ====================================================================== */
+
+/*
+ * `about` was free text, so "this client's documents" could only be guessed at
+ * by matching a name — which shows one client's identity document under
+ * another client's name on a screen somebody reads to a customer.
+ */
+test("a client's documents are theirs, asked of the database", { skip }, async () => {
+  const { org, cookie } = await company();
+  const mine = await client(org.id, { name: "Grace Wanjiru" });
+  const theirs = await client(org.id, { name: "Grace Wanjeri" });   /* very nearly the same name */
+
+  const made = await call("/documents", { method: "POST", cookie, body: {
+    name: "National ID", kind: "IDENTITY", partyId: mine.id } });
+  assert.equal(made.status, 201, made.text.slice(0, 200));
+  await call("/documents", { method: "POST", cookie, body: {
+    name: "National ID", kind: "IDENTITY", partyId: theirs.id } });
+
+  const out = await C.client360(db, { orgId: org.id, partyId: mine.id, money: true });
+  assert.equal(out!.documents.length, 1, "one document, not two nearly-identical names");
+  assert.equal(out!.documents[0]!.id, made.json.document.id);
+  assert.equal(out!.documents[0]!.name, "National ID");
+});
+
+test("a document about a property belongs to nobody, and stays that way", { skip }, async () => {
+  const { org, cookie } = await company();
+  const party = await client(org.id);
+  await call("/documents", { method: "POST", cookie, body: {
+    name: "Title deed", kind: "OTHER", about: "Almas Tower" } });
+
+  const out = await C.client360(db, { orgId: org.id, partyId: party.id, money: true });
+  assert.deepEqual(out!.documents, [],
+    "`about` is still the right column for a subject that is not a person");
+});
+
+/* Removing a contact must not delete their signed lease. */
+test("removing a client keeps their documents", { skip }, async () => {
+  const { org, cookie } = await company();
+  const party = await client(org.id);
+  const doc = await call("/documents", { method: "POST", cookie, body: {
+    name: "Signed lease", kind: "LEASE", partyId: party.id } });
+
+  await db.party.delete({ where: { id: party.id } });
+
+  const after = await db.document.findUnique({ where: { id: doc.json.document.id } });
+  assert.ok(after, "the document is still here");
+  assert.equal(after!.partyId, null, "just no longer attached to anybody");
+});
+
+test("a document cannot be attached to another company's client", { skip }, async () => {
+  const a = await company();
+  const b = await company();
+  const theirs = await client(b.org.id);
+  const res = await call("/documents", { method: "POST", cookie: a.cookie, body: {
+    name: "X", kind: "OTHER", partyId: theirs.id } });
+  assert.ok(res.status >= 400 && res.status < 500, `got ${res.status}`);
+});
