@@ -6814,3 +6814,62 @@ model CostCode {
   @@index([orgId])
   @@index([orgId, active])
 }
+
+/// ---------------------------------------------------------------------
+/// A SLICE OF SCHEDULED WORK THAT HAS BEEN DONE, SO IT IS NEVER DONE TWICE.
+///
+/// PALTAS had no scheduler at all, which is why rent had to be invoiced by
+/// hand, nothing expired, and an invoice that passed its due date was never
+/// marked overdue. Adding one raises exactly one hard question: what stops the
+/// same month's rent being charged twice?
+///
+/// `@@unique([job, periodKey])` is the answer, and it is the whole design. A
+/// run is CLAIMED by inserting this row before any work happens. Two processes
+/// racing both try to insert; the database lets one through and the other is
+/// refused. That survives a restart, a second instance and a deploy in the
+/// middle of a run, none of which an in-memory lock survives.
+///
+/// Not org-scoped on purpose: one run covers every company, and records how
+/// many it scanned and changed. An org that throws is recorded and the rest
+/// carry on — one broken tenant must not stop everybody else's rent.
+/// ---------------------------------------------------------------------
+model JobRun {
+  id String @id @default(cuid())
+
+  /// Which job. A string rather than an enum: adding a job should not need a
+  /// migration, and an unknown name in this column is readable rather than a
+  /// failed insert.
+  job String
+
+  /// The slice of time this run covers — "2026-09-28" for a daily job,
+  /// "2026-10" for a monthly one. With `job`, it is what makes a run unique.
+  periodKey String
+
+  startedAt  DateTime  @default(now())
+  finishedAt DateTime?
+  status     JobStatus @default(RUNNING)
+
+  /// What it did, in numbers somebody can check against the tables.
+  scanned Int    @default(0)
+  changed Int    @default(0)
+  /// A sentence for a person, not a stack trace.
+  detail  String @default("")
+  error   String @default("")
+
+  /// The row's own clock. `startedAt` is when the CURRENT attempt began and
+  /// moves when a stale claim is taken over, so it cannot double as a creation
+  /// time: these are when the period was first claimed, and when the row last
+  /// changed hands or finished.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([job, periodKey])
+  @@index([job, startedAt])
+  @@index([status, startedAt])
+}
+
+enum JobStatus {
+  RUNNING
+  SUCCEEDED
+  FAILED
+}

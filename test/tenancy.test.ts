@@ -219,7 +219,15 @@ test("a model with no organization of its own inherits one from its parent", () 
    * an orgId would invite exactly the bug it would then hide: a company
    * quietly editing the price it is charged.
    */
-  const ROOTS = new Set(["User", "Organization", "Counter", "Plan", "StripeEvent"]);
+  /*
+   * JobRun belongs to no single company ON PURPOSE. One scheduled run covers
+   * EVERY organization — it records how many it scanned and changed across all
+   * of them — so filing it under one company would misstate what it did, and a
+   * row per company would make the claim that stops a month's rent being
+   * charged twice per company rather than per run. That claim is the whole
+   * design; see domain/scheduler.ts.
+   */
+  const ROOTS = new Set(["User", "Organization", "Counter", "Plan", "StripeEvent", "JobRun"]);
 
   for (const [name, body] of models()) {
     if (owned.has(name) || orgReferencing().has(name) || ROOTS.has(name)) continue;

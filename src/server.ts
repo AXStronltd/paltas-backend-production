@@ -15,6 +15,7 @@ import {
   cors, errorHandler, notFound, rateLimit, securityHeaders, withSession,
 } from "./http/index.ts";
 import { pruneExpiredSessions } from "./auth/sessions.ts";
+import { tick } from "./domain/scheduler.ts";
 import { authRoutes } from "./routes/auth.ts";
 import { organizationRoutes } from "./routes/organizations.ts";
 import { invitationRoutes } from "./routes/invitations.ts";
@@ -592,6 +593,48 @@ if (isMain) {
   pruneExpiredSessions()
     .then((n) => n && log.info(`pruned ${n} expired session(s)`))
     .catch((e: unknown) => log.error("session prune failed", messageOf(e)));
+
+  /*
+   * THE SCHEDULER.
+   *
+   * In this process rather than a separate service, because the work is small,
+   * the claim that makes it safe lives in the database, and a second service
+   * is a second thing to deploy, watch and pay for.
+   *
+   * TICKING OFTEN IS HARMLESS AND THAT IS THE POINT. A period already claimed
+   * is skipped, so a quarter-hourly beat, a deploy, two instances and somebody
+   * pressing the button in the staff console cannot do the same work twice —
+   * see domain/scheduler.ts. The interval is therefore about how soon work
+   * starts, never about whether it happens once.
+   *
+   * It beats once at boot too, so a deploy picks up anything a previous
+   * instance did not reach.
+   *
+   * SCHEDULER=off turns it off, for running a second instance deliberately
+   * without one, or for a local process that should not touch shared data.
+   */
+  if (process.env["SCHEDULER"] !== "off") {
+    const beat = () => {
+      tick(db)
+        .then((runs) => {
+          for (const r of runs) {
+            if (r.error) log.error(`job ${r.job} ${r.periodKey} failed`, r.error);
+            else if (r.ran) {
+              log.info(`job ${r.job} ${r.periodKey}: scanned ${r.scanned}, changed ${r.changed}`);
+            }
+          }
+        })
+        /* tick() does not throw; this is here because a promise with no catch
+           is an unhandled rejection, and that is a process-level event. */
+        .catch((e: unknown) => log.error("scheduler tick failed", messageOf(e)));
+    };
+    /* unref, so a tick pending at SIGTERM cannot hold the process open past
+       the shutdown the platform is waiting on. */
+    setInterval(beat, 15 * 60_000).unref();
+    beat();
+  } else {
+    log.info("scheduler off (SCHEDULER=off)");
+  }
 
   /* Render sends SIGTERM on deploy. Finishing the requests already in flight
      is the difference between a clean deploy and a handful of people seeing a

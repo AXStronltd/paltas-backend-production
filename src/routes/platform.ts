@@ -57,6 +57,7 @@ const at = (v: unknown, key: string): unknown =>
   (typeof v === "object" && v !== null) ? (v as Record<string, unknown>)[key] : undefined;import { status as supplyStatus } from "../domain/supply.ts";
 import { describe as storageDescribe } from "../domain/storage.ts";
 import { compareStatus } from "../domain/compare.ts";
+import { JOBS, jobByKey, runJob, tick } from "../domain/scheduler.ts";
 
 export const platformRoutes = Router();
 
@@ -195,6 +196,31 @@ async function auditRead(
   } catch (e) { console.error("platform audit write failed", what, messageOf(e)); }
 }
 
+/*
+ * The same record for something staff DID rather than read.
+ *
+ * auditRead writes `platform.read`, which is the right label for looking
+ * across the wall and the wrong one for running a job — a trail that files a
+ * write under "read" is worse than no label, because it reads as checked.
+ */
+async function auditDid(
+  req: Request, action: string, what: string, entityId: string,
+  detail?: Prisma.InputJsonValue,
+): Promise<void> {
+  try {
+    await db.auditEvent.create({
+      data: {
+        orgId: actorOf(req, "a platform route").orgId,
+        actorId: sessionOf(req, "a platform route").userId,
+        actorName: actorOf(req, "a platform route").userName || "",
+        action, entity: what, entityId,
+        detail: detail || undefined,
+        ip: req.ip || "",
+      },
+    });
+  } catch (e) { console.error("platform audit write failed", action, messageOf(e)); }
+}
+
 /** Page size, capped, for the same reason as everywhere else. */
 function paging(req: Request): { take: number; cursor: string | null } {
   const take = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
@@ -232,6 +258,55 @@ function paging(req: Request): { take: number; cursor: string | null } {
  * operator's answer is WHICH one is missing, so it lives behind the staff
  * door rather than being deleted — the same split as the supplier above.
  */
+/*
+ * WHAT THE SCHEDULER KNOWS HOW TO DO, AND WHAT IT HAS DONE.
+ *
+ * Every job declares why it exists, so the list reads as an explanation rather
+ * than a set of names nobody dares delete. The runs are the record: a period
+ * appears once, with what it scanned and changed, or with the reason it failed.
+ */
+platformRoutes.get("/platform/jobs", async (_req, res, next) => {
+  try {
+    const runs = await db.jobRun.findMany({
+      orderBy: { startedAt: "desc" }, take: 50,
+    });
+    res.json({
+      jobs: JOBS.map((j) => ({ key: j.key, title: j.title, why: j.why })),
+      runs,
+    });
+  } catch (e) { next(e); }
+});
+
+/*
+ * RUN NOW.
+ *
+ * For the moment somebody is watching and does not want to wait a quarter of
+ * an hour. It is NOT a way to run a period twice: the claim in the database
+ * decides that, so pressing this after a period has been done reports that it
+ * was already done rather than doing it again. That is the same guarantee the
+ * timer relies on, exercised by hand.
+ */
+platformRoutes.post("/platform/jobs/run", async (req, res, next) => {
+  try {
+    const wanted = req.body && (req.body as Record<string, unknown>)["job"];
+    if (wanted !== undefined && wanted !== null && String(wanted).trim() !== "") {
+      const job = jobByKey(String(wanted).trim());
+      if (!job) {
+        throw notFound(`There is no job called “${String(wanted).trim()}”.`);
+      }
+      const outcome = await runJob(db, job);
+      await auditDid(req, "platform.job.run", "jobRun", job.key,
+        { ran: outcome.ran, changed: outcome.changed });
+      return res.json({ runs: [outcome] });
+    }
+
+    const runs = await tick(db);
+    await auditDid(req, "platform.job.run", "jobRun", "all",
+      { ran: runs.filter((r) => r.ran).length });
+    res.json({ runs });
+  } catch (e) { next(e); }
+});
+
 platformRoutes.get("/platform/storage", (_req, res) => {
   res.json({ storage: storageDescribe() });
 });
