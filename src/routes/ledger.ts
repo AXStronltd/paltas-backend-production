@@ -44,6 +44,7 @@ import { addRule, endRule, OUT_OF_SCOPE, rateFor, taxOn } from "../domain/tax.ts
 import {
   autoMatch, importStatement, reconcile, unreconcile, unreconciled,
 } from "../domain/banking.ts";
+import { receivables } from "../domain/receivables.ts";
 import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act } from "../domain/access.ts";
@@ -786,6 +787,69 @@ ledgerRoutes.get("/ledger/cash-movement", route(async (req, res) => {
     rows: cash.rows,
     totals: cash.totals,
     reconciles: cash.reconciles,
+  });
+}));
+
+/**
+ * GET /ledger/receivables?asAt=&partyId=&siteId=&unitId=
+ *
+ * WHAT IS OWED, AND HOW LATE IT IS.
+ *
+ * The console's Collections screen read the merged cash list and filtered
+ * `flow === "in"`, which selects PAYMENTS — money that has already arrived. So
+ * Outstanding, Overdue and every aging bucket were structurally zero for real
+ * data. A receivable is an unpaid INVOICE, which is the opposite state, and
+ * this is where it comes from.
+ *
+ * Derived on every call from `Invoice.total` and `Invoice.paid`, which the
+ * server computes and a client cannot send. There is no receivables table to
+ * fall out of step with the invoices.
+ *
+ * `asAt` moves the date arrears are measured against, so "what did we look
+ * like at month end" is the same question asked of a different day rather than
+ * a second report.
+ */
+ledgerRoutes.get("/ledger/receivables", route(async (req, res) => {
+  need(req, "list", "the ledger");
+  const orgId = actorOf(req, "a ledger route").orgId;
+  const { partyId, siteId, unitId } = req.query;
+
+  /* Asked here so an id belonging to another company answers 404 rather than
+     an empty report, which reads as "they owe nothing" — the same reason the
+     statement route below checks. */
+  if (partyId) {
+    const p = await db.party.findFirst({
+      where: { id: String(partyId), orgId }, select: { id: true } });
+    if (!p) throw hidden();
+  }
+  if (siteId) {
+    const site = await db.site.findFirst({
+      where: { id: String(siteId), orgId }, select: { id: true } });
+    if (!site) throw hidden();
+  }
+  if (unitId) {
+    const unit = await db.unit.findFirst({
+      where: { id: String(unitId), orgId }, select: { id: true } });
+    if (!unit) throw hidden();
+  }
+
+  const report = await receivables(db, {
+    orgId,
+    asAt: when(req.query.asAt, "asAt"),
+    partyId: partyId ? String(partyId) : null,
+    siteId: siteId ? String(siteId) : null,
+    unitId: unitId ? String(unitId) : null,
+  });
+
+  res.json({
+    asAt: report.asAt,
+    /* One book per currency, never a single total. A company holding property
+       in two countries owes two amounts, and adding them needs a rate nobody
+       has quoted. */
+    books: report.books,
+    invoices: report.invoices,
+    mixed: report.mixed,
+    invoiceCount: report.invoiceCount,
   });
 }));
 
