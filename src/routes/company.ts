@@ -29,6 +29,7 @@ import {
 import { country as marketCountry } from "../domain/market.ts";
 import { LIVE_LEASE_STATES } from "../domain/occupancy.ts";
 import { rentDueIn, rentPeriod } from "../domain/rent.ts";
+import { commandCentre } from "../domain/command-centre.ts";
 import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act, Area } from "../domain/access.ts";
@@ -310,6 +311,35 @@ companyRoutes.get("/organization/settings", route(async (req, res) => {
     warning: c ? null
       : "This company's country is not one the market catalogue knows, so the ledger cannot work out a reporting currency on its own.",
   });
+}));
+
+/**
+ * GET /command-centre
+ *
+ * WHAT IS HAPPENING IN THIS BUSINESS, AND WHAT NEEDS ATTENTION.
+ *
+ * One authenticated aggregation over the services that already own each
+ * answer — receivables for arrears, occupancy for which lease states are live,
+ * AuditEvent for what happened. It is deliberately not a second source of
+ * truth: a command centre that worked out its own version of what is owed
+ * would eventually disagree with Collections, and it would be the one people
+ * looked at first.
+ *
+ * MONEY IS OMITTED ENTIRELY, not zeroed, for a role that may not see it.
+ * Zeros read as "you have none", which is a different statement and a false
+ * one.
+ */
+companyRoutes.get("/command-centre", route(async (req, res) => {
+  /* Seeing the business at all is a property-area read. What it may CONTAIN
+     is decided separately, below. */
+  need(req, "property", "list", "the command centre");
+  const orgId = actorOf(req, "a company route").orgId;
+
+  const out = await commandCentre(db, {
+    orgId,
+    money: levelFor(actorOf(req, "a company route"), "finance") !== "none",
+  });
+  res.json(out);
 }));
 
 /**
