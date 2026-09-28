@@ -352,6 +352,10 @@ const DECLARATIONS = {
       tenantName: "string", unitRef: "string",
       rent: "money", currency: "string",
       deposit: "money", startsOn: "date", endsOn: "date",
+      /* WHEN the rent is owed, and how often. Writable because a landlord has
+         to be able to say it — rent that recurs on a day nobody can set is a
+         feature nobody can use. See domain/rent.ts. */
+      rentDay: "int:1..31", billing: "enum:LeaseBilling",
       status: "enum:LeaseStatus", note: "text",
     },
     required: [], numbered: "ref",

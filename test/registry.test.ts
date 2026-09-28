@@ -603,7 +603,10 @@ test("every field a request may write is a real column", () => {
         float: "Float", bool: "Boolean", date: "DateTime", json: "Json",
       };
       const want = SCALAR[kind] ?? (kind.startsWith("enum:") ? kind.slice(5)
-                : kind.startsWith("id:") ? "String" : null);
+                : kind.startsWith("id:") ? "String"
+                /* "int:1..31" is still an Int column; the range is what the
+                   API enforces, not what Postgres stores. */
+                : /^int:-?\d+\.\.-?\d+$/.test(kind) ? "Int" : null);
       assert.ok(want, `${slug}.${name} has unknown kind "${kind}"`);
       if (col.type !== want) {
         problems.push(`${slug}.${name} — registry says ${kind} (${want}), schema says ${col.type}`);

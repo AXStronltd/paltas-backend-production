@@ -59,6 +59,8 @@ interface FormField {
   readonly required: boolean;
   options?: string[];
   lookup?: string;
+  /** What the field means, where its name is not enough. */
+  hint?: string;
 }
 
 /**
@@ -160,6 +162,8 @@ formRoutes.get("/console/forms",
           kind,
           required: required.has(backendName),
         } as FormField;
+        const hint = spec.hints && spec.hints[backendName];
+        if (hint) field.hint = hint;
         if (kind.startsWith("enum:")) field.options = enumValues(kind.slice(5)) || [];
         if (kind.startsWith("id:")) field.lookup = kind.slice(3);   /* which list to pick from */
         fields.push(field);

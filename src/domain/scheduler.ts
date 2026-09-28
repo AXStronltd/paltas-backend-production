@@ -138,8 +138,40 @@ const overdueSweep: Job = {
   },
 };
 
+/*
+ * RENT, RAISED ONCE A MONTH.
+ *
+ * The single largest piece of manual work PALTAS was still asking a letting
+ * business to do: one invoice, per unit, per month, typed by hand.
+ *
+ * MONTHLY period, so a claim covers the month and the beat within it is free.
+ * The double-charge guarantee is NOT this claim, though — it is the unique
+ * (orgId, leaseId, periodKey) on RentCharge, written in the same transaction
+ * as the invoice. The claim stops two runs; that stops one interrupted run
+ * redoing the leases it already reached, and only the second is about money.
+ *
+ * It raises the period it is IN and no earlier one. Switching this on in the
+ * middle of October raises October, never October and every month since each
+ * lease began — a system that bills eight months of arrears because somebody
+ * deployed it is worse than one that bills nothing.
+ */
+const rentRun: Job = {
+  key: "rent-run",
+  title: "Raise this month's rent",
+  why: "A lease states its rent, its day and how often. Without this every "
+     + "invoice is typed by hand, for every unit, every month.",
+  period: monthly,
+  async run({ db, periodKey, note }) {
+    const { runRent } = await import("./rent.ts");
+    const out = await runRent(db, { periodKey });
+    for (const n of out.notes) note(n);
+    if (out.skipped) note(`${out.skipped} lease(s) not raised`);
+    return { scanned: out.scanned, changed: out.raised };
+  },
+};
+
 /** Everything the scheduler knows how to do. */
-export const JOBS: readonly Job[] = [overdueSweep];
+export const JOBS: readonly Job[] = [overdueSweep, rentRun];
 
 export function jobByKey(key: string): Job | null {
   return JOBS.find((j) => j.key === key) || null;

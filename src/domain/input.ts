@@ -227,6 +227,26 @@ export function clean(
       if (s.length > cap) { problems.push(`${key} is longer than ${cap} characters.`); continue; }
       out[key] = s === "" && kind.startsWith("id:") ? null : s;
 
+    } else if (kind.startsWith("int:")) {
+      /*
+       * AN INTEGER THAT HAS TO BE IN RANGE.
+       *
+       * "int:1..31". A rent day of 0 or 99 is not a number to be clamped
+       * quietly at billing time — it is a lease stating something impossible,
+       * and the person typing it is the only one who can say what they meant.
+       */
+      const bounds = /^int:(-?\d+)\.\.(-?\d+)$/.exec(kind);
+      if (!bounds) throw new Error(`the registry declares ${key} as "${kind}", which is not a range`);
+      const lo = Number(bounds[1]), hi = Number(bounds[2]);
+      const n = Number(v);
+      if (!Number.isFinite(n) || !Number.isInteger(n)) {
+        problems.push(`${key} must be a whole number.`); continue;
+      }
+      if (n < lo || n > hi) {
+        problems.push(`${key} must be between ${lo} and ${hi}.`); continue;
+      }
+      out[key] = n;
+
     } else if (kind === "int" || kind === "money" || kind === "signed-money") {
       const n = Number(v);
       if (!Number.isFinite(n)) { problems.push(`${key} must be a number.`); continue; }

@@ -78,7 +78,7 @@ body is those fields; the response is the created record.
 | `pm_issues` | ＋ Log a report | `t:text, b:text, kind:enum(Water|Power|Lift|Security|Cleaning|Noise|Other), pr:enum(Urgent|High|Normal)` |
 | `pm_market` | ＋ New listing | `u:text, ask:num, note:text` |
 | `portfolio` | ＋ Add property | `name:text, city:text, kind:enum(Residential|Commercial|Mixed use|Land), units:num, val:num` |
-| `rentals` | ＋ New lease | `n:text, u:text, rent:num, since:text` |
+| `rentals` | ＋ New lease | `n:text, u:text, rent:num, since:text, day:num, billing:enum(MONTHLY|QUARTERLY|YEARLY)` |
 | `s_deliveries` | ＋ Log a delivery | `who:text, what:text, forWhom:text` |
 | `s_guards` | ＋ Assign shift | `n:text, post:text, shift:text` |
 | `s_incidents` | ＋ Report incident | `t:text, p:text, sev:enum(Critical|High|Medium|Low)` |

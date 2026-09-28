@@ -27,6 +27,8 @@ import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
 import { country as marketCountry } from "../domain/market.ts";
+import { LIVE_LEASE_STATES } from "../domain/occupancy.ts";
+import { rentDueIn, rentPeriod } from "../domain/rent.ts";
 import type { Request, RequestHandler, Response } from "express";
 import type { Prisma } from "@prisma/client";
 import type { Act, Area } from "../domain/access.ts";
@@ -311,6 +313,106 @@ companyRoutes.get("/organization/settings", route(async (req, res) => {
 }));
 
 /**
+ * GET /rent/automation
+ *
+ * EVERYTHING THE CONSOLE NEEDS TO SHOW ABOUT AUTOMATIC RENT, AND NOTHING IT
+ * WOULD OTHERWISE HAVE TO INVENT.
+ *
+ * Three questions, answered from the tables rather than guessed at:
+ *
+ *   IS IT ON, and what would it do if it were?
+ *   IS THIS COMPANY READY — which of its leases would be billed, and which
+ *     would be passed over, and why.
+ *   WHAT HAS IT ALREADY DONE, per billing period.
+ *
+ * ── WHAT IS DELIBERATELY NOT HERE ──────────────────────────────────────
+ *
+ * "Skipped" and "errors" per company. A JobRun covers every company at once
+ * and records its counts across all of them, so there is no honest per-company
+ * number to report — and a screen that showed the platform's totals as this
+ * customer's would be worse than one that shows nothing.
+ *
+ * A "next run" TIME, for the same reason. The period a run would cover is
+ * knowable and is given; when the scheduler next beats is not a promise this
+ * service can make.
+ */
+companyRoutes.get("/rent/automation", route(async (req, res) => {
+  need(req, "finance", "list", "rent automation");
+  const orgId = actorOf(req, "a company route").orgId;
+
+  const org = await db.organization.findFirst({
+    where: { id: orgId }, select: { autoRent: true, country: true },
+  });
+  if (!org) throw hidden();
+
+  const leases = await db.lease.findMany({
+    where: { orgId, status: { in: [...LIVE_LEASE_STATES] } },
+    select: {
+      id: true, ref: true, unitRef: true, rent: true, currency: true,
+      rentDay: true, billing: true, startsOn: true, endsOn: true, status: true,
+    },
+    orderBy: { ref: "asc" },
+  });
+
+  /*
+   * WHAT WOULD ACTUALLY HAPPEN, per lease — asked of the same function the
+   * run itself uses, so this screen cannot disagree with the billing.
+   */
+  const period = rentPeriod(new Date());
+  const billable: typeof leases = [];
+  const passedOver: Array<{ id: string; ref: string; unitRef: string; why: string }> = [];
+
+  for (const l of leases) {
+    if (l.rent <= 0n) {
+      passedOver.push({ id: l.id, ref: l.ref, unitRef: l.unitRef,
+        why: "no rent is recorded on this lease" });
+      continue;
+    }
+    if (l.billing !== "MONTHLY" && !l.startsOn) {
+      /* The backend's own rule, explained rather than restated: without a
+         start month there is nothing to anchor a quarter or a year to. */
+      passedOver.push({ id: l.id, ref: l.ref, unitRef: l.unitRef,
+        why: `${l.billing.toLowerCase()} billing needs a lease start date to count from — `
+           + "this one is raised by hand until it has one" });
+      continue;
+    }
+    if (rentDueIn(l, period)) billable.push(l);
+  }
+
+  /* What has already been raised, per period. Real rows, not a log. */
+  const charges = await db.rentCharge.groupBy({
+    by: ["periodKey", "currency"],
+    where: { orgId },
+    _count: { _all: true },
+    _sum: { amount: true },
+    orderBy: { periodKey: "desc" },
+    take: 24,
+  });
+
+  res.json({
+    autoRent: org.autoRent,
+    /* The period a run would cover if it beat now. Not a time. */
+    period,
+    leases: {
+      live: leases.length,
+      billableThisPeriod: billable.length,
+      /* Still on the values a lease is created with. Not a fault — a signal
+         that nobody has looked at them yet, which is the thing worth checking
+         before letting PALTAS bill on them. */
+      onDefaultDay: leases.filter((l) => l.rentDay === 1).length,
+      onDefaultBilling: leases.filter((l) => l.billing === "MONTHLY").length,
+    },
+    passedOver,
+    history: charges.map((c) => ({
+      periodKey: c.periodKey,
+      currency: c.currency,
+      invoices: c._count._all,
+      amount: (c._sum.amount ?? 0n).toString(),
+    })),
+  });
+}));
+
+/**
  * PATCH /organization/settings
  *
  * Name, country and city. Not `status`, not `kind`, and not the subscription
@@ -339,6 +441,21 @@ companyRoutes.patch("/organization/settings", route(async (req, res) => {
   }
   if (b["city"] !== undefined) data.city = String(b["city"]).slice(0, 120);
   if (b["size"] !== undefined) data.size = String(b["size"]).slice(0, 40);
+
+  /*
+   * WHETHER PALTAS MAY RAISE THIS COMPANY'S RENT BY ITSELF.
+   *
+   * A company's own decision, and an owner-level one — which this endpoint
+   * already requires. It is off until somebody says otherwise, because every
+   * company using PALTAS today invoices rent by hand and PALTAS cannot see
+   * what was billed outside it; switching it on for everybody would raise the
+   * current month a second time for every tenant whose invoice was already
+   * typed. See domain/rent.ts.
+   *
+   * Turning it ON does not raise anything on its own. The next monthly run
+   * does, for the month it is in — never for months already gone.
+   */
+  if (b["autoRent"] !== undefined) data.autoRent = b["autoRent"] === true;
 
   if (b["country"] !== undefined) {
     const code = String(b["country"]).trim().toLowerCase().slice(0, 4);

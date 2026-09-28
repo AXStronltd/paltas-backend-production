@@ -55,6 +55,18 @@ export interface ConsoleForm {
   readonly label: string;
   /** The console's name for a column, mapped to this service's. */
   readonly fields: Readonly<Record<string, string>>;
+  /*
+   * WHAT A FIELD MEANS, where the name is not enough.
+   *
+   * Keyed by the SERVICE's column name, because that is what the form sends
+   * back. Rent day and billing frequency are the first two that need it: they
+   * decide when PALTAS raises an invoice by itself, and a person cannot be
+   * asked to set that from a label alone.
+   *
+   * It lives here rather than in the console so the words and the behaviour
+   * they describe change in the same commit.
+   */
+  readonly hints?: Readonly<Record<string, string>>;
 }
 
 export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
@@ -525,10 +537,26 @@ export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
     resource: "leases",
     label: "＋ New lease",
     fields: {
-      n: "tenantName",           // NEW — text, because the tenant may not be a contact yet
-      u: "unitRef",              // NEW — text, same reason
+      n: "tenantName",
+      u: "unitRef",
       rent: "rent",
       since: "startsOn",
+      day: "rentDay",
+      billing: "billing",
+    },
+    hints: {
+      rentDay:
+        "Rent Day determines when PALTAS raises the rent invoice for this "
+        + "lease. Where a month does not have this day, PALTAS bills on the "
+        + "last day of that month.",
+      billing:
+        "Monthly raises one rent invoice every month. Quarterly and Yearly "
+        + "follow the lease's own schedule, counted from the month the lease "
+        + "starts — so a lease beginning in February is billed in February, "
+        + "May, August and November, not in January.",
+      startsOn:
+        "Quarterly and Yearly billing are counted from this month. A lease "
+        + "without a start date is raised by hand.",
     },
   },
 

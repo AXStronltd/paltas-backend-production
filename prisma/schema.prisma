@@ -218,13 +218,25 @@ model Session {
 // --------------------------------------------------------- the company
 
 model Organization {
-  id        String    @id @default(cuid())
-  name      String
+  id      String  @id @default(cuid())
+  name    String
   /// Every organization that exists today is a CUSTOMER and the default keeps
   /// it that way, so the migration has nothing to guess. A public authority
   /// is made one through AuthorityProfile, which carries its own verification.
-  kind      OrgKind   @default(CUSTOMER)
-  country   String    @default("ke")
+  kind    OrgKind @default(CUSTOMER)
+  country String  @default("ke")
+
+  /// MAY PALTAS RAISE THIS COMPANY'S RENT BY ITSELF?
+  ///
+  /// OFF until somebody says otherwise, and that default is the whole point.
+  /// Every company using PALTAS today invoices rent by hand. Switching a rent
+  /// run on for all of them at once would raise THIS month again for every
+  /// tenant whose invoice was already typed — PALTAS has no way to know what
+  /// was billed outside it, so it must not assume nothing was.
+  ///
+  /// A company turns it on when its leases carry the right day and amount and
+  /// it has stopped invoicing by hand. See domain/rent.ts.
+  autoRent  Boolean   @default(false)
   city      String    @default("")
   size      String    @default("")
   status    OrgStatus @default(ACTIVE)
@@ -386,6 +398,7 @@ model Organization {
   PaymentPlan        PaymentPlan[]
   PaymentInstalment  PaymentInstalment[]
   CostCode           CostCode[]
+  RentCharge         RentCharge[]
 }
 
 model Subscription {
@@ -1092,21 +1105,35 @@ model Lease {
   /// Tenant and unit as typed. The relations above are the truth when set;
   /// these are what the `rentals` form collects before a tenant exists as
   /// a contact of its own.
-  tenantName String      @default("")
-  unitRef    String      @default("")
+  tenantName String @default("")
+  unitRef    String @default("")
   /// Minor units.
-  rent       BigInt      @default(0)
-  currency   String      @default("KES")
-  deposit    BigInt      @default(0)
-  startsOn   DateTime?
-  endsOn     DateTime?
-  status     LeaseStatus @default(ACTIVE)
-  note       String      @default("")
+  rent       BigInt @default(0)
+  currency   String @default("KES")
+  deposit    BigInt @default(0)
+
+  /// WHICH DAY RENT FALLS DUE, and how often it is raised.
+  ///
+  /// The rent figure above has always been here; nothing said WHEN it was
+  /// owed, so nothing could raise it. Every invoice had to be typed by hand,
+  /// for every unit, every month.
+  ///
+  /// 1–31. A month shorter than the day takes its last day, so a lease due on
+  /// the 31st is due on the 30th in April and on the 28th in February rather
+  /// than silently skipping the month.
+  rentDay  Int          @default(1)
+  billing  LeaseBilling @default(MONTHLY)
+  startsOn DateTime?
+  endsOn   DateTime?
+  status   LeaseStatus  @default(ACTIVE)
+  note     String       @default("")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   invoices Invoice[]
+
+  rentCharges RentCharge[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -2436,6 +2463,8 @@ model Invoice {
   payments          Payment[]
   investmentOrders  InvestmentOrder[]
   PaymentInstalment PaymentInstalment?
+
+  rentCharges RentCharge[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -4797,9 +4826,12 @@ model JournalEntry {
   status JournalStatus @default(DRAFT)
   memo   String        @default("")
 
-  /// What caused this. `sourceType` names a table ("Invoice", "Payment",
-  /// "Expense", "Payout"); `sourceId` is the row. Not a foreign key for the
-  /// same reason AuditEvent's is not: one column cannot reference nine tables.
+  /// What caused this. `sourceType` names the kind of row, LOWERCASE —
+  /// "invoice", "payment", "expense" — because that is what domain/posting.ts
+  /// writes; this comment said "Invoice" and cost somebody a query that
+  /// silently matched nothing. `sourceId` is the row. Not a foreign key for
+  /// the same reason AuditEvent's is not: one column cannot reference nine
+  /// tables.
   sourceType String?
   sourceId   String?
 
@@ -6872,4 +6904,59 @@ enum JobStatus {
   RUNNING
   SUCCEEDED
   FAILED
+}
+
+enum LeaseBilling {
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+/// ---------------------------------------------------------------------
+/// RENT THAT HAS BEEN RAISED, SO IT IS NEVER RAISED TWICE.
+///
+/// The scheduler's claim guarantees one RUN per period. It does not guarantee
+/// that a run which died half way through does not redo the leases it already
+/// reached — those are different problems, and only this one is about money.
+///
+/// `@@unique([orgId, leaseId, periodKey])` is what makes charging a lease for
+/// October impossible to do twice, whatever happens to the process in the
+/// middle of it. It is a table of its own rather than a column on Invoice
+/// because a lease's invoices are not all rent: adding a period to Invoice
+/// would either collide with manually raised ones or need a partial index
+/// Prisma cannot describe, and a guarantee the schema cannot state is not a
+/// guarantee.
+///
+/// The row survives its invoice being voided, deliberately. The charge
+/// happened; a voided invoice is a correction, not permission to raise the
+/// same month again by accident.
+/// ---------------------------------------------------------------------
+model RentCharge {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  leaseId String
+  lease   Lease  @relation(fields: [leaseId], references: [id], onDelete: Cascade)
+
+  /// The month this covers: "2026-10". With the lease, it is the guarantee.
+  periodKey String
+
+  /// What it produced. Nullable and SetNull: voiding or losing the invoice
+  /// must not delete the record that the month was charged.
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  /// What was charged, in minor units, and in what. Copied rather than read
+  /// back through the lease, because a rent review must not rewrite history.
+  amount   BigInt
+  currency String
+  dueOn    DateTime
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, leaseId, periodKey])
+  @@index([orgId, periodKey])
+  @@index([orgId, leaseId])
 }

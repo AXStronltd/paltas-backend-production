@@ -65,13 +65,23 @@ export type ScalarKind =
   | "money"
   | "signed-money";
 
+/**
+ * An integer with a range, written "int:1..31".
+ *
+ * A plain `int` accepts 0, -5 and 99, and a rent day of 99 is not a rejected
+ * input — it is a lease that says something impossible and then bills on a day
+ * the reader cannot predict. The bound belongs in the declaration, where every
+ * use of it is visible, rather than in a hand-written check in one route.
+ */
+export type BoundedIntKind = `int:${string}`;
+
 /** A reference to another row in the same company. */
 export type ReferenceKind = `id:${ModelKey}`;
 
 /** A value from one of the schema's own enums. */
 export type EnumKind = `enum:${EnumName}`;
 
-export type FieldKind = ScalarKind | ReferenceKind | EnumKind;
+export type FieldKind = ScalarKind | BoundedIntKind | ReferenceKind | EnumKind;
 
 /**
  * A row on its way out, with whatever `onRead` adds.
