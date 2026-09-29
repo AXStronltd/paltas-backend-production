@@ -172,7 +172,16 @@ test("a refusal is shown in the server's words", { skip }, async () => {
 /* The list is the way in, and it has to carry the id to open. */
 test("the clients list opens a client", { skip }, () => {
   const src = readFileSync(join(FE, "assets", "console.js"), "utf8");
-  const list = src.slice(src.indexOf("SCREENS.pm_buyers"), src.indexOf("SCREENS.pm_buyers") + 3000);
+  /*
+   * To the END of the function, not a fixed number of characters. This read
+   * 3000 and broke the day the screen grew its signed-out, failed, loading
+   * and empty states — which pushed the row markup past the window while the
+   * thing being asserted was still there. A test that fails when the code it
+   * checks gets MORE careful is a test nobody thanks.
+   */
+  const from = src.indexOf("SCREENS.pm_buyers");
+  const next = src.indexOf("SCREENS.", src.indexOf("\n};", from));
+  const list = src.slice(from, next > from ? next : undefined);
   assert.match(list, /data-act="clientOpen" data-arg="\$\{esc\(x\.id\)\}"/,
     "the clients list has no way to open a client");
 });
