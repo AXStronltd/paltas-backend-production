@@ -23,6 +23,7 @@ import { db } from "../db.ts";
 import { RESOURCES } from "../domain/registry.ts";
 import { levelFor, whyNotArea } from "../domain/access.ts";
 import { badRequest, forbidden, hidden } from "../http/errors.ts";
+import { whyNotReceiptable } from "../domain/receipts.ts";
 import {
   requireOpenSubscription, requireOrganization, requireSession,
 } from "../http/session.ts";
@@ -252,6 +253,10 @@ companyRoutes.get("/payments/history", route(async (req, res) => {
       invoice: {
         select: { id: true, ref: true, total: true, paid: true, status: true, currency: true },
       },
+      /* The proof handed over, if one has been. Included here rather than
+         asked for per row: a history of five hundred payments would otherwise
+         be five hundred more requests to draw one column. */
+      receipt: { select: { id: true, ref: true, basis: true, issuedAt: true, voided: true } },
     },
   });
 
@@ -268,6 +273,17 @@ companyRoutes.get("/payments/history", route(async (req, res) => {
       receivedAt: p.receivedAt,
       voided: p.voided, voidReason: p.voidReason,
       invoice: p.invoice,
+      /*
+       * WHETHER A RECEIPT EXISTS, AND IF NOT WHY NOT.
+       *
+       * Decided here rather than in the console, because "what counts as a
+       * confirmed payment" is a rule about money, and a second copy of it in
+       * the browser is how the two come to disagree about which payments are
+       * real. See domain/receipts.js.
+       */
+      receipt: p.receipt,
+      canReceipt: !p.receipt && !whyNotReceiptable(p),
+      whyNoReceipt: p.receipt ? null : whyNotReceiptable(p),
     })),
     count: rows.length,
     received,
