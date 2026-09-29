@@ -112,3 +112,42 @@ jobs:
             exit 1
           fi
           echo "no leaky names"
+
+  # ------------------------------------------------------------------
+  # A third cheap job: the dependencies this service ships.
+  #
+  # It exists because the secret scan above looks for what WE committed,
+  # and nothing looked at what we install. Express 4.21.2 sat in this
+  # repository carrying a high-severity ReDoS in path-to-regexp and two
+  # denial-of-service advisories in qs — all fixed upstream, none visible
+  # to any check here, because a vulnerable dependency builds cleanly and
+  # passes every test in the suite.
+  # ------------------------------------------------------------------
+  dependencies:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      # THE FULL PICTURE FIRST, AND IT NEVER FAILS THE BUILD.
+      #
+      # Printed so a moderate advisory is visible the day it lands rather
+      # than the day it is upgraded to high. `|| true` is deliberate: this
+      # step is a report, and the next step is the judgement.
+      - name: Advisories, in full
+        run: npm audit || true
+
+      # FAILS ON high AND critical ONLY.
+      #
+      # Same principle as the credential scan: narrow enough to be believed.
+      # A build that goes red every time a moderate DoS appears three layers
+      # down in a dev dependency is a build people learn to ignore, and a
+      # check nobody believes protects nothing.
+      - name: No high or critical advisory may ship
+        run: npm audit --audit-level=high
