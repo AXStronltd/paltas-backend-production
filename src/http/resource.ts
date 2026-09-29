@@ -502,6 +502,10 @@ export function resourceRouter(slug: string): Router {
   if (!resource.ownUpdate) {
   router.patch("/:id", may("update"), async (req, res, next) => {
     try {
+      /* Kept as a route rather than left to 404, for the same reason as
+         noDelete: a caller who tries is told what to do instead. */
+      if (resource.noUpdate) throw forbidden(resource.noUpdate);
+
       const before = await model().findFirst({
         where: {
           id: param(req, "id"), orgId: actorOf(req).orgId,

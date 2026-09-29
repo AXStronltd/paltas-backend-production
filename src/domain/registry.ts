@@ -1691,6 +1691,68 @@ const DECLARATIONS = {
     },
   },
 
+  /* ------------------------------------------------------------------ *
+   * RECEIPTS — evidence, not a view of a payment.
+   * ------------------------------------------------------------------ */
+  receipts: {
+    model: "receipt", area: "finance", product: null,
+    label: "receipts",
+    fields: {
+      paymentId: "id:payment",
+      amount: "money", currency: "string", method: "enum:PaymentMethod",
+      reference: "string", paidOn: "date",
+      payerName: "string", partyId: "id:party",
+      invoiceRef: "string", invoiceId: "id:invoice",
+      basis: "enum:ReceiptBasis",
+      issuedAt: "date",
+      voided: "bool", voidReason: "string",
+    },
+    /*
+     * Listed even though the generic create is switched off. These are the
+     * columns a receipt cannot exist without, and saying so here is what
+     * stops a future hand-written caller reaching the database with one
+     * missing and getting a 500 where it should have been told which.
+     */
+    required: ["paymentId", "amount", "currency", "method", "paidOn", "basis"],
+    numbered: "ref", prefix: "RCP",
+    search: ["ref", "payerName", "reference", "invoiceRef"],
+    order: [{ issuedAt: "desc" }],
+    include: {
+      payment: { select: { id: true, method: true, reference: true, voided: true } },
+    },
+    /*
+     * ISSUED FROM A PAYMENT, NEVER POSTED DIRECTLY.
+     *
+     * A generic create would let anybody with finance rights write a receipt
+     * for money that never arrived — which is the one thing a receipt exists
+     * to rule out. The basis, the number and every copied field are decided
+     * by the payment, so the payment is the only door.
+     */
+    /*
+     * `noCreate`, not `ownCreate`. The difference is whether a POST /receipts
+     * exists anywhere, and deliberately none does: a receipt is issued from
+     * the payment it evidences, at POST /payments/:id/receipt, which is the
+     * only place that can decide the basis and copy the fields. Declaring
+     * ownCreate would promise a same-path route that must not be built.
+     */
+    noCreate:
+      "A receipt is issued from the payment it evidences — POST /payments/:id/receipt. " +
+      "There is no POST /receipts, because a receipt written without a payment " +
+      "behind it would evidence nothing.",
+    /*
+     * NOTHING EDITS A RECEIPT. Somebody outside this company is holding a
+     * copy; changing ours makes the two disagree and hands the argument to
+     * whoever kept better records. A mistake is voided and reissued.
+     */
+    noUpdate:
+      "A receipt is not edited — the customer is holding the version that was " +
+      "issued, and changing ours makes the two disagree. Void it with a reason " +
+      "(POST /receipts/:id/void) and issue a new one.",
+    noDelete:
+      "A receipt is voided, never deleted — POST /receipts/:id/void, with a reason. " +
+      "The number stays findable because the customer's copy still carries it.",
+  },
+
   payments: {
     model: "payment", area: "finance", product: null,
     label: "payments",

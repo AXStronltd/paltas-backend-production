@@ -327,6 +327,7 @@ model Organization {
   /// ---- money ----
   invoices Invoice[]
   payments Payment[]
+  receipts Receipt[]
   expenses Expense[]
   payouts  Payout[]
 
@@ -2648,12 +2649,104 @@ model Payment {
   reconciledAt    DateTime?
   bankTransaction BankTransaction?
 
+  /// The proof handed to whoever paid, if one has been issued.
+  receipt Receipt?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([orgId, method, reference])
   @@index([orgId, receivedAt])
   @@index([orgId, invoiceId])
+}
+
+/// WHAT A RECEIPT RESTS ON.
+///
+/// A receipt is evidence given to somebody outside the company, so it has to
+/// say what makes it true. Payment has no status enum on purpose — its own
+/// comment explains why: "a card payment is confirmed by the processor and a
+/// cash receipt by the person who took it", and `reconciledAt` answers a
+/// different question, which is whether anybody has seen the money arrive on
+/// a statement.
+///
+/// So confirmation is not one test. It is three, strongest first, and the
+/// receipt records which one it stands on rather than implying the strongest.
+enum ReceiptBasis {
+  /// Seen on a bank statement and matched. The only basis that does not rely
+  /// on somebody's word.
+  BANK_RECONCILED
+  /// The provider says so — an M-Pesa code, a card charge id, a processor's
+  /// PaymentIntent. Checkable against a third party's records.
+  PROVIDER_CONFIRMED
+  /// Cash, handed over and counted. Nothing outside this company witnessed
+  /// it; the receipt names who took it, because that is the whole of the
+  /// evidence.
+  TAKEN_IN_PERSON
+}
+
+/// PROOF THAT MONEY WAS RECEIVED.
+///
+/// Not a view of a Payment. A payment is the company's own record and it may
+/// be corrected; a receipt is a document handed to a customer, and what it
+/// said when they got it must still be what it says. So every field a receipt
+/// prints is COPIED at issue, and nothing edits one afterwards — a mistake is
+/// voided, with a reason, and a new one issued.
+///
+/// One per payment, forever, by unique constraint. Pressing the button twice
+/// must not produce two documents with different numbers for the same money.
+model Receipt {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// RCP-0001, counted per company. Called `ref` like every other allocated
+  /// number in this schema, which is also what puts it in the framework's
+  /// never-writable list — a caller choosing its own receipt number could
+  /// collide with one already handed out.
+  ref String
+
+  /// Restrict, not Cascade: deleting the payment behind a receipt somebody is
+  /// holding would leave them with a document this company cannot explain.
+  /// Payments are voided rather than deleted anyway — this makes that the
+  /// only possible path rather than the customary one.
+  paymentId String  @unique
+  payment   Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  /// ---- copied at issue, never read back through the payment ----
+  amount     BigInt
+  currency   String
+  method     PaymentMethod
+  /// The provider's reference as it stood — an M-Pesa code, a cheque number.
+  reference  String        @default("")
+  paidOn     DateTime
+  /// Who paid, in words. A receipt is given to a person, not to a row, and
+  /// the party may be renamed or merged later.
+  payerName  String        @default("")
+  partyId    String?
+  /// What it was against. The ref is printed; the id is for navigation and
+  /// may go stale without changing what the document says.
+  invoiceRef String        @default("")
+  invoiceId  String?
+
+  basis ReceiptBasis
+
+  issuedAt     DateTime @default(now())
+  issuedById   String   @default("")
+  issuedByName String   @default("")
+
+  /// Voided, never edited or deleted. A voided receipt still exists, still
+  /// carries its number, and says why — because the customer still has their
+  /// copy and it has to be findable.
+  voided     Boolean   @default(false)
+  voidReason String    @default("")
+  voidedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId, issuedAt])
+  @@index([orgId, partyId])
 }
 
 /// A member company's own Stripe account, so it can charge its own customers.

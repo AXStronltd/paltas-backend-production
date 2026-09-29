@@ -86,6 +86,10 @@ const NEVER_WRITABLE = {
           "send it could claim to be anybody the company has on file",
   ref: "allocated per company by the framework; a caller choosing one could collide or impersonate",
   code: "same as ref — a pass code is allocated, never chosen by the person it admits",
+  issuedById: "who issued the receipt, taken from the session — a caller who could " +
+              "send it could put somebody else's name on a document they handed over",
+  issuedByName: "same as issuedById: the name is copied from the session beside the id, " +
+                "so the two cannot disagree about who stood at the desk",
   createdAt: "set once, by the database",
   updatedAt: "set by Prisma on every write",
   closedAt: "set by the status change that closes it, not sent alongside it",

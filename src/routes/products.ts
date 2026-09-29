@@ -35,7 +35,8 @@ import { actorOf as sharedActorOf, param } from "../http/request.ts";import type
 import { db, delegate } from "../db.ts";
 import { RESOURCES } from "../domain/registry.ts";
 import { currencyFor } from "../domain/currency.ts";
-import { resourceRouter } from "../http/resource.ts";
+import { numberFor, resourceRouter } from "../http/resource.ts";
+import { BASIS_WORDS, requireReceiptable, whyNotReceiptable } from "../domain/receipts.ts";
 import { clean } from "../domain/input.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
 import { scopedTo } from "../domain/scope.ts";
@@ -1152,5 +1153,143 @@ guarded.get("/documents/:id/download-url", async (req, res, next) => {
     await audit(req, "document.download", "document", doc.id, { name: doc.name });
     res.set("Cache-Control", "no-store, private");
     res.json({ download: { url: out.url, expiresIn: out.expiresIn } });
+  } catch (e) { next(e); }
+});
+
+/* ====================================================================== *
+ * RECEIPTS — the proof handed to whoever paid.
+ *
+ * See domain/receipts.js for why a receipt copies its fields instead of
+ * rendering the payment, and for what counts as confirmation given that
+ * Payment deliberately has no status column.
+ * ====================================================================== */
+
+guarded.post("/payments/:id/receipt", async (req, res, next) => {
+  try {
+    /*
+     * Issuing is a CREATE on receipts, not on payments. Somebody who may
+     * record money taken at a desk may hand over the receipt for it; nothing
+     * about issuing one changes the books.
+     */
+    need(req, "finance", "create", "receipts");
+
+    /* The invoice comes with it, because the payer's name and the invoice
+       reference are printed on the document and must be copied, not looked
+       up again later when the party may have been renamed. */
+    type WithInvoice = {
+      invoice: { id: string; ref: string; party: { id: string; name: string } | null } | null;
+    };
+    const payment = await own<"payment", WithInvoice>(
+      "payment", param(req, "id"), actorOf(req).orgId,
+      { include: { invoice: { select: { id: true, ref: true, party: { select: { id: true, name: true } } } } } },
+    );
+
+    /*
+     * ALREADY ISSUED IS NOT AN ERROR.
+     *
+     * "One receipt per payment" is a unique constraint, so a second press
+     * cannot make a second document. Returning the existing one with 200 is
+     * the honest answer to what the person actually asked — they want the
+     * receipt, and it exists. A 409 here would send somebody hunting for a
+     * problem that is really the guarantee working.
+     */
+    const already = await db.receipt.findFirst({
+      where: { paymentId: payment.id, orgId: actorOf(req).orgId },
+    });
+    if (already) {
+      res.json({ receipt: already, basisWords: BASIS_WORDS[already.basis], reissued: false });
+      return;
+    }
+
+    const basis = requireReceiptable(payment);
+
+    const invoice = payment.invoice;
+
+    const receipt = await db.receipt.create({
+      data: {
+        orgId: actorOf(req).orgId,
+        ref: await numberFor("receipts", actorOf(req).orgId),
+        paymentId: payment.id,
+        /* Copied, all of it. The payment may be corrected tomorrow; what the
+           customer is holding may not change underneath them. */
+        amount: payment.amount,
+        currency: payment.currency,
+        method: payment.method,
+        reference: payment.reference,
+        paidOn: payment.receivedAt,
+        payerName: invoice?.party?.name || payment.receivedBy || "",
+        partyId: invoice?.party?.id || null,
+        invoiceRef: invoice?.ref || "",
+        invoiceId: invoice?.id || null,
+        basis,
+        issuedById: actorOf(req).userId,
+        issuedByName: actorOf(req).userName,
+      },
+    });
+
+    await audit(req, "receipt.issue", "receipt", receipt.id, {
+      ref: receipt.ref, paymentId: payment.id,
+      amount: auditable(receipt.amount), currency: receipt.currency, basis,
+    });
+
+    res.status(201).json({
+      receipt, basisWords: BASIS_WORDS[basis], reissued: false,
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * Whether a receipt could be issued, and why not when it could not.
+ *
+ * So a payments list can show the right control on every row without asking
+ * the server once per row and without reimplementing the rule in the console
+ * — a second copy of "what counts as confirmed" is how the two start
+ * disagreeing about which payments are real.
+ */
+guarded.get("/payments/:id/receipt", async (req, res, next) => {
+  try {
+    need(req, "finance", "get", "receipts");
+    const payment = await own("payment", param(req, "id"), actorOf(req).orgId);
+    const receipt = await db.receipt.findFirst({
+      where: { paymentId: payment.id, orgId: actorOf(req).orgId },
+    });
+    const why = whyNotReceiptable(payment);
+    res.json({
+      receipt,
+      canIssue: !receipt && !why,
+      why: receipt ? null : why,
+      basisWords: receipt ? BASIS_WORDS[receipt.basis] : null,
+    });
+  } catch (e) { next(e); }
+});
+
+guarded.post("/receipts/:id/void", async (req, res, next) => {
+  try {
+    /* Same level as voiding the payment: this withdraws a document somebody
+       outside the company is holding. */
+    need(req, "finance", "delete", "receipts");
+
+    const why = String(req.body?.reason || "").trim();
+    if (why.length < 5) {
+      throw badRequest(
+        "A void needs a reason. The customer still has their copy, and whoever " +
+        "they show it to will have only this sentence to go on.");
+    }
+
+    const receipt = await own("receipt", param(req, "id"), actorOf(req).orgId);
+    if (receipt.voided) throw conflict("That receipt is already void.");
+
+    const voided = await db.receipt.update({
+      where: { id: receipt.id },
+      data: { voided: true, voidReason: why, voidedAt: new Date() },
+    });
+
+    await audit(req, "receipt.void", "receipt", receipt.id,
+      { ref: receipt.ref, reason: why, amount: auditable(receipt.amount) });
+
+    /* The number is NOT freed. A reissue gets the next one, so two documents
+       never share a number and the voided one stays findable when somebody
+       brings their copy back. */
+    res.json({ receipt: voided });
   } catch (e) { next(e); }
 });

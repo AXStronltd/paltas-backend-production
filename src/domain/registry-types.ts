@@ -276,6 +276,19 @@ export interface ResourceDeclaration {
   readonly ownCreate?: string;
   readonly ownUpdate?: string;
   readonly noCreate?: string;
+  /**
+   * NOTHING EDITS THIS, not even a hand-written route.
+   *
+   * `ownUpdate` says "the edit rules live elsewhere in this service";
+   * `noUpdate` says there are none, because the row is evidence rather than
+   * a working record. A receipt is the first: somebody outside the company
+   * is holding a copy, and changing ours makes the two disagree.
+   *
+   * Like `noDelete`, the route stays and answers 403 with this sentence — a
+   * caller who tries deserves to be told what to do instead, which is
+   * usually to void it and issue a new one.
+   */
+  readonly noUpdate?: string;
   readonly noDelete?: string;
 
   /**

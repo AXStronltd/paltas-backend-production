@@ -374,6 +374,11 @@ const EXPECTED_UNNARROWABLE = [
      documented limitation as `contracts`. */
   "handovers", "project-team",
   "token-holdings", "viewings",
+  /* A receipt hangs off a payment, which hangs off an invoice — so it reaches
+     a site only through two joins the scope filter does not do. Same
+     documented limitation as `contracts`, and narrowing it wrongly would hide
+     a customer's own receipt from the person who issued it. */
+  "receipts",
 ].sort();
 
 test("the resources with no site are NOT narrowed — by design",

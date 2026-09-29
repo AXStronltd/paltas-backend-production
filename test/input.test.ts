@@ -19,6 +19,7 @@ import assert from "node:assert/strict";
 import { clean } from "../src/domain/input.ts";
 import { RESOURCES } from "../src/domain/registry.ts";
 import { said, threw } from "./threw.ts";
+import prisma from "@prisma/client";
 
 const INVOICE = RESOURCES.invoices;
 const PAYMENT = RESOURCES.payments;
@@ -143,6 +144,18 @@ test("a body that is not an object is a bad request, not a crash", () => {
   }
 });
 
+
+/** The first member of a generated Prisma enum, by its schema name. */
+function firstMemberOf(name: string, slug: string, key: string): string {
+  const mod = prisma as unknown as Record<string, unknown>;
+  const nested = mod["Prisma"] as Record<string, unknown> | undefined;
+  const e = (mod[name] ?? nested?.[name]) as Record<string, string> | undefined;
+  const members = e && typeof e === "object" ? Object.keys(e) : [];
+  assert.ok(members.length,
+    `${slug} requires "${key}" of enum ${name}, which the client does not export`);
+  return members[0]!;
+}
+
 test("every resource can be created from its own required fields alone", () => {
   /*
    * A sweep rather than a case: if a declaration ever requires a field whose
@@ -154,9 +167,19 @@ test("every resource can be created from its own required fields alone", () => {
     for (const key of r.required || []) {
       const kind = r.fields[key];
       assert.ok(kind, `${slug} requires "${key}", which it does not declare as a field`);
+      /*
+       * AN ENUM GETS A MEMBER, NOT A WORD.
+       *
+       * "Something" is no enum's value, so any resource that REQUIRES one
+       * failed this sweep the moment it was declared — which the first such
+       * resource, receipts, duly did. Read from Prisma's generated enums for
+       * the same reason clean() does: a list kept by hand here would drift
+       * the first time somebody added a status.
+       */
       body[key] = kind === "int" || kind === "money" || kind === "float" ? 1
                 : kind === "bool" ? true
                 : kind === "date" ? "2026-01-01"
+                : kind.startsWith("enum:") ? firstMemberOf(kind.slice(5), slug, key)
                 : "Something";
     }
     const out = clean(r, body, { partial: false });
