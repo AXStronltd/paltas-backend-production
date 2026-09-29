@@ -69,7 +69,7 @@ body is those fields; the response is the created record.
 | `ag_listings` | ＋ New listing | `n:text, ch:enum(PALTAS|PALTAS · Airbnb|PALTAS · Booking.com|PALTAS · all channels)` |
 | `ag_props` | ＋ Add a property | `n:text, owner:text, kind:enum(Short stay|Long let|For sale), rate:num, mandate:text` |
 | `ag_viewings` | ＋ Book a viewing | `who:text, prop:text, when:text, note:text` |
-| `buildings` | ＋ Add a building | `n:text, city:text, floors:num, units:num, built:num, cond:enum(Good|Fair|Needs work)` |
+| `buildings` | ＋ Add a building | `site:id(site), n:text, city:text, floors:num, units:num, built:num, cond:enum(Good|Fair|Needs work)` |
 | `development` | ＋ New project | `name:text, city:text, units:num, due:text` |
 | `documents` | ＋ Upload | `n:text, kind:enum(Ownership|Lease|Compliance|Insurance|Tax|Other), who:text, exp:text` |
 | `h_reservations` | ＋ New reservation | `g:text, r:text, t:enum(Standard|Deluxe|Marina Suite|Family), n:num, eta:text` |
@@ -88,7 +88,7 @@ body is those fields; the response is the created record.
 | `s_vehicles` | ＋ Register a vehicle | `plate:text, make:text, owner:text, kind:enum(Resident|Staff|Visitor|Contractor), bay:text` |
 | `s_visitors` | ＋ Register visitor | `n:text, cat:enum(Guest|Contractor|Delivery|Staff|Viewing), host:text, veh:text` |
 | `sales` | ＋ Add lead | `n:text, p:text, b:num, s:enum(Enquiry|Viewing|Offer|Reserved|Closed)` |
-| `units` | ＋ Add a unit | `id:text, b:text, type:enum(Studio|1 bed|2 bed|3 bed|4 bed|Shop|Office), sqm:num, rent:num` |
+| `units` | ＋ Add a unit | `site:id(site), building:id(building), id:text, b:text, type:enum(Studio|1 bed|2 bed|3 bed|4 bed|Shop|Office), sqm:num, rent:num` |
 
 ---
 

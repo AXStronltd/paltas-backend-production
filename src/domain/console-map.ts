@@ -162,6 +162,19 @@ export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
     resource: "buildings",
     label: "＋ Add a building",
     fields: {
+      /*
+       * WHICH PROPERTY IT STANDS ON.
+       *
+       * The Buildings screen tells a new company to "add the properties
+       * first, then the buildings on them" and then offered no way to say
+       * which — so every building created in the console was an orphan, and
+       * a portfolio built through the product came out flat.
+       *
+       * `building.siteId` has always existed in the registry. Only this list
+       * was missing it, and forms.ts already renders an `id:site` as a picker
+       * labelled "Property", filled from the company's own sites.
+       */
+      site: "siteId",
       n: "name", city: "city", floors: "floors",
       units: "unitCount", built: "builtYear", cond: "condition",
     },
@@ -564,8 +577,23 @@ export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
     resource: "units",
     label: "＋ Add a unit",
     fields: {
+      /*
+       * THE PICKER THAT "COMES LATER" IS THIS ONE.
+       *
+       * `b: "buildingName"` is free text, so a unit never pointed at the
+       * building it is in — it carried a copy of its name. Two buildings
+       * called "Block A" on different properties were the same building to
+       * every query that tried to count through it.
+       *
+       * Both ids are optional on purpose. A unit may exist before its
+       * building does — the Command Centre says so in those words — and the
+       * registry has always allowed it.
+       */
+      site: "siteId", building: "buildingId",
       id: "ref",
-      b: "buildingName",         // NEW — text; the picker comes later
+      /* Kept, and now a fallback rather than the only answer: an imported
+         row may name a building this company has not created yet. */
+      b: "buildingName",
       type: "kind", sqm: "sqm", rent: "rent",
     },
   },

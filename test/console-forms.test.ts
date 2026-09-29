@@ -308,7 +308,19 @@ test("all 27 forms post successfully, and nothing is silently dropped", { skip }
 
     const body: Record<string, unknown> = {};
     for (const [consoleField, kind] of Object.entries(spec.fields)) {
-      body[consoleField] = valueFor(consoleField, kind);
+      /*
+       * A REAL ROW, NOT A PLAUSIBLE STRING.
+       *
+       * This test's second half proves every field round-trips, so a
+       * reference cannot simply be omitted — it would store null and be
+       * reported as silently dropped. referenceTo() makes a row of the right
+       * model owned by this company, which is also the only thing the
+       * framework's reference check will accept. So the link is proved to
+       * save, rather than proved to be refused.
+       */
+      body[consoleField] = String(kind).startsWith("id(")
+        ? await referenceTo(String(kind).slice(3, -1))
+        : valueFor(consoleField, kind);
     }
     /* The one dependency the console satisfies by having a site selected. */
     if (form.resource === "zones") {
@@ -545,7 +557,23 @@ test("the enum wording the console offers is wording the server accepts", { skip
 
       for (const option of kind.slice(5, -1).split("|").map((s: Wire) => s.trim())) {
         const body: Record<string, unknown> = {};
-        for (const [f, k] of Object.entries(spec.fields)) body[f] = valueFor(f, k);
+        for (const [f, k] of Object.entries(spec.fields)) {
+          /*
+           * A REFERENCE IS LEFT OUT, NOT INVENTED.
+           *
+           * valueFor() produces a plausible string, and the framework checks
+           * that a reference belongs to the caller's company before writing
+           * it — so a made-up id is refused with "does not name anything this
+           * company has". That is the guard working, and feeding it junk
+           * would report the guard as a broken dropdown.
+           *
+           * Every one of these is optional, so omitting it leaves the enum
+           * under test as the only thing the server can object to. The one
+           * required case, zones.siteId, is supplied for real just below.
+           */
+          if (String(k).startsWith("id(")) continue;
+          body[f] = valueFor(f, k);
+        }
         body[consoleField] = option;
         if (form.resource === "zones") {
       body["siteId"] = present(SITE, "no site was made").json.site.id;
