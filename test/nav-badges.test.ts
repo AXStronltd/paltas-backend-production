@@ -32,8 +32,17 @@ const skip = existsSync(file) ? false : `no frontend at ${FE}`;
  * the three items under Finance keep a falsy 0 there so their sub-heading
  * stays at position 5.
  */
+/*
+ * NOT ANCHORED TO THE START OF A LINE.
+ *
+ * The first version of this was, and it passed while fourteen badges were
+ * still live — every nav item written inline, like
+ * `items: [["command", "◈", "Command centre", 6]]`, and the whole agent
+ * console, whose groups are declared several to a line. A rule that only
+ * holds for code formatted one particular way is not the rule.
+ */
 const WITH_COUNT =
-  /^\s*\["[a-z_]+"\s*,\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*[1-9]\d*/gm;
+  /\["[a-z_]+"\s*,\s*"[^"]*"\s*,\s*"[^"]*"\s*,\s*[1-9]\d*/g;
 
 test("no navigation item ships a hardcoded count", { skip }, () => {
   const src = readFileSync(file, "utf8");
