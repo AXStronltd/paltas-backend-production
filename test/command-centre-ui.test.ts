@@ -179,7 +179,9 @@ test("a brand new company is told where to start", { skip }, async () => {
   await c.settle();
   const html = c.html();
   assert.match(html, /No properties, units or tenancies yet/);
-  assert.match(html, /data-act="newOpen" data-arg="portfolio"/, "with a real action");
+  /* goAdd: the command centre draws no newPanel(), so newOpen() would set
+     NEW and render a screen with nowhere to put the form. */
+  assert.match(html, /data-act="goAdd" data-arg="portfolio"/, "with a real action");
   assert.match(html, /data-arg="units"/);
   assert.match(html, /data-arg="rentals"/);
   assert.doesNotMatch(html, /Needs your attention/, "no empty scaffolding");

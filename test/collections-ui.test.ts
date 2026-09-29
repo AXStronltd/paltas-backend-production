@@ -203,7 +203,10 @@ test("nothing outstanding says so, and offers to raise an invoice", { skip }, as
   await c.settle();
   const html = c.html();
   assert.match(html, /Nothing is outstanding/);
-  assert.match(html, /newOpen/, "with somewhere to go next");
+  /* goAdd, not newOpen: Collections draws no newPanel(), so opening the
+     invoice form here would put it nowhere. It navigates, then opens. */
+  assert.match(html, /data-act="goAdd" data-arg="fin_invoices"/,
+    "with somewhere to go next");
 });
 
 /*

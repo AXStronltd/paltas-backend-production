@@ -191,8 +191,8 @@ test("a company with no leases is told what to do first", { skip }, async () => 
   assert.match(html, /ready to configure/);
   assert.match(html, /Create your leases first/);
   /* emptyState renders the action and its argument as two attributes. */
-  assert.match(html, /data-act="newOpen" data-arg="rentals"/,
-    "the button goes to the real lease form");
+  assert.match(html, /data-act="goAdd" data-arg="rentals"/,
+    "the button goes to the real lease form, on the screen that draws it");
 });
 
 test("signed out, it says so rather than showing a sample", { skip }, async () => {

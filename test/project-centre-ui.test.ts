@@ -176,12 +176,19 @@ test("what is holding it up is shown, with somewhere to go", { skip }, async () 
   }
 });
 
-test("adding a unit opens the real unit form", { skip }, async () => {
-  const c = open(golden());
-  c.act("projOpen", "pj1");
-  await c.settle();
-  assert.match(c.html(), /data-act="newOpen" data-arg="units"/);
-});
+test("adding a unit opens the real unit form, on the screen that draws it",
+  { skip }, async () => {
+    const c = open(golden());
+    c.act("projOpen", "pj1");
+    await c.settle();
+    /*
+     * goAdd, not newOpen. This screen draws no newPanel(), so newOpen() set
+     * NEW and then rendered a project centre with nowhere to put the form —
+     * the button did nothing. The assertion was pinned to the broken call,
+     * which is how it kept passing.
+     */
+    assert.match(c.html(), /data-act="goAdd" data-arg="units"/);
+  });
 
 test("with no project chosen it offers the list", { skip }, () => {
   const c = open(golden());

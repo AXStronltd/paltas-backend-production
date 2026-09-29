@@ -610,7 +610,9 @@ test("an empty state that offers an action points at something real", { skip }, 
     try { html = String((S[key] as () => string)()); } catch { continue; }
     /* Every empty-state button this release added carries data-arg with the
        screen whose form it opens. */
-    for (const m of html.matchAll(/data-act="newOpen" data-arg="([a-z_]+)"/g)) {
+    /* BOTH actions. goAdd navigates first and then opens the same form, so a
+       goAdd naming a screen with no form is the identical dead button. */
+    for (const m of html.matchAll(/data-act="(?:newOpen|goAdd)" data-arg="([a-z_]+)"/g)) {
       const target = String(m[1]);
       if (!FORMS.has(target)) {
         wrong.push(`${key}: offers a form for ${target}, which has none`);
