@@ -170,8 +170,42 @@ const rentRun: Job = {
   },
 };
 
+/*
+ * TELLING PEOPLE THINGS BEFORE THEY GO WRONG.
+ *
+ * DAILY, and that beat is the reason reminders needed a memory of their own.
+ * The claim below stops two runs on the same day; it does nothing about the
+ * fact that a lease expiring in three weeks is still expiring tomorrow. A
+ * sweep with no memory therefore tells the same tenant the same thing every
+ * morning until they leave.
+ *
+ * So the once-only guarantee for a reminder is not this claim either — it is
+ * the unique (orgId, kind, subjectId, milestone) on Reminder, exactly as
+ * rent's is RentCharge rather than the claim above. The pattern is the same
+ * one twice: the claim is about concurrency, the constraint is about meaning.
+ *
+ * Ten reminders in the standard, six declared. What is missing is missing for
+ * a reason worth writing down: there is no bank feed to synchronise, nothing
+ * delivers a report on a schedule, and an owner statement is not built. A
+ * reminder about something that does not happen is worse than none.
+ */
+const reminderSweep: Job = {
+  key: "reminders",
+  title: "Send reminders that have come due",
+  why: "Invoices falling due, leases and documents expiring, tasks and plant "
+     + "service dates passing. Each is a date somebody has to act on, and a "
+     + "date nobody is reminded of is a date with no effect.",
+  period: daily,
+  async run({ db, now, note }) {
+    const { runReminders } = await import("./reminders.ts");
+    const out = await runReminders(db, { now });
+    for (const n of out.notes) note(n);
+    return { scanned: out.scanned, changed: out.sent };
+  },
+};
+
 /** Everything the scheduler knows how to do. */
-export const JOBS: readonly Job[] = [overdueSweep, rentRun];
+export const JOBS: readonly Job[] = [overdueSweep, rentRun, reminderSweep];
 
 export function jobByKey(key: string): Job | null {
   return JOBS.find((j) => j.key === key) || null;

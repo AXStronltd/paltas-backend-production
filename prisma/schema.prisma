@@ -325,11 +325,12 @@ model Organization {
   emergencyPlans EmergencyPlan[]
 
   /// ---- money ----
-  invoices Invoice[]
-  payments Payment[]
-  receipts Receipt[]
-  expenses Expense[]
-  payouts  Payout[]
+  invoices  Invoice[]
+  payments  Payment[]
+  receipts  Receipt[]
+  reminders Reminder[]
+  expenses  Expense[]
+  payouts   Payout[]
 
   /**
    * Held BY the platform, ABOUT this company.
@@ -5422,6 +5423,53 @@ enum CampaignStatus {
   CANCELLED
 }
 
+/// A REMINDER THAT HAS ALREADY BEEN SENT.
+///
+/// The scheduler's claim makes a run happen once a day. That is not enough for
+/// a reminder: a lease expiring in three weeks is still expiring tomorrow, so
+/// a daily job with no memory tells the same tenant the same thing every
+/// morning until they leave. People stop reading a system that does that, and
+/// then they miss the one that mattered.
+///
+/// So the memory is a row, and the unique key is what makes it work: one
+/// reminder per company, per kind, per record, PER MILESTONE. A lease gets one
+/// warning at sixty days and another at seven, and neither repeats however
+/// often the job runs or however many instances run it.
+model Reminder {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// Which reminder this is — "lease-expiry", "invoice-due".
+  kind String
+
+  /// The row it is about. Deliberately NOT a relation: one table cannot point
+  /// at nine others, and a reminder about a deleted record is still a fact
+  /// about what was sent. `subjectType` says which table to look in.
+  subjectType String
+  subjectId   String
+
+  /// WHICH THRESHOLD FIRED — "60d", "7d", "due", "30d-late". The half of the
+  /// key that separates "warn them early" from "warn them again".
+  milestone String
+
+  /// What went out, if anything did. Nullable: a company with no comms
+  /// provider still gets the reminder recorded and surfaced in its own
+  /// console, which is better than nothing happening and no trace of why.
+  dispatchId String?
+  dispatch   Dispatch? @relation(fields: [dispatchId], references: [id], onDelete: SetNull)
+
+  /// When it fired. `createdAt` rather than a `firedAt` beside it: the row is
+  /// written at the moment it fires, so a second column would be the same
+  /// fact twice and eventually two different answers.
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, kind, subjectId, milestone])
+  @@index([orgId, createdAt])
+  @@index([orgId, kind])
+}
+
 model Dispatch {
   id    String       @id @default(cuid())
   orgId String
@@ -5494,6 +5542,9 @@ model Dispatch {
   updatedAt DateTime @updatedAt
 
   events DispatchEvent[]
+
+  /// The reminders that produced this message, if it came from one.
+  reminders Reminder[]
 
   @@unique([orgId, ref])
   @@index([orgId])
