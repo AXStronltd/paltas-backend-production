@@ -472,6 +472,136 @@ export async function postForPayment(
 }
 
 /* ====================================================================== *
+ * MONEY BACK, AND MONEY WAIVED — the two that undo an invoice
+ * ====================================================================== */
+
+/** A credit note as this bridge reads it. */
+export interface CreditNoteForPosting {
+  readonly id: string;
+  readonly ref: string;
+  readonly amount: bigint | number;
+  readonly taxBps: number;
+  readonly currency: string;
+  readonly issuedOn: Date;
+}
+
+/**
+ * A CREDIT NOTE IS AN INVOICE RUN BACKWARDS, AND NOTHING ELSE.
+ *
+ * Cr receivable — they owe less. Dr income — the company earned less than it
+ * said. Dr tax payable for the tax inside it, because a bill that is being
+ * withdrawn takes its VAT with it; leaving that credited would have the
+ * company remit tax on revenue it gave back.
+ *
+ * Deliberately the mirror of postForInvoice rather than a reversal of the
+ * original entry: a credit note is usually PART of an invoice, and reversing
+ * the whole entry to re-post the difference would leave two corrections in
+ * the ledger where the business did one thing.
+ */
+export async function postForCreditNote(
+  db: Db,
+  { orgId, note, invoice, userId }: {
+    orgId: string;
+    note: CreditNoteForPosting;
+    invoice: InvoiceForPosting;
+    userId?: string | null;
+  },
+): Promise<PostingResult> {
+  const chart = await chartFor(db, orgId);
+  if (!chart) return skip("no chart of accounts — seed one to book credit notes automatically");
+
+  const gross = big(note.amount);
+  if (gross <= 0n) return skip("a credit note of nothing has nothing to book");
+
+  /* The tax inside the gross, not on top of it — the same arithmetic the
+     invoice used, so the two agree to the shilling. */
+  const tax = (gross * BigInt(note.taxBps || 0)) / BigInt(10000 + (note.taxBps || 0));
+  const net = gross - tax;
+
+  const receivable = usable(chart, ACCOUNTS.receivable);
+  const incomeCode = invoice.leaseId ? ACCOUNTS.rent : ACCOUNTS.otherIncome;
+  const income = usable(chart, incomeCode) || usable(chart, ACCOUNTS.otherIncome);
+  if (!receivable) return skip(`account ${ACCOUNTS.receivable} is missing or closed to postings`);
+  if (!income) return skip(`account ${incomeCode} is missing or closed to postings`);
+
+  const dim = await dimensionsFor(db, orgId, {
+    leaseId: invoice.leaseId, partyId: invoice.partyId,
+  });
+
+  const lines: JournalLineInput[] = [
+    { accountId: receivable.id, credit: Number(gross), memo: `Credit ${note.ref}`, ...dim.where, ...dim.who },
+    { accountId: income.id, debit: Number(net), memo: `Credit ${note.ref}`, ...dim.where },
+  ];
+  if (tax > 0n) {
+    const taxAcct = usable(chart, ACCOUNTS.taxPayable);
+    if (!taxAcct) return skip(`account ${ACCOUNTS.taxPayable} is missing, and this credit note carries tax`);
+    lines.push({ accountId: taxAcct.id, debit: Number(tax), memo: "Tax on " + note.ref, ...dim.where });
+  }
+
+  return book(db, {
+    orgId, sourceType: "credit-note", sourceId: note.id,
+    date: note.issuedOn || new Date(),
+    memo: `Credit note ${note.ref} against ${invoice.ref}`,
+    currency: note.currency,
+    lines, userId,
+  });
+}
+
+/**
+ * A REFUND IS A PAYMENT RUN BACKWARDS.
+ *
+ * Cr bank or cash — the money left. Dr receivable — the invoice is owed
+ * again, which is the part people forget: giving money back does not cancel
+ * the bill, it un-collects it. If the bill should go too, that is a credit
+ * note, and the two together are how a cancelled sale is recorded.
+ *
+ * Needed as its own function because postForPayment() skips anything at or
+ * below zero — "a payment of nothing has nothing to book" — so a refund
+ * recorded as a negative payment reached the books as silence.
+ */
+export async function postForRefund(
+  db: Db,
+  { orgId, payment, invoice, userId }: {
+    orgId: string;
+    payment: PaymentForPosting;
+    invoice?: InvoiceForPosting | null;
+    userId?: string | null;
+  },
+): Promise<PostingResult> {
+  const chart = await chartFor(db, orgId);
+  if (!chart) return skip("no chart of accounts — seed one to book refunds automatically");
+
+  /* Stored negative, booked as a positive in the other direction. */
+  const amount = -big(payment.amount);
+  if (amount <= 0n) return skip("that is not a refund — the amount is not negative");
+  if (!payment.invoiceId) {
+    return skip("this refund is not against an invoice, so there is no receivable to reopen — post it by hand");
+  }
+
+  const fromCode = BY_METHOD[String(payment.method)] || ACCOUNTS.bank;
+  const from = usable(chart, fromCode);
+  const receivable = usable(chart, ACCOUNTS.receivable);
+  if (!from) return skip(`account ${fromCode} is missing or closed to postings`);
+  if (!receivable) return skip(`account ${ACCOUNTS.receivable} is missing or closed to postings`);
+
+  const dim = await dimensionsFor(db, orgId, {
+    leaseId: invoice ? invoice.leaseId : null, partyId: invoice ? invoice.partyId : null,
+  });
+
+  return book(db, {
+    orgId, sourceType: "refund", sourceId: payment.id,
+    date: payment.receivedAt || new Date(),
+    memo: `Refund ${payment.reference || ""}`.trim() + (invoice ? ` of ${invoice.ref}` : ""),
+    currency: payment.currency,
+    lines: [
+      { accountId: receivable.id, debit: Number(amount), memo: invoice ? invoice.ref : "", ...dim.where, ...dim.who },
+      { accountId: from.id, credit: Number(amount), memo: String(payment.method || ""), ...dim.where },
+    ],
+    userId,
+  });
+}
+
+/* ====================================================================== *
  * MONEY OUT — an expense recorded
  * ====================================================================== */
 

@@ -37,6 +37,11 @@ import { RESOURCES } from "../domain/registry.ts";
 import { currencyFor } from "../domain/currency.ts";
 import { numberFor, resourceRouter } from "../http/resource.ts";
 import { BASIS_WORDS, requireReceiptable, whyNotReceiptable } from "../domain/receipts.ts";
+import {
+  owedOn, refundableOn, requireCreditable, requireRefundable,
+  whyNotCreditable, whyNotRefundable,
+} from "../domain/credits.ts";
+import { postForCreditNote, postForRefund } from "../domain/posting.ts";
 import { clean } from "../domain/input.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
 import { scopedTo } from "../domain/scope.ts";
@@ -262,7 +267,7 @@ export async function recomputeInvoice(invoiceId: string, orgId: string) {
    */
   const invoice = await db.invoice.findFirst({
     where: { id: invoiceId, orgId },
-    include: { lines: true, payments: true },
+    include: { lines: true, payments: true, creditNotes: true },
   });
   if (!invoice) return null;
 
@@ -272,10 +277,21 @@ export async function recomputeInvoice(invoiceId: string, orgId: string) {
     total += net + taxOn(net, l.taxBps);
   }
 
-  /* A voided payment has not been received. */
+  /* A voided payment has not been received. A REFUND is a negative payment —
+     the schema says so on the column — so it reduces this by arriving, which
+     is exactly right: the money went back, and the invoice is owed again. */
   const paid = invoice.payments
     .filter((p) => !p.voided)
     .reduce((sum, p) => sum + big(p.amount), 0n);
+
+  /*
+   * WAIVED, NOT COLLECTED. Kept in its own column for the whole reason
+   * CreditNote exists: adding it to `paid` would report cash that never
+   * arrived, and every collections figure downstream reads `paid`.
+   */
+  const credited = invoice.creditNotes
+    .filter((c) => !c.voided)
+    .reduce((sum, c) => sum + big(c.amount), 0n);
 
   /*
    * STATUS FOLLOWS THE MONEY, except where a person has decided otherwise.
@@ -285,15 +301,18 @@ export async function recomputeInvoice(invoiceId: string, orgId: string) {
    */
   let status = invoice.status;
   if (status !== "DRAFT" && status !== "VOID") {
-    if (paid >= total && total > 0n) status = "PAID";
-    else if (paid > 0n) status = "PART_PAID";
+    /* Settled is settled, however it was settled — money in or written off.
+       An invoice credited in full is not still SENT, and chasing it would be
+       chasing somebody for a bill the company itself withdrew. */
+    if (paid + credited >= total && total > 0n) status = "PAID";
+    else if (paid > 0n || credited > 0n) status = "PART_PAID";
     else if (invoice.dueOn && invoice.dueOn < new Date()) status = "OVERDUE";
     else status = "SENT";
   }
 
   await db.invoice.updateMany({
     where: { id: invoice.id, orgId },
-    data: { total, paid, status },
+    data: { total, paid, credited, status },
   });
   return db.invoice.findFirst({
     where: { id: invoice.id, orgId },
@@ -1291,5 +1310,208 @@ guarded.post("/receipts/:id/void", async (req, res, next) => {
        never share a number and the voided one stays findable when somebody
        brings their copy back. */
     res.json({ receipt: voided });
+  } catch (e) { next(e); }
+});
+
+/* ====================================================================== *
+ * CREDIT NOTES AND REFUNDS — the two ways an invoice is undone.
+ *
+ * See domain/credits.js for why they are different acts with different
+ * ceilings, and domain/posting.js for how each reaches the ledger.
+ * ====================================================================== */
+
+guarded.post("/invoices/:id/credit-notes", async (req, res, next) => {
+  try {
+    /*
+     * A CREDIT NOTE IS A MANAGE-LEVEL ACT. It decides that money owed is no
+     * longer owed, which is as close to giving it away as this service gets
+     * without the bank moving.
+     */
+    need(req, "finance", "delete", "credit-notes");
+
+    const reason = String(req.body?.reason || "").trim();
+    if (reason.length < 5) {
+      throw badRequest(
+        "A credit note needs a reason. Whoever reads the books in six months " +
+        "will have only this sentence to explain why somebody stopped owing money.");
+    }
+
+    const invoice = await own("invoice", param(req, "id"), actorOf(req).orgId, {
+      include: { lines: true },
+    });
+    const amount = requireCreditable(invoice, Math.round(Number(req.body?.amount)));
+
+    /* The tax rate of the invoice it credits, unless told otherwise. Guessing
+       zero would quietly keep the VAT on revenue that has been given back. */
+    const lines = (invoice as unknown as { lines?: { taxBps?: number }[] }).lines || [];
+    const taxBps = req.body?.taxBps === undefined
+      ? Math.round(Number(lines[0]?.taxBps || 0))
+      : Math.round(Number(req.body.taxBps));
+    if (!Number.isFinite(taxBps) || taxBps < 0) throw badRequest("taxBps must not be negative.");
+
+    const note = await db.creditNote.create({
+      data: {
+        orgId: actorOf(req).orgId,
+        ref: await numberFor("credit-notes", actorOf(req).orgId),
+        invoiceId: invoice.id,
+        partyId: invoice.partyId,
+        currency: invoice.currency,
+        amount, taxBps, reason,
+        issuedById: actorOf(req).userId,
+        issuedByName: actorOf(req).userName,
+      },
+    });
+
+    const after = await recomputeInvoice(invoice.id, actorOf(req).orgId);
+    await audit(req, "credit-note.issue", "creditNote", note.id, {
+      ref: note.ref, invoiceId: invoice.id,
+      amount: auditable(amount), currency: invoice.currency, reason,
+    });
+
+    const booking = await postForCreditNote(db, {
+      orgId: actorOf(req).orgId, note,
+      invoice: after || invoice, userId: actorOf(req).userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "credit-note.not_booked", "creditNote", note.id, { why: booking.skipped });
+    }
+
+    res.status(201).json({ creditNote: note, invoice: after, booking: bookingOf(booking) });
+  } catch (e) { next(e); }
+});
+
+/** What could still be credited, and why not when nothing can. */
+guarded.get("/invoices/:id/credit-notes", async (req, res, next) => {
+  try {
+    need(req, "finance", "get", "credit-notes");
+    const invoice = await own("invoice", param(req, "id"), actorOf(req).orgId);
+    const notes = await db.creditNote.findMany({
+      where: { invoiceId: invoice.id, orgId: actorOf(req).orgId },
+      orderBy: { issuedOn: "desc" },
+    });
+    res.json({
+      creditNotes: notes,
+      /* The ceiling, so a screen can offer the right maximum without a second
+         copy of the rule in the browser. */
+      creditable: owedOn(invoice).toString(),
+      why: whyNotCreditable(invoice, 1),
+    });
+  } catch (e) { next(e); }
+});
+
+guarded.post("/credit-notes/:id/void", async (req, res, next) => {
+  try {
+    need(req, "finance", "delete", "credit-notes");
+
+    const why = String(req.body?.reason || "").trim();
+    if (why.length < 5) throw badRequest("A void needs a reason.");
+
+    const note = await own("creditNote", param(req, "id"), actorOf(req).orgId);
+    if (note.voided) throw conflict("That credit note is already void.");
+
+    const voided = await db.creditNote.update({
+      where: { id: note.id },
+      data: { voided: true, voidReason: why, voidedAt: new Date() },
+    });
+
+    /* The money is owed again, so the invoice has to say so before anybody
+       reads it. */
+    const after = await recomputeInvoice(note.invoiceId, actorOf(req).orgId);
+    await audit(req, "credit-note.void", "creditNote", note.id,
+      { ref: note.ref, reason: why, amount: auditable(note.amount) });
+
+    const booking = await reverseFor(db, {
+      orgId: actorOf(req).orgId, sourceType: "credit-note", sourceId: note.id,
+      reason: why, userId: actorOf(req).userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "credit-note.void_not_booked", "creditNote", note.id, { why: booking.skipped });
+    }
+
+    res.json({ creditNote: voided, invoice: after, booking: bookingOf(booking) });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- refunds */
+
+/** What is left of this payment to give back, and why not when nothing is. */
+guarded.get("/payments/:id/refund", async (req, res, next) => {
+  try {
+    need(req, "finance", "get", "payments");
+    const payment = await own("payment", param(req, "id"), actorOf(req).orgId);
+    const refunded = await refundedAgainst(payment.id, actorOf(req).orgId);
+    const shape = { ...payment, refunded };
+    res.json({
+      refundable: refundableOn(shape).toString(),
+      why: whyNotRefundable(shape, 1),
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * What has already gone back against one payment.
+ *
+ * A refund is a negative payment carrying the original's reference, which is
+ * how the two are tied together without a column that older rows would not
+ * have. See the note on Payment.amount.
+ */
+async function refundedAgainst(paymentId: string, orgId: string): Promise<bigint> {
+  const rows = await db.payment.findMany({
+    where: { orgId, voided: false, providerRef: `refund-of:${paymentId}` },
+    select: { amount: true },
+  });
+  return rows.reduce((t, r) => t + -BigInt(r.amount), 0n);
+}
+
+guarded.post("/payments/:id/refund", async (req, res, next) => {
+  try {
+    /* Sending money out is the same level as voiding it. */
+    need(req, "finance", "delete", "payments");
+
+    const reason = String(req.body?.reason || "").trim();
+    if (reason.length < 5) {
+      throw badRequest(
+        "A refund needs a reason. It is money leaving the company, and the " +
+        "books will carry only this sentence about why.");
+    }
+
+    const payment = await own("payment", param(req, "id"), actorOf(req).orgId);
+    const refunded = await refundedAgainst(payment.id, actorOf(req).orgId);
+    const amount = requireRefundable({ ...payment, refunded }, Math.round(Number(req.body?.amount)));
+
+    const refund = await db.payment.create({
+      data: {
+        orgId: actorOf(req).orgId,
+        invoiceId: payment.invoiceId,
+        /* NEGATIVE. The column's own comment: positive for a receipt,
+           negative for a refund. */
+        amount: -amount,
+        currency: payment.currency,
+        method: payment.method,
+        reference: reason.slice(0, 120),
+        /* The tie back to what is being refunded. Not a new column, because
+           every payment written before today would have it empty and the
+           sum below would then be quietly wrong for exactly the rows that
+           matter most. */
+        providerRef: `refund-of:${payment.id}`,
+        receivedBy: actorOf(req).userName,
+      },
+    });
+
+    const after = payment.invoiceId
+      ? await recomputeInvoice(payment.invoiceId, actorOf(req).orgId) : null;
+    await audit(req, "payment.refund", "payment", refund.id, {
+      of: payment.id, amount: auditable(amount), currency: payment.currency, reason,
+    });
+
+    const booking = await postForRefund(db, {
+      orgId: actorOf(req).orgId, payment: refund,
+      invoice: after, userId: actorOf(req).userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "payment.refund_not_booked", "payment", refund.id, { why: booking.skipped });
+    }
+
+    res.status(201).json({ refund, invoice: after, booking: bookingOf(booking) });
   } catch (e) { next(e); }
 });

@@ -325,12 +325,13 @@ model Organization {
   emergencyPlans EmergencyPlan[]
 
   /// ---- money ----
-  invoices  Invoice[]
-  payments  Payment[]
-  receipts  Receipt[]
-  reminders Reminder[]
-  expenses  Expense[]
-  payouts   Payout[]
+  invoices    Invoice[]
+  payments    Payment[]
+  receipts    Receipt[]
+  creditNotes CreditNote[]
+  reminders   Reminder[]
+  expenses    Expense[]
+  payouts     Payout[]
 
   /**
    * Held BY the platform, ABOUT this company.
@@ -1027,7 +1028,8 @@ model Party {
 
   leads Lead[]
 
-  documents Document[]
+  documents   Document[]
+  creditNotes CreditNote[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -2551,6 +2553,15 @@ model Invoice {
   total    BigInt @default(0)
   /// Sum of non-void payments. Also recomputed, never sent.
   paid     BigInt @default(0)
+  /// WHAT WAS CREDITED, and it is not the same as what was paid.
+  ///
+  /// A credit note reduces what somebody owes without any money moving.
+  /// Adding it to `paid` is the easy shortcut and a lie in the books: the
+  /// collections screen would report cash that never arrived, and a rent roll
+  /// would show a month collected that was in fact written off.
+  ///
+  /// Owed is total − paid − credited. Recomputed like the other two, never sent.
+  credited BigInt @default(0)
   currency String @default("KES")
 
   issuedOn DateTime?
@@ -2567,6 +2578,10 @@ model Invoice {
   PaymentInstalment PaymentInstalment?
 
   rentCharges RentCharge[]
+
+  /// What has been credited against it. See CreditNote — nothing here is
+  /// money, and that is the distinction the column `credited` keeps.
+  creditNotes CreditNote[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -2607,6 +2622,64 @@ model InvoiceLine {
 /// SERVER-AUTHORITATIVE BY CONSTRUCTION. A row here is the service's own
 /// record of a confirmed receipt. Nothing a browser says creates one: the
 /// provider reference is what a reconciliation is checked against later.
+/// MONEY SOMEBODY NO LONGER OWES.
+///
+/// Not a negative invoice and not a payment. An invoice states what was
+/// billed and a payment states what arrived; a credit note says the billed
+/// amount was wrong, or waived, and it is the only one of the three where
+/// nothing moves.
+///
+/// Kept apart from all three because each answers a different question that
+/// somebody eventually asks out loud: what did we bill, what did we collect,
+/// and what did we give away. A negative invoice line would have destroyed
+/// the first, and adding it to `paid` would have destroyed the second.
+model CreditNote {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// CN-0001, counted per company.
+  ref String
+
+  /// Restrict: the invoice it credits must not vanish beneath it. An invoice
+  /// is voided rather than deleted anyway, which this makes the only path.
+  invoiceId String
+  invoice   Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  /// Copied from the invoice at issue. A credit note handed to somebody is a
+  /// document like a receipt, and what it said must keep saying it.
+  partyId  String?
+  party    Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+  currency String
+
+  /// Gross, in minor units, always positive. The direction is the model's
+  /// name, not a sign — a negative credit note is a concept nobody has.
+  amount BigInt
+  /// The tax inside `amount`, stated rather than inferred. A credit against a
+  /// taxed invoice has to give the tax back too, and guessing the split is how
+  /// a VAT return stops agreeing with the ledger.
+  taxBps Int    @default(0)
+
+  /// Required by the route. Whoever reads the books in six months will have
+  /// only this sentence to explain why somebody stopped owing money.
+  reason String
+
+  issuedOn     DateTime @default(now())
+  issuedById   String   @default("")
+  issuedByName String   @default("")
+
+  voided     Boolean   @default(false)
+  voidReason String    @default("")
+  voidedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId, invoiceId])
+  @@index([orgId, issuedOn])
+}
+
 model Payment {
   id        String       @id @default(cuid())
   orgId     String

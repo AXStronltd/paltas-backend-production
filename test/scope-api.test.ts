@@ -379,6 +379,10 @@ const EXPECTED_UNNARROWABLE = [
      documented limitation as `contracts`, and narrowing it wrongly would hide
      a customer's own receipt from the person who issued it. */
   "receipts",
+  /* Same chain as receipts: a credit note hangs off the invoice it reduces.
+     Narrowing it wrongly would hide the note explaining why a site-scoped
+     manager's arrears dropped. */
+  "credit-notes",
 ].sort();
 
 test("the resources with no site are NOT narrowed — by design",

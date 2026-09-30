@@ -210,7 +210,7 @@ export async function receivables(
     },
     select: {
       id: true, ref: true, partyId: true, currency: true,
-      total: true, paid: true, issuedOn: true, dueOn: true, status: true,
+      total: true, paid: true, credited: true, issuedOn: true, dueOn: true, status: true,
       leaseId: true, contractId: true,
       party: { select: { name: true } },
     },
@@ -219,7 +219,13 @@ export async function receivables(
 
   const open: Receivable[] = [];
   for (const r of rows) {
-    const owing = r.total - r.paid;
+    /*
+     * LESS WHAT WAS WAIVED. A credit note is not money, so it is not in
+     * `paid` — but it is very much not owed either, and arrears that chase a
+     * bill the company itself withdrew are worse than arrears that are wrong
+     * by the same amount: somebody gets a letter about it.
+     */
+    const owing = r.total - r.paid - r.credited;
     /* Nothing owed is not a receivable. An OVERPAYMENT is not a negative
        receivable either — it is a credit, and netting it against somebody
        else's arrears is how a statement stops being true. */

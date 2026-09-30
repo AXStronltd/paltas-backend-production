@@ -1753,6 +1753,48 @@ const DECLARATIONS = {
       "The number stays findable because the customer's copy still carries it.",
   },
 
+  /* ------------------------------------------------------------------ *
+   * CREDIT NOTES — money somebody no longer owes.
+   * ------------------------------------------------------------------ */
+  "credit-notes": {
+    model: "creditNote", area: "finance", product: null,
+    label: "credit notes",
+    fields: {
+      invoiceId: "id:invoice", partyId: "id:party",
+      amount: "money", taxBps: "int", currency: "string",
+      reason: "text", issuedOn: "date", issuedByName: "string",
+      voided: "bool", voidReason: "string",
+    },
+    required: ["invoiceId", "amount", "currency", "reason"],
+    numbered: "ref", prefix: "CN",
+    search: ["ref", "reason"],
+    order: [{ issuedOn: "desc" }],
+    include: {
+      invoice: { select: { id: true, ref: true, total: true, paid: true, credited: true } },
+      party: { select: { id: true, name: true } },
+    },
+    /*
+     * ISSUED AGAINST AN INVOICE, NEVER POSTED DIRECTLY.
+     *
+     * The ceiling — never more than is still owed — can only be checked
+     * against the invoice, and the ledger entry can only be built from it.
+     * A generic create would let somebody write off money on an invoice that
+     * was paid last year, which is not a correction but a hole.
+     */
+    noCreate:
+      "A credit note is issued against the invoice it reduces — " +
+      "POST /invoices/:id/credit-notes. There is no POST /credit-notes, because " +
+      "nothing can check the amount without the invoice.",
+    noUpdate:
+      "A credit note is not edited — the customer has been told they owe less, " +
+      "and the ledger has been posted. Void it with a reason " +
+      "(POST /credit-notes/:id/void) and issue a new one.",
+    noDelete:
+      "A credit note is voided, never deleted — POST /credit-notes/:id/void. " +
+      "Money that stopped being owed and then vanished from the record is the " +
+      "one thing an auditor will ask about.",
+  },
+
   payments: {
     model: "payment", area: "finance", product: null,
     label: "payments",

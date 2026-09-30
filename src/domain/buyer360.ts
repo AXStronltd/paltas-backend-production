@@ -93,7 +93,7 @@ export async function buyer360(
 
   const invoices = await db.invoice.findMany({
     where: { orgId, contractId, status: { not: "VOID" } },
-    select: { id: true, total: true, paid: true, dueOn: true, status: true },
+    select: { id: true, total: true, paid: true, credited: true, dueOn: true, status: true },
   });
 
   const payments = await db.payment.findMany({
@@ -112,6 +112,9 @@ export async function buyer360(
 
   const invoiced = invoices.reduce((a, i) => a + i.total, 0n);
   const receivedOnInvoices = invoices.reduce((a, i) => a + i.paid, 0n);
+  /* Waived, not received — so it is not in `receivedOnInvoices` and must not
+     be. It still stops the buyer owing it, which is the next line down. */
+  const creditedOnInvoices = invoices.reduce((a, i) => a + i.credited, 0n);
   const receivedAll = payments.reduce((a, p) => a + p.amount, 0n);
 
   /*
@@ -123,15 +126,18 @@ export async function buyer360(
    * figure useless for spotting the ones who really are behind. What is not
    * yet billed is reported separately, as `unbilled`.
    */
-  const outstanding = invoiced - receivedOnInvoices;
+  const outstanding = invoiced - receivedOnInvoices - creditedOnInvoices;
 
   /* Money that arrived with no open invoice to take it. Held, never lost. */
   const credit = receivedAll > receivedOnInvoices ? receivedAll - receivedOnInvoices : 0n;
 
   const today = new Date();
+  /* A credited invoice is not late. Chasing somebody for a bill the company
+     itself withdrew is worse than being wrong by the amount — they get a
+     letter about it. */
   const overdue = invoices
-    .filter((i) => i.dueOn && i.dueOn < today && i.total > i.paid)
-    .reduce((a, i) => a + (i.total - i.paid), 0n);
+    .filter((i) => i.dueOn && i.dueOn < today && i.total > i.paid + i.credited)
+    .reduce((a, i) => a + (i.total - i.paid - i.credited), 0n);
 
   const scheduled = plan?.instalments ?? [];
   const byInvoice = new Map(invoices.map((i) => [i.id, i]));
@@ -139,8 +145,9 @@ export async function buyer360(
   const schedule: BuyerScheduleLine[] = scheduled.map((i) => {
     const invoice = i.invoiceId ? byInvoice.get(i.invoiceId) : undefined;
     const state: BuyerScheduleLine["state"] =
-      invoice && invoice.paid >= invoice.total ? "paid"
-        : invoice && invoice.paid > 0n ? "part-paid"
+      /* Settled is settled, however: money in, or written off. */
+      invoice && invoice.paid + invoice.credited >= invoice.total ? "paid"
+        : invoice && (invoice.paid > 0n || invoice.credited > 0n) ? "part-paid"
           : invoice ? "billed"
             : i.milestone && !i.dueOn ? "awaiting stage"
               : i.dueOn && i.dueOn <= today ? "due"

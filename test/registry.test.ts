@@ -107,6 +107,9 @@ const NEVER_WRITABLE = {
   closed: "a folio is closed by closing it",
   total: "computed from the invoice lines; a caller who can send a total can send zero",
   paid: "computed from the payments; same reason",
+  credited: "computed from the credit notes against it; same reason, and the " +
+            "one that matters most — a caller who could send it could write off " +
+            "money without the note that says why",
   net: "gross minus fees — a third number that must follow from the other two",
 };
 
