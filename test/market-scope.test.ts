@@ -25,21 +25,30 @@ const skip = existsSync(join(FE, "assets", "console.js"))
   ? false
   : `no frontend at ${FE}`;
 
-function consoleFor(country: string) {
+function consoleFor(country: string | null) {
   const w = makeWindow({ href: "https://paltas.io/dashboard/property.html" });
   w.win["PALTAS_BOOT"] = { system: "property" };
   w.loadCode(readFileSync(join(FE, "assets", "console.js"), "utf8")
-    + "\n;window.__M=MARKET_NOW;window.__inM=inM;window.__market=function(){return market;};",
+    + "\n;window.__M=MARKET_NOW;window.__cur=reportCur;window.__inM=inM;"
+    + "window.__setMarket=function(v){market=v;};",
     "console.js");
   const P = w.win["PALTAS"] as Foreign;
-  P.Session.create({
-    email: "a@b.c", name: "A Person", company: "A Company",
-    products: ["PROPERTY_MANAGEMENT"], role: "OWNER",
-    preferred: "PROPERTY_MANAGEMENT", country,
-  });
+  /* null means genuinely signed out — no session at all, rather than a
+     session with a blank country, which is a different thing. */
+  if (country !== null) {
+    P.Session.create({
+      email: "a@b.c", name: "A Person", company: "A Company",
+      products: ["PROPERTY_MANAGEMENT"], role: "OWNER",
+      preferred: "PROPERTY_MANAGEMENT", country,
+    });
+  }
   return {
     market: () => (w.win["__M"] as () => string)(),
-    inM: (row: { m: string }) => (w.win["__inM"] as (r: unknown) => boolean)(row),
+    cur: () => (w.win["__cur"] as () => string)(),
+    inM: (row: { m?: string }) => (w.win["__inM"] as (r: unknown) => boolean)(row),
+    /* Drift the snapshot, the way an asynchronous session or a country change
+       does in a browser. */
+    setMarket: (m: string) => (w.win["__setMarket"] as (v: string) => void)(m),
   };
 }
 
@@ -81,4 +90,35 @@ test("a company's own rows are never filtered out from under it", { skip }, () =
     assert.equal(c.inM({ m: country }), true,
       `a ${country} company cannot see its own rows`);
   }
+});
+
+test("the filter asks the company, not a snapshot taken at load", { skip }, () => {
+  /*
+   * THE BUG THIS EXISTS FOR, FOUND ON THE LIVE CONSOLE.
+   *
+   * `market` is assigned once while console.js evaluates. The session usually
+   * arrives after that, and a company's country can change later — so the
+   * variable drifts from the truth. It had: `market` said "ae" while Almas
+   * LTD was registered in Kenya, and its one property was filtered out of its
+   * own Portfolio screen. Nothing threw. The company simply had no buildings.
+   *
+   * Moving the company and NOT touching the stale variable is exactly that
+   * situation, reproduced.
+   */
+  const c = consoleFor("ke");
+  c.setMarket("ae");
+  assert.equal(c.inM({ m: "ke" }), true,
+    "a stale market snapshot hid the company's own row");
+  assert.equal(c.cur(), "KES",
+    "finance reported in a currency the company does not keep its books in");
+});
+
+test("signed out, nothing is hidden", { skip }, () => {
+  /* No company means no filter — an empty product is a worse answer than a
+     row from a market nobody chose, and the hydrator cannot produce one. */
+  const c = consoleFor(null);
+  for (const m of ["ke", "ae", "us"]) {
+    assert.equal(c.inM({ m }), true, `${m} rows were hidden with no company`);
+  }
+  assert.equal(c.inM({}), true, "a row with no market was hidden");
 });
