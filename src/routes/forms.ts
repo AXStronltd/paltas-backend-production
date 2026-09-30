@@ -23,6 +23,7 @@
  * ====================================================================== */
 
 import { Router } from "express";
+import { readFileSync } from "node:fs";
 import pkg from "@prisma/client";
 import { RESOURCES } from "../domain/registry.ts";
 import { whyNotArea } from "../domain/access.ts";
@@ -59,6 +60,18 @@ interface FormField {
   readonly required: boolean;
   options?: string[];
   lookup?: string;
+  /**
+   * WHAT THE DATABASE WILL WRITE IF THIS IS LEFT BLANK.
+   *
+   * Only for an optional enum whose column carries a default, and only so the
+   * console can SAY it. Leaving Kind blank on a property filed a Dubai office
+   * tower as RESIDENTIAL; leaving it blank on a unit files a shop as a
+   * one-bedroom flat. Neither is a lie the service tells — the column has
+   * always had a default and always will — but a form that shows "—" where
+   * the answer is "Residential" lets somebody agree to something they were
+   * never asked.
+   */
+  fallback?: string;
   /** What the field means, where its name is not enough. */
   hint?: string;
 }
@@ -69,6 +82,26 @@ interface FormField {
  * The console's own word where console-map gives one, because the customer
  * reads "Rent", not "monthlyRentMinor".
  */
+/**
+ * The @default on an enum column, read from the schema rather than kept here.
+ *
+ * A second copy of 121 defaults would be wrong within a week. This is the
+ * same file Prisma generates from, so the two cannot disagree.
+ */
+const SCHEMA_DEFAULTS: Readonly<Record<string, string>> = (() => {
+  const out: Record<string, string> = {};
+  try {
+    const text = readFileSync(
+      new URL("../../prisma/schema.prisma", import.meta.url), "utf8");
+    for (const m of text.matchAll(/^model (\w+) \{([\s\S]*?)^\}/gm)) {
+      for (const f of m[2]!.matchAll(/^\s+(\w+)\s+(\w+)\s+@default\((\w+)\)/gm)) {
+        out[`${m[1]}.${f[1]}`] = f[3]!;
+      }
+    }
+  } catch { /* packaged without the schema: the forms simply say less */ }
+  return out;
+})();
+
 function humanise(key: string): string {
   const SPECIAL: Readonly<Record<string, string>> = {
     siteId: "Property", buildingId: "Building", unitId: "Unit",
@@ -164,7 +197,18 @@ formRoutes.get("/console/forms",
         } as FormField;
         const hint = spec.hints && spec.hints[backendName];
         if (hint) field.hint = hint;
-        if (kind.startsWith("enum:")) field.options = enumValues(kind.slice(5)) || [];
+        if (kind.startsWith("enum:")) {
+          field.options = enumValues(kind.slice(5)) || [];
+          /* Only when it is optional — a required field has no blank to
+             explain, and saying "or else Residential" beside one somebody
+             must answer is noise. */
+          /* The model is capitalised in the schema and lower-camel in the
+             registry — "site" is Prisma's `Site`. */
+          const model = String(resource.model).charAt(0).toUpperCase()
+                      + String(resource.model).slice(1);
+          const dflt = SCHEMA_DEFAULTS[`${model}.${backendName}`];
+          if (dflt && !field.required) field.fallback = dflt;
+        }
         if (kind.startsWith("id:")) field.lookup = kind.slice(3);   /* which list to pick from */
         fields.push(field);
       }
