@@ -1162,16 +1162,32 @@ model Lease {
   tenantId String?
   tenant   Party?       @relation("LeaseTenant", fields: [tenantId], references: [id], onDelete: SetNull)
 
-  ref        String
+  ref           String
   /// Tenant and unit as typed. The relations above are the truth when set;
   /// these are what the `rentals` form collects before a tenant exists as
   /// a contact of its own.
-  tenantName String @default("")
-  unitRef    String @default("")
+  tenantName    String @default("")
+  unitRef       String @default("")
   /// Minor units.
-  rent       BigInt @default(0)
-  currency   String @default("KES")
-  deposit    BigInt @default(0)
+  rent          BigInt @default(0)
+  /// THE OTHER THING A TENANT PAYS EVERY PERIOD.
+  ///
+  /// Security, cleaning, water, lifts, the generator, insurance — the costs of
+  /// the BUILDING rather than of the unit. Kept apart from `rent` because a
+  /// landlord's rent roll and a tenant's total bill are different questions,
+  /// and because the two are usually governed differently: rent is negotiated,
+  /// a service charge is meant to be the tenant's share of what the building
+  /// actually cost.
+  ///
+  /// NOT a "service" in the operational sense — that is a catalogue item
+  /// somebody performs. This is a financial charge against a tenancy, and
+  /// merging the two is how a maintenance callout lands on a rent invoice.
+  ///
+  /// Per billing period, in the lease's currency, due on the lease's day: a
+  /// tenant gets ONE bill for the month, carrying two lines.
+  serviceCharge BigInt @default(0)
+  currency      String @default("KES")
+  deposit       BigInt @default(0)
 
   /// WHICH DAY RENT FALLS DUE, and how often it is raised.
   ///
@@ -7266,9 +7282,16 @@ model RentCharge {
 
   /// What was charged, in minor units, and in what. Copied rather than read
   /// back through the lease, because a rent review must not rewrite history.
-  amount   BigInt
-  currency String
-  dueOn    DateTime
+  ///
+  /// `amount` is the RENT alone and stays that: every row written before
+  /// service charges existed means exactly what it meant then, and a column
+  /// whose meaning changes under old rows is worse than a new column.
+  amount        BigInt
+  /// The service charge billed for the same period, on the same invoice.
+  /// What the tenant was invoiced is amount + serviceCharge.
+  serviceCharge BigInt   @default(0)
+  currency      String
+  dueOn         DateTime
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

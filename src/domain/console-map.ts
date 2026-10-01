@@ -552,12 +552,29 @@ export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
     fields: {
       n: "tenantName",
       u: "unitRef",
-      rent: "rent",
+      rent: "rent", service: "serviceCharge",
       since: "startsOn",
       day: "rentDay",
       billing: "billing",
     },
     hints: {
+      /*
+       * THE ONE THING PEOPLE GET WRONG ABOUT THIS FIELD.
+       *
+       * PALTAS has a Services catalogue too — a thing somebody performs, at a
+       * price, for a guest or a resident. This is not that. This is the
+       * building's own running cost passed to the tenancy every period:
+       * security, cleaning, water, the lift, the generator, insurance.
+       *
+       * It is billed as its own line on the same invoice as the rent, so the
+       * tenant gets one bill and one due date while still being able to see
+       * which part of it is which.
+       */
+      serviceCharge:
+        "The building's running cost passed to this tenancy — security, "
+        + "cleaning, water, lifts, insurance. It is billed as a separate line "
+        + "on the same invoice as the rent, so the rent roll stays the rent. "
+        + "Leave it blank where the rent covers everything.",
       rentDay:
         "Rent Day determines when PALTAS raises the rent invoice for this "
         + "lease. Where a month does not have this day, PALTAS bills on the "

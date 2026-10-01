@@ -168,7 +168,7 @@ export async function runRent(
       OR: [{ startsOn: null }, { startsOn: { lte: end } }],
     },
     select: {
-      id: true, orgId: true, ref: true, rent: true, currency: true,
+      id: true, orgId: true, ref: true, rent: true, serviceCharge: true, currency: true,
       rentDay: true, billing: true, startsOn: true, endsOn: true, status: true,
       tenantId: true, unitRef: true,
     },
@@ -202,6 +202,7 @@ export async function runRent(
 
 interface LeaseRow extends LeaseForRent {
   readonly orgId: string;
+  readonly serviceCharge: bigint;
   readonly ref: string;
   readonly tenantId: string | null;
   readonly unitRef: string;
@@ -235,7 +236,32 @@ async function raiseOne(
   if (already) return { raised: false, notBooked: null };
 
   const due = dueDate(periodKey, lease.rentDay);
-  const detail = `Rent — ${monthName(periodKey)}${lease.unitRef ? `, ${lease.unitRef}` : ""}`;
+  const where = lease.unitRef ? `, ${lease.unitRef}` : "";
+  const detail = `Rent — ${monthName(periodKey)}${where}`;
+
+  /*
+   * TWO LINES, ONE INVOICE.
+   *
+   * A tenant pays rent and a service charge on the same day for the same
+   * month, and billing them separately would send two invoices, two due
+   * dates and two reminders for one tenancy — then arrive at Collections as
+   * two debts from one person.
+   *
+   * Two LINES rather than one summed figure, because a tenant asking "what is
+   * the service charge" is asking a question the invoice must be able to
+   * answer, and a landlord's rent roll must not quietly include the lift.
+   */
+  const service = lease.serviceCharge ?? 0n;
+  const lines = [
+    { detail, quantity: 1, unitPrice: lease.rent, taxBps: 0 },
+  ];
+  if (service > 0n) {
+    lines.push({
+      detail: `Service charge — ${monthName(periodKey)}${where}`,
+      quantity: 1, unitPrice: service, taxBps: 0,
+    });
+  }
+  const total = lease.rent + service;
 
   let invoiceId: string | null = null;
   try {
@@ -253,12 +279,12 @@ async function raiseOne(
              The total is the line's, computed here rather than sent — the same
              rule recomputeInvoice keeps. */
           status: "SENT",
-          total: lease.rent, paid: 0n,
+          total, paid: 0n,
           note: `Raised automatically for ${periodKey}.`,
           lines: {
             /* A line carries no orgId: it belongs to its invoice, and the
                invoice belongs to the company. */
-            create: [{ detail, quantity: 1, unitPrice: lease.rent, taxBps: 0 }],
+            create: lines,
           },
         },
         select: { id: true },
@@ -269,7 +295,10 @@ async function raiseOne(
       await tx.rentCharge.create({
         data: {
           orgId: lease.orgId, leaseId: lease.id, periodKey,
-          invoiceId: invoice.id, amount: lease.rent,
+          invoiceId: invoice.id,
+          /* `amount` is the rent alone — see the column's own note. What was
+             invoiced is amount + serviceCharge. */
+          amount: lease.rent, serviceCharge: service,
           currency: lease.currency, dueOn: due,
         },
       });

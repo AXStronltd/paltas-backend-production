@@ -360,7 +360,12 @@ const DECLARATIONS = {
     fields: {
       unitId: "id:unit", tenantId: "id:party",
       tenantName: "string", unitRef: "string",
-      rent: "money", currency: "string",
+      rent: "money",
+      /* The building's costs, billed to the tenant on the same invoice as the
+         rent and on the same day. Its own field, never folded into `rent`: a
+         rent roll that includes the lift is not a rent roll. */
+      serviceCharge: "money",
+      currency: "string",
       deposit: "money", startsOn: "date", endsOn: "date",
       /* WHEN the rent is owed, and how often. Writable because a landlord has
          to be able to say it — rent that recurs on a day nobody can set is a

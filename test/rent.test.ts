@@ -714,3 +714,143 @@ for (const [role, allowed] of [["OWNER", true], ["HOUSEKEEPING", false]] as cons
     assert.equal(after!.rentDay, allowed ? 9 : 1);
   });
 }
+
+/* ====================================================================== *
+ * AND THE SERVICE CHARGE
+ *
+ * The building's own running cost — security, cleaning, water, lifts,
+ * insurance — passed to the tenancy every period. It is billed on the SAME
+ * invoice as the rent, as its own line, and this is where that is pinned:
+ * one bill and one due date for the tenant, two figures the landlord can
+ * still tell apart.
+ * ====================================================================== */
+
+test("a lease with a service charge is billed both, on one invoice", { skip }, async () => {
+  const { org } = await company();
+  await lease(org.id, { serviceCharge: 2500000n });
+
+  const out = await R.runRent(db, { periodKey: OCT, orgId: org.id });
+  assert.equal(out.raised, 1, "two charges, still one invoice");
+
+  const [inv] = await invoicesOf(org.id);
+  assert.equal(inv!.lines.length, 2, "it is two lines, not one summed figure");
+  assert.equal(String(inv!.total), "16000000", "the rent plus the service charge");
+  assert.equal(inv!.dueOn?.toISOString().slice(0, 10), "2026-10-01",
+    "one due date — a tenant chasing two is being chased twice for one tenancy");
+
+  /* "Rent" before "Service charge" — the order they were put on the invoice,
+     which is also the order a tenant expects to read them. */
+  const rent = inv!.lines.find((x) => x.detail.startsWith("Rent"));
+  const svc = inv!.lines.find((x) => x.detail.startsWith("Service charge"));
+  assert.ok(rent && svc, inv!.lines.map((x) => x.detail).join(" | "));
+  assert.match(rent!.detail, /^Rent — October 2026/);
+  assert.equal(String(rent!.unitPrice), "13500000");
+  assert.match(svc!.detail, /^Service charge — October 2026/,
+    "the second line does not say what it is for");
+  assert.equal(String(svc!.unitPrice), "2500000");
+  assert.match(svc!.detail, /A-101/, "which unit is being charged");
+});
+
+test("a lease with none is billed exactly as it was before", { skip }, async () => {
+  /*
+   * THE MIGRATION'S WHOLE CAUTION. Every lease in production has
+   * serviceCharge = 0 the moment the column arrives, and must bill the one
+   * line it billed yesterday. A column appearing is not a decision to charge
+   * anybody anything.
+   */
+  const { org } = await company();
+  await lease(org.id);
+
+  await R.runRent(db, { periodKey: OCT, orgId: org.id });
+  const [inv] = await invoicesOf(org.id);
+  assert.equal(inv!.lines.length, 1, "an empty service-charge line was raised");
+  assert.equal(String(inv!.total), "13500000");
+});
+
+test("what was charged records the two separately", { skip }, async () => {
+  /*
+   * RentCharge.amount is the RENT, and keeps meaning that. Every row written
+   * before today has to keep its meaning — a re-read of last year's billing
+   * must give last year's answer — so the service charge went into a new
+   * column rather than changing what an old one means.
+   */
+  const { org } = await company();
+  await lease(org.id, { serviceCharge: 2500000n });
+  await R.runRent(db, { periodKey: OCT, orgId: org.id });
+
+  const charge = await db.rentCharge.findFirst({ where: { orgId: org.id } });
+  assert.ok(charge, "nothing was recorded as charged");
+  assert.equal(String(charge.amount), "13500000", "amount is the rent alone");
+  assert.equal(String(charge.serviceCharge), "2500000");
+});
+
+test("the service charge cannot be billed twice for one month", { skip }, async () => {
+  /* It rides the rent's own guarantee rather than having a second one: the
+     unique claim is on (org, lease, period), so a re-run raises neither. */
+  const { org } = await company();
+  await lease(org.id, { serviceCharge: 2500000n });
+
+  await R.runRent(db, { periodKey: OCT, orgId: org.id });
+  const again = await R.runRent(db, { periodKey: OCT, orgId: org.id });
+  assert.equal(again.raised, 0);
+
+  const all = await invoicesOf(org.id);
+  assert.equal(all.length, 1);
+  assert.equal(all[0]!.lines.length, 2);
+});
+
+test("an owner can set one on a lease through the API", { skip }, async () => {
+  /*
+   * End to end, because a field the service accepts and silently drops is the
+   * failure this repository keeps catching: PATCH it, then BILL it, and check
+   * the tenant's invoice carries the figure that was typed.
+   */
+  const { org, cookie } = await company();
+  const l = await lease(org.id);
+
+  const res = await call(`/leases/${l.id}`, {
+    method: "PATCH", cookie, body: { serviceCharge: 900000 },
+  });
+  assert.equal(res.status, 200, res.text.slice(0, 200));
+
+  const after = await db.lease.findUnique({ where: { id: l.id } });
+  assert.equal(String(after!.serviceCharge), "900000", "it was accepted and dropped");
+
+  await R.runRent(db, { periodKey: OCT, orgId: org.id });
+  const [inv] = await invoicesOf(org.id);
+  assert.equal(String(inv!.total), "14400000", "the figure the owner typed was not billed");
+});
+
+test("a negative service charge is refused", { skip }, async () => {
+  /* A credit is a credit note, with its own ceiling and its own audit. A
+     negative line on a rent invoice is a way to move money with none. */
+  const { org, cookie } = await company();
+  const l = await lease(org.id);
+  const res = await call(`/leases/${l.id}`, {
+    method: "PATCH", cookie, body: { serviceCharge: -5000 },
+  });
+  assert.equal(res.status, 400, res.text.slice(0, 200));
+  assert.match(res.text, /cannot be negative/, "it was refused for the wrong reason");
+  const after = await db.lease.findUnique({ where: { id: l.id } });
+  assert.equal(String(after!.serviceCharge), "0");
+});
+
+test("the lease list hands the service charge back, so the console can show it",
+  { skip }, async () => {
+    /*
+     * The join that has broken every other time a field was added: schema,
+     * validation and billing all correct, and the row arriving at the screen
+     * without the value. The console's hydrator reads `serviceCharge` off this
+     * response and nothing else.
+     */
+    const { org, cookie } = await company();
+    await lease(org.id, { serviceCharge: 2500000n });
+
+    const res = await call("/leases", { cookie });
+    assert.equal(res.status, 200, res.text.slice(0, 160));
+    const body = JSON.parse(res.text) as { leases: Record<string, unknown>[] };
+    const row = body.leases[0]!;
+    assert.ok(row, res.text.slice(0, 200));
+    assert.equal(String(row["serviceCharge"]), "2500000",
+      "the field is not in the response, so the column is blank for everybody");
+  });
