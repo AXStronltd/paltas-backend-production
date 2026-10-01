@@ -419,6 +419,26 @@ export function resourceRouter(slug: string): Router {
    * service"; `noCreate` means "written by somebody who is not staff". The
    * guest portal is the first of those.
    */
+  /*
+   * AND WHERE NOTHING CREATES IT, SAY SO RATHER THAN 404.
+   *
+   * `noCreate` used to mean the path did not exist, so a caller POSTing to it
+   * got "No endpoint at POST /deposits." — which reads as a missing feature
+   * rather than as a deliberate design, and leaves them nowhere to go. The
+   * sentence in the registry already explains where the record IS created and
+   * was being read by nobody but us.
+   *
+   * Same bargain as `noUpdate` and `noDelete`, which have always kept their
+   * route to answer with their reason. `ownCreate` still registers nothing:
+   * there a hand-written POST on this exact path is waiting underneath, and a
+   * route here would swallow it.
+   */
+  if (resource.noCreate) {
+    router.post("/", may("create"), (req, res, next) => {
+      try { throw forbidden(resource.noCreate as string); } catch (e) { next(e); }
+    });
+  }
+
   if (!resource.ownCreate && !resource.noCreate) {
   router.post("/", may("create"), async (req, res, next) => {
     try {

@@ -69,6 +69,17 @@ export const ACCOUNTS = {
   bank: "1000",
   cash: "1010",
   payable: "2000",
+  /**
+   * SOMEBODY ELSE'S MONEY, SITTING IN THIS COMPANY'S ACCOUNT.
+   *
+   * A tenancy deposit is a LIABILITY, not income — the company owes it back.
+   * The code has been in the starting chart from the beginning with nothing
+   * posting to it, which is the whole gap `postForDeposit` closes: a company
+   * booking deposits as revenue overstates what it earned, pays tax on money
+   * it must return, and reads its own bank balance as spendable when part of
+   * it belongs to its tenants.
+   */
+  depositsHeld: "2100",
   taxPayable: "2300",
   rent: "4000",
   otherIncome: "4090",
@@ -599,6 +610,141 @@ export async function postForRefund(
     ],
     userId,
   });
+}
+
+/* ====================================================================== *
+ * MONEY HELD, AND NOT OWNED — a tenancy deposit
+ * ====================================================================== */
+
+/** A deposit movement as this bridge reads it. */
+export interface DepositMovementForPosting {
+  readonly id: string;
+  readonly kind: string;
+  readonly amount: bigint | number;
+  readonly currency: string;
+  readonly reason?: string | null;
+  readonly at: Date;
+  readonly method?: string | null;
+  readonly invoiceId?: string | null;
+}
+
+/**
+ * THE THREE DIRECTIONS A DEPOSIT MOVES, AND NONE OF THEM IS REVENUE.
+ *
+ * RECEIVED   Dr bank/cash, Cr deposits held.
+ *            The money is in the account and the company owes it back. The
+ *            one posting people get wrong, by crediting income — which
+ *            overstates earnings and taxes money that has to be returned.
+ *
+ * DEDUCTED   Dr deposits held, and then it depends what it was kept FOR:
+ *            against an invoice  Cr receivable — the arrears are settled out
+ *                                of money already in hand, so the debt goes
+ *                                and no new cash appears.
+ *            anything else       Cr other income — damage, cleaning, keys. The
+ *                                company really does keep this, so it really
+ *                                is income, in the period it was kept. The
+ *                                repair it pays for is its own expense.
+ *
+ * RETURNED   Dr deposits held, Cr bank/cash. The liability is discharged and
+ *            the money leaves. Never touches income in either direction.
+ *
+ * The liability account is debited in all three of the last two cases because
+ * every one of them makes the company owe the tenant less.
+ */
+export async function postForDeposit(
+  db: Db,
+  { orgId, movement, userId }: {
+    orgId: string;
+    movement: DepositMovementForPosting;
+    userId?: string | null;
+  },
+): Promise<PostingResult> {
+  const chart = await chartFor(db, orgId);
+  if (!chart) return skip("no chart of accounts — seed one to book deposits automatically");
+
+  const amount = big(movement.amount);
+  if (amount <= 0n) return skip("a movement of nothing has nothing to book");
+
+  const held = usable(chart, ACCOUNTS.depositsHeld);
+  if (!held) {
+    return skip(`account ${ACCOUNTS.depositsHeld} (tenant deposits held) is missing or closed `
+      + `to postings — a deposit cannot be booked as anything else without `
+      + `turning somebody else's money into revenue`);
+  }
+
+  /* Cash in hand is cash, everything else arrives and leaves through a bank —
+     the same rule a payment follows, so the two cannot disagree. */
+  const cashCode = BY_METHOD[String(movement.method)] || ACCOUNTS.bank;
+
+  if (movement.kind === "RECEIVED") {
+    const into = usable(chart, cashCode);
+    if (!into) return skip(`account ${cashCode} is missing or closed to postings`);
+    return book(db, {
+      orgId, sourceType: "deposit-movement", sourceId: movement.id,
+      date: movement.at, memo: "Deposit received",
+      currency: movement.currency,
+      lines: [
+        { accountId: into.id, debit: Number(amount), memo: String(movement.method || "") },
+        /* The company owes this back. That is the whole entry. */
+        { accountId: held.id, credit: Number(amount), memo: movement.reason || "" },
+      ],
+      userId,
+    });
+  }
+
+  if (movement.kind === "RETURNED") {
+    const out = usable(chart, cashCode);
+    if (!out) return skip(`account ${cashCode} is missing or closed to postings`);
+    return book(db, {
+      orgId, sourceType: "deposit-movement", sourceId: movement.id,
+      date: movement.at, memo: "Deposit returned",
+      currency: movement.currency,
+      lines: [
+        { accountId: held.id, debit: Number(amount), memo: movement.reason || "" },
+        { accountId: out.id, credit: Number(amount), memo: String(movement.method || "") },
+      ],
+      userId,
+    });
+  }
+
+  if (movement.kind === "DEDUCTED") {
+    /*
+     * AGAINST ARREARS, the credit clears the debt — no income, because the
+     * rent was already recognised when the invoice was raised. Crediting
+     * income here would count the same rent twice.
+     */
+    if (movement.invoiceId) {
+      const receivable = usable(chart, ACCOUNTS.receivable);
+      if (!receivable) return skip(`account ${ACCOUNTS.receivable} is missing or closed to postings`);
+      return book(db, {
+        orgId, sourceType: "deposit-movement", sourceId: movement.id,
+        date: movement.at, memo: "Deposit applied to arrears",
+        currency: movement.currency,
+        lines: [
+          { accountId: held.id, debit: Number(amount), memo: movement.reason || "" },
+          { accountId: receivable.id, credit: Number(amount), memo: movement.reason || "" },
+        ],
+        userId,
+      });
+    }
+
+    /* Damage, cleaning, keys. The company keeps it, so it is income — and the
+       cost of putting the damage right is its own expense, separately. */
+    const income = usable(chart, ACCOUNTS.otherIncome);
+    if (!income) return skip(`account ${ACCOUNTS.otherIncome} is missing or closed to postings`);
+    return book(db, {
+      orgId, sourceType: "deposit-movement", sourceId: movement.id,
+      date: movement.at, memo: "Deposit retained",
+      currency: movement.currency,
+      lines: [
+        { accountId: held.id, debit: Number(amount), memo: movement.reason || "" },
+        { accountId: income.id, credit: Number(amount), memo: movement.reason || "" },
+      ],
+      userId,
+    });
+  }
+
+  return skip(`a deposit movement of kind ${movement.kind} has no booking rule`);
 }
 
 /* ====================================================================== *

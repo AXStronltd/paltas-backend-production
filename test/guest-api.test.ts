@@ -411,10 +411,16 @@ test("staff answer guest requests, scoped to their own company", { skip }, async
   const back = await call("/guest/requests", { cookie: a.cookie });
   assert.match(back.json.requests[0].response, /replaced the fan/);
 
-  /* Staff cannot RAISE one — see `noCreate`. */
+  /*
+   * Staff cannot RAISE one — see `noCreate`. Refused with the sentence saying
+   * where a request IS made, rather than with a bare 404: "no endpoint" reads
+   * as a missing feature, and leaves a caller nowhere to go. Same bargain as
+   * the DELETE below.
+   */
   const raised = await call("/guest-requests", { method: "POST", cookie: gm.cookie,
     body: { status: "OPEN" } });
-  assert.equal(raised.status, 404, "staff can raise a request on a guest's behalf");
+  assert.equal(raised.status, 403, "staff can raise a request on a guest's behalf");
+  assert.match(raised.json.message, /made by the guest/i);
 
   /* And cannot delete one: "I asked and nobody came" must stay answerable. */
   const gone = await call(`/guest-requests/${id}`, { method: "DELETE", cookie: gm.cookie });

@@ -310,6 +310,33 @@ const NOT_WRITABLE_HERE = {
                 "along with what was in it",
   },
 
+  /*
+   * SOMEBODY ELSE'S MONEY. Every column below is written by the act that moves
+   * the money, never alongside it — because the person it belongs to is not in
+   * the room when any of these decisions is taken.
+   */
+  deposits: {
+    disputedAt: "stamped by POST /deposits/:id/dispute. A dispute that can be " +
+                "back-dated by a field is one whose timeline a company can edit " +
+                "after the tenant complains",
+    resolvedAt: "stamped by POST /deposits/:id/resolve, which is also what lets " +
+                "deductions resume",
+  },
+
+  "deposit-movements": {
+    byId: "who moved somebody else's money, taken from the session beside the " +
+          "name. A caller who could send it could put another person's name on " +
+          "a deduction they made",
+  },
+
+  payments: {
+    fromDepositId: "set only by POST /deposits/:id/deduct, which is the one path " +
+                   "that has checked the deposit holds the money. A caller who " +
+                   "could send it could mark any payment as funded from a " +
+                   "deposit — and anything counting cash received skips these, " +
+                   "so that is a way to hide money arriving",
+  },
+
   "change-orders": {
     status: "moved by POST /change-orders/:id/{submit,decide,withdraw}. Approving " +
             "one changes what a contract is WORTH without touching what it was " +

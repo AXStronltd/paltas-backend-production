@@ -383,6 +383,13 @@ const EXPECTED_UNNARROWABLE = [
      Narrowing it wrongly would hide the note explaining why a site-scoped
      manager's arrears dropped. */
   "credit-notes",
+  /* A deposit hangs off a lease, which reaches a site through its unit — two
+     joins the scope filter does not do, the same documented limitation as
+     `contracts`. And narrowing it wrongly is worse here than elsewhere:
+     hiding a deposit hides somebody else's money, and the figure a company
+     must not treat as its own. A movement hangs off the deposit, one join
+     further out again. */
+  "deposits", "deposit-movements",
 ].sort();
 
 test("the resources with no site are NOT narrowed — by design",

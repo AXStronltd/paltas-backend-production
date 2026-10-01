@@ -325,13 +325,16 @@ model Organization {
   emergencyPlans EmergencyPlan[]
 
   /// ---- money ----
-  invoices    Invoice[]
-  payments    Payment[]
-  receipts    Receipt[]
-  creditNotes CreditNote[]
-  reminders   Reminder[]
-  expenses    Expense[]
-  payouts     Payout[]
+  invoices         Invoice[]
+  payments         Payment[]
+  receipts         Receipt[]
+  creditNotes      CreditNote[]
+  reminders        Reminder[]
+  /// Somebody else's money, in this company's account.
+  deposits         Deposit[]
+  depositMovements DepositMovement[]
+  expenses         Expense[]
+  payouts          Payout[]
 
   /**
    * Held BY the platform, ABOUT this company.
@@ -1030,6 +1033,7 @@ model Party {
 
   documents   Document[]
   creditNotes CreditNote[]
+  deposits    Deposit[]
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -1211,6 +1215,11 @@ model Lease {
   invoices Invoice[]
 
   rentCharges RentCharge[]
+
+  /// What is actually being held against this tenancy. One, at most — see
+  /// Deposit. Named apart from `deposit` above, which is only the figure the
+  /// agreement asks for.
+  depositHeld Deposit?
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -2597,7 +2606,11 @@ model Invoice {
 
   /// What has been credited against it. See CreditNote — nothing here is
   /// money, and that is the distinction the column `credited` keeps.
-  creditNotes CreditNote[]
+  creditNotes      CreditNote[]
+  /// Arrears covered out of a tenancy deposit. The link exists so that a
+  /// deduction settles the debt instead of leaving Collections chasing a
+  /// tenant for money the company has already taken.
+  depositMovements DepositMovement[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -2696,6 +2709,190 @@ model CreditNote {
   @@index([orgId, issuedOn])
 }
 
+/// ======================================================================
+/// MONEY THE COMPANY IS HOLDING, AND DOES NOT OWN.
+///
+/// A tenancy deposit is the TENANT's money. The company holds it against
+/// damage and arrears and gives back whatever is left. That one sentence is
+/// the whole reason this is a model and not a figure: `Lease.deposit` says
+/// what the agreement ASKS for, and says nothing about whether it arrived,
+/// where it is sitting, what was kept at the end, or what went back.
+///
+/// It is a LIABILITY, never income — chart account 2100, "Tenant deposits
+/// held", which has been in the starting chart from the beginning with
+/// nothing posting to it. A company that books deposits as revenue overstates
+/// what it earned, pays tax on money it must return, and reads its own bank
+/// balance as spendable when a third of it belongs to its tenants.
+///
+/// WHAT IS HELD IS NEVER STORED. It is
+///     sum(RECEIVED) − sum(DEDUCTED) − sum(RETURNED)
+/// over the movements, counting none that is void. A stored running total is
+/// a second truth that drifts the first time anything is voided, and the
+/// amount of somebody else's money in your account is the worst figure in the
+/// system to be approximately right about.
+///
+/// NOT a sale deposit. `Contract.deposit` and `Offer.deposit` are part of a
+/// PRICE — money that becomes the company's when the sale completes. This is
+/// money that stays the tenant's the whole time. They are opposites, and
+/// merging them is how a balance sheet gains revenue it has to give back.
+/// ======================================================================
+model Deposit {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// DEP-0001, counted per company.
+  ref String
+
+  /// Restrict: a tenancy must not be deleted out from under money that is
+  /// still being held against it. A lease is ended rather than deleted
+  /// anyway, which this makes the only path.
+  /// Unique: ONE DEPOSIT PER TENANCY, so "what is held against this lease"
+  /// has exactly one answer. A top-up is a movement, not a second deposit;
+  /// a new tenancy is a new lease and gets its own.
+  leaseId String @unique
+  lease   Lease  @relation(fields: [leaseId], references: [id], onDelete: Restrict)
+
+  /// WHOSE MONEY IT IS. SetNull, because deleting a contact must not delete
+  /// the record of what is owed back to them — the obligation outlives the
+  /// contact row, and `Lease.tenantName` still says who.
+  partyId String?
+  party   Party?  @relation(fields: [partyId], references: [id], onDelete: SetNull)
+
+  /// What the tenancy agreement asks for, in minor units. Copied from the
+  /// lease when the deposit is opened and then independent of it: raising the
+  /// rent next year does not retrospectively change what was agreed.
+  required BigInt @default(0)
+  currency String
+
+  /// WHICH ACCOUNT IT SITS IN.
+  ///
+  /// Several jurisdictions require a deposit to be held in a designated or
+  /// protected account, and every one of them requires the company to be able
+  /// to say which. PALTAS does not enforce any country's scheme — it records
+  /// the answer, so a company that has to produce it can.
+  heldInId String?
+  heldIn   BankAccount? @relation(fields: [heldInId], references: [id], onDelete: SetNull)
+
+  /// SERVER-COMPUTED, from the movements, on every write.
+  ///
+  /// Never read from a request body: a client that can name its own status can
+  /// say SETTLED over money it is still holding. Recomputed rather than
+  /// derived at read time only so that it can be queried and indexed.
+  status DepositStatus @default(DUE)
+
+  /// A DECISION, NOT A SUM — which is why it is stored where the amounts are
+  /// not. A tenant contesting a deduction is a fact about the conversation,
+  /// and a recompute of the figures must not be able to erase it.
+  ///
+  /// While a dispute is open, nothing further may be DEDUCTED: a company must
+  /// not keep taking more out of the money it is holding while the person it
+  /// belongs to is objecting. Giving money back stays allowed, always — that
+  /// is never the harmful direction.
+  disputed      Boolean   @default(false)
+  disputeReason String    @default("")
+  disputedAt    DateTime?
+  resolvedAt    DateTime?
+
+  note String @default("")
+
+  movements DepositMovement[]
+  /// Arrears settled out of this deposit, as payments. See DepositMovement.
+  payments  Payment[]         @relation("PaymentFromDeposit")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+}
+
+enum DepositStatus {
+  /// The agreement asks for one and nothing has arrived.
+  DUE
+  /// Less is held than the agreement requires — short on arrival, or eaten
+  /// into by deductions. The state a landlord chases.
+  PARTIAL
+  /// The full amount is held.
+  HELD
+  /// The tenant is contesting a deduction. Set by hand, cleared by hand.
+  DISPUTED
+  /// Nothing is left: deducted, returned, or both. The end of the lifecycle.
+  SETTLED
+}
+
+/// ONE THING THAT HAPPENED TO A DEPOSIT.
+///
+/// Money arriving, money kept, money given back. Three directions in one
+/// table because all three are the same shape — an amount, a date, a reason
+/// and a person — and because what is held is a sum over them, which only
+/// works if there is one place to sum.
+///
+/// `amount` is ALWAYS POSITIVE. The direction is `kind`, not a sign: a
+/// negative deduction is a concept nobody has, and allowing the sign to carry
+/// meaning is how a typo turns a deduction into a top-up.
+model DepositMovement {
+  id        String       @id @default(cuid())
+  orgId     String
+  org       Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  depositId String
+  deposit   Deposit      @relation(fields: [depositId], references: [id], onDelete: Cascade)
+
+  kind     DepositMovementKind
+  /// Minor units, always positive.
+  amount   BigInt
+  currency String
+
+  /// WHY. Required by the route for a deduction, because a deduction is a
+  /// company keeping somebody else's money and the tenant is entitled to the
+  /// sentence. Optional for money arriving, where "it arrived" is the reason.
+  reason String @default("")
+
+  at DateTime @default(now())
+
+  /// How the money moved, where it moved. A deduction moves no money at all —
+  /// it reclassifies what is already held — so this is null for one.
+  method    PaymentMethod?
+  reference String         @default("")
+
+  /// THE ARREARS THIS DEDUCTION COVERS.
+  ///
+  /// The commonest use of a deposit by a long way, and the reason this link
+  /// has to exist: a deduction that does not settle the invoice leaves
+  /// Collections chasing a tenant for money the company has already taken.
+  /// When set, the route creates the Payment that settles it and points that
+  /// payment back here.
+  invoiceId String?
+  invoice   Invoice? @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+
+  byId   String @default("")
+  byName String @default("")
+
+  /// Voided, never deleted — the house rule for anything that moved money.
+  /// A void is excluded from every sum, so voiding a deduction gives the
+  /// tenant their money back in the only sense that matters.
+  voided     Boolean   @default(false)
+  voidReason String    @default("")
+  voidedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([orgId, depositId])
+  @@index([orgId, at])
+  @@index([orgId, kind])
+}
+
+enum DepositMovementKind {
+  /// Money arrived and is now being held.
+  RECEIVED
+  /// Money kept out of what is held — arrears, damage, cleaning, keys.
+  DEDUCTED
+  /// Money given back to whoever it belongs to.
+  RETURNED
+}
+
 model Payment {
   id        String       @id @default(cuid())
   orgId     String
@@ -2742,12 +2939,23 @@ model Payment {
   /// The proof handed to whoever paid, if one has been issued.
   receipt Receipt?
 
+  /// SETTLED OUT OF A DEPOSIT, NOT OUT OF NEW MONEY.
+  ///
+  /// When arrears are taken from a tenancy deposit the invoice really is paid
+  /// — so a Payment is the honest record of it — but no cash arrived. It
+  /// arrived months earlier, as the deposit. Anything counting cash received
+  /// must skip these or it counts the same money twice.
+  fromDepositId String?
+  fromDeposit   Deposit? @relation("PaymentFromDeposit", fields: [fromDepositId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@unique([orgId, method, reference])
   @@index([orgId, receivedAt])
   @@index([orgId, invoiceId])
+  /// "What was settled out of this deposit" is asked on every deposit screen.
+  @@index([fromDepositId])
 }
 
 /// WHAT A RECEIPT RESTS ON.
@@ -6993,6 +7201,9 @@ model BankAccount {
   active Boolean @default(true)
 
   transactions BankTransaction[]
+  /// Tenancy deposits designated as held here. Several jurisdictions require
+  /// a company to be able to name the account; this is how it can.
+  deposits     Deposit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

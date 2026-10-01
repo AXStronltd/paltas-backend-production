@@ -32,7 +32,12 @@ const SRC = () => readFileSync(join(FE, "assets", "console.js"), "utf8");
    the CREATE table. Kept in step with that handler by the test below. */
 const DECLARED = ["data-act", "data-go", "data-sys", "data-mode", "data-tab",
                   "data-scope", "data-mkt", "data-nb", "data-plan", "data-ptab",
-                  "data-adtab", "data-pait", "data-pgo"];
+                  "data-adtab", "data-pait", "data-pgo",
+                  /* The operating-loop buttons — land status, diligence, and the
+                     six deposit acts. They declare what they do as loudly as
+                     anything else here and were missing from the handler's list,
+                     so they fell through to the label matching as well. */
+                  "data-pre"];
 
 function boot(page: string, product: string, signedIn = false) {
   const w = makeWindow({ href: `https://paltas.io/dashboard/${page}.html` });

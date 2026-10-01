@@ -5429,7 +5429,10 @@ test("every button in the property console does something", { skip }, () => {
 
   /* Anything that makes a button DO something: an action, a destination, a
      filter, a form field, or being deliberately disabled. */
-  const handled = /data-(act|go|sys|tab|ptab|demo|biz|own|m|plan|pay|step|nav|pick|filter|sort|hy-retry|nf|v|id|k|q)\b|onclick|disabled/;
+  /* `pre` is the operating-loop dispatcher — a land status move, a diligence
+     finding, one of the six acts on a tenancy deposit. It reached a screen in
+     this set for the first time with deposits. */
+  const handled = /data-(act|go|sys|tab|ptab|pre|demo|biz|own|m|plan|pay|step|nav|pick|filter|sort|hy-retry|nf|v|id|k|q)\b|onclick|disabled/;
 
   const dead = [];
   let total = 0;

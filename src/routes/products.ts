@@ -41,7 +41,11 @@ import {
   owedOn, refundableOn, requireCreditable, requireRefundable,
   whyNotCreditable, whyNotRefundable,
 } from "../domain/credits.ts";
-import { postForCreditNote, postForRefund } from "../domain/posting.ts";
+import { postForCreditNote, postForDeposit, postForRefund } from "../domain/posting.ts";
+import {
+  deductedOn, heldOn, receivedOn, requireDeductible, requireReceivable,
+  requireReturnable, returnedOn, statusFor, whyNotAReason,
+} from "../domain/deposits.ts";
 import { clean } from "../domain/input.ts";
 import { allows, whyNotArea } from "../domain/access.ts";
 import { scopedTo } from "../domain/scope.ts";
@@ -1513,5 +1517,664 @@ guarded.post("/payments/:id/refund", async (req, res, next) => {
     }
 
     res.status(201).json({ refund, invoice: after, booking: bookingOf(booking) });
+  } catch (e) { next(e); }
+});
+
+/* ====================================================================== *
+ * DEPOSITS — money the company is holding, and does not own
+ *
+ * A tenancy deposit is the TENANT's money. Everything below follows from that
+ * and from one more fact: the person whose money it is is not in the room when
+ * any of these decisions is taken. So every act names who did it, every
+ * deduction carries the sentence explaining itself, and nothing is ever
+ * deleted.
+ *
+ * WHAT IS HELD IS NEVER STORED — it is the sum of the movements, every time.
+ * `status` is the only derived thing written down, and it is recomputed here
+ * on every write and never accepted from a request body.
+ * ====================================================================== */
+
+/** Everything a deposit screen needs, computed in one place. */
+async function depositState(id: string, orgId: string) {
+  const deposit = await db.deposit.findFirst({
+    where: { id, orgId },
+    include: {
+      movements: { orderBy: { at: "asc" } },
+      lease: { select: { id: true, ref: true, tenantName: true, unitRef: true, status: true } },
+      party: { select: { id: true, name: true } },
+      heldIn: { select: { id: true, name: true, currency: true } },
+    },
+  });
+  if (!deposit) throw hidden();
+  return deposit;
+}
+
+/**
+ * THE STATUS, RECOMPUTED FROM WHAT ACTUALLY HAPPENED.
+ *
+ * Called after every movement and after every dispute change, so there is no
+ * window in which a deposit's status disagrees with its own movements. It
+ * returns the fresh row because every caller wants it.
+ */
+async function syncDeposit(id: string, orgId: string) {
+  const deposit = await db.deposit.findFirst({
+    where: { id, orgId }, include: { movements: true },
+  });
+  if (!deposit) throw hidden();
+  const status = statusFor(deposit, deposit.movements);
+  if (status === deposit.status) return deposit;
+  return db.deposit.update({
+    where: { id: deposit.id }, data: { status }, include: { movements: true },
+  });
+}
+
+/** The figures a screen prints, as strings — BigInt does not survive JSON. */
+function depositFigures(
+  deposit: { required: bigint; currency: string; disputed: boolean },
+  movements: readonly { kind: string; amount: bigint; voided: boolean }[],
+) {
+  return {
+    required: deposit.required.toString(),
+    received: receivedOn(movements).toString(),
+    deducted: deductedOn(movements).toString(),
+    returned: returnedOn(movements).toString(),
+    /* THE ONE FIGURE THE WHOLE FEATURE EXISTS FOR. */
+    held: heldOn(movements).toString(),
+    /* Both ceilings are the same number, which is the point: a deduction and
+       a return come out of the same pot. */
+    deductible: deposit.disputed ? "0" : heldOn(movements).toString(),
+    returnable: heldOn(movements).toString(),
+    currency: deposit.currency,
+  };
+}
+
+/**
+ * OPEN A DEPOSIT AGAINST A TENANCY.
+ *
+ * The lease is where the agreed figure and the currency come from, which is
+ * why this hangs off the lease rather than standing on its own. Opening one
+ * records NOTHING as received — a deposit that says it holds money the moment
+ * it is created is the first way this feature could lie.
+ */
+guarded.post("/leases/:id/deposit", async (req, res, next) => {
+  try {
+    need(req, "finance", "create", "deposits");
+
+    const lease = await own("lease", param(req, "id"), actorOf(req).orgId);
+
+    const already = await db.deposit.findFirst({
+      where: { leaseId: lease.id, orgId: actorOf(req).orgId },
+    });
+    if (already) {
+      /* Said in words rather than as a unique-key error: one tenancy holds one
+         deposit, and a top-up is a movement on this one. */
+      throw conflict(
+        `${already.ref} is already open against this tenancy. A deposit that `
+        + `has grown is a receipt on the same deposit (POST /deposits/`
+        + `${already.id}/receive), not a second one.`);
+    }
+
+    /*
+     * WHAT WAS AGREED, from the lease unless the caller says otherwise. A
+     * company migrating in real tenancies often knows the deposit it holds
+     * before it has typed the figure onto the lease.
+     */
+    const asked = req.body?.required === undefined
+      ? big(lease.deposit)
+      : BigInt(Math.round(Number(req.body.required)));
+    if (!Number.isSafeInteger(Number(asked)) || asked < 0n) {
+      throw badRequest("The agreed deposit is a whole number of minor units, and not negative.");
+    }
+
+    const currency = String(req.body?.currency || lease.currency || "").trim().toUpperCase();
+    if (!currency) {
+      throw badRequest(
+        "A deposit needs a currency. It is held, deducted and returned in one "
+        + "currency, and this service has no exchange rate it would stand behind.");
+    }
+
+    /* Where it sits, if they already know. Checked to be this company's. */
+    let heldInId: string | null = null;
+    if (req.body?.heldInId) {
+      const account = await own("bankAccount", String(req.body.heldInId), actorOf(req).orgId);
+      heldInId = account.id;
+    }
+
+    const deposit = await db.deposit.create({
+      data: {
+        orgId: actorOf(req).orgId,
+        ref: await numberFor("deposits", actorOf(req).orgId),
+        leaseId: lease.id,
+        partyId: lease.tenantId,
+        required: asked,
+        currency,
+        heldInId,
+        note: String(req.body?.note || "").slice(0, 2000),
+        /* DUE, because nothing has arrived. Not accepted from the body. */
+        status: "DUE",
+      },
+      include: { movements: true },
+    });
+
+    await audit(req, "deposit.open", "deposit", deposit.id, {
+      ref: deposit.ref, leaseId: lease.id, leaseRef: lease.ref,
+      required: auditable(asked), currency, heldInId,
+    });
+
+    res.status(201).json({
+      deposit,
+      figures: depositFigures(deposit, deposit.movements),
+    });
+  } catch (e) { next(e); }
+});
+
+/** What is held against this tenancy, and what can be done with it. */
+guarded.get("/leases/:id/deposit", async (req, res, next) => {
+  try {
+    need(req, "finance", "get", "deposits");
+    const lease = await own("lease", param(req, "id"), actorOf(req).orgId);
+    const deposit = await db.deposit.findFirst({
+      where: { leaseId: lease.id, orgId: actorOf(req).orgId },
+      include: { movements: { orderBy: { at: "asc" } } },
+    });
+    if (!deposit) {
+      /*
+       * NOT A 404, because the tenancy exists and the answer is meaningful:
+       * nothing is being held. A screen asking "what do we hold for this
+       * tenant" deserves "nothing, and the agreement asks for X" rather than
+       * an error it has to interpret.
+       */
+      res.json({
+        deposit: null,
+        required: big(lease.deposit).toString(),
+        currency: lease.currency,
+        why: "No deposit has been opened against this tenancy yet.",
+      });
+      return;
+    }
+    res.json({ deposit, figures: depositFigures(deposit, deposit.movements) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * MONEY ARRIVED, AND IS NOW BEING HELD.
+ *
+ * Dr bank, Cr deposits held — never income. The company owes this back.
+ */
+guarded.post("/deposits/:id/receive", async (req, res, next) => {
+  try {
+    /* Recording money that has ALREADY arrived is a create, not a manage act:
+       refusing it to the person who took the cash is how a record goes
+       unwritten. */
+    need(req, "finance", "create", "deposits");
+
+    const deposit = await depositState(param(req, "id"), actorOf(req).orgId);
+    const currency = req.body?.currency ? String(req.body.currency).toUpperCase() : null;
+    /*
+     * NOT Math.round(). Every other money route in this file rounds a request's
+     * amount to the nearest minor unit, and that is fine for a figure the
+     * company is naming about itself. This is somebody else's money: quietly
+     * turning 1.5 into 2 changes what a tenant is told was taken, by a number
+     * nobody typed. The guard refuses a fraction instead and says so.
+     */
+    const amount = requireReceivable(deposit, Number(req.body?.amount), currency);
+
+    const movement = await db.depositMovement.create({
+      data: {
+        orgId: actorOf(req).orgId, depositId: deposit.id,
+        kind: "RECEIVED", amount, currency: deposit.currency,
+        reason: String(req.body?.reason || "").slice(0, 2000),
+        at: req.body?.at ? new Date(String(req.body.at)) : new Date(),
+        method: req.body?.method ? String(req.body.method) as never : "BANK",
+        reference: String(req.body?.reference || "").slice(0, 120),
+        byId: actorOf(req).userId, byName: actorOf(req).userName,
+      },
+    });
+
+    const after = await syncDeposit(deposit.id, actorOf(req).orgId);
+    await audit(req, "deposit.receive", "deposit", deposit.id, {
+      ref: deposit.ref, movementId: movement.id,
+      amount: auditable(amount), currency: deposit.currency, status: after.status,
+    });
+
+    const booking = await postForDeposit(db, {
+      orgId: actorOf(req).orgId, movement, userId: actorOf(req).userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "deposit.receive_not_booked", "deposit", deposit.id, { why: booking.skipped });
+    }
+
+    res.status(201).json({
+      movement, deposit: after,
+      figures: depositFigures(after, after.movements),
+      booking: bookingOf(booking),
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * KEEP SOME OF IT — the act this whole file is careful about.
+ *
+ * A deduction is a company keeping somebody else's money while they are not
+ * in the room. So: the manage level of rights, a required reason, a hard
+ * ceiling at what is actually held, and nothing at all while a dispute is
+ * open.
+ *
+ * NAMING AN INVOICE IS THE COMMON CASE and it does more than record a link:
+ * it SETTLES the arrears. A deduction that leaves the invoice outstanding
+ * leaves Collections chasing a tenant for money the company has already
+ * taken — which is the single worst thing this feature could do.
+ */
+guarded.post("/deposits/:id/deduct", async (req, res, next) => {
+  try {
+    need(req, "finance", "delete", "deposits");
+
+    const reason = String(req.body?.reason || "").trim();
+    const noReason = whyNotAReason(reason, "A deduction");
+    if (noReason) throw badRequest(noReason);
+
+    const deposit = await depositState(param(req, "id"), actorOf(req).orgId);
+    const currency = req.body?.currency ? String(req.body.currency).toUpperCase() : null;
+    /*
+     * NOT Math.round(). Every other money route in this file rounds a request's
+     * amount to the nearest minor unit, and that is fine for a figure the
+     * company is naming about itself. This is somebody else's money: quietly
+     * turning 1.5 into 2 changes what a tenant is told was taken, by a number
+     * nobody typed. The guard refuses a fraction instead and says so.
+     */
+    const amount = requireDeductible(
+      deposit, deposit.movements, Number(req.body?.amount), currency);
+
+    /* ---- the arrears it covers, if it covers arrears ---- */
+    let invoice = null;
+    if (req.body?.invoiceId) {
+      invoice = await own("invoice", String(req.body.invoiceId), actorOf(req).orgId);
+
+      /*
+       * THE INVOICE HAS TO BE THIS TENANT'S.
+       *
+       * Without this, one tenant's deposit could settle another's rent — the
+       * company would be taking money from somebody who owes nothing to pay
+       * somebody else's debt. The lease is the first test and the party the
+       * second, because a tenant may be billed for something outside the
+       * tenancy (a service, a damage charge) and that is still their debt.
+       */
+      const sameLease = invoice.leaseId && invoice.leaseId === deposit.leaseId;
+      const sameParty = invoice.partyId && deposit.partyId && invoice.partyId === deposit.partyId;
+      if (!sameLease && !sameParty) {
+        throw badRequest(
+          `${invoice.ref} is not against this tenancy or this tenant. A deposit `
+          + `can only settle what the person it belongs to owes.`);
+      }
+      if (invoice.currency !== deposit.currency) {
+        throw badRequest(
+          `${invoice.ref} is in ${invoice.currency} and this deposit is held in `
+          + `${deposit.currency}. That needs an exchange rate somebody stands behind.`);
+      }
+      const owed = owedOn(invoice);
+      if (owed <= 0n) {
+        throw badRequest(
+          `Nothing is owed on ${invoice.ref}, so taking it out of the deposit `
+          + `would overpay it and leave the tenant owed money twice.`);
+      }
+      if (amount > owed) {
+        throw badRequest(
+          `That is more than ${invoice.ref} still owes (${owed}). Deduct what is `
+          + `owed and record the rest separately, with its own reason.`);
+      }
+    }
+
+    const movement = await db.depositMovement.create({
+      data: {
+        orgId: actorOf(req).orgId, depositId: deposit.id,
+        kind: "DEDUCTED", amount, currency: deposit.currency,
+        reason,
+        at: req.body?.at ? new Date(String(req.body.at)) : new Date(),
+        /* NO METHOD. A deduction moves no money — it reclassifies money that
+           is already in the account. Naming a method would claim a transfer
+           that nobody will find on a statement. */
+        method: null,
+        invoiceId: invoice ? invoice.id : null,
+        byId: actorOf(req).userId, byName: actorOf(req).userName,
+      },
+    });
+
+    /*
+     * THE PAYMENT THAT SETTLES THE ARREARS.
+     *
+     * Created directly rather than through POST /payments on purpose: that
+     * route posts its own journal entry (Dr bank, Cr receivable), and no bank
+     * account received anything here. The movement's own entry — Dr deposits
+     * held, Cr receivable — is the true one, and posting both would show cash
+     * arriving that never did.
+     *
+     * `reference` is the movement's id because it is exactly what makes this
+     * payment checkable against something else's record, which is what that
+     * column is for; `receivedBy` carries the part a person reads.
+     */
+    let settled = null;
+    if (invoice) {
+      settled = await db.payment.create({
+        data: {
+          orgId: actorOf(req).orgId,
+          invoiceId: invoice.id,
+          amount, currency: deposit.currency,
+          method: "OTHER",
+          reference: movement.id,
+          receivedBy: `Deposit ${deposit.ref}`,
+          fromDepositId: deposit.id,
+        },
+      });
+    }
+
+    const [after, invoiceAfter] = await Promise.all([
+      syncDeposit(deposit.id, actorOf(req).orgId),
+      invoice ? recomputeInvoice(invoice.id, actorOf(req).orgId) : Promise.resolve(null),
+    ]);
+
+    await audit(req, "deposit.deduct", "deposit", deposit.id, {
+      ref: deposit.ref, movementId: movement.id,
+      amount: auditable(amount), currency: deposit.currency, reason,
+      invoiceId: invoice ? invoice.id : null, invoiceRef: invoice ? invoice.ref : null,
+      paymentId: settled ? settled.id : null,
+      status: after.status,
+    });
+
+    const booking = await postForDeposit(db, {
+      orgId: actorOf(req).orgId, movement, userId: actorOf(req).userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "deposit.deduct_not_booked", "deposit", deposit.id, { why: booking.skipped });
+    }
+
+    res.status(201).json({
+      movement, deposit: after, invoice: invoiceAfter, payment: settled,
+      figures: depositFigures(after, after.movements),
+      booking: bookingOf(booking),
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * GIVE IT BACK.
+ *
+ * Dr deposits held, Cr bank. Never touches income in either direction — the
+ * company is discharging a liability, not spending.
+ *
+ * DELIBERATELY NOT BLOCKED BY A DISPUTE. Giving money back is never the
+ * harmful direction, and several jurisdictions require the undisputed part to
+ * be returned promptly whatever else is unresolved.
+ */
+guarded.post("/deposits/:id/return", async (req, res, next) => {
+  try {
+    need(req, "finance", "delete", "deposits");
+
+    const reason = String(req.body?.reason || "").trim();
+    const noReason = whyNotAReason(reason, "A deposit return");
+    if (noReason) throw badRequest(noReason);
+
+    const deposit = await depositState(param(req, "id"), actorOf(req).orgId);
+    const currency = req.body?.currency ? String(req.body.currency).toUpperCase() : null;
+    /*
+     * NOT Math.round(). Every other money route in this file rounds a request's
+     * amount to the nearest minor unit, and that is fine for a figure the
+     * company is naming about itself. This is somebody else's money: quietly
+     * turning 1.5 into 2 changes what a tenant is told was taken, by a number
+     * nobody typed. The guard refuses a fraction instead and says so.
+     */
+    const amount = requireReturnable(
+      deposit, deposit.movements, Number(req.body?.amount), currency);
+
+    const movement = await db.depositMovement.create({
+      data: {
+        orgId: actorOf(req).orgId, depositId: deposit.id,
+        kind: "RETURNED", amount, currency: deposit.currency,
+        reason,
+        at: req.body?.at ? new Date(String(req.body.at)) : new Date(),
+        method: req.body?.method ? String(req.body.method) as never : "BANK",
+        reference: String(req.body?.reference || "").slice(0, 120),
+        byId: actorOf(req).userId, byName: actorOf(req).userName,
+      },
+    });
+
+    const after = await syncDeposit(deposit.id, actorOf(req).orgId);
+    await audit(req, "deposit.return", "deposit", deposit.id, {
+      ref: deposit.ref, movementId: movement.id,
+      amount: auditable(amount), currency: deposit.currency, reason,
+      status: after.status,
+    });
+
+    const booking = await postForDeposit(db, {
+      orgId: actorOf(req).orgId, movement, userId: actorOf(req).userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "deposit.return_not_booked", "deposit", deposit.id, { why: booking.skipped });
+    }
+
+    res.status(201).json({
+      movement, deposit: after,
+      figures: depositFigures(after, after.movements),
+      booking: bookingOf(booking),
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * THE TENANT IS CONTESTING SOMETHING.
+ *
+ * An update-level act, on purpose: recording that somebody objects must be
+ * the easiest thing on this screen to do. A company whose staff cannot write
+ * down a complaint without a manager is a company whose complaints go
+ * unwritten.
+ *
+ * While it stands, nothing further may be deducted. Returns stay open.
+ */
+guarded.post("/deposits/:id/dispute", async (req, res, next) => {
+  try {
+    need(req, "finance", "update", "deposits");
+
+    const reason = String(req.body?.reason || "").trim();
+    const noReason = whyNotAReason(reason, "A dispute");
+    if (noReason) throw badRequest(noReason);
+
+    const deposit = await own("deposit", param(req, "id"), actorOf(req).orgId);
+    if (deposit.disputed) throw conflict("That deposit is already in dispute.");
+
+    await db.deposit.update({
+      where: { id: deposit.id },
+      data: { disputed: true, disputeReason: reason, disputedAt: new Date(), resolvedAt: null },
+    });
+    const after = await syncDeposit(deposit.id, actorOf(req).orgId);
+
+    await audit(req, "deposit.dispute", "deposit", deposit.id,
+      { ref: deposit.ref, reason, status: after.status });
+
+    res.json({ deposit: after, figures: depositFigures(after, after.movements) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * THE DISPUTE IS OVER.
+ *
+ * Manage level, unlike raising one, because resolving it lets deductions
+ * resume — so it is a decision about somebody else's money rather than a note
+ * about a conversation. The status goes back to whatever the figures say,
+ * which may well be PARTIAL or SETTLED rather than HELD.
+ */
+guarded.post("/deposits/:id/resolve", async (req, res, next) => {
+  try {
+    need(req, "finance", "delete", "deposits");
+
+    const reason = String(req.body?.reason || "").trim();
+    const noReason = whyNotAReason(reason, "Resolving a dispute");
+    if (noReason) throw badRequest(noReason);
+
+    const deposit = await own("deposit", param(req, "id"), actorOf(req).orgId);
+    if (!deposit.disputed) throw conflict("That deposit is not in dispute.");
+
+    await db.deposit.update({
+      where: { id: deposit.id },
+      data: {
+        disputed: false,
+        /* The reason is KEPT, with the outcome appended. A dispute that
+           happened and then left no trace is the record a tenant will ask
+           for. */
+        disputeReason: `${deposit.disputeReason} — resolved: ${reason}`.slice(0, 2000),
+        resolvedAt: new Date(),
+      },
+    });
+    const after = await syncDeposit(deposit.id, actorOf(req).orgId);
+
+    await audit(req, "deposit.resolve", "deposit", deposit.id,
+      { ref: deposit.ref, reason, status: after.status });
+
+    res.json({ deposit: after, figures: depositFigures(after, after.movements) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * WHICH ACCOUNT IT SITS IN.
+ *
+ * Several jurisdictions require a deposit to be held in a designated or
+ * protected account, and every one of them requires the company to be able to
+ * say which. PALTAS administers no country's scheme — it records the answer,
+ * so a company that has to produce it can.
+ */
+guarded.patch("/deposits/:id/held-in", async (req, res, next) => {
+  try {
+    need(req, "finance", "update", "deposits");
+
+    const deposit = await own("deposit", param(req, "id"), actorOf(req).orgId);
+
+    let heldInId: string | null = null;
+    if (req.body?.heldInId) {
+      const account = await own("bankAccount", String(req.body.heldInId), actorOf(req).orgId);
+      /*
+       * THE ACCOUNT HAS TO BE IN THE DEPOSIT'S CURRENCY.
+       *
+       * Saying a KES deposit sits in a USD account is either a mistake or a
+       * conversion nobody recorded, and the whole reason to name the account
+       * is to be able to point at the money.
+       */
+      if (account.currency && account.currency !== deposit.currency) {
+        throw badRequest(
+          `${account.name} is a ${account.currency} account and this deposit is `
+          + `held in ${deposit.currency}.`);
+      }
+      heldInId = account.id;
+    }
+
+    const after = await db.deposit.update({
+      where: { id: deposit.id }, data: { heldInId },
+      include: { movements: true, heldIn: { select: { id: true, name: true, currency: true } } },
+    });
+
+    await audit(req, "deposit.held_in", "deposit", deposit.id,
+      { ref: deposit.ref, heldInId, was: deposit.heldInId });
+
+    res.json({ deposit: after, figures: depositFigures(after, after.movements) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * UNDO A MOVEMENT.
+ *
+ * Voided, never deleted. A void is excluded from every sum, so voiding a
+ * mistaken deduction gives the tenant their money back in the only sense that
+ * matters — and the row stays, saying what was tried and who undid it.
+ */
+guarded.post("/deposit-movements/:id/void", async (req, res, next) => {
+  try {
+    need(req, "finance", "delete", "deposits");
+
+    const reason = String(req.body?.reason || "").trim();
+    const noReason = whyNotAReason(reason, "A void");
+    if (noReason) throw badRequest(noReason);
+
+    const movement = await own("depositMovement", param(req, "id"), actorOf(req).orgId);
+    if (movement.voided) throw conflict("That movement is already void.");
+
+    const voided = await db.depositMovement.update({
+      where: { id: movement.id },
+      data: { voided: true, voidReason: reason, voidedAt: new Date() },
+    });
+
+    /*
+     * THE ARREARS ARE OWED AGAIN.
+     *
+     * Voiding a deduction that settled an invoice has to void the payment it
+     * created too, or the invoice stays settled out of money the company has
+     * just given back — a debt that disappeared because of a correction.
+     */
+    let invoiceAfter = null;
+    if (movement.invoiceId) {
+      await db.payment.updateMany({
+        where: { orgId: actorOf(req).orgId, reference: movement.id, fromDepositId: movement.depositId },
+        data: { voided: true, voidReason: reason, voidedAt: new Date() },
+      });
+      invoiceAfter = await recomputeInvoice(movement.invoiceId, actorOf(req).orgId);
+    }
+
+    const after = await syncDeposit(movement.depositId, actorOf(req).orgId);
+    await audit(req, "deposit.movement_void", "depositMovement", movement.id, {
+      depositRef: after.ref, kind: movement.kind,
+      amount: auditable(movement.amount), reason, status: after.status,
+      invoiceId: movement.invoiceId,
+    });
+
+    const booking = await reverseFor(db, {
+      orgId: actorOf(req).orgId, sourceType: "deposit-movement", sourceId: movement.id,
+      reason, userId: actorOf(req).userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "deposit.movement_void_not_booked", "depositMovement", movement.id,
+        { why: booking.skipped });
+    }
+
+    res.json({
+      movement: voided, deposit: after, invoice: invoiceAfter,
+      figures: depositFigures(after, after.movements),
+      booking: bookingOf(booking),
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * WHAT THIS COMPANY IS HOLDING, IN TOTAL.
+ *
+ * Per currency, because there is no rate to add across them with. The figure
+ * a balance sheet needs and a bank balance hides: part of the money in the
+ * account belongs to the tenants.
+ */
+/* NOT /deposits/held: the generated resource router mounts first and its
+   GET /deposits/:id would swallow it, answering "no deposit with id 'held'". */
+guarded.get("/deposits-held", async (req, res, next) => {
+  try {
+    need(req, "finance", "get", "deposits");
+    const deposits = await db.deposit.findMany({
+      where: { orgId: actorOf(req).orgId },
+      include: { movements: true },
+    });
+
+    const by = new Map<string, { held: bigint; required: bigint; count: number }>();
+    for (const d of deposits) {
+      const row = by.get(d.currency) || { held: 0n, required: 0n, count: 0 };
+      row.held += heldOn(d.movements);
+      row.required += d.required;
+      row.count += 1;
+      by.set(d.currency, row);
+    }
+
+    res.json({
+      currencies: [...by.entries()].map(([currency, row]) => ({
+        currency, held: row.held.toString(), required: row.required.toString(),
+        deposits: row.count,
+      })),
+      /* The states, so a screen can say what needs chasing without a second
+         pass over every movement. */
+      states: deposits.reduce<Record<string, number>>((out, d) => {
+        out[d.status] = (out[d.status] || 0) + 1; return out;
+      }, {}),
+    });
   } catch (e) { next(e); }
 });

@@ -1800,6 +1800,113 @@ const DECLARATIONS = {
       "one thing an auditor will ask about.",
   },
 
+  /* ---------------------------------------------------- deposits held */
+
+  deposits: {
+    model: "deposit", area: "finance", product: null,
+    label: "deposits",
+    fields: {
+      leaseId: "id:lease", partyId: "id:party",
+      required: "money", currency: "string",
+      heldInId: "id:bankAccount",
+      status: "enum:DepositStatus",
+      disputed: "bool", disputeReason: "text",
+      note: "text",
+    },
+    required: ["leaseId", "currency"],
+    numbered: "ref", prefix: "DEP",
+    search: ["ref", "note"],
+    order: [{ createdAt: "desc" }],
+    include: {
+      lease: {
+        select: { id: true, ref: true, tenantName: true, unitRef: true,
+                  deposit: true, status: true, endsOn: true },
+      },
+      party: { select: { id: true, name: true, phone: true, email: true } },
+      heldIn: { select: { id: true, name: true, kind: true, currency: true } },
+      movements: {
+        select: { id: true, kind: true, amount: true, currency: true, reason: true,
+                  at: true, method: true, reference: true, invoiceId: true,
+                  byName: true, voided: true, voidReason: true,
+                  /* Which arrears it covered, by the reference a person reads.
+                     "Deducted 13,500" means little; "settled INV-2026-0041"
+                     is what a tenant asking about their deposit needs. */
+                  invoice: { select: { id: true, ref: true } } },
+        orderBy: { at: "asc" },
+      },
+    },
+    /*
+     * OPENED AGAINST A TENANCY, NEVER POSTED BARE.
+     *
+     * A deposit exists to hold one lease's money. Opening it needs the lease
+     * to read the agreed figure and the currency from, and the route refuses a
+     * second one on the same tenancy with a sentence rather than a unique-key
+     * error. A generic create would also let somebody set `status` — and a
+     * client that can name its own status can write SETTLED over money it is
+     * still holding.
+     */
+    noCreate:
+      "A deposit is opened against the tenancy it holds money for — POST "
+      + "/leases/:id/deposit. There is no POST /deposits, because the agreed "
+      + "figure and the currency come off the lease, and because nothing else "
+      + "can refuse a second deposit on a tenancy that already has one.",
+    /*
+     * `status` is SERVER-COMPUTED from the movements and the dispute flag, so
+     * a generic update would be a way to lie about it. The three things that
+     * are legitimately editable — where it is held, the note, the dispute —
+     * each have their own route, because each of them is a decision somebody
+     * should be named for.
+     */
+    noUpdate:
+      "A deposit is not edited. What is held is the sum of its movements, and "
+      + "its status follows from them. Move money with POST /deposits/:id/receive, "
+      + "/deduct or /return; say where it is held with PATCH /deposits/:id/held-in; "
+      + "raise or settle a dispute with POST /deposits/:id/dispute and /resolve.",
+    noDelete:
+      "A deposit is not deleted — it is somebody else's money, and the record "
+      + "of what happened to it is the only defence a company has if asked. "
+      + "Return what is left; the deposit then reads SETTLED and stays.",
+  },
+
+  "deposit-movements": {
+    model: "depositMovement", area: "finance", product: null,
+    label: "deposit movements",
+    fields: {
+      depositId: "id:deposit", kind: "enum:DepositMovementKind",
+      amount: "money", currency: "string", reason: "text",
+      at: "date", method: "enum:PaymentMethod", reference: "string",
+      invoiceId: "id:invoice",
+      byName: "string",
+      voided: "bool", voidReason: "string",
+    },
+    required: ["depositId", "kind", "amount", "currency"],
+    search: ["reason", "reference"],
+    order: [{ at: "desc" }],
+    include: {
+      deposit: { select: { id: true, ref: true, currency: true, status: true } },
+      invoice: { select: { id: true, ref: true, total: true, paid: true } },
+    },
+    /*
+     * EVERY CEILING LIVES ON THE DEPOSIT, so a movement cannot be created
+     * without it. "Not more than is held" can only be checked by summing the
+     * deposit's other movements, and a generic create would let somebody
+     * deduct twice what a tenant ever paid in.
+     */
+    noCreate:
+      "A movement is recorded against the deposit it moves — POST "
+      + "/deposits/:id/receive, /deposits/:id/deduct or /deposits/:id/return. "
+      + "There is no POST /deposit-movements, because nothing can check the "
+      + "amount without summing the deposit.",
+    noUpdate:
+      "A movement is not edited — money moved, and the deposit's balance was "
+      + "computed from it. Void it with a reason (POST "
+      + "/deposit-movements/:id/void) and record the right one.",
+    noDelete:
+      "A movement is voided, never deleted — POST /deposit-movements/:id/void. "
+      + "A deduction that vanished from the record is the first thing a tenant's "
+      + "lawyer will ask about.",
+  },
+
   payments: {
     model: "payment", area: "finance", product: null,
     label: "payments",
