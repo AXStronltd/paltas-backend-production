@@ -161,6 +161,18 @@ export const SITE_BEARING = new Set([
      schema, which is how `offering` came to be here. */
   "offering",
   /*
+   * A MANAGEMENT AGREEMENT CARRIES THE FEE THE COMPANY CHARGES AN OWNER.
+   *
+   * It names one site, so a site-scoped person sees the agreements for the
+   * buildings in their remit and no others — commercial terms with an owner
+   * whose property they do not manage are none of their business.
+   *
+   * The STATEMENTS reach their site through here and are not in this set: they
+   * carry no siteId, and the routes load them by agreement after the agreement
+   * has already been narrowed.
+   */
+  "managementAgreement",
+  /*
    * Property DNA. The identity record hangs off one site, so a person whose
    * remit is two buildings must not read the third one's.
    *

@@ -86,6 +86,9 @@ const NEVER_WRITABLE = {
           "send it could claim to be anybody the company has on file",
   ref: "allocated per company by the framework; a caller choosing one could collide or impersonate",
   code: "same as ref — a pass code is allocated, never chosen by the person it admits",
+  issuedOn: "when the document was issued, stamped by the route that issues it. " +
+            "A caller who could send it could date an owner statement to a month " +
+            "it does not cover, or to before the period it accounts for ended",
   issuedById: "who issued the receipt, taken from the session — a caller who could " +
               "send it could put somebody else's name on a document they handed over",
   issuedByName: "same as issuedById: the name is copied from the session beside the id, " +
@@ -111,6 +114,14 @@ const NEVER_WRITABLE = {
             "one that matters most — a caller who could send it could write off " +
             "money without the note that says why",
   net: "gross minus fees — a third number that must follow from the other two",
+  livePeriodFrom:
+    "the period an owner statement covers WHILE IT STILL STANDS, and null once " +
+    "it is voided. It is a condition moved into the data so that a plain " +
+    "@@unique can say 'one per agreement per period that has not been voided' " +
+    "— which no index over `voided` itself can express. The issue route writes " +
+    "it and the void route clears it; a caller who could send it could free a " +
+    "month that is already accounted for and issue a second statement for it, " +
+    "leaving the owner holding two documents that disagree",
 };
 
 /*

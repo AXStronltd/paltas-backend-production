@@ -192,6 +192,35 @@ export type AfterWrite =
   (ctx: AfterWriteContext) => Promise<Record<string, unknown> | undefined | void>;
 
 /**
+ * COLUMNS THE SERVER WRITES, COMPUTED FROM THE ONES THE CALLER SENT.
+ *
+ * `fields` is the list a request may write, and leaving a column off it is
+ * how this registry says "not yours to state". That half always worked. The
+ * other half — somebody still has to WRITE it — did not exist, and the gap is
+ * not theoretical: `payouts` has excluded `net` from `fields` since the day it
+ * was declared, with a comment explaining that net is gross minus fees and a
+ * caller who can send all three can send a net that follows from neither. The
+ * exclusion held. Nothing then computed it, so every payout ever created
+ * through the framework was stored with net = 0, the column default, and
+ * "what have we actually sent this owner" answered zero for all of them.
+ *
+ * Nothing read `net` until owner statements did, which is the only reason it
+ * was ever noticed. A column that is neither writable nor computed is not
+ * protected — it is empty.
+ *
+ * So: pure, synchronous, and runs on both create and update, because the
+ * invariant has to survive a PATCH that moves `gross` on its own. `before` is
+ * the stored row on an update and null on a create — a partial PATCH only
+ * carries the columns that changed, so the rest of the arithmetic has to come
+ * from somewhere. Returns the columns to merge in, and may return nothing when
+ * this particular write changes none of its inputs.
+ */
+export type OnWrite = (
+  data: Record<string, unknown>,
+  before: ReadRow | null,
+) => Record<string, unknown> | undefined | void;
+
+/**
  * Totals computed across a page of rows, in one query rather than one per row.
  *
  * `id` is named because every rollup starts by collecting the page's ids —
@@ -255,6 +284,12 @@ export interface ResourceDeclaration {
 
   /** Derived fields added on the way out. Pure and synchronous. */
   readonly onRead?: OnRead;
+  /**
+   * Derived columns computed on the way IN, for a column the caller may not
+   * state. Pure and synchronous. See OnWrite — a column left out of `fields`
+   * with nothing to compute it is not guarded, it is blank.
+   */
+  readonly onWrite?: OnWrite;
   /** What happens after a successful write. Cannot undo it. */
   readonly afterWrite?: AfterWrite;
   /** Totals across a page, computed in one query. */

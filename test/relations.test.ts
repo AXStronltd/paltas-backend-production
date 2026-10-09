@@ -290,6 +290,16 @@ test("every model has an id and timestamps, or says why not", () => {
   const APPEND_ONLY = new Set([
     "PromotionEvent", "WorkOrderEvent", "IncidentEvent", "AuditEvent",
     "FolioLine", "InvoiceLine", "Counter", "Entitlement",
+    /*
+     * ONE LINE OF AN OWNER STATEMENT, FROZEN WITH IT.
+     *
+     * The owner is holding a copy of the document these lines make up. A line
+     * that could be updated is a line that stops matching the copy in their
+     * inbox — so a wrong statement is VOIDED and re-issued, which produces new
+     * lines rather than editing these. The route offers no PATCH and no DELETE
+     * for one, and owner-statements.test.js asserts it.
+     */
+    "OwnerStatementLine",
     /* What a tokenisation provider told us, and when. Nothing updates it: if
        the provider later contradicts itself that is a NEW row, so the
        disagreement stays visible instead of being overwritten. */

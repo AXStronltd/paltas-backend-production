@@ -41,7 +41,14 @@ import {
   owedOn, refundableOn, requireCreditable, requireRefundable,
   whyNotCreditable, whyNotRefundable,
 } from "../domain/credits.ts";
-import { postForCreditNote, postForDeposit, postForRefund } from "../domain/posting.ts";
+import {
+  postForCreditNote, postForDeposit, postForOwnerStatement, postForRefund,
+} from "../domain/posting.ts";
+import type { DraftLine, Totals } from "../domain/owner-statements.ts";
+import {
+  feeOn, linesAgree, monthRange, periodName, requireAnAgreement, requireIssuable,
+  totalsFor, whyNotIssuable,
+} from "../domain/owner-statements.ts";
 import {
   deductedOn, heldOn, receivedOn, requireDeductible, requireReceivable,
   requireReturnable, returnedOn, statusFor, whyNotAReason,
@@ -1499,6 +1506,31 @@ guarded.post("/payments/:id/refund", async (req, res, next) => {
            matter most. */
         providerRef: `refund-of:${payment.id}`,
         receivedBy: actorOf(req).userName,
+        /*
+         * WHEN THE MONEY WENT BACK, and not "whenever this button was
+         * pressed".
+         *
+         * This was left unset, so the column's `now()` default decided — and
+         * every report that groups money by period then put the refund in the
+         * month of the CLICK rather than the month of the money. An owner
+         * statement is the sharp case: September collected the rent and
+         * September gave 3,000 of it back, but the refund was stamped October,
+         * so September told the owner it had collected money the company no
+         * longer held, and October showed rent going backwards on a property
+         * that took none.
+         *
+         * A payment states its own date (`receivedAt` is writable on the
+         * payments resource), so a refund states its own too. It defaults to
+         * the date of the payment it reverses rather than to today, because a
+         * refund with no date given is a correction of that receipt and
+         * belongs beside it — and an issued statement is frozen, so a
+         * back-dated refund can never rewrite a figure an owner is holding.
+         * Where the money genuinely went back later, say so and it lands in
+         * the period it actually left.
+         */
+        receivedAt: req.body?.receivedAt
+          ? new Date(String(req.body.receivedAt))
+          : payment.receivedAt,
       },
     });
 
@@ -2175,6 +2207,672 @@ guarded.get("/deposits-held", async (req, res, next) => {
       states: deposits.reduce<Record<string, number>>((out, d) => {
         out[d.status] = (out[d.status] || 0) + 1; return out;
       }, {}),
+    });
+  } catch (e) { next(e); }
+});
+
+/* ====================================================================== *
+ * OWNER STATEMENTS — what we collected, what we spent, what we kept
+ *
+ * A managing agent does not own the building. Everything here follows from
+ * that: the rent is the owner's, the fee is the company's, and once a month
+ * the owner is shown the arithmetic.
+ *
+ * TWO ENDPOINTS, DELIBERATELY. The GET computes a statement LIVE so somebody
+ * can look at it before committing; the POST writes every figure and every
+ * line down, because the owner will be holding a copy and a document that
+ * recomputes itself stops agreeing with the one in their inbox.
+ * ====================================================================== */
+
+/** The invoices a period's income is drawn from: this property's tenancies. */
+async function leasesUnder(
+  orgId: string, agreement: { siteId: string | null; unitId: string | null },
+): Promise<string[]> {
+  /*
+   * ONE UNIT, OR THE WHOLE PROPERTY — and never the whole property when the
+   * agreement says one unit. An agent managing a single flat in a block must
+   * not be credited with the block's rent, which is the mistake a `siteId`
+   * fallback would make silently.
+   */
+  const where = agreement.unitId
+    ? { orgId, unitId: agreement.unitId }
+    : { orgId, unit: { siteId: String(agreement.siteId) } };
+  const leases = await db.lease.findMany({ where, select: { id: true } });
+  return leases.map((l) => l.id);
+}
+
+/**
+ * EVERYTHING A STATEMENT SAYS, COMPUTED FROM WHAT ACTUALLY HAPPENED.
+ *
+ * Shared by the preview and the issue, so the document somebody looked at and
+ * the document that was sent cannot be built by two different pieces of
+ * arithmetic.
+ */
+async function buildStatement(
+  orgId: string,
+  agreement: Awaited<ReturnType<typeof db.managementAgreement.findFirstOrThrow>>,
+  range: { from: Date; to: Date },
+) {
+  const leaseIds = await leasesUnder(orgId, agreement);
+  const lines: DraftLine[] = [];
+
+  /* ---- what was BILLED in the period ---- */
+  const invoices = leaseIds.length
+    ? await db.invoice.findMany({
+        where: {
+          orgId, leaseId: { in: leaseIds },
+          status: { not: "VOID" },
+          issuedOn: { gte: range.from, lt: range.to },
+        },
+        select: { id: true, ref: true, total: true, credited: true, currency: true },
+      })
+    : [];
+  /* Credit notes come off: an invoice partly written off was never billed for
+     that part, and charging a fee on it would charge for money nobody owes. */
+  const billed = invoices
+    .filter((i) => i.currency === agreement.currency)
+    .reduce((t, i) => t + (i.total - i.credited), 0n);
+
+  /* ---- what was COLLECTED in the period ---- */
+  /*
+   * Payments, not invoices. A refund is a negative payment — the schema says
+   * so on the column — so it reduces this by arriving, which is right: money
+   * that went back was not collected.
+   *
+   * A payment funded out of a DEPOSIT is included on purpose: the tenant's
+   * arrears really were settled, the owner really is owed that rent, and the
+   * money really is in the company's hands. It arrived earlier as a deposit,
+   * which is a fact about the bank account rather than about the owner.
+   */
+  const payments = leaseIds.length
+    ? await db.payment.findMany({
+        where: {
+          orgId, voided: false,
+          receivedAt: { gte: range.from, lt: range.to },
+          invoice: { leaseId: { in: leaseIds } },
+        },
+        select: {
+          id: true, amount: true, currency: true, receivedAt: true, reference: true,
+          method: true,
+          invoice: { select: { id: true, ref: true, lease: { select: { unitRef: true } } } },
+        },
+        orderBy: { receivedAt: "asc" },
+      })
+    : [];
+
+  let collected = 0n;
+  for (const p of payments) {
+    if (p.currency !== agreement.currency) continue;   /* no rate to convert with */
+    collected += p.amount;
+    lines.push({
+      at: p.receivedAt, kind: "RENT",
+      detail: `Rent received${p.invoice?.lease?.unitRef ? ` — ${p.invoice.lease.unitRef}` : ""}`,
+      amount: p.amount,
+      sourceType: "payment", sourceId: p.id, ref: p.invoice?.ref || p.reference || "",
+    });
+  }
+
+  /* ---- what it cost, and what the owner is charged for ---- */
+  /*
+   * ONLY WHAT SOMEBODY MARKED RECOVERABLE.
+   *
+   * `Expense.recoverable` has always meant "can be billed on to an owner or a
+   * tenant", and its own comment says a cost nobody marked is one the landlord
+   * absorbed. So the conservative direction is the correct one: an owner is
+   * never charged for something nobody said was chargeable.
+   *
+   * The rest is COUNTED AND REPORTED rather than dropped. A cost quietly left
+   * off a statement is a cost the company absorbed without deciding to, and the
+   * statement should say that it happened.
+   */
+  const spend = agreement.siteId
+    ? await db.expense.findMany({
+        where: {
+          orgId, siteId: agreement.siteId,
+          spentOn: { gte: range.from, lt: range.to },
+          status: { not: "REJECTED" },
+        },
+        select: {
+          id: true, detail: true, category: true, amount: true, currency: true,
+          spentOn: true, recoverable: true,
+        },
+        orderBy: { spentOn: "asc" },
+      })
+    : [];
+
+  let costs = 0n, costsLeftOff = 0, costsLeftOffTotal = 0n;
+  const charged: { amount: bigint; category: string | null; detail: string }[] = [];
+  for (const e of spend) {
+    if (e.currency !== agreement.currency) continue;
+    if (!e.recoverable) {
+      costsLeftOff += 1;
+      costsLeftOffTotal += e.amount;
+      continue;
+    }
+    costs += e.amount;
+    charged.push({ amount: e.amount, category: e.category, detail: e.detail });
+    lines.push({
+      at: e.spentOn || range.from, kind: "COST",
+      detail: e.detail || e.category || "Cost",
+      /* NEGATIVE: it comes off what the owner is owed. The sign is which
+         column of a two-column document this belongs in. */
+      amount: -e.amount,
+      sourceType: "expense", sourceId: e.id, ref: e.category || "",
+    });
+  }
+
+  /* ---- the company's own fee ---- */
+  const fee = feeOn(agreement, { collected, billed });
+  if (fee > 0n) {
+    lines.push({
+      at: range.to, kind: "FEE",
+      detail: agreement.basis === "FIXED"
+        ? "Management fee"
+        : `Management fee — ${(agreement.feeBps / 100).toFixed(2)}% of `
+          + `${agreement.basis === "BILLED" ? "rent billed" : "rent collected"}`,
+      amount: -fee,
+      sourceType: "agreement", sourceId: agreement.id, ref: agreement.ref,
+    });
+  }
+
+  /* ---- what has already been sent, and what was owed before ---- */
+  const sent = await db.payout.findMany({
+    where: {
+      orgId, agreementId: agreement.id,
+      status: { in: ["SENT", "APPROVED"] },
+      sentAt: { gte: range.from, lt: range.to },
+    },
+    select: { id: true, net: true, currency: true, sentAt: true, reference: true },
+    orderBy: { sentAt: "asc" },
+  });
+  let paidOut = 0n;
+  for (const p of sent) {
+    if (p.currency !== agreement.currency) continue;
+    paidOut += p.net;
+    lines.push({
+      at: p.sentAt || range.to, kind: "PAYOUT",
+      detail: "Paid to you",
+      amount: -p.net,
+      sourceType: "payout", sourceId: p.id, ref: p.reference || "",
+    });
+  }
+
+  /*
+   * THE BALANCE BROUGHT FORWARD, from the last statement that was not voided.
+   * A relationship that restarts at zero every month hides a balance that has
+   * been owed for six of them.
+   */
+  const previous = await db.ownerStatement.findFirst({
+    where: {
+      orgId, agreementId: agreement.id, voided: false,
+      periodTo: { lte: range.from },
+    },
+    orderBy: { periodTo: "desc" },
+    select: { ref: true, closing: true, periodTo: true },
+  });
+  const opening = previous ? previous.closing : 0n;
+
+  const totals = totalsFor({
+    collected, billed, costs, fee, opening, paidOut, costsLeftOff, costsLeftOffTotal,
+  });
+
+  return { totals, lines, charged, previous, leaseIds };
+}
+
+/** The figures, as strings — BigInt does not survive JSON. */
+function statementWire(
+  totals: Totals, lines: readonly DraftLine[], extra: Record<string, unknown> = {},
+) {
+  return {
+    totals: Object.fromEntries(Object.entries(totals).map(([k, v]) =>
+      [k, typeof v === "bigint" ? v.toString() : v])),
+    lines: lines.map((l) => ({
+      at: l.at, kind: l.kind, detail: l.detail, amount: l.amount.toString(),
+      sourceType: l.sourceType || "", sourceId: l.sourceId || "", ref: l.ref || "",
+    })),
+    ...extra,
+  };
+}
+
+/* ---------------------------------------------------------------- *
+ * THE AGREEMENT
+ * ---------------------------------------------------------------- */
+
+guarded.post("/management-agreements", async (req, res, next) => {
+  try {
+    /* Committing the company to collect and remit somebody else's money is an
+       owner's decision, and the same level that issues a credit note. */
+    need(req, "finance", "delete", "management-agreements");
+
+    const owner = await own("party", String(req.body?.ownerId || ""), actorOf(req).orgId);
+
+    const siteId = req.body?.siteId ? String(req.body.siteId) : null;
+    const unitId = req.body?.unitId ? String(req.body.unitId) : null;
+    requireAnAgreement({
+      basis: req.body?.basis, feeBps: req.body?.feeBps,
+      feeFixed: req.body?.feeFixed, siteId, unitId,
+    });
+
+    /* Both checked to be this company's before anything is written. */
+    const site = await own("site", String(siteId), actorOf(req).orgId);
+    const unit = unitId ? await own("unit", unitId, actorOf(req).orgId) : null;
+    /*
+     * A NAMED UNIT HAS TO BE IN THE NAMED PROPERTY.
+     *
+     * Otherwise an agreement reads "Riverside Court, unit C-402" where C-402 is
+     * in another building — and every statement under it would account for one
+     * owner's rent against another's property.
+     */
+    if (unit && unit.siteId !== site.id) {
+      throw badRequest(
+        `${unit.ref} is not in ${site.name}. An agreement over one unit has to `
+        + `name the property that unit is actually in.`);
+    }
+
+    /*
+     * THE CURRENCY COMES FROM THE PROPERTY, not the company. A Kenyan tower
+     * held by a Swedish agent pays its owner in KES, and only the property
+     * knows — the same chain every other money record resolves through.
+     */
+    const currency = String(
+      req.body?.currency
+      /* The same resolver every other money record uses: unit -> project ->
+         bank account -> site -> the site's country -> the company's, last. */
+      || await currencyFor(db, actorOf(req).orgId,
+                           unit ? { unitId: unit.id } : { siteId: site.id })
+      || "",
+    ).trim().toUpperCase();
+    if (!currency) {
+      throw badRequest(
+        "This agreement needs a currency. An owner is paid in one currency and "
+        + "the statement is written in it, and this service has no exchange rate "
+        + "it would stand behind.");
+    }
+
+    const basis = String(req.body?.basis || "COLLECTED");
+    const agreement = await db.managementAgreement.create({
+      data: {
+        orgId: actorOf(req).orgId,
+        ref: await numberFor("management-agreements", actorOf(req).orgId),
+        ownerId: owner.id,
+        siteId: site.id,
+        unitId: unit ? unit.id : null,
+        basis: basis as never,
+        feeBps: basis === "FIXED" ? 0 : Math.round(Number(req.body?.feeBps || 0)),
+        feeFixed: basis === "FIXED" ? BigInt(Math.round(Number(req.body?.feeFixed || 0))) : 0n,
+        currency,
+        startsOn: req.body?.startsOn ? new Date(String(req.body.startsOn)) : null,
+        endsOn: req.body?.endsOn ? new Date(String(req.body.endsOn)) : null,
+        status: req.body?.status === "DRAFT" ? "DRAFT" : "ACTIVE",
+        note: String(req.body?.note || "").slice(0, 2000),
+      },
+      include: {
+        owner: { select: { id: true, name: true } },
+        site: { select: { id: true, name: true } },
+        unit: { select: { id: true, ref: true } },
+      },
+    });
+
+    await audit(req, "agreement.write", "managementAgreement", agreement.id, {
+      ref: agreement.ref, ownerId: owner.id, ownerName: owner.name,
+      siteId: agreement.siteId, unitId: agreement.unitId,
+      basis: agreement.basis, feeBps: agreement.feeBps,
+      feeFixed: auditable(agreement.feeFixed), currency,
+    });
+
+    res.status(201).json({ agreement });
+  } catch (e) { next(e); }
+});
+
+guarded.patch("/management-agreements/:id", async (req, res, next) => {
+  try {
+    need(req, "finance", "delete", "management-agreements");
+    const before = await own("managementAgreement", param(req, "id"), actorOf(req).orgId);
+
+    const basis = req.body?.basis === undefined ? before.basis : String(req.body.basis);
+    const feeBps = req.body?.feeBps === undefined ? before.feeBps : Math.round(Number(req.body.feeBps));
+    const feeFixed = req.body?.feeFixed === undefined
+      ? Number(before.feeFixed) : Math.round(Number(req.body.feeFixed));
+
+    /* Re-checked, not trusted: a rate that drifts out of range between create
+       and edit is a rate somebody will be charged. */
+    requireAnAgreement({
+      basis, feeBps, feeFixed,
+      siteId: before.siteId, unitId: before.unitId,
+    });
+
+    const after = await db.managementAgreement.update({
+      where: { id: before.id },
+      data: {
+        basis: basis as never,
+        feeBps: basis === "FIXED" ? 0 : feeBps,
+        feeFixed: basis === "FIXED" ? BigInt(feeFixed) : 0n,
+        ...(req.body?.status !== undefined ? { status: String(req.body.status) as never } : {}),
+        ...(req.body?.endsOn !== undefined
+          ? { endsOn: req.body.endsOn ? new Date(String(req.body.endsOn)) : null } : {}),
+        ...(req.body?.note !== undefined ? { note: String(req.body.note).slice(0, 2000) } : {}),
+      },
+    });
+
+    await audit(req, "agreement.change", "managementAgreement", after.id, {
+      ref: after.ref,
+      was: { basis: before.basis, feeBps: before.feeBps, feeFixed: auditable(before.feeFixed),
+             status: before.status },
+      now: { basis: after.basis, feeBps: after.feeBps, feeFixed: auditable(after.feeFixed),
+             status: after.status },
+    });
+
+    res.json({ agreement: after });
+  } catch (e) { next(e); }
+});
+
+/* ---------------------------------------------------------------- *
+ * THE STATEMENT
+ * ---------------------------------------------------------------- */
+
+/**
+ * WHAT IT WOULD SAY — computed live, written nowhere.
+ *
+ * So that somebody can look at a month before committing it. Nothing here is
+ * frozen and nothing is booked: this is the screen, not the document.
+ */
+guarded.get("/management-agreements/:id/statement", async (req, res, next) => {
+  try {
+    need(req, "finance", "get", "owner-statements");
+    const agreement = await own("managementAgreement", param(req, "id"), actorOf(req).orgId);
+    const range = monthRange(String(req.query?.period || ""));
+
+    const why = whyNotIssuable(agreement, range);
+    const built = await buildStatement(actorOf(req).orgId, agreement, range);
+
+    /* Already issued? Say so rather than letting somebody issue a second one
+       and find out from a unique-key error. */
+    const existing = await db.ownerStatement.findFirst({
+      where: {
+        orgId: actorOf(req).orgId, agreementId: agreement.id,
+        periodFrom: range.from, periodTo: range.to,
+      },
+      select: { id: true, ref: true, voided: true, issuedOn: true },
+    });
+
+    res.json(statementWire(built.totals, built.lines, {
+      agreement, period: {
+        key: String(req.query?.period || ""),
+        name: periodName(String(req.query?.period || "")),
+        from: range.from, to: range.to,
+      },
+      broughtForwardFrom: built.previous ? built.previous.ref : null,
+      /* The reason it cannot be issued, where there is one, so a screen can
+         say it instead of offering a button that will be refused. */
+      why,
+      issued: existing && !existing.voided ? existing : null,
+    }));
+  } catch (e) { next(e); }
+});
+
+/**
+ * ISSUE IT — and freeze every figure.
+ *
+ * From here the document exists and the owner can be handed it. It is not
+ * edited afterwards: it is voided with a reason and re-issued.
+ */
+guarded.post("/management-agreements/:id/statements", async (req, res, next) => {
+  try {
+    /* Sending an owner a document the relationship is settled on is the manage
+       level, like a credit note. */
+    need(req, "finance", "delete", "owner-statements");
+
+    const agreement = await own("managementAgreement", param(req, "id"), actorOf(req).orgId);
+    const periodKey = String(req.body?.period || "");
+    const range = monthRange(periodKey);
+    requireIssuable(agreement, range);
+
+    const already = await db.ownerStatement.findFirst({
+      where: {
+        orgId: actorOf(req).orgId, agreementId: agreement.id,
+        periodFrom: range.from, periodTo: range.to, voided: false,
+      },
+      select: { id: true, ref: true },
+    });
+    if (already) {
+      throw conflict(
+        `${already.ref} already covers ${periodName(periodKey)} for this agreement. `
+        + `Two statements for one month are two different answers to one question, `
+        + `and the owner has both — void that one first if it was wrong.`);
+    }
+
+    const built = await buildStatement(actorOf(req).orgId, agreement, range);
+
+    /*
+     * THE LINES HAVE TO ADD UP TO THE TOTAL.
+     *
+     * The two are built by different code — a running list and a set of sums —
+     * and a statement whose lines disagree with its own net is the one an owner
+     * will find. Refused rather than sent.
+     */
+    if (!linesAgree(built.lines, built.totals)) {
+      throw badRequest(
+        "This statement's lines do not add up to its total, so it has not been "
+        + "issued. That is a fault in PALTAS rather than in your data — please "
+        + "report it.");
+    }
+
+    /*
+     * THE SAME CHECK AGAIN, AND THIS TIME THE DATABASE MAKES IT.
+     *
+     * `already` above is a read followed by a write, and two requests for one
+     * month can both pass it — a double-clicked Issue button is the ordinary
+     * way, and the result would be two statements for one month, which is the
+     * one thing this whole module is built to prevent. The owner would be
+     * holding both and they would not agree.
+     *
+     * So the create is wrapped: @@unique([orgId, agreementId, livePeriodFrom])
+     * is what actually decides, and the loser is told the same thing the
+     * pre-check would have told it rather than being handed a 500.
+     */
+    let statement;
+    try {
+    statement = await db.ownerStatement.create({
+      data: {
+        orgId: actorOf(req).orgId,
+        ref: await numberFor("owner-statements", actorOf(req).orgId),
+        agreementId: agreement.id,
+        ownerId: agreement.ownerId,
+        periodFrom: range.from, periodTo: range.to,
+        /* What makes the constraint above bite, and what voiding clears. */
+        livePeriodFrom: range.from,
+        currency: agreement.currency,
+        collected: built.totals.collected,
+        billed: built.totals.billed,
+        costs: built.totals.costs,
+        fee: built.totals.fee,
+        net: built.totals.net,
+        opening: built.totals.opening,
+        paidOut: built.totals.paidOut,
+        closing: built.totals.closing,
+        costsLeftOff: built.totals.costsLeftOff,
+        costsLeftOffTotal: built.totals.costsLeftOffTotal,
+        note: String(req.body?.note || "").slice(0, 2000),
+        issuedById: actorOf(req).userId,
+        issuedByName: actorOf(req).userName,
+        lines: {
+          create: built.lines.map((l) => ({
+            orgId: actorOf(req).orgId,
+            at: l.at, kind: l.kind, detail: l.detail.slice(0, 500),
+            amount: l.amount,
+            sourceType: l.sourceType || "", sourceId: l.sourceId || "",
+            ref: (l.ref || "").slice(0, 60),
+          })),
+        },
+      },
+      include: { lines: { orderBy: { at: "asc" } } },
+    });
+    } catch (e) {
+      if (isPrismaError(e) && e.code === "P2002") {
+        throw conflict(
+          `A statement for ${periodName(periodKey)} under this agreement was `
+          + `issued a moment ago, by this request or another one. It has not `
+          + `been issued twice — reload to see the one that stands.`);
+      }
+      throw e;
+    }
+
+    await audit(req, "owner-statement.issue", "ownerStatement", statement.id, {
+      ref: statement.ref, agreementRef: agreement.ref, period: periodKey,
+      collected: auditable(statement.collected), costs: auditable(statement.costs),
+      fee: auditable(statement.fee), net: auditable(statement.net),
+      closing: auditable(statement.closing), currency: statement.currency,
+      costsLeftOff: statement.costsLeftOff,
+    });
+
+    const booking = await postForOwnerStatement(db, {
+      orgId: actorOf(req).orgId, statement, costs: built.charged,
+      userId: actorOf(req).userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "owner-statement.not_booked", "ownerStatement", statement.id,
+        { why: booking.skipped });
+    }
+
+    res.status(201).json({
+      statement, period: { key: periodKey, name: periodName(periodKey) },
+      booking: bookingOf(booking),
+    });
+  } catch (e) { next(e); }
+});
+
+/**
+ * VOID ONE.
+ *
+ * The owner was sent a document that was wrong. The row stays, saying so, and
+ * the ledger entry behind it is reversed — a statement that moved an owner's
+ * rent out of income and then vanished would leave the books short.
+ */
+guarded.post("/owner-statements/:id/void", async (req, res, next) => {
+  try {
+    need(req, "finance", "delete", "owner-statements");
+
+    const reason = String(req.body?.reason || "").trim();
+    if (reason.length < 5) {
+      throw badRequest(
+        "A void needs a reason. The owner has a copy of what this said, and "
+        + "whoever reads the file later will have only this sentence to explain "
+        + "why it was withdrawn.");
+    }
+
+    const statement = await own("ownerStatement", param(req, "id"), actorOf(req).orgId);
+    if (statement.voided) throw conflict("That statement is already void.");
+
+    /*
+     * A LATER STATEMENT HAS ALREADY BROUGHT THIS ONE'S BALANCE FORWARD.
+     *
+     * Voiding this one would leave that one's opening figure resting on a
+     * document that no longer stands. Refused in words, with what to do: void
+     * forwards, newest first.
+     */
+    const later = await db.ownerStatement.findFirst({
+      where: {
+        orgId: actorOf(req).orgId, agreementId: statement.agreementId,
+        voided: false, periodFrom: { gte: statement.periodTo },
+      },
+      orderBy: { periodFrom: "asc" },
+      select: { ref: true },
+    });
+    if (later) {
+      throw conflict(
+        `${later.ref} covers a later period and has already carried this `
+        + `statement's closing balance forward. Void ${later.ref} first — `
+        + `newest first — or its opening figure would rest on a document that `
+        + `no longer stands.`);
+    }
+
+    const voided = await db.ownerStatement.update({
+      where: { id: statement.id },
+      data: {
+        voided: true, voidReason: reason, voidedAt: new Date(),
+        /*
+         * AND THE MONTH IS FREE AGAIN.
+         *
+         * Clearing this is what lets a corrected statement be issued for the
+         * same period: the unique index counts nulls as distinct, so this row
+         * stops occupying the month while staying exactly where it was, saying
+         * what it said and why it was withdrawn.
+         */
+        livePeriodFrom: null,
+      },
+    });
+
+    await audit(req, "owner-statement.void", "ownerStatement", statement.id, {
+      ref: statement.ref, reason,
+      net: auditable(statement.net), closing: auditable(statement.closing),
+    });
+
+    const booking = await reverseFor(db, {
+      orgId: actorOf(req).orgId, sourceType: "owner-statement", sourceId: statement.id,
+      reason, userId: actorOf(req).userId,
+    });
+    if (booking.skipped) {
+      await audit(req, "owner-statement.void_not_booked", "ownerStatement", statement.id,
+        { why: booking.skipped });
+    }
+
+    res.json({ statement: voided, booking: bookingOf(booking) });
+  } catch (e) { next(e); }
+});
+
+/**
+ * WHAT THIS COMPANY OWES ITS OWNERS, per currency.
+ *
+ * The liability a managing agent's bank balance hides. Read from the last
+ * statement issued under each agreement, because that is the figure both sides
+ * agreed — not a live recomputation that could differ from what the owner was
+ * told.
+ */
+guarded.get("/owners-owed", async (req, res, next) => {
+  try {
+    need(req, "finance", "get", "owner-statements");
+
+    const agreements = await db.managementAgreement.findMany({
+      where: { orgId: actorOf(req).orgId, status: { not: "ENDED" } },
+      select: {
+        id: true, ref: true, currency: true,
+        owner: { select: { id: true, name: true } },
+        statements: {
+          where: { voided: false },
+          orderBy: { periodTo: "desc" }, take: 1,
+          select: { ref: true, closing: true, periodTo: true },
+        },
+      },
+    });
+
+    const by = new Map<string, { owed: bigint; agreements: number; unstated: number }>();
+    const owners = [];
+    for (const a of agreements) {
+      const last = a.statements[0];
+      const row = by.get(a.currency) || { owed: 0n, agreements: 0, unstated: 0 };
+      row.agreements += 1;
+      if (last) row.owed += last.closing;
+      /* An agreement that has never been stated owes something nobody has
+         computed. Counted, so "nothing owed" cannot mean "nothing issued". */
+      else row.unstated += 1;
+      by.set(a.currency, row);
+
+      owners.push({
+        agreementId: a.id, agreementRef: a.ref,
+        ownerId: a.owner.id, ownerName: a.owner.name,
+        currency: a.currency,
+        owed: last ? last.closing.toString() : null,
+        lastStatement: last ? last.ref : null,
+        lastPeriodTo: last ? last.periodTo : null,
+      });
+    }
+
+    res.json({
+      currencies: [...by.entries()].map(([currency, row]) => ({
+        currency, owed: row.owed.toString(),
+        agreements: row.agreements, neverStated: row.unstated,
+      })),
+      owners,
     });
   } catch (e) { next(e); }
 });

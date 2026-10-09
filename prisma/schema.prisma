@@ -325,16 +325,20 @@ model Organization {
   emergencyPlans EmergencyPlan[]
 
   /// ---- money ----
-  invoices         Invoice[]
-  payments         Payment[]
-  receipts         Receipt[]
-  creditNotes      CreditNote[]
-  reminders        Reminder[]
+  invoices            Invoice[]
+  payments            Payment[]
+  receipts            Receipt[]
+  creditNotes         CreditNote[]
+  reminders           Reminder[]
   /// Somebody else's money, in this company's account.
-  deposits         Deposit[]
-  depositMovements DepositMovement[]
-  expenses         Expense[]
-  payouts          Payout[]
+  deposits            Deposit[]
+  depositMovements    DepositMovement[]
+  /// Somebody else's property, managed by this company.
+  agreements          ManagementAgreement[]
+  ownerStatements     OwnerStatement[]
+  ownerStatementLines OwnerStatementLine[]
+  expenses            Expense[]
+  payouts             Payout[]
 
   /**
    * Held BY the platform, ABOUT this company.
@@ -806,6 +810,9 @@ model Site {
   /// carry several properties and one development can span several parcels.
   parcels PropertyParcel[]
 
+  /// Agreements under which this company manages it for somebody else.
+  agreements ManagementAgreement[]
+
   @@index([orgId])
   @@index([orgId, kind])
 }
@@ -910,6 +917,10 @@ model Unit {
   handovers   Handover[]
 
   deals Deal[]
+
+  /// Agreements under which this company manages this single unit for
+  /// somebody else — an agent may manage one flat in a block.
+  agreements ManagementAgreement[]
 
   @@unique([orgId, ref])
   @@index([orgId])
@@ -1031,9 +1042,13 @@ model Party {
 
   leads Lead[]
 
-  documents   Document[]
-  creditNotes CreditNote[]
-  deposits    Deposit[]
+  documents       Document[]
+  creditNotes     CreditNote[]
+  deposits        Deposit[]
+  /// Property this contact owns and this company manages, and the statements
+  /// sent to them for it.
+  agreements      ManagementAgreement[] @relation("AgreementOwner")
+  ownerStatements OwnerStatement[]      @relation("StatementOwner")
 
   @@index([orgId])
   @@index([orgId, kind])
@@ -3209,6 +3224,268 @@ enum ExpenseStatus {
   REJECTED
 }
 
+/// ======================================================================
+/// MANAGING SOMEBODY ELSE'S PROPERTY.
+///
+/// The commonest arrangement in the industry and the one PALTAS could not
+/// record: the company does not own the building, it manages it for an owner,
+/// collects the rent, pays the costs, keeps a fee and sends the rest on.
+///
+/// Without this row none of that is answerable. The rent a managed property
+/// collects is booked as the COMPANY's income — because nothing says it is
+/// not — so a managing agent's accounts show revenue many times what it
+/// earned, and tax on money that belongs to its clients. `Payout` has always
+/// existed to send money to an owner and had no way to say how much was due.
+///
+/// IT IS AN AGREEMENT, NOT A CLAIM OF OWNERSHIP. PALTAS does not decide who
+/// owns anything — `PropertyOwnershipRecord` says so in those words for the
+/// heritage register, and it holds here too. This records a contract the
+/// company says it has: whose money to send where, and what to keep.
+/// ======================================================================
+model ManagementAgreement {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// MGT-0001, counted per company.
+  ref String
+
+  /// Restrict: an owner with money owed to them must not be deletable. The
+  /// obligation outlives any tidying of a contact list.
+  ownerId String
+  owner   Party  @relation("AgreementOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  /// WHAT IS MANAGED — a whole property, or one unit of it.
+  ///
+  /// Both optional and neither sufficient alone: an agent may manage a single
+  /// flat in a block whose other flats are nothing to do with them, and may
+  /// manage an entire site. The route requires one of the two, because an
+  /// agreement over nothing in particular cannot be used to decide whose rent
+  /// is whose.
+  siteId String?
+  site   Site?   @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  unitId String?
+  unit   Unit?   @relation(fields: [unitId], references: [id], onDelete: SetNull)
+
+  /// HOW THE COMPANY IS PAID. See FeeBasis.
+  basis    FeeBasis @default(COLLECTED)
+  /// Basis points, so 10% is 1000 and no fee is ever stored as a float.
+  feeBps   Int      @default(0)
+  /// Minor units, for a flat fee per period. Used when `basis` is FIXED, and
+  /// kept beside the rate rather than overloading one column, so switching
+  /// basis does not destroy what the other arrangement was.
+  feeFixed BigInt   @default(0)
+
+  /// The currency the owner is paid in, and the statement is written in. From
+  /// the property, not the company — see domain/currency.ts.
+  currency String
+
+  startsOn DateTime?
+  endsOn   DateTime?
+  status   AgreementStatus @default(ACTIVE)
+  note     String          @default("")
+
+  statements OwnerStatement[]
+  /// Money actually sent under it. See Payout.agreementId.
+  payouts    Payout[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  @@index([orgId])
+  @@index([orgId, status])
+  @@index([orgId, ownerId])
+  @@index([orgId, siteId])
+}
+
+/// WHAT THE MANAGEMENT FEE IS A SHARE OF.
+///
+/// Three real contracts, and getting one wrong misstates what the company
+/// earned. They are not interchangeable: COLLECTED and BILLED differ by
+/// exactly the arrears, which is the number a managing agent argues about.
+enum FeeBasis {
+  /// A share of what actually arrived. The commonest, because it aligns the
+  /// agent's incentive with the owner's: no rent collected, no fee.
+  COLLECTED
+  /// A share of what was invoiced, whether or not the tenant paid. The agent
+  /// is paid for letting the unit, not for chasing it.
+  BILLED
+  /// A flat amount per period, regardless. `feeFixed`, not `feeBps`.
+  FIXED
+}
+
+enum AgreementStatus {
+  DRAFT
+  ACTIVE
+  ENDED
+}
+
+/// ======================================================================
+/// WHAT WE COLLECTED, WHAT WE SPENT, WHAT WE KEPT, WHAT YOU ARE OWED.
+///
+/// The document a managing agent sends every owner every month, and the thing
+/// the relationship runs on. An owner who cannot see the arithmetic has no way
+/// to tell a fee from a mistake.
+///
+/// FROZEN AT ISSUE, like a receipt. Every figure below is computed once and
+/// stored, because an owner is holding a copy: if this recomputed later — an
+/// invoice credited, an expense re-categorised, a lease backdated — our copy
+/// and theirs would quietly stop agreeing, and theirs is the one in the email.
+/// `GET /management-agreements/:id/statement` computes a live PREVIEW for
+/// looking at; issuing is what freezes it.
+///
+/// A mistake is VOIDED and re-issued, never edited.
+/// ======================================================================
+model OwnerStatement {
+  id    String       @id @default(cuid())
+  orgId String
+  org   Organization @relation(fields: [orgId], references: [id], onDelete: Cascade)
+
+  /// OS-0001, counted per company.
+  ref String
+
+  agreementId String
+  agreement   ManagementAgreement @relation(fields: [agreementId], references: [id], onDelete: Restrict)
+  /// Copied from the agreement at issue, for the same reason a receipt copies
+  /// the payer: the document said this, and must keep saying it.
+  ownerId     String
+  owner       Party               @relation("StatementOwner", fields: [ownerId], references: [id], onDelete: Restrict)
+
+  periodFrom DateTime
+  periodTo   DateTime
+  currency   String
+
+  /// ---- the arithmetic, frozen ----
+  /// What arrived in the period against this property's tenancies.
+  collected BigInt @default(0)
+  /// What was invoiced in the period. Kept beside `collected` even when the
+  /// fee is not based on it, because the difference is the arrears and an
+  /// owner is entitled to see it.
+  billed    BigInt @default(0)
+  /// Costs charged on to the owner. Only those marked recoverable — see the
+  /// route, which also reports how many were left off and why.
+  costs     BigInt @default(0)
+  /// The company's own fee, the only part of this that is its revenue.
+  fee       BigInt @default(0)
+  /// collected − costs − fee. What the owner is owed for the period.
+  net       BigInt @default(0)
+  /// Carried forward from the last statement's closing figure, so a running
+  /// relationship is readable rather than restarting at zero every month.
+  opening   BigInt @default(0)
+  /// Payouts sent in the period, against this agreement.
+  paidOut   BigInt @default(0)
+  /// opening + net − paidOut. What is still owed when the period closes.
+  closing   BigInt @default(0)
+
+  /// How many costs were NOT charged on, and their total. Stated rather than
+  /// dropped: a figure an owner is not shown is a figure somebody absorbed,
+  /// and the statement should say that it happened.
+  costsLeftOff      Int    @default(0)
+  costsLeftOffTotal BigInt @default(0)
+
+  note String @default("")
+
+  lines OwnerStatementLine[]
+
+  issuedOn     DateTime @default(now())
+  issuedById   String   @default("")
+  issuedByName String   @default("")
+
+  voided     Boolean   @default(false)
+  voidReason String    @default("")
+  voidedAt   DateTime?
+
+  /// THE PERIOD THIS STATEMENT COVERS WHILE IT STILL STANDS, and null once it
+  /// does not. It exists for the unique constraint below and for nothing else.
+  ///
+  /// The rule is "one statement per agreement per period that has not been
+  /// voided", and `voided` is a boolean, so no unique index over these columns
+  /// can express it: including `voided` allows one live row AND one voided row
+  /// per period, and leaving it out blocks the month forever once anything has
+  /// been voided there. Postgres can say it exactly — a partial unique index,
+  /// WHERE NOT voided — and this schema language cannot, while an index the
+  /// schema does not declare is one the next `prisma migrate dev` DROPS.
+  ///
+  /// So the condition moves into the DATA. Issuing writes the period here;
+  /// voiding sets it back to null. Postgres treats nulls as distinct, so a
+  /// month may accumulate any number of voided statements and still hold at
+  /// most one that stands.
+  ///
+  /// `periodFrom` alone, without `periodTo`: both are derived from one period
+  /// key by monthRange(), so the start determines the end and a second column
+  /// would only be a second thing to keep in step.
+  ///
+  /// Written by the route, never by a request — it is not in the registry's
+  /// field list. See POST /management-agreements/:id/statements.
+  livePeriodFrom DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([orgId, ref])
+  /// ONE STATEMENT PER AGREEMENT PER PERIOD THAT STILL STANDS — the rule the
+  /// route checks first and answers 409 for, enforced here as well so that two
+  /// requests arriving together cannot both pass that check.
+  @@unique([orgId, agreementId, livePeriodFrom])
+  /// Looking a period up — "what covers September for this agreement" — which
+  /// the issue route, the preview and the brought-forward balance all ask.
+  /// NOT unique: a month may hold several statements, one standing and the
+  /// rest voided. The uniqueness that does apply is on `livePeriodFrom`.
+  @@index([orgId, agreementId, periodFrom, periodTo])
+  @@index([orgId, ownerId])
+  @@index([orgId, issuedOn])
+}
+
+/// ONE LINE OF AN OWNER STATEMENT — frozen with it.
+///
+/// It carries the WORDS as well as the amount, because the row it came from
+/// may be edited, voided or deleted later and the statement must still read
+/// the way the owner's copy reads.
+model OwnerStatementLine {
+  id          String         @id @default(cuid())
+  orgId       String
+  org         Organization   @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  statementId String
+  statement   OwnerStatement @relation(fields: [statementId], references: [id], onDelete: Cascade)
+
+  at         DateTime
+  kind       OwnerStatementLineKind
+  detail     String
+  /// Minor units. SIGNED, and this is the one place in the schema where that
+  /// is right: a statement is a two-column document and the sign is which
+  /// column — money due to the owner is positive, money taken off is
+  /// negative. Storing two columns instead would make every total a sum of
+  /// differences.
+  amount     BigInt
+  /// What it was, where it came from: "invoice" + an id, "expense" + an id.
+  /// Not a foreign key — the source may be any of four tables, and no one
+  /// column references four of them.
+  sourceType String                 @default("")
+  sourceId   String                 @default("")
+  /// The reference as the document showed it: INV-2026-0041, EXP-0007.
+  ref        String                 @default("")
+
+  createdAt DateTime @default(now())
+
+  @@index([orgId, statementId])
+}
+
+enum OwnerStatementLineKind {
+  /// Rent that arrived.
+  RENT
+  /// A service charge that arrived.
+  SERVICE_CHARGE
+  /// Anything else collected on the owner's behalf.
+  OTHER_INCOME
+  /// A cost paid by the company and charged on.
+  COST
+  /// The company's own management fee.
+  FEE
+  /// Money already sent to the owner.
+  PAYOUT
+}
+
 /// What this organization owes an owner, a host or a partner after PALTAS
 /// has taken its share. Requested here, confirmed elsewhere — creating a row
 /// is not moving money, and this service does not move money.
@@ -3231,11 +3508,22 @@ model Payout {
   reference  String       @default("")
   sentAt     DateTime?
 
+  /// WHICH AGREEMENT THIS IS A PAYMENT UNDER.
+  ///
+  /// A payout has always named a beneficiary and never what it was FOR, so
+  /// "has this owner been paid for September" could not be answered — and an
+  /// owner statement's "already paid out" line would be a guess. SetNull,
+  /// because ending an agreement must not delete the record of money sent.
+  agreementId String?
+  agreement   ManagementAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   @@index([orgId, status])
   @@index([orgId, periodTo])
+  /// "Has this owner been paid for September" is asked on every statement.
+  @@index([agreementId])
 }
 
 enum PayoutStatus {

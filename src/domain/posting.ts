@@ -81,7 +81,18 @@ export const ACCOUNTS = {
    */
   depositsHeld: "2100",
   taxPayable: "2300",
+  /**
+   * WHAT THIS COMPANY OWES AN OWNER whose property it manages.
+   *
+   * The other liability nothing posted to. Rent collected on a managed
+   * property is not the agent's money — only the fee is — so issuing an owner
+   * statement moves the owner's share out of income and into here, where it
+   * stays until a payout discharges it.
+   */
+  ownerPayable: "2200",
   rent: "4000",
+  /** The agent's own fee: the one part of a managed property that IS revenue. */
+  managementFee: "4020",
   otherIncome: "4090",
   otherExpense: "5900",
 };
@@ -745,6 +756,132 @@ export async function postForDeposit(
   }
 
   return skip(`a deposit movement of kind ${movement.kind} has no booking rule`);
+}
+
+/* ====================================================================== *
+ * MONEY COLLECTED FOR SOMEBODY ELSE — an owner statement issued
+ * ====================================================================== */
+
+/** One cost being charged on to an owner, with the account it was booked to. */
+export interface StatementCostForPosting {
+  readonly amount: bigint;
+  /** The expense's own category, so it is credited back where it was debited. */
+  readonly category?: string | null;
+  readonly detail?: string | null;
+}
+
+export interface StatementForPosting {
+  readonly id: string;
+  readonly ref: string;
+  readonly currency: string;
+  readonly issuedOn: Date;
+  readonly collected: bigint;
+  readonly fee: bigint;
+  readonly ownerId: string;
+}
+
+/**
+ * THE ENTRY THAT STOPS A MANAGING AGENT'S BOOKS CLAIMING ITS CLIENTS' RENT.
+ *
+ * When a tenant is invoiced, PALTAS credits 4000 Rent — the company's income —
+ * because until an agreement existed nothing could say otherwise. For a MANAGED
+ * property that was never true: the agent earns a fee, and the rest belongs to
+ * the owner. A managing agent's accounts therefore showed revenue many times
+ * what it earned, and tax on money belonging to its clients.
+ *
+ *   Dr 4000 Rent                 collected      the income was not ours
+ *     Cr 2200 Owner payable      collected      it is owed to the owner
+ *   Dr 2200 Owner payable        fee            we keep our share of it
+ *     Cr 4020 Management fees    fee            and THAT is revenue
+ *   Dr 2200 Owner payable        each cost      a cost charged on reduces
+ *     Cr <the cost's account>    each cost      what we owe, and recovers it
+ *
+ * The costs are credited back to the account each one was DEBITED to rather
+ * than to a single recovery account — the expense bridge already maps a
+ * category to an account, so using the same map keeps "what did maintenance
+ * cost us, net" answerable. Inventing one recovery account would have been a
+ * policy decision this bridge has no business taking.
+ *
+ * What remains on 2200 when the entry closes is exactly the statement's `net`.
+ */
+export async function postForOwnerStatement(
+  db: Db,
+  { orgId, statement, costs, userId }: {
+    orgId: string;
+    statement: StatementForPosting;
+    costs: readonly StatementCostForPosting[];
+    userId?: string | null;
+  },
+): Promise<PostingResult> {
+  const chart = await chartFor(db, orgId);
+  if (!chart) return skip("no chart of accounts — seed one to book owner statements automatically");
+
+  const collected = big(statement.collected);
+  const fee = big(statement.fee);
+
+  const owed = usable(chart, ACCOUNTS.ownerPayable);
+  if (!owed) {
+    return skip(`account ${ACCOUNTS.ownerPayable} (owner payable) is missing or closed `
+      + `to postings — and an owner's share cannot be booked anywhere else without `
+      + `leaving it in this company's income`);
+  }
+
+  const lines: JournalLineInput[] = [];
+
+  /* The owner's rent leaves income. Only where there was any: a period that
+     collected nothing still produces a statement, and it has no entry to make
+     about rent. */
+  if (collected > 0n) {
+    const rent = usable(chart, ACCOUNTS.rent);
+    if (!rent) return skip(`account ${ACCOUNTS.rent} is missing or closed to postings`);
+    lines.push({ accountId: rent.id, debit: Number(collected), memo: statement.ref });
+    lines.push({ accountId: owed.id, credit: Number(collected),
+                 memo: statement.ref, partyId: statement.ownerId });
+  }
+
+  /* The company's fee becomes the company's revenue. */
+  if (fee > 0n) {
+    const earned = usable(chart, ACCOUNTS.managementFee);
+    if (!earned) {
+      return skip(`account ${ACCOUNTS.managementFee} (management fees) is missing or `
+        + `closed to postings — the fee is this company's only revenue on a managed `
+        + `property and must not be booked as rent`);
+    }
+    lines.push({ accountId: owed.id, debit: Number(fee),
+                 memo: `Fee on ${statement.ref}`, partyId: statement.ownerId });
+    lines.push({ accountId: earned.id, credit: Number(fee), memo: statement.ref });
+  }
+
+  /* Each cost charged on, credited back where it was debited. */
+  for (const cost of costs) {
+    const amount = big(cost.amount);
+    if (amount <= 0n) continue;
+    const code = BY_CATEGORY[String(cost.category || "").toLowerCase()] || ACCOUNTS.otherExpense;
+    const account = usable(chart, code);
+    if (!account) return skip(`account ${code} is missing or closed to postings`);
+    lines.push({ accountId: owed.id, debit: Number(amount),
+                 memo: cost.detail || statement.ref, partyId: statement.ownerId });
+    lines.push({ accountId: account.id, credit: Number(amount),
+                 memo: `Recharged — ${statement.ref}` });
+  }
+
+  if (!lines.length) {
+    /*
+     * A STATEMENT OF NOTHING IS STILL A STATEMENT. An owner whose property sat
+     * empty gets one saying so, and there is nothing for the books to record
+     * about a month in which no money moved.
+     */
+    return skip("nothing was collected, charged on or kept — there is no entry to make");
+  }
+
+  return book(db, {
+    orgId, sourceType: "owner-statement", sourceId: statement.id,
+    date: statement.issuedOn,
+    memo: `Owner statement ${statement.ref}`,
+    currency: statement.currency,
+    lines,
+    userId,
+  });
 }
 
 /* ====================================================================== *

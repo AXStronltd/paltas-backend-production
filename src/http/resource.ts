@@ -483,6 +483,11 @@ export function resourceRouter(slug: string): Router {
 
       if (resource.numbered) data[resource.numbered] = await nextNumber(resource, slug, actorOf(req).orgId);
 
+      /* The columns the SERVER owns, computed from the ones that were sent.
+         See OnWrite in domain/registry-types.ts: a column kept out of `fields`
+         and never computed is not protected, it is empty. */
+      if (resource.onWrite) Object.assign(data, resource.onWrite(data, null) || {});
+
       let row;
       try {
         row = await model().create({
@@ -552,6 +557,12 @@ export function resourceRouter(slug: string): Router {
       const data = clean(resource, req.body, { partial: true });
       if (!Object.keys(data).length) throw badRequest("Nothing to change.");
       await checkReferences(resource, data, actorOf(req).orgId);
+
+      /* Recomputed here as well as on create, and `before` is why: a PATCH
+         carries only what changed, so moving `gross` on its own has to find
+         `fees` on the stored row or the invariant breaks on the second write
+         rather than the first. */
+      if (resource.onWrite) Object.assign(data, resource.onWrite(data, before) || {});
 
       /*
        * updateMany, NOT update.

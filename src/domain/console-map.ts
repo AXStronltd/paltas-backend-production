@@ -67,6 +67,25 @@ export interface ConsoleForm {
    * they describe change in the same commit.
    */
   readonly hints?: Readonly<Record<string, string>>;
+  /*
+   * A PICKER THAT IS ONLY MEANINGFUL INSIDE ANOTHER ANSWER.
+   *
+   * Keyed by the service's column name, valued with the column that narrows
+   * it: `{ unitId: "siteId" }` reads "the units offered are the units of the
+   * property chosen above".
+   *
+   * Without this an `id:unit` field offers every unit the company owns,
+   * labelled by bare reference — "A-101", "A-102", "C-402" — with nothing to
+   * say which building each is in. Across eight blocks that is a list in which
+   * most answers are wrong, and the ones that are wrong are refused one at a
+   * time by a server that is entitled to check. Narrowing the list is what
+   * makes the field askable at all.
+   *
+   * Both columns must be fields of the same form; forms.ts drops a scope that
+   * names a field the form does not show, and console-forms.test.ts fails on
+   * one that names nothing.
+   */
+  readonly scopes?: Readonly<Record<string, string>>;
 }
 
 export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
@@ -97,6 +116,97 @@ export const CONSOLE_FORMS: Readonly<Record<string, ConsoleForm>> = {
     fields: {
       who: "partyId", lease: "leaseId", cur: "currency",
       issued: "issuedOn", due: "dueOn",
+    },
+  },
+
+  /*
+   * AN AGREEMENT TO COLLECT SOMEBODY ELSE'S RENT.
+   *
+   * This is the record that makes a managed property accountable. Without one
+   * there is nothing to issue an owner a statement against, and the rent the
+   * company collects on other people's buildings reads as its own revenue.
+   *
+   * POST /management-agreements is hand-written — the registry declares
+   * `ownCreate` — because two things have to be checked that a field list
+   * cannot express: that the agreement covers a property or one unit of it,
+   * and that the fee is not a basis-point typo. The form still comes from here
+   * and still posts to the same path; what it cannot do is get past those two
+   * checks by being a generic create.
+   *
+   * ── `unitId` IS NARROWED, NOT OMITTED ──────────────────────────────────
+   *
+   * Naming a unit NARROWS the agreement to one flat of a block, which matters
+   * because an agent managing one flat must not be credited with the block's
+   * rent — and the route refuses a unit that is not in the named property.
+   *
+   * An unscoped picker would have offered every unit the company owns,
+   * labelled by bare reference ("A-101", "C-402") with nothing to say which
+   * building each is in. Across eight blocks most answers there are wrong,
+   * and each wrong one is a round trip ending in "A-101 is not in Riverside
+   * Court". `scopes` below is what makes the field askable: the list is the
+   * units of the property chosen above, and it waits for that choice.
+   *
+   * It stays OPTIONAL, because leaving it alone is a real answer — it means
+   * the agreement covers the whole property, which is the common case.
+   */
+  fin_owner: {
+    resource: "management-agreements",
+    label: "＋ New management agreement",
+    /*
+     * NAMED THE SAME ON BOTH SIDES, and that is a decision rather than
+     * laziness.
+     *
+     * The abbreviations in this file exist because 135 built screens already
+     * used them in template literals and the brief said not to rename
+     * anything. This form is new, so there is no template to keep — and the
+     * generic create route is not in play here either: `ownCreate` means the
+     * hand-written POST handles it, and that route reads `req.body.ownerId`
+     * directly rather than through this table. An alias would be a name
+     * nothing translates.
+     */
+    fields: {
+      ownerId: "ownerId",
+      siteId: "siteId", unitId: "unitId",
+      basis: "basis", feeBps: "feeBps", feeFixed: "feeFixed",
+      currency: "currency",
+      startsOn: "startsOn", endsOn: "endsOn",
+      status: "status", note: "note",
+    },
+    /* The units offered are the units of the property chosen above. */
+    scopes: { unitId: "siteId" },
+    hints: {
+      basis:
+        "Three different contracts, and they are not interchangeable. "
+        + "Collected takes the fee from rent that actually arrived, so the "
+        + "owner carries the arrears. Billed takes it from rent invoiced "
+        + "whether it arrived or not, so this company carries them. Fixed is "
+        + "a flat amount a month regardless of either.",
+      /*
+       * THE SILENT MISTAKE. Somebody meaning 10% types 10000 and the company
+       * takes the entire rent. The server refuses that one by name, but the
+       * person should not have to be refused to find out what the unit is.
+       */
+      feeBps:
+        "Basis points, not percent: 1000 is 10%, 750 is 7.5%, 125 is 1.25%. "
+        + "Typing 10 would take a tenth of one percent and typing 10000 would "
+        + "take the whole rent, so anything at or above 10000 is refused.",
+      feeFixed:
+        "Only for a Fixed agreement, and ignored on the other two. The flat "
+        + "amount this company keeps each month whatever the rent does.",
+      unitId:
+        "Leave this blank where the agreement covers the WHOLE property — that "
+        + "is the common case. Naming a unit narrows the agreement to it, so "
+        + "only that unit's rent is ever accounted for under it. The list is "
+        + "the units of the property chosen above.",
+      currency:
+        "The owner is paid in one currency and the statement is written in it. "
+        + "It comes from the PROPERTY rather than from this company — a Kenyan "
+        + "tower held by a Swedish agent pays its owner in KES — and there is "
+        + "no exchange rate this service would stand behind.",
+      status:
+        "An agreement starts as a Draft and issues nothing. Nothing can be "
+        + "stated to an owner under terms they have not consented to, so make "
+        + "it Active once they have.",
     },
   },
 

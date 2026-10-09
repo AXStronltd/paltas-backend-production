@@ -27,7 +27,7 @@
 import test, { mock } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESOURCES } from "../src/domain/registry.ts";
@@ -50,6 +50,17 @@ process.env.INSECURE_COOKIES = "1";
 let skip = typeof mock.module === "function"
   ? false
   : "run with --experimental-test-module-mocks (npm test does)";
+
+/*
+ * THE OTHER REPOSITORY, for the one test here that reads the console's own
+ * source. Beside this one, or wherever PALTAS_FRONTEND points — the same
+ * arrangement frontend-contract.test.ts uses, and it skips the same way: a
+ * backend checkout on its own is not a broken backend.
+ */
+const FE = process.env.PALTAS_FRONTEND || join(HERE, "..", "..", "paltas-frontend 2");
+const skipFE = existsSync(join(FE, "assets", "console.js"))
+  ? false
+  : `no frontend at ${FE} — set PALTAS_FRONTEND to run this`;
 
 /*
  * LOADED INSIDE A `try`, SO THEY ARE DECLARED OUTSIDE IT.
@@ -388,6 +399,27 @@ test("all 27 forms post successfully, and nothing is silently dropped", { skip }
  * One row per model, reused: these exist to be pointed at.
  */
 const madeRows = new Map();
+/*
+ * FIELDS A FIXTURE NEEDS TO MAKE SENSE, beyond the ones the resource requires.
+ *
+ * `units.required` is just ["ref"], and that is right: a unit may belong to a
+ * building or to a project instead of a site, so the column is nullable. But
+ * a unit belonging to NOTHING is a row no console form would ever post — a
+ * unit picker offers the units OF a property — and a route entitled to check
+ * that the named unit is in the named property cannot be exercised by one. It
+ * would be refused for the fixture's incoherence and read as a broken form.
+ *
+ * POST /management-agreements is the first such route: naming a unit narrows
+ * the agreement to one flat of a block, so the two have to agree.
+ *
+ * Narrow and named on purpose. Filling in every `id:` field that happened to
+ * be cached would quietly change the fixtures for thirty resources and break
+ * some other cross-field rule a long way from here.
+ */
+const COHERENT: Readonly<Record<string, readonly string[]>> = {
+  unit: ["siteId"],
+};
+
 async function referenceTo(model: Wire) {
   if (madeRows.has(model)) return madeRows.get(model);
 
@@ -426,6 +458,19 @@ async function referenceTo(model: Wire) {
       ? await referenceTo(kind.slice(3))
       : valueForKind(kind, name);
   }
+
+  /*
+   * AND THE FIELDS THE ROW NEEDS TO MAKE SENSE, which are not the same as the
+   * fields it needs to save. See COHERENT above.
+   */
+  for (const name of COHERENT[model as string] || []) {
+    const kind = resource.fields[name];
+    if (!kind || body[name] !== undefined) continue;
+    body[name] = kind.startsWith("id:")
+      ? await referenceTo(kind.slice(3))
+      : valueForKind(kind, name);
+  }
+
   const res = await post(`/${slug}`, body);
   assert.equal(res.status, 201,
     `could not create a ${model} to point at: ${res.status} ${res.text.slice(0, 160)}`);
@@ -639,4 +684,95 @@ test("a date written the console's way lands in the right year", { skip }, async
     `"9 Sep" was stored as ${res.json.reservation.arriveOn} — the year is wrong`);
   assert.equal(arrive.getUTCMonth(), 8, "September is month 8");
   assert.equal(arrive.getUTCDate(), 9);
+});
+
+test("a narrowed picker names a field the same form actually shows", { skip }, () => {
+  /*
+   * `scopes` is what makes an `id:unit` field askable: the list offered is the
+   * units of the property chosen above it, rather than every unit the company
+   * owns labelled by bare reference.
+   *
+   * Two ways to get it wrong, and both end with a picker that can never be
+   * answered rather than an error anybody would notice:
+   *
+   *   a scope naming a column the form does not show   the console waits for
+   *       an answer that is never asked for, so the field stays disabled for
+   *       good. forms.ts drops such a scope rather than serving it, which
+   *       turns the mistake into a silently unfiltered list — so it is caught
+   *       here instead.
+   *
+   *   a scope on a field that is not a reference        there is no list to
+   *       narrow, and the console would disable a text box until something
+   *       unrelated was filled in.
+   *
+   * The narrowing field must also be a reference: the console compares it to
+   * a parent id carried on each row, and comparing against free text would
+   * match nothing.
+   */
+  const problems: string[] = [];
+
+  for (const [screen, form] of Object.entries(CONSOLE_FORMS)) {
+    const scopes = form.scopes;
+    if (!scopes) continue;
+    const resource = RESOURCES[form.resource];
+    if (!resource) continue;
+    const shown = new Set(Object.values(form.fields || {}));
+
+    for (const [field, by] of Object.entries(scopes)) {
+      if (!shown.has(field)) {
+        problems.push(`${screen}: scopes names "${field}", which is not a field of the form`);
+      }
+      if (!shown.has(by)) {
+        problems.push(
+          `${screen}.${field} is narrowed by "${by}", which the form does not show — ` +
+          `the picker would wait for an answer nobody is asked for`);
+      }
+      const kind = resource.fields[field];
+      if (kind && !kind.startsWith("id:")) {
+        problems.push(`${screen}.${field} is "${kind}", not a reference — there is no list to narrow`);
+      }
+      const byKind = resource.fields[by];
+      if (byKind && !byKind.startsWith("id:")) {
+        problems.push(
+          `${screen}.${field} is narrowed by ${by}, which is "${byKind}" rather than a ` +
+          `reference — the console compares it to a parent id and free text matches none`);
+      }
+    }
+  }
+
+  assert.deepEqual(problems, [], "Narrowed pickers that cannot work:\n  " + problems.join("\n  "));
+});
+
+test("the console narrows the picker rather than ignoring the scope", { skip: skipFE }, () => {
+  /*
+   * The server can serve `scope` on a field and the console can quietly not
+   * read it — in which case every unit is offered again and the only sign is a
+   * refusal from the server when somebody picks one from another building.
+   * These are the three places that have to co-operate.
+   */
+  const con = readFileSync(join(FE, "assets", "console.js"), "utf8");
+
+  assert.match(con, /function formOptions\(lookup, within\)/,
+    "formOptions cannot be narrowed, so a scope on a field does nothing");
+  assert.match(con, /return rows\.filter\(\(x\) => x\[2\] === within\)/,
+    "formOptions takes a scope and does not filter by it");
+  assert.match(con, /f\.scope \? NEW\.values\[f\.scope\] : ""/,
+    "newPanel does not hand the picker the answer it is narrowed by");
+  assert.match(con, /\.filter\(\(f\) => f\.scope === changed\)/,
+    "nothing redraws the form when the narrowing answer changes, so the " +
+    "dependent picker keeps the previous property's units");
+
+  /* And the rows have to carry the parent, or there is nothing to filter on. */
+  const hyd = readFileSync(join(FE, "assets", "paltas-hydrate.js"), "utf8");
+  /*
+   * ANCHORED AT THE START OF THE KEY, which this got wrong first time round.
+   * `indexOf('UNITS: { slug: "units"')` matches inside HOST_UNITS — declared
+   * a thousand lines earlier against the same slug — so the slice described
+   * the host adapter and the assertion failed against a file that was right.
+   */
+  const found = /\n\s+UNITS: \{ slug: "units"/.exec(hyd);
+  assert.ok(found, "the UNITS adapter has moved and this test is reading nothing");
+  const at = found.index;
+  assert.match(hyd.slice(at, hyd.indexOf("}},", at)), /siteId: r\.siteId \|\| ""/,
+    "a unit row does not say which property it is in, so the picker cannot be narrowed");
 });

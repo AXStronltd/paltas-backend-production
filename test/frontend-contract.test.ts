@@ -5571,3 +5571,88 @@ test("the files that exist in both repositories are identical", { skip }, async 
     "\n\nCopy whichever is right over the other and release the two together. " +
     "Neither repository's own suite can catch this — each reads only its own copy.");
 });
+
+test("every adapter the hydrator declares is an array the console registers", { skip }, () => {
+  /*
+   * THE HALF OF THE WIRING THAT FAILS SILENTLY.
+   *
+   * Hydrating one of the console's arrays takes three separate things, in two
+   * files: an adapter in paltas-hydrate.js that names the endpoint and shapes
+   * a row, a `const X = []` in console.js that the screens closed over, and
+   * the array being handed to connect() so H.register() puts it in TARGET.
+   *
+   * Miss the third and nothing anywhere complains. load() begins
+   * `if (!spec || !array || !D) return`, and `array` is TARGET[name] — so the
+   * fetch is skipped, the array stays empty, and the screen draws its own
+   * "nothing here yet" state. That state is indistinguishable from the
+   * correct answer for a company that genuinely has none, which is why this
+   * survives review: the screen looks finished.
+   *
+   * It had already happened. DEPOSITS shipped with an adapter, an array and
+   * no registration, so the tenant deposits screen could not show a deposit
+   * to anybody, and depositsHeldNow() returned null on every call — which
+   * quietly reinstated the demo-ledger figure on the banking and cash screens
+   * that the same commit had set out to remove.
+   *
+   * The two "is it declared" tests above ask about SCREENS. This asks about
+   * the arrays, which is the other direction and the one that goes quiet.
+   */
+  const hyd = readFileSync(join(FE, "assets", "paltas-hydrate.js"), "utf8");
+  const con = readFileSync(join(FE, "assets", "console.js"), "utf8");
+
+  /*
+   * Brace-matched rather than regexed, and aware of strings and comments.
+   * `connect(` is followed by an object literal that runs over many lines and
+   * contains both — and a `//` inside a URL would end the scan early, which
+   * is the kind of wrong that reads as a passing test.
+   */
+  function objectAt(src: string, from: number): string {
+    const open = src.indexOf("{", from);
+    if (open < 0) return "";
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      const c = src[i], d = src[i + 1];
+      if (c === "/" && d === "*") { i = src.indexOf("*/", i + 2); if (i < 0) break; continue; }
+      if (c === "/" && d === "/") { i = src.indexOf("\n", i); if (i < 0) break; continue; }
+      if (c === '"' || c === "'" || c === "`") {
+        for (i++; i < src.length; i++) {
+          if (src[i] === "\\") { i++; continue; }
+          if (src[i] === c) break;
+        }
+        continue;
+      }
+      if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) return src.slice(open, i + 1);
+    }
+    return "";
+  }
+
+  const declared = [...hyd.matchAll(/^ {4}([A-Z][A-Z0-9_]*): \{ (?:slug|slugs|path)\b/gm)]
+    .map((m) => String(m[1]));
+  assert.ok(declared.length > 100,
+    `only ${declared.length} adapters found in paltas-hydrate.js — the shape of ` +
+    "ADAPT changed and this test is now reading nothing");
+
+  const registered = new Set<string>();
+  for (const m of con.matchAll(/\bconnect\(/g)) {
+    for (const k of objectAt(con, m.index as number).matchAll(/([A-Z][A-Z0-9_]*)\s*:/g)) {
+      registered.add(String(k[1]));
+    }
+  }
+  assert.ok(registered.size > 100,
+    `only ${registered.size} arrays are registered — connect() is not being read`);
+
+  /* The guest page registers its own two from a person-scoped endpoint, and
+     the staff console never hands them to connect(). See paltas-guest.js. */
+  const GUEST_SIDE = new Set(["TICKETS_MINE", "STAYS_MINE"]);
+
+  const orphans = declared
+    .filter((n) => !registered.has(n) && !GUEST_SIDE.has(n))
+    .filter((n) => new RegExp(`\\b(?:const|var|let)\\s+${n}\\s*=`).test(con));
+
+  assert.deepEqual(orphans, [],
+    "These arrays have an adapter and a declaration and are never registered, " +
+    "so they stay empty and their screens draw an empty state that looks correct:\n  " +
+    orphans.join("\n  ") +
+    "\n\nAdd each to the `arrays` object of ONE connect() call in console.js.");
+});

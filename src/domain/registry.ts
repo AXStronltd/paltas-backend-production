@@ -1907,6 +1907,109 @@ const DECLARATIONS = {
       + "lawyer will ask about.",
   },
 
+  /* ------------------------------- managing somebody else's property */
+
+  "management-agreements": {
+    model: "managementAgreement", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "management agreements",
+    fields: {
+      ownerId: "id:party",
+      siteId: "id:site", unitId: "id:unit",
+      basis: "enum:FeeBasis", feeBps: "int", feeFixed: "money",
+      currency: "string",
+      startsOn: "date", endsOn: "date",
+      status: "enum:AgreementStatus",
+      note: "text",
+    },
+    /*
+     * `siteId` as well as the owner: an agreement that does not say which
+     * property it covers cannot decide whose rent it accounts for. `unitId`
+     * stays optional and NARROWS it to one unit of that property.
+     * `currency` because the column is NOT NULL with no default — a create
+     * without it would reach the database and come back a 500.
+     */
+    required: ["ownerId", "siteId", "currency"], numbered: "ref", prefix: "MGT",
+    search: ["ref", "note"],
+    order: [{ createdAt: "desc" }],
+    include: {
+      owner: { select: { id: true, name: true, phone: true, email: true } },
+      site: { select: { id: true, name: true, city: true, currency: true } },
+      unit: { select: { id: true, ref: true, siteId: true } },
+    },
+    /*
+     * CREATED BY HAND, because two things have to be checked that a field list
+     * cannot express: that it covers a property or a unit (an agreement over
+     * nothing cannot decide whose rent is whose), and that the fee is not a
+     * basis-point typo. 10000 bps is the whole rent, and somebody meaning 10%
+     * types it.
+     */
+    ownCreate:
+      "An agreement is written by POST /management-agreements, which refuses "
+      + "one that says nothing about what it covers and one whose fee rate is "
+      + "a basis-point mistake.",
+    ownUpdate:
+      "The terms are changed by PATCH /management-agreements/:id, which "
+      + "re-checks the fee rate — a rate that drifts out of range between "
+      + "create and edit is a rate somebody will be charged.",
+    noDelete:
+      "An agreement is ENDED, not deleted. Statements have been issued under "
+      + "it and money has been sent under it; deleting the terms would leave "
+      + "both unexplained.",
+  },
+
+  "owner-statements": {
+    model: "ownerStatement", area: "finance", product: "PROPERTY_MANAGEMENT",
+    label: "owner statements",
+    fields: {
+      agreementId: "id:managementAgreement", ownerId: "id:party",
+      periodFrom: "date", periodTo: "date", currency: "string",
+      collected: "money", billed: "money", costs: "money", fee: "money",
+      net: "signed-money", opening: "signed-money", paidOut: "money",
+      closing: "signed-money",
+      costsLeftOff: "int", costsLeftOffTotal: "money",
+      note: "text",
+      voided: "bool", voidReason: "string",
+    },
+    required: ["agreementId", "ownerId", "periodFrom", "periodTo", "currency"],
+    numbered: "ref", prefix: "OS",
+    search: ["ref", "note"],
+    order: [{ issuedOn: "desc" }],
+    include: {
+      agreement: {
+        select: { id: true, ref: true, basis: true, feeBps: true, feeFixed: true,
+                  siteId: true, unitId: true },
+      },
+      owner: { select: { id: true, name: true, email: true, phone: true } },
+      lines: {
+        select: { id: true, at: true, kind: true, detail: true, amount: true,
+                  sourceType: true, sourceId: true, ref: true },
+        orderBy: { at: "asc" },
+      },
+    },
+    /*
+     * ISSUED AGAINST AN AGREEMENT, NEVER POSTED DIRECTLY.
+     *
+     * Every figure on a statement is computed from a period's invoices,
+     * payments, costs and payouts. A generic create would let somebody send an
+     * owner a document with whatever numbers they liked on it, under a company's
+     * letterhead, and that document is what the relationship is settled on.
+     */
+    noCreate:
+      "A statement is issued against the agreement it accounts for — POST "
+      + "/management-agreements/:id/statements, with a period. "
+      + "GET /management-agreements/:id/statement?period=2026-09 shows what it "
+      + "would say first. There is no POST /owner-statements, because nothing "
+      + "else can compute the figures.",
+    noUpdate:
+      "A statement is not edited — the owner is holding a copy, and changing "
+      + "ours makes the two disagree about what they were told. Void it with a "
+      + "reason (POST /owner-statements/:id/void) and issue a corrected one.",
+    noDelete:
+      "A statement is voided, never deleted. It is the document an owner "
+      + "settles with the company on; one that vanished is the first thing a "
+      + "dispute will be about.",
+  },
+
   payments: {
     model: "payment", area: "finance", product: null,
     label: "payments",
@@ -2050,6 +2153,10 @@ const DECLARATIONS = {
      * service moves no money at all.
      */
     fields: {
+      /* WHICH AGREEMENT this money is sent under. Without it, "has this
+         owner been paid for September" could not be answered and an owner
+         statement's "already paid out" line was a guess. */
+      agreementId: "id:managementAgreement",
       partyId: "id:party", gross: "money", fees: "money", currency: "string",
       periodFrom: "date", periodTo: "date",
       status: "enum:PayoutStatus", reference: "string", sentAt: "date",
@@ -2058,6 +2165,27 @@ const DECLARATIONS = {
     search: ["reference"],
     order: [{ createdAt: "desc" }],
     include: { party: { select: { id: true, name: true } } },
+    /*
+     * AND HERE IS WHERE `net` COMES FROM.
+     *
+     * Keeping it out of `fields` above stopped a caller sending a net that
+     * follows from neither gross nor fees. It did not make one: nothing
+     * computed the column, so it kept its default of 0 on every payout the
+     * framework ever created, and "what have we sent this owner" answered
+     * zero. Nothing read it until owner statements did.
+     *
+     * `before` carries the arithmetic across a partial PATCH — moving `fees`
+     * on its own still has a gross to subtract it from.
+     */
+    onWrite: (data, before) => {
+      const gross = "gross" in data ? bigOf(data, "gross")
+        : before ? bigOf(before, "gross") : 0n;
+      const fees = "fees" in data ? bigOf(data, "fees")
+        : before ? bigOf(before, "fees") : 0n;
+      /* Never below zero. Fees larger than the payout is a data-entry error
+         and a negative `net` reads as money coming BACK from the owner. */
+      return { net: gross > fees ? gross - fees : 0n };
+    },
   },
   /* ================================================================ *
    * PROPERTY DEVELOPMENT.

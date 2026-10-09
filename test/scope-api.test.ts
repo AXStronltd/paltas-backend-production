@@ -390,6 +390,12 @@ const EXPECTED_UNNARROWABLE = [
      must not treat as its own. A movement hangs off the deposit, one join
      further out again. */
   "deposits", "deposit-movements",
+  /* An owner statement hangs off the AGREEMENT, which is the thing that carries
+     the site — so this is one join out, like `receipts` off a payment.
+     `management-agreements` is NOT here: it carries a siteId of its own and IS
+     narrowed, which is right. A site manager has no business reading the fee
+     their company charges an owner of another property. */
+  "owner-statements",
 ].sort();
 
 test("the resources with no site are NOT narrowed — by design",

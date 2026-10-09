@@ -74,6 +74,16 @@ interface FormField {
   fallback?: string;
   /** What the field means, where its name is not enough. */
   hint?: string;
+  /**
+   * THE FIELD WHOSE ANSWER NARROWS THIS PICKER.
+   *
+   * Present only on a reference the console must not offer in full — see
+   * `scopes` in domain/console-map.ts. The console shows the picker disabled
+   * until that field is answered, then offers only the rows belonging to the
+   * answer. Named rather than inferred: "a unit belongs to a site" is true of
+   * this form and not of every form that mentions both.
+   */
+  scope?: string;
 }
 
 /**
@@ -210,6 +220,15 @@ formRoutes.get("/console/forms",
           if (dflt && !field.required) field.fallback = dflt;
         }
         if (kind.startsWith("id:")) field.lookup = kind.slice(3);   /* which list to pick from */
+        /*
+         * And which answer narrows it, where one does.
+         *
+         * Only when the narrowing field is ALSO on this form: a scope naming
+         * a column the person is never shown would disable the picker for
+         * good, which is worse than offering it unfiltered.
+         */
+        const by = spec.scopes && spec.scopes[backendName];
+        if (by && Object.values(spec.fields || {}).includes(by)) field.scope = by;
         fields.push(field);
       }
 
