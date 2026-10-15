@@ -43,6 +43,10 @@ describe("building blocks", () => {
     expect(() => loadConfig({ ...base, PALTAS_TODAY: "2026-01-01" })).toThrow(/PALTAS_TODAY/);
     expect(() => loadConfig({ ...base, BILLING_MODE: "simulated" })).toThrow(/simulated/);
     expect(() => loadConfig({ ...base, SECRETS_KEY: undefined })).toThrow(/SECRETS_KEY/);
+    expect(() => loadConfig({ ...base, SECRETS_KEY: Buffer.alloc(31).toString("base64") })).toThrow(/32 bytes/);
+    expect(() => loadConfig({ ...base, SECRETS_KEY: "not-base64-but-long-enough-to-look-plausible" })).toThrow(
+      /canonical base64/,
+    );
     expect(() => loadConfig({ DATABASE_URL: "mysql://x" })).toThrow(/postgres/);
     expect(loadConfig(base).env).toBe("production");
   });
