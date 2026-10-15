@@ -30,7 +30,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
-    "@types/node": "^22.19.0",
+    "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
     "esbuild": "^0.28.2",
     "eslint": "^10.12.0",
