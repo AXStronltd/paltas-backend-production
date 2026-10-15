@@ -2,7 +2,7 @@
 
 The PALTAS API server, written in TypeScript on PostgreSQL. Repository: `AXStronltd/paltas-backend-production`. The front end lives in `AXStronltd/paltas-frontend`.
 
-It is **not deployed yet**. `render.yaml` describes the Render set-up; see "Deploy on Render" below.
+The API is deployed at `https://paltas-api-v2.onrender.com`; the frontend's `https://paltas.io/api/*` proxy reaches it. Its health endpoint reported PostgreSQL healthy on 2026-10-15. The frontend currently uses the API for sign-in, sessions, organisation/entitlement views, and Super Admin operations. Product records are not yet fully integrated: Hotel has a server module, but its frontend is not connected, and the Property Management ledger and other workspace records still use browser storage. Treat the product workspaces as a demo until those records are served through authorized API routes.
 
 The **shared core** that every product uses:
 
