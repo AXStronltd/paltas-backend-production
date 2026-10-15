@@ -152,6 +152,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   }
   const e = parsed.data;
   const production = e.NODE_ENV === "production";
+  if (e.SECRETS_KEY && !isSecretsKey(e.SECRETS_KEY)) {
+    throw new Error("SECRETS_KEY must be exactly 32 bytes encoded as canonical base64");
+  }
   if (production && e.PALTAS_TODAY) throw new Error("PALTAS_TODAY must not be set in production");
   if (production && e.BILLING_MODE === "simulated") throw new Error("BILLING_MODE=simulated is refused in production");
   if (production && !e.SECRETS_KEY) throw new Error("SECRETS_KEY is required in production");
@@ -217,4 +220,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     },
     ...overrides,
   };
+}
+
+/** Buffer.from() accepts malformed and truncated base64, so validate the exact key format at startup. */
+function isSecretsKey(value: string): boolean {
+  if (!/^(?:[A-Za-z0-9+/]{4}){10}[A-Za-z0-9+/]{3}=$/.test(value)) return false;
+  const decoded = Buffer.from(value, "base64");
+  return decoded.length === 32 && decoded.toString("base64") === value;
 }

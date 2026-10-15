@@ -58,7 +58,8 @@ services:
         value: "25000"
       # Self-service sign-up and free trials (the trial policy itself is a database row the Super Admin changes)
       - key: SIGNUP_ENABLED
-        value: "true"
+        value: "false"
+      # Keep disabled until real verification email delivery is connected and tested.
       # The version of the published PALTAS terms a sign-up must accept
       - key: SIGNUP_TERMS_VERSION
         value: "2026-10"
