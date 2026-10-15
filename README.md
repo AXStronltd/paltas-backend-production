@@ -14,7 +14,7 @@ The **shared core** that every product uses:
 - the audit trail;
 - the one double-entry ledger.
 
-Products plug in as modules (`server/src/products/README.md`). Built so far: **Hotel** (full product module) and **data migration** (shared engine, with Real Estate Development as its first target). Property Management, the rest of Development, and Security plug in next, one round at a time.
+Products plug in as modules (`server/src/products/README.md`). Hotel has a server data API but is not connected to its browser workspace. Development has a migration mapping, not workspace CRUD APIs. Property Management, Agent/Host, and Security have no registered product record API yet.
 
 ## Where things are
 
@@ -27,7 +27,7 @@ Products plug in as modules (`server/src/products/README.md`). Built so far: **H
     src/api/*.ts        every endpoint, by area: identity, organisations, subscriptions, payments, ledger, admin
     src/entitlements/   the subscription rules (also generated for the browser → browser/entitlements.js)
   api-client/       @paltas/api-client — typed client the front end uses (browser copy → browser/paltas-api-client.js)
-  browser/          GENERATED browser copies; the front end keeps identical copies in its shared/ folder
+  browser/          GENERATED browser copies; currently synchronized manually with the front-end shared/ folder
   server/           @paltas/server — the API
     migrations/         numbered SQL files (never edit an applied one; add a new file)
     src/app.ts          builds the server: security headers, errors, every route
@@ -36,7 +36,7 @@ Products plug in as modules (`server/src/products/README.md`). Built so far: **H
     src/db/             PostgreSQL access, migrations runner, document numbers
     src/core/<area>/    one folder per area: identity, organisations, access, subscriptions,
                         payments, ledger, audit, catalogue, admin
-    src/products/       where each product plugs in (empty until the Property Management round)
+    src/products/       registered product domains: Hotel data APIs and Development migration mapping
     test/               end-to-end tests against a real PostgreSQL
   docs/openapi.json   API description, generated from the contracts (npm run openapi)
   scripts/            browser-file generator, OpenAPI writer, local PostgreSQL helper
@@ -68,7 +68,7 @@ To find something:
    2. Copy `browser/entitlements.js` and `browser/paltas-api-client.js` into the front end's `shared/` folder.
    3. Rebuild the pages (`bash source/build.sh`).
 
-4. **Same permissions.** `contracts/src/access.ts` maps each role to what it may do. The server enforces it, and the front end can read the same table (`roleCan`). The `frontendKey` field links the server roles to the role keys the current pages use (`pm`, `acct`, `fd`, `agent`, `aud`).
+4. **Permissions.** `contracts/src/access.ts` defines the role capabilities and the server enforces them on API requests. The static pages still use legacy, browser-side role checks; these are presentation only and must not be treated as authorization. A remaining integration task is to load the contract's role map in the frontend and remove duplicated permission tables.
 
 ## Run it
 
@@ -105,9 +105,9 @@ npm test          # tests only (needs PostgreSQL: PALTAS_TEST_PG, default postgr
 
 Each test file gets its own fresh database, copied from a migrated template, so tests never share state.
 
-## Deploy on Render
+## Render deployment configuration
 
-Nothing is deployed until you create the service. `render.yaml` holds these settings, or you can enter them by hand:
+The existing API service is `https://paltas-api-v2.onrender.com`. `render.yaml` describes the service and database configuration; it is also the reference for a replacement or staging service. A deploy is not complete until the health endpoint reports the database as healthy and the deployed commit is confirmed in Render.
 
 | Setting       | Value                                                                                 |
 | ------------- | ------------------------------------------------------------------------------------- |
