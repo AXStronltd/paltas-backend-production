@@ -1,0 +1,8 @@
+Template Name,Type,Txn Type,Interval,Customer,Amount,Memo
+Rent KH-1A,Scheduled,Invoice,Every Month on day 5,Kilimani Heights:KH-1A Mary Atieno,"55,000.00",Lease 2025-03-01 to 2027-02-28
+Rent KH-1B,Scheduled,Invoice,Every Month on day 5,Kilimani Heights:KH-1B Samuel Kiptoo,"52,000.00",Lease 2025-06-01 to 2026-12-31
+Rent KH-2A,Scheduled,Invoice,Every Month on day 5,Kilimani Heights:KH-2A Wanjiru Kamau,"52,000.00",Lease 2024-11-01 to 2026-10-31
+Rent KH-2B,Scheduled,Invoice,Every Month on day 5,Kilimani Heights:KH-2B Joseph Mwangi,"58,000.00",Lease 2026-01-01 to 2027-12-31
+Rent KH-3A,Scheduled,Invoice,Every Month on day 5,Kilimani Heights:KH-3A Halima Abdi,"60,000.00",Lease 2025-09-01 to 2026-08-31
+Rent KH-3B,Scheduled,Invoice,Every Month on day 5,Kilimani Heights:KH-3B Otieno Omondi,"60,000.00",
+Rent KH-4A,Scheduled,Invoice,Every Month on day 5,Kilimani Heights:KH-4A Grace Njoki,"65,000.00",Lease 2026-04-01 to 2027-03-31

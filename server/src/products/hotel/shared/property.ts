@@ -31,6 +31,19 @@ export interface PropertyRow {
   usali: hotel.UsaliMapping;
   currency: string;
   room_count: number;
+  // extensions (migration 0011)
+  auto_audit_enabled: boolean;
+  auto_audit_time: string;
+  auto_audit_no_shows: boolean;
+  pre_arrival_days: number;
+  ffe_reserve_bp: number;
+  carbon_g_per_kwh: number;
+  linen_change_nights: number;
+  overtime_bp: number;
+  standard_day_hours: number;
+  legal_name: string;
+  tax_id: string;
+  address: string;
 }
 
 const SELECT = `SELECT p.*, o.currency,

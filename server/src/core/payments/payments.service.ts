@@ -25,11 +25,13 @@ export function paymentsService(ctx: AppContext) {
       provider: string,
       event: PaymentEvent,
       options: { manual?: boolean; recordedBy?: string | null; eventId?: string } = {},
+      /** Run inside the caller's transaction (e.g. a confirmed bank line), instead of a new one. */
+      within: Db = db,
     ): Promise<ReceivedPayment> {
       const handler = products.paymentHandler(event.type);
       if (!handler) throw fail.invalid(`No handler for payment type "${event.type}"`);
       const eventId = options.eventId ?? `${provider}:${event.id}`;
-      return db.tx(async (t: Db) => {
+      return within.tx(async (t: Db) => {
         await t.run("SELECT pg_advisory_xact_lock(hashtext($1))", [eventId]);
         const seen = await t.row<{ result: string; target_id: string | null }>(
           "SELECT result, target_id FROM payment_events WHERE id = $1",

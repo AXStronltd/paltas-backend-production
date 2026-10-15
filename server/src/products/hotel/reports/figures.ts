@@ -47,11 +47,12 @@ export function revenueOf(t: LedgerTotals): DeptAmounts {
   return { ...r, total: r.rooms + r.fnb + r.spa + r.other + r.noshow };
 }
 
-/** Net revenue by department summed from the folio lines (charges less voids) — must equal the ledger. */
+/** Net revenue by department summed from the folio lines (charges less voids and allowances) — must equal the ledger. */
 export async function folioRevenue(db: Db, propertyId: string, from: string, to: string): Promise<DeptAmounts> {
   const rows = await db.rows<{ department: hotel.HotelDepartment; n: number }>(
     `SELECT department, sum(net_minor)::bigint AS n FROM hotel_folio_lines
-     WHERE property_id = $1 AND business_date BETWEEN $2 AND $3 AND kind IN ('charge', 'void') GROUP BY department`,
+     WHERE property_id = $1 AND business_date BETWEEN $2 AND $3 AND kind IN ('charge', 'void', 'allowance')
+     GROUP BY department`,
     [propertyId, from, to],
   );
   const get = (d: hotel.HotelDepartment) => rows.find((r) => r.department === d)?.n ?? 0;
@@ -107,9 +108,13 @@ export async function paymentsByMethod(db: Db, propertyId: string, from: string,
   return { ...p, total: p.cash + p.card + p.mobile_money + p.bank_transfer };
 }
 
+/** Advance deposits received: guest deposits and event deposits. */
 export async function depositsReceived(db: Db, propertyId: string, from: string, to: string): Promise<number> {
   const r = await db.row<{ n: number }>(
-    "SELECT COALESCE(sum(amount_minor), 0)::bigint AS n FROM hotel_deposits WHERE property_id = $1 AND received_date BETWEEN $2 AND $3",
+    `SELECT (COALESCE((SELECT sum(amount_minor) FROM hotel_deposits
+                       WHERE property_id = $1 AND received_date BETWEEN $2 AND $3), 0)
+           + COALESCE((SELECT sum(amount_minor) FROM hotel_event_deposits
+                       WHERE property_id = $1 AND received_date BETWEEN $2 AND $3), 0))::bigint AS n`,
     [propertyId, from, to],
   );
   return r?.n ?? 0;

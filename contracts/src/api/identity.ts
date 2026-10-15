@@ -24,7 +24,8 @@ export const health = endpoint({
   method: "GET",
   path: "/api/v1/health",
   auth: "public",
-  summary: "Is the server up, and which database and billing mode is it using",
+  summary:
+    "Is the server up and does its database answer (503 otherwise); which billing mode it uses. Render polls this.",
   response: z.object({
     ok: z.literal(true),
     database: z.literal("postgres"),
@@ -56,11 +57,27 @@ export const logout = endpoint({
   response: Ok,
 });
 
+/** Where one product subscription stands in its trial (the shared rules' entitlements.trialState). */
+export const SubscriptionTrial = z.object({
+  phase: z.enum(["trial", "grace", "expired"]),
+  trialEnds: IsoDate,
+  graceEnds: IsoDate,
+  daysLeft: z.number().int().min(0),
+  graceDaysLeft: z.number().int().min(0),
+});
+
 export const MyOrganisation = z.object({
   id: z.string(),
   name: z.string(),
   products: z.array(Product),
   role: Role,
+  /** Trial days and grace left, per product subscription that is (or was) a trial. */
+  trials: z.array(SubscriptionTrial.extend({ product: Product })),
+  /**
+   * required: a self-service organisation whose administrator has not verified the e-mail address yet (upgrading,
+   * paying and inviting members wait for it); verified; or not_required (onboarded by PALTAS staff).
+   */
+  emailVerification: z.enum(["required", "verified", "not_required"]),
 });
 
 export const Invitation = z.object({ orgId: z.string(), orgName: z.string(), role: Role });

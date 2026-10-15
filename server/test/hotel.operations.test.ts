@@ -506,7 +506,16 @@ describe("hotel operations", () => {
     });
     expect(sent.status).toBe("Recorded — not sent (no messaging provider connected)");
     const msgs = await api(st.receptionist).listMessages({ params: P, query: { reservationId: kofi.id } });
-    expect(msgs.messages.map((m) => m.direction)).toEqual(["inbound", "outbound", "inbound", "outbound", "outbound"]);
+    // the booking confirmation was recorded automatically (outbox), then the concierge thread and the staff message
+    expect(msgs.messages.map((m) => [m.direction, m.template])).toEqual([
+      ["outbound", "confirmation"],
+      ["inbound", null],
+      ["outbound", null],
+      ["inbound", null],
+      ["outbound", null],
+      ["outbound", null],
+    ]);
+    expect(msgs.messages[0]!.status).toMatch(/^Outbox: recorded/);
     const wake = await api(st.receptionist).createRequest({
       params: P,
       body: { stayId: kofi.stayId, kind: "wake_up", text: "Wake-up 06:00", dueAt: "2026-10-13T03:00:00Z" },

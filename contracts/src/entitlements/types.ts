@@ -72,6 +72,8 @@ export interface Subscription {
   plan: string;
   status: SubscriptionStatus;
   trialEnds?: string | null;
+  /** Days the workspace keeps working after trialEnds (from the trial policy when the trial started; default 0). */
+  graceDays?: number;
   anchor?: string | null;
   addons?: string[];
   disabled?: string[];
@@ -201,3 +203,34 @@ export type PlanChangeCheck =
       addonsBecomeIncluded: string[];
     }
   | { ok: false; why: string; contactSales?: boolean };
+
+/** The ONE platform trial policy (a database row the Super Admin changes; DEFAULT_TRIAL_POLICY is its first version). */
+export interface TrialPolicy {
+  trialDays: number;
+  graceDays: number;
+  /** Reminders this many days before the trial ends. */
+  reminderDays: number[];
+  /** A self-service account still unverified this many days after sign-up is suspended. */
+  verifyWithinDays: number;
+  verifyLinkHours: number;
+  /** An earlier trial of the same business inside this window blocks a new one. */
+  repeatWindowDays: number;
+  repeatMatch: ("email" | "phone" | "company")[];
+  /** A further product on an organisation: its own trial (once per product) or paid from day one. */
+  secondProduct: "own_trial" | "no_trial";
+  atExpiry: "read_only";
+  keepRecords: true;
+  exportAllowed: boolean;
+}
+
+/** Where a subscription stands in its trial, on a given day (made by trialState). */
+export interface TrialState {
+  /** trial: within the trial days · grace: past the last trial day, still working · expired: read-only. */
+  phase: "trial" | "grace" | "expired";
+  trialEnds: string;
+  graceEnds: string;
+  /** Days until the last trial day (0 on the last day itself, never below 0). */
+  daysLeft: number;
+  /** Days of grace left (the full grace while in trial, 0 once expired). */
+  graceDaysLeft: number;
+}

@@ -12,6 +12,9 @@ services:
     buildCommand: npm ci --include=dev && npm run build
     # Applies any pending database migrations (under a lock), then serves on Render's $PORT
     startCommand: node server/dist/main.js
+    # Answers 200 only when the process runs AND the database answers (503 otherwise). Migrations are applied before
+    # the server listens, so a server that answers here is also up to date; /api/v1/ready additionally lists the
+    # migration state for deploy checks and monitoring.
     healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_VERSION
@@ -40,6 +43,29 @@ services:
       - key: CORS_ORIGINS
         sync: false
       # One per payment provider adapter when one exists, e.g. WEBHOOK_SECRET_MPESA (none connected yet)
+      # Scheduler worker (platform jobs, night audits, rent invoicing) runs in this service; the other SCHEDULER_*
+      # settings (poll, lease, retries, renewal lead days) keep the defaults in server/.env.example
+      - key: SCHEDULER_WORKER
+        value: "true"
+      # The background data-migration import worker; MIGRATION_* limits keep the defaults in server/.env.example
+      - key: MIGRATION_WORKER
+        value: "true"
+      # Catalogue price changes need a second Super Admin's approval (also the production default)
+      - key: CATALOGUE_PRICE_APPROVAL
+        value: "true"
+      # Render waits about 30 seconds after SIGTERM; finish requests and the current job well before that
+      - key: SHUTDOWN_TIMEOUT_MS
+        value: "25000"
+      # Self-service sign-up and free trials (the trial policy itself is a database row the Super Admin changes)
+      - key: SIGNUP_ENABLED
+        value: "true"
+      # The version of the published PALTAS terms a sign-up must accept
+      - key: SIGNUP_TERMS_VERSION
+        value: "2026-10"
+      # The front end that hosts /verify-email (verification links point there). Required while sign-up is on:
+      # the server refuses to start in production with sign-up on and a local address here.
+      - key: APP_BASE_URL
+        value: https://paltas.io
 
 databases:
   - name: paltas-v2-db

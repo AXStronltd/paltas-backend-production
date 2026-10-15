@@ -42,6 +42,8 @@ export interface StayRow {
   departure: string;
   status: hotel.Stay["status"];
   from_block: boolean;
+  requested_attributes: string[];
+  attribute_fee_minor: number;
 }
 
 export async function reservationRow(db: Db, propertyId: string, id: string, lock = false): Promise<ReservationRow> {

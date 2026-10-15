@@ -32,6 +32,8 @@ import type {
   PriceIn,
   Subscription,
   Tier,
+  TrialPolicy,
+  TrialState,
 } from "./types.js";
 
 /** Version of the rules API (the browser has always exposed `v: 1`). */
@@ -62,6 +64,25 @@ export const FLOOR: Record<string, string[]> = {
 };
 
 export const TIER_RANK: Record<Tier, number> = { Standard: 1, Pro: 2, Enterprise: 3 };
+
+/**
+ * The first version of the ONE platform trial policy, identical for every product. The server keeps the live policy
+ * in its database (seeded with these values, changed only by a Super Admin); pages connected to the API show the
+ * server's numbers, and these are what the browser shows before then.
+ */
+export const DEFAULT_TRIAL_POLICY: TrialPolicy = {
+  trialDays: 30,
+  graceDays: 7,
+  reminderDays: [7, 3, 1],
+  verifyWithinDays: 7,
+  verifyLinkHours: 48,
+  repeatWindowDays: 365,
+  repeatMatch: ["email", "phone", "company"],
+  secondProduct: "own_trial",
+  atExpiry: "read_only",
+  keepRecords: true,
+  exportAllowed: true,
+};
 
 export const PRODUCT_NAME: Record<string, string> = {
   property: "Property Management",
@@ -95,6 +116,27 @@ export function addMonths(d: string, n: number): string {
   return t.toISOString().slice(0, 10);
 }
 
+const dayNumber = (d: string): number => Math.round(new Date(d + "T00:00:00Z").getTime() / 86_400_000);
+
+/**
+ * Where a subscription stands in its trial today: in the trial, in its grace days (still working), or expired
+ * (read-only, records kept). Null when it is not a trial (never was, or paid since). The same answer as resolve():
+ * a trial is usable through trialEnds + graceDays.
+ */
+export function trialState(sub: Subscription | null | undefined, today: string): TrialState | null {
+  if (!sub || !sub.trialEnds || !(sub.status === "trial" || (sub.status === "expired" && !sub.anchor))) return null;
+  const grace = sub.graceDays || 0;
+  const graceEnds = addDays(sub.trialEnds, grace);
+  const phase = sub.status === "expired" || graceEnds < today ? "expired" : sub.trialEnds < today ? "grace" : "trial";
+  return {
+    phase,
+    trialEnds: sub.trialEnds,
+    graceEnds,
+    daysLeft: Math.max(0, dayNumber(sub.trialEnds) - dayNumber(today)),
+    graceDaysLeft: phase === "expired" ? 0 : phase === "grace" ? dayNumber(graceEnds) - dayNumber(today) : grace,
+  };
+}
+
 export function productOf(org: { type?: OrgType } | null | undefined): string {
   const t = org && org.type;
   return t === "agents" ? "agency" : t || "property";
@@ -119,7 +161,7 @@ function corePlan(org: { type?: OrgType }): Plan {
     extraBuilding: null,
     base: null,
     frequency: "monthly",
-    trialDays: 30,
+    trialDays: DEFAULT_TRIAL_POLICY.trialDays,
     taxPct: 0,
     taxNote: "Set when PALTAS assigns a plan",
     capacity: { sites: null, units: null },
@@ -237,7 +279,7 @@ export function resolve(cat: Catalogue, org: ResolvableOrg | null | undefined, t
 
   const pl = planById(cat, effectivePlanId(org, today)) || corePlan(org);
   const prod = productOf(org);
-  const trialOver = e.status === "trial" && !!e.trialEnds && e.trialEnds < today;
+  const trialOver = e.status === "trial" && !!e.trialEnds && addDays(e.trialEnds, e.graceDays || 0) < today;
   const ended = (e.pending || []).some((p) => p.type === "cancel" && p.effective <= today);
   const status = ended ? "cancelled" : trialOver ? "expired" : e.status || "trial";
   const gone = cancelledAddons(org, today);

@@ -46,11 +46,42 @@ export interface MessagingAdapter {
   deliver(message: { channel: string; body: string }): string;
 }
 
+/** The tax authority's e-invoicing system (where a country requires it). */
+export interface EInvoicingAdapter {
+  state: IntegrationState;
+  submit(invoice: { number: string; totalMinor: number }): { status: string; reference: string | null };
+}
+
+/** Kitchen order printers (the kitchen screen works without them). */
+export interface KitchenPrinterAdapter {
+  state: IntegrationState;
+  print(ticket: { number: string; outletId: string }): string;
+}
+
+/** An external system PALTAS has a boundary for but does not call yet. */
+export interface ExternalSystem {
+  state: IntegrationState;
+}
+
 export interface HotelAdapters {
   channels: ChannelManagerAdapter;
   locks: LockAdapter;
   roomControls: RoomControlAdapter;
   messaging: MessagingAdapter;
+  einvoicing: EInvoicingAdapter;
+  kitchenPrinters: KitchenPrinterAdapter;
+  /** Review-site invitations (TripAdvisor, Google …). */
+  reviewSites: ExternalSystem;
+  /** Exchange-rate feed (rates are entered by staff until one exists). */
+  fxRates: ExternalSystem;
+  /** Competitor rate shopping / market benchmark feed. */
+  rateShopping: ExternalSystem;
+  /** Country payroll engine: statutory deductions and net pay. */
+  payrollEngine: ExternalSystem;
+  /** Occupancy, energy, water and leak sensors. */
+  sensors: ExternalSystem;
+  /** A chain's own loyalty programme (PALTAS runs its own until connected). */
+  chainLoyalty: ExternalSystem;
 }
 
 export const sandboxAdapters: HotelAdapters = {
@@ -78,4 +109,18 @@ export const sandboxAdapters: HotelAdapters = {
     state: TEST,
     deliver: () => "Recorded — not sent (no messaging provider connected)",
   },
+  einvoicing: {
+    state: TEST,
+    submit: () => ({ status: "Not submitted — e-invoicing not connected (test adapter)", reference: null }),
+  },
+  kitchenPrinters: {
+    state: TEST,
+    print: () => "On the kitchen screen only — kitchen printer not connected (test adapter)",
+  },
+  reviewSites: { state: TEST },
+  fxRates: { state: { adapter: "manual", connected: false, status: "Not connected — rates entered by staff" } },
+  rateShopping: { state: TEST },
+  payrollEngine: { state: TEST },
+  sensors: { state: TEST },
+  chainLoyalty: { state: { adapter: "paltas", connected: false, status: "Not connected — PALTAS loyalty in use" } },
 };

@@ -5,6 +5,7 @@
  *
  * and gets back who is acting, in which role, for which product subscription — or a clear refusal:
  *   - not a member (or suspended)           → 404 (someone else's organisation looks like one that does not exist)
+ *   - the organisation suspended by PALTAS   → 403 (its members only; records are kept)
  *   - the role lacks the capability          → 403 ROLE_NOT_ALLOWED
  *   - no subscription for that product       → 404
  *   - a change while the subscription is not active → 402 SUBSCRIPTION_INACTIVE (records stay readable)
@@ -51,11 +52,14 @@ export function orgAccess(ctx: AppContext) {
   const { db, clock, products: registry } = ctx;
 
   async function scope(user: SessionUser, orgId: string, o: ScopeOptions): Promise<OrgScope> {
-    const m = await db.row<{ role: Role; status: string }>(
-      "SELECT role, status FROM memberships WHERE org_id = $1 AND user_id = $2",
+    const m = await db.row<{ role: Role; status: string; org_suspended: boolean }>(
+      `SELECT m.role, m.status, (o.suspended_at IS NOT NULL) AS org_suspended
+       FROM memberships m JOIN organisations o ON o.id = m.org_id WHERE m.org_id = $1 AND m.user_id = $2`,
       [orgId, user.id],
     );
     if (!m || m.status !== "active") throw fail.notFound("Organisation not found");
+    if (m.org_suspended)
+      throw fail.forbidden("This organisation is suspended by PALTAS — contact PALTAS support", { suspended: true });
     if (!roleCan(m.role, o.capability)) {
       throw fail.roleNotAllowed(`Your role (${ROLE_DEFINITIONS[m.role].label}) cannot do this`);
     }

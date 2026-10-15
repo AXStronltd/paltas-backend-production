@@ -6,13 +6,13 @@
 import { entitlements, SELLABLE_PRODUCTS, type Product } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import { fail } from "../../http/errors.js";
-import { addDays } from "../../lib/dates.js";
 import { newId } from "../../lib/ids.js";
 import { toMinor } from "../../lib/money.js";
 import type { OrgScope } from "../access/org-access.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { loadCatalogue } from "../catalogue/catalogue.service.js";
 import { ensureAccounts } from "../ledger/default-chart.js";
+import { furtherProductTrial, loadPolicy, openSubscription, organisationIdentity } from "../signup/policy.js";
 import { billingService, monthlyChargeMinor, toInvoice } from "./billing.service.js";
 import { loadOrgRecord, resolveEntitlement, toEntitlementsView } from "./entitlement.service.js";
 
@@ -23,7 +23,7 @@ export function subscriptionsService(ctx: AppContext) {
 
   return {
     entitlements(s: OrgScope) {
-      return toEntitlementsView(s.entitlement);
+      return toEntitlementsView(s.entitlement, s.today);
     },
 
     async summary(s: OrgScope) {
@@ -55,6 +55,7 @@ export function subscriptionsService(ctx: AppContext) {
         status: e.status,
         usable: e.usable,
         trialEnds: e.trialEnds,
+        trial: entitlements.trialState(en.view.ent, s.today),
         nextBilling: e.nextBilling,
         modules: e.moduleState,
         essentials: e.essentials,
@@ -90,6 +91,7 @@ export function subscriptionsService(ctx: AppContext) {
       const org = await loadOrgRecord(db, registry, orgId);
       if (!org) throw fail.notFound("Organisation not found");
       const cat = await loadCatalogue(db);
+      const policy = await loadPolicy(db);
       return {
         products: SELLABLE_PRODUCTS.map((k) => {
           const v = entitlements.viewOf(cat, org, k, clock.today());
@@ -112,7 +114,7 @@ export function subscriptionsService(ctx: AppContext) {
                       price: price
                         ? { amountMinor: toMinor(price.amount, price.ccy), currency: price.ccy, per: price.per }
                         : null,
-                      trialDays: p.trialDays ?? 0,
+                      trialDays: policy.secondProduct === "own_trial" ? policy.trialDays : 0,
                     };
                   }),
           };
@@ -120,7 +122,10 @@ export function subscriptionsService(ctx: AppContext) {
       };
     },
 
-    /** Add another product as a separate subscription: a trial, or awaiting payment of its first invoice. */
+    /**
+     * Add another product as a separate subscription: a trial when the platform policy gives a further product its
+     * own trial (the same rule for every product), otherwise awaiting payment of its first invoice.
+     */
     async addProduct(s: OrgScope, product: Product, planId: string) {
       if (!(SELLABLE_PRODUCTS as readonly string[]).includes(product))
         throw fail.invalid("This product cannot be added yet");
@@ -133,20 +138,17 @@ export function subscriptionsService(ctx: AppContext) {
       if (pl.tier === "Enterprise" || !price)
         throw fail.invalid("This plan is agreed with PALTAS — send an Enterprise enquiry", { contactSales: true });
       const today = clock.today();
-      const trial = (pl.trialDays ?? 0) > 0;
       const simulated = config.billingMode === "simulated";
       return db.tx(async (t) => {
-        await t.run(
-          "INSERT INTO subscriptions (org_id, product, plan_id, status, trial_ends, anchor) VALUES ($1,$2,$3,$4,$5,$6)",
-          [
-            s.orgId,
-            product,
-            pl.id,
-            trial ? "trial" : simulated ? "active" : "expired",
-            trial ? addDays(today, pl.trialDays ?? 0) : null,
-            !trial && simulated ? today : null,
-          ],
-        );
+        const trial = await furtherProductTrial(t);
+        const opened = await openSubscription(t, {
+          orgId: s.orgId,
+          product,
+          planId: pl.id,
+          today,
+          trial: trial ? { source: "second_product", who: await organisationIdentity(t, s.orgId) } : null,
+          awaitingPayment: !simulated,
+        });
         await ensureAccounts(t, s.orgId, registry.accountsFor(product));
         let invoice = null;
         if (!trial) {
@@ -178,7 +180,7 @@ export function subscriptionsService(ctx: AppContext) {
           product,
           plan: pl.id,
           status,
-          trialEnds: trial ? addDays(today, pl.trialDays ?? 0) : null,
+          trialEnds: opened.trialEnds,
           invoice,
         } as const;
       });

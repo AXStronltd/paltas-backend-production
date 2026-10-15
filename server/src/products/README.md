@@ -2,12 +2,12 @@
 
 Each product is a folder here that exports one `ProductModule` (see `registry.ts`), added to `index.ts`:
 
-| Folder                 | Product                                 | Status        |
-| ---------------------- | --------------------------------------- | ------------- |
-| `property-management/` | Property Management (Almas Tower pilot) | Next round    |
-| `development/`         | Real Estate Development                 | Later round   |
-| `security/`            | Security Services                       | Later round   |
-| `agency/`, `hotel/`    | Agent & Host, Hotel                     | Not scheduled |
+| Folder              | Product                                 | Status        |
+| ------------------- | --------------------------------------- | ------------- |
+| `property/`         | Property Management (Almas Tower pilot) | Built         |
+| `development/`      | Real Estate Development                 | Built         |
+| `security/`         | Security Services                       | Built         |
+| `agency/`, `hotel/` | Agent & Host, Hotel                     | Not scheduled |
 
 Inside a product folder, use the same layout as the core modules:
 

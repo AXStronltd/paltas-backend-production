@@ -26,6 +26,7 @@ var __paltasBundle = (() => {
   // contracts/dist/entitlements/rules.js
   var rules_exports = {};
   __export(rules_exports, {
+    DEFAULT_TRIAL_POLICY: () => DEFAULT_TRIAL_POLICY,
     ESSENTIALS: () => ESSENTIALS,
     FLOOR: () => FLOOR,
     PRODUCT_NAME: () => PRODUCT_NAME,
@@ -41,6 +42,7 @@ var __paltasBundle = (() => {
     productsOf: () => productsOf,
     resolve: () => resolve,
     subOf: () => subOf,
+    trialState: () => trialState,
     v: () => v,
     validateModule: () => validateModule,
     validatePlan: () => validatePlan,
@@ -68,6 +70,19 @@ var __paltasBundle = (() => {
     security: ["Sites, guards and incidents"]
   };
   var TIER_RANK = { Standard: 1, Pro: 2, Enterprise: 3 };
+  var DEFAULT_TRIAL_POLICY = {
+    trialDays: 30,
+    graceDays: 7,
+    reminderDays: [7, 3, 1],
+    verifyWithinDays: 7,
+    verifyLinkHours: 48,
+    repeatWindowDays: 365,
+    repeatMatch: ["email", "phone", "company"],
+    secondProduct: "own_trial",
+    atExpiry: "read_only",
+    keepRecords: true,
+    exportAllowed: true
+  };
   var PRODUCT_NAME = {
     property: "Property Management",
     agents: "Agent & Host",
@@ -91,6 +106,21 @@ var __paltasBundle = (() => {
     const last = new Date(Date.UTC(t.getUTCFullYear(), t.getUTCMonth() + 1, 0)).getUTCDate();
     t.setUTCDate(Math.min(day, last));
     return t.toISOString().slice(0, 10);
+  }
+  var dayNumber = (d) => Math.round((/* @__PURE__ */ new Date(d + "T00:00:00Z")).getTime() / 864e5);
+  function trialState(sub, today) {
+    if (!sub || !sub.trialEnds || !(sub.status === "trial" || sub.status === "expired" && !sub.anchor))
+      return null;
+    const grace = sub.graceDays || 0;
+    const graceEnds = addDays(sub.trialEnds, grace);
+    const phase = sub.status === "expired" || graceEnds < today ? "expired" : sub.trialEnds < today ? "grace" : "trial";
+    return {
+      phase,
+      trialEnds: sub.trialEnds,
+      graceEnds,
+      daysLeft: Math.max(0, dayNumber(sub.trialEnds) - dayNumber(today)),
+      graceDaysLeft: phase === "expired" ? 0 : phase === "grace" ? dayNumber(graceEnds) - dayNumber(today) : grace
+    };
   }
   function productOf(org) {
     const t = org && org.type;
@@ -116,7 +146,7 @@ var __paltasBundle = (() => {
       extraBuilding: null,
       base: null,
       frequency: "monthly",
-      trialDays: 30,
+      trialDays: DEFAULT_TRIAL_POLICY.trialDays,
       taxPct: 0,
       taxNote: "Set when PALTAS assigns a plan",
       capacity: { sites: null, units: null }
@@ -228,7 +258,7 @@ var __paltasBundle = (() => {
     const buildings = e.buildings;
     const pl = planById(cat, effectivePlanId(org, today)) || corePlan(org);
     const prod = productOf(org);
-    const trialOver = e.status === "trial" && !!e.trialEnds && e.trialEnds < today;
+    const trialOver = e.status === "trial" && !!e.trialEnds && addDays(e.trialEnds, e.graceDays || 0) < today;
     const ended = (e.pending || []).some((p) => p.type === "cancel" && p.effective <= today);
     const status = ended ? "cancelled" : trialOver ? "expired" : e.status || "trial";
     const gone = cancelledAddons(org, today);

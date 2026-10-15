@@ -2,7 +2,7 @@
   "name": "paltas-backend",
   "version": "0.2.0",
   "private": true,
-  "description": "PALTAS backend workspace: the API server, the contracts shared with the front end, and the typed API client. Local only \u2014 not deployed.",
+  "description": "PALTAS backend workspace: the API server, the contracts shared with the front end, and the typed API client. Deployed on Render as paltas-api-v2 (database paltas-v2-db).",
   "type": "module",
   "engines": {
     "node": ">=22.13"
@@ -24,6 +24,7 @@
     "db:migrate": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/migrate.js",
     "setup:local": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/setup-local.js",
     "bootstrap": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/bootstrap.js",
+    "bootstrap:admin": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/bootstrap.js",
     "browser:build": "npm run build && node scripts/build-browser-files.mjs",
     "browser:check": "node scripts/build-browser-files.mjs --check",
     "openapi": "npm run build && node scripts/write-openapi.mjs"

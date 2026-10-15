@@ -12,6 +12,7 @@ import type { Route } from "../http/route.js";
 import type { CoreServices } from "../core/core-services.js";
 import type { AccountSeed } from "../core/ledger/default-chart.js";
 import type { MigrationDomain } from "../core/migration/domain.js";
+import type { ScheduledJobDefinition } from "../core/scheduler/types.js";
 
 /** A payment event delivered for a type this product owns (e.g. "rent.payment"). */
 export interface ProductPaymentEvent extends PaymentEvent {
@@ -46,6 +47,11 @@ export interface ProductModule {
   accounts?: AccountSeed[];
   /** The product's records as a data-migration target (core/migration): entities, rules, postings. */
   migration?: MigrationDomain;
+  /**
+   * Jobs the scheduler runs for this product (core/scheduler), e.g. the hotel night audit or monthly rent invoicing.
+   * Definitions only: the product creates each organisation's schedule with core.scheduler.ensureJob(...).
+   */
+  scheduledJobs?(ctx: AppContext, core: CoreServices): ScheduledJobDefinition[];
 }
 
 export class ProductRegistry {

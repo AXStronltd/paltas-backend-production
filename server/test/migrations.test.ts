@@ -31,6 +31,13 @@ describe("migrations", () => {
         "0004_member_invitations",
         "0005_hotel",
         "0006_migration",
+        "0007_property",
+        "0008_development",
+        "0009_security",
+        "0010_agency",
+        "0011_hotel_extensions",
+        "0012_platform_ops",
+        "0013_self_service",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything

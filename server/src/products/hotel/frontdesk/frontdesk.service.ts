@@ -14,6 +14,7 @@ import { ACC } from "../accounts.js";
 import type { HotelDeps, HotelOp } from "../deps.js";
 import type { FoliosService } from "../folios/folios.service.js";
 import * as folioRepo from "../folios/folios.repo.js";
+import type { Lifecycle } from "../guests/lifecycle.js";
 import type { SmartRooms } from "../integrations/smart.js";
 import type { ReservationsService } from "../reservations/reservations.service.js";
 import * as repo from "../reservations/reservations.repo.js";
@@ -35,11 +36,17 @@ async function guarded<T>(fn: () => Promise<T>, message: string): Promise<T> {
 
 export function frontdeskService(
   d: HotelDeps,
-  x: { folios: FoliosService; reservations: ReservationsService; smart: SmartRooms },
+  x: { folios: FoliosService; reservations: ReservationsService; smart: SmartRooms; lifecycle: Lifecycle },
 ) {
   const { core } = d;
   const { db } = core;
-  const { folios, reservations, smart } = x;
+  const { folios, reservations, smart, lifecycle } = x;
+
+  /** A stay sold with room features (sea view, high floor …) only takes a room that has every one of them. */
+  function checkFeatures(stay: repo.StayRow, r: RoomRow) {
+    const missing = stay.requested_attributes.filter((a) => !r.attributes.includes(a));
+    if (missing.length) throw fail.conflict(`Room ${r.number} lacks what the guest booked: ${missing.join(", ")}`);
+  }
 
   function checkReady(op: HotelOp, r: RoomRow, roomTypeId: string) {
     if (r.room_type_id !== roomTypeId) throw fail.invalid(`Room ${r.number} is not of the booked room type`);
@@ -122,6 +129,7 @@ export function frontdeskService(
         const r = await roomRow(t, s.property.id, roomId, true);
         if (r.room_type_id !== stay.room_type_id) throw fail.invalid(`Room ${r.number} is not of the booked room type`);
         if (r.service_status === "out_of_order") throw fail.conflict(`Room ${r.number} is out of order`);
+        checkFeatures(stay, r);
         await setRoom(t, stay, roomId, r.number);
         await recordAudit(t, {
           actor: s.actor,
@@ -146,6 +154,7 @@ export function frontdeskService(
         if (!id) throw fail.invalid("Choose a room");
         const r = await roomRow(t, s.property.id, id, true);
         checkReady(s, r, stay.room_type_id);
+        checkFeatures(stay, r);
         if (id !== stay.room_id) await setRoom(t, stay, id, r.number);
         await t.run("UPDATE hotel_stays SET status = 'in_house', checked_in_at = now() WHERE id = $1", [stayId]);
         const res = await repo.reservationRow(t, s.property.id, stay.reservation_id, true);
@@ -179,6 +188,7 @@ export function frontdeskService(
             ]);
         }
         await folios.applyDeposits(t, s, res.id, folioId);
+        await lifecycle.checkedIn(t, s, { stayId, reservationId: res.id, folioId, room: r.number });
         const key = await smart.issueKey(t, s, stay, r);
         if (r.eco_mode)
           await smart.command(t, s, r, { command: "eco_off", value: null, reason: `Guest checked in (${res.number})` });
@@ -206,6 +216,7 @@ export function frontdeskService(
         const from = await roomRow(t, s.property.id, stay.room_id as string, true);
         const to = await roomRow(t, s.property.id, roomId, true);
         checkReady(s, to, stay.room_type_id);
+        checkFeatures(stay, to);
         await setRoom(t, stay, roomId, to.number);
         await t.run("UPDATE hotel_rooms SET hk_status = 'dirty' WHERE id = $1", [from.id]);
         const k = await smart.issueKey(t, s, stay, to);
@@ -305,6 +316,7 @@ export function frontdeskService(
           });
         }
         await t.run("UPDATE hotel_stays SET status = 'checked_out', checked_out_at = now() WHERE id = $1", [stayId]);
+        await lifecycle.checkedOut(t, s, stay.reservation_id);
         await t.run("UPDATE hotel_rooms SET hk_status = 'dirty' WHERE id = $1", [stay.room_id]);
         await smart.revokeKeys(t, s, stayId);
         const r = await roomRow(t, s.property.id, stay.room_id as string);
