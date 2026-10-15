@@ -89,6 +89,16 @@ describe("API client", () => {
       "admin",
       "migration",
       "hotel",
+      "ops",
+      "notifications",
+      "paymentProviders",
+      "security",
+      "agency",
+      "marketplace",
+      "development",
+      "contacts",
+      "property",
+      "signup",
     ]);
     expect(self.PaltasApi.roleCan("accountant", "ledger.approve")).toBe(true);
     expect(self.PaltasApi.roleCan("leasing_agent", "ledger.approve")).toBe(false);

@@ -9,9 +9,11 @@
  * Handlers therefore receive typed, already-checked input and only contain business logic.
  */
 import type { EndpointAuth, EndpointDefinition, z } from "@paltas/contracts";
+import type { Readable } from "node:stream";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { SessionUser } from "../core/identity/identity.service.js";
 import { fail } from "./errors.js";
+import { rateLimitFor, type RateLimits } from "./rate-limits.js";
 
 type Def = EndpointDefinition<
   z.ZodType<Record<string, unknown>>,
@@ -37,6 +39,14 @@ export interface RequestContext<E extends Def> {
 export interface Route {
   endpoint: Def;
   handler(req: RequestContext<Def>): Promise<unknown>;
+  /** The handler answers with a stream (large exports) instead of one object. */
+  stream?: true;
+}
+
+export interface StreamedAnswer {
+  /** JSON written as it is produced; its shape is the endpoint's response contract. */
+  body: Readable;
+  filename: string;
 }
 
 /** Bind a handler to its endpoint definition. */
@@ -45,6 +55,18 @@ export function route<E extends Def>(
   handler: (req: RequestContext<E>) => Promise<z.input<E["response"]>>,
 ): Route {
   return { endpoint, handler: handler as unknown as Route["handler"] };
+}
+
+/**
+ * Bind a handler whose answer is streamed as it is produced (e.g. an organisation's data export). The request is
+ * checked exactly like any other; the body follows the endpoint's response contract but is not held in memory to be
+ * validated as a whole.
+ */
+export function streamRoute<E extends Def>(
+  endpoint: E,
+  handler: (req: RequestContext<E>) => Promise<StreamedAnswer>,
+): Route {
+  return { endpoint, handler: handler as unknown as Route["handler"], stream: true };
 }
 
 export interface RouteDependencies {
@@ -63,23 +85,18 @@ function parse<T extends z.ZodType>(schema: T, value: unknown, part: string): z.
   return r.data;
 }
 
-export function registerRoutes(
-  app: FastifyInstance,
-  deps: RouteDependencies,
-  routes: Route[],
-  options: { loginRateLimit: number },
-) {
+export function registerRoutes(app: FastifyInstance, deps: RouteDependencies, routes: Route[], limits: RateLimits) {
   const seen = new Set<string>();
-  for (const { endpoint, handler } of routes) {
+  for (const { endpoint, handler, stream } of routes) {
     const key = `${endpoint.method} ${endpoint.path}`;
     if (seen.has(key)) throw new Error(`Two handlers for ${key}`);
     seen.add(key);
+    const rateLimit = rateLimitFor(endpoint, limits);
 
     app.route({
       method: endpoint.method,
       url: endpoint.path,
-      config:
-        endpoint.id === "auth.login" ? { rateLimit: { max: options.loginRateLimit, timeWindow: "1 minute" } } : {},
+      config: rateLimit ? { rateLimit } : {},
       handler: async (request: FastifyRequest, reply) => {
         const user = await caller(endpoint, request, deps);
         const ctx: RequestContext<Def> = {
@@ -95,6 +112,13 @@ export function registerRoutes(
           },
         };
         const out = await handler(ctx);
+        if (stream) {
+          const { body, filename } = out as StreamedAnswer;
+          reply.status(endpoint.status);
+          reply.header("Content-Type", "application/json; charset=utf-8");
+          reply.header("Content-Disposition", `attachment; filename="${filename.replace(/[^\w.-]/g, "_")}"`);
+          return reply.send(body);
+        }
         const checked = endpoint.response.safeParse(out);
         if (!checked.success) {
           request.log.error(

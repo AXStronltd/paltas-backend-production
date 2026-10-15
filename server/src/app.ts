@@ -10,17 +10,23 @@ import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import type { Config } from "./config.js";
 import type { AppContext } from "./context.js";
 import { adminRoutes } from "./core/admin/admin.routes.js";
+import { contactsRoutes } from "./core/contacts/contacts.routes.js";
+import { opsRoutes } from "./core/admin/ops.routes.js";
 import { createCoreServices, type CoreServices } from "./core/core-services.js";
 import { identityRoutes } from "./core/identity/identity.routes.js";
 import { ledgerRoutes } from "./core/ledger/ledger.routes.js";
 import { migrationRoutes } from "./core/migration/migration.routes.js";
+import { notificationsRoutes } from "./core/notifications/notifications.routes.js";
 import { organisationsRoutes } from "./core/organisations/organisations.routes.js";
 import { verifySignature } from "./core/payments/signature.js";
 import { paymentsRoutes } from "./core/payments/payments.routes.js";
+import { providersRoutes } from "./core/payments/providers.routes.js";
+import { signupRoutes } from "./core/signup/signup.routes.js";
 import { subscriptionsRoutes } from "./core/subscriptions/subscriptions.routes.js";
 import { connect, type Database } from "./db/database.js";
 import { migrate } from "./db/migrate.js";
 import { ApiError, fail, fromDatabaseError } from "./http/errors.js";
+import { LOG_REDACT } from "./http/logging.js";
 import { registerRoutes, type RawBodyRequest, type Route } from "./http/route.js";
 import { systemClock, type Clock } from "./lib/clock.js";
 import { secretBox } from "./lib/secret-box.js";
@@ -50,7 +56,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const server = Fastify({
     logger: {
       level: config.logLevel,
-      redact: ["req.headers.authorization", "req.headers.cookie", 'req.headers["x-paltas-signature"]'],
+      redact: LOG_REDACT,
     },
     trustProxy: config.trustProxy,
     bodyLimit: 256 * 1024,
@@ -82,8 +88,12 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   });
   await server.register(rateLimit, {
     global: false,
-    errorResponseBuilder: () =>
-      fail.tooManyAttempts("Too many sign-in attempts from this address — wait a minute and try again"),
+    errorResponseBuilder: (req) =>
+      fail.tooManyAttempts(
+        req.url.startsWith("/api/v1/auth/login")
+          ? "Too many sign-in attempts from this address — wait a minute and try again"
+          : "Too many requests — wait a minute and try again",
+      ),
   });
   server.addHook("onSend", async (_req, reply, payload) => {
     reply.header("Cache-Control", "no-store");
@@ -136,6 +146,11 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     ...ledgerRoutes(core),
     ...adminRoutes(core),
     ...migrationRoutes(core),
+    ...opsRoutes(ctx, core),
+    ...notificationsRoutes(core),
+    ...providersRoutes(core),
+    ...contactsRoutes(core),
+    ...signupRoutes(core),
     ...ctx.products.modules.flatMap((m) => m.routes(ctx, core)),
   ];
   registerRoutes(
@@ -145,13 +160,26 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       verifyWebhook: (provider, header, raw) => verifySignature(config.webhookSecrets, provider, header, raw),
     },
     routes,
-    { loginRateLimit: config.loginRateLimitPerMinute },
+    {
+      login: config.loginRateLimitPerMinute,
+      sensitive: config.sensitiveRateLimitPerMinute,
+      webhook: config.webhookRateLimitPerMinute,
+    },
   );
 
-  // the data-migration worker runs import batches in this process; stopped before the database closes
-  server.addHook("onClose", async () => core.migration.worker.stop());
+  // scheduled jobs: the platform's own (registered by the core) and each product's
+  core.scheduler.register(ctx.products.modules.flatMap((m) => m.scheduledJobs?.(ctx, core) ?? []));
+  await core.scheduler.ensurePlatformJobs();
+
+  // The background workers (data-migration batches, scheduled jobs) run in this process. Shutdown order:
+  // server.close() stops taking requests and waits for those in flight, then these hooks stop the workers (each
+  // finishes its current batch or run), and only then does close() end the database pool.
+  server.addHook("onClose", async () => {
+    await Promise.all([core.migration.worker.stop(), core.schedulerWorker.stop()]);
+  });
   await server.ready();
   if (config.migration.worker) core.migration.worker.start();
+  if (config.scheduler.worker) core.schedulerWorker.start();
   return {
     server,
     ctx,

@@ -20,7 +20,18 @@ export type PostingKind =
   | "city_ledger_payment"
   | "room_night"
   | "commission"
-  | "cost";
+  | "cost"
+  | "allowance"
+  | "loyalty"
+  | "fx"
+  | "tip"
+  | "stock"
+  | "purchase"
+  | "event_deposit"
+  | "bank"
+  | "payroll"
+  | "asset"
+  | "ffe";
 
 export interface HotelPosting {
   orgId: string;

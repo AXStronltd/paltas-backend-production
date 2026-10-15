@@ -7,13 +7,25 @@
 import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import type { Database } from "./database.js";
+import type { Database, Db } from "./database.js";
 
 const MIGRATIONS_DIR = fileURLToPath(new URL("../../migrations/", import.meta.url));
 const LOCK_KEY = 7_240_811; // any constant; identifies "PALTAS migrations" for pg_advisory_lock
 
+const migrationFiles = async () =>
+  (await readdir(MIGRATIONS_DIR)).filter((f) => /^\d{4}_[a-z0-9_]+\.sql$/.test(f)).sort();
+
+/** Readiness: how many migrations are applied and which are still pending (read-only; never applies anything). */
+export async function migrationStatus(db: Db): Promise<{ applied: number; pending: string[] }> {
+  const files = (await migrationFiles()).map((f) => f.replace(/\.sql$/, ""));
+  const done = (await db.row<{ t: string | null }>("SELECT to_regclass('schema_migrations')::text AS t"))?.t
+    ? new Set((await db.rows<{ version: string }>("SELECT version FROM schema_migrations")).map((r) => r.version))
+    : new Set<string>();
+  return { applied: done.size, pending: files.filter((f) => !done.has(f)) };
+}
+
 export async function migrate(db: Database): Promise<string[]> {
-  const files = (await readdir(MIGRATIONS_DIR)).filter((f) => /^\d{4}_[a-z0-9_]+\.sql$/.test(f)).sort();
+  const files = await migrationFiles();
   const applied: string[] = [];
   await db.tx(async (t) => {
     await t.run("SELECT pg_advisory_xact_lock($1)", [LOCK_KEY]);

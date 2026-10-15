@@ -2,7 +2,9 @@
  * Local set-up for trying the server on your own computer:  npm run setup:local
  * Creates the catalogue, one PALTAS Super Admin and two demo organisations (Property Management and Development)
  * with their administrators. Every password and the Super Admin's authenticator secret are generated here and
- * printed ONCE — nothing secret is stored in this repository. Refuses to run in production.
+ * printed ONCE — nothing secret is stored in this repository. Refuses to run in production (and the core refuses
+ * any demo organisation there: core/admin createOrganisationRecords). Production customers sign themselves up
+ * (POST /api/v1/public/signup) or are onboarded by PALTAS staff.
  */
 import { randomBytes } from "node:crypto";
 import { loadConfig } from "../config.js";
@@ -21,7 +23,7 @@ const config = loadConfig();
 if (config.env === "production") throw new Error("setup:local is for local computers only");
 const db = connect(config.databaseUrl, 2);
 const secrets = secretBox(config.secretsKey);
-const ctx = { clock: systemClock(config.fixedToday), products: new ProductRegistry(PRODUCTS) };
+const ctx = { clock: systemClock(config.fixedToday), products: new ProductRegistry(PRODUCTS), config };
 const printed: { email: string; password: string; authenticatorSecret?: string }[] = [];
 
 async function person(email: string, name: string, staff: boolean): Promise<string> {

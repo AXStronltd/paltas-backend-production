@@ -10,6 +10,8 @@
  *                                                           out, so a cash refund needs the approver's open cashier
  *                                                           shift and comes out of that drawer)
  *   city ledger     Dr 1160 city ledger         Cr 1150 (company folio at check-out, within the credit limit)
+ *   allowance       Dr revenue, service charge, VAT, levy (a share of the charge's taxes)   Cr 1150
+ *                   — a comp or discount on a charge; approved by someone other than who gave it
  *
  * Transfers between folios move a balance inside 1150 and post nothing.
  *
@@ -97,6 +99,8 @@ export function foliosService(d: HotelDeps) {
       outletId?: string | null;
       voidsLineId?: string | null;
       journalId?: string | null;
+      allowanceKind?: "comp" | "discount" | null;
+      allowanceOfLineId?: string | null;
       id?: string;
     },
   ): Promise<string> {
@@ -107,8 +111,8 @@ export function foliosService(d: HotelDeps) {
     await t.run(
       `INSERT INTO hotel_folio_lines (id, org_id, property_id, folio_id, business_date, kind, department, outlet_id, description,
          net_minor, service_minor, vat_minor, levy_minor, total_minor, method, reference, shift_id, stay_id, night_date,
-         voids_line_id, journal_id, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22)`,
+         voids_line_id, journal_id, created_by, allowance_kind, allowance_of_line_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)`,
       [
         id,
         op.orgId,
@@ -132,6 +136,8 @@ export function foliosService(d: HotelDeps) {
         l.voidsLineId ?? null,
         l.journalId ?? null,
         op.userId,
+        l.allowanceKind ?? null,
+        l.allowanceOfLineId ?? null,
       ],
     );
     return id;
@@ -353,10 +359,104 @@ export function foliosService(d: HotelDeps) {
 
   const get = async (propertyId: string, id: string) => repo.toFolio(db, await repo.folioRow(db, propertyId, id));
 
+  async function hasAllowance(t: Db, lineId: string): Promise<boolean> {
+    return !!(await t.row("SELECT 1 FROM hotel_folio_lines WHERE kind = 'allowance' AND allowance_of_line_id = $1", [
+      lineId,
+    ]));
+  }
+
+  /**
+   * A comp or discount on a charge: a share of the charge's net (all of what is left by default) and the same share
+   * of each of its taxes is credited back — revenue, service charge, VAT and levy are debited, the guest ledger
+   * credited. Each tax share is rounded once; the allowance that takes the rest of the charge takes exactly the rest.
+   */
+  async function allowance(
+    t: Db,
+    op: HotelOp,
+    folioId: string,
+    lineId: string,
+    a: { kind: "comp" | "discount"; amountMinor?: number | undefined; reason: string },
+  ): Promise<string> {
+    await lockBusinessDate(t, op);
+    const f = await repo.folioRow(t, op.property.id, folioId, true);
+    if (f.status !== "open") throw fail.conflict(`Folio ${f.number} is closed`);
+    const l = (await repo.lines(t, folioId)).find((x) => x.id === lineId);
+    if (!l) throw fail.notFound("Line not found");
+    if (l.kind !== "charge" || !l.department) throw fail.invalid("Only a charge can be comped or discounted");
+    if (l.voided_by) throw fail.conflict("This charge is voided");
+    if (await t.row("SELECT 1 FROM hotel_folio_lines WHERE kind = 'transfer' AND reference = $1", [l.id]))
+      throw fail.conflict("This charge was moved to another folio — give the allowance there");
+    const given = await t.row<{ net: number; service: number; vat: number; levy: number }>(
+      `SELECT COALESCE(-sum(net_minor), 0)::bigint AS net, COALESCE(-sum(service_minor), 0)::bigint AS service,
+         COALESCE(-sum(vat_minor), 0)::bigint AS vat, COALESCE(-sum(levy_minor), 0)::bigint AS levy
+       FROM hotel_folio_lines WHERE kind = 'allowance' AND allowance_of_line_id = $1`,
+      [l.id],
+    );
+    const left = {
+      net: l.net_minor - (given?.net ?? 0),
+      service: l.service_minor - (given?.service ?? 0),
+      vat: l.vat_minor - (given?.vat ?? 0),
+      levy: l.levy_minor - (given?.levy ?? 0),
+    };
+    const net = a.amountMinor ?? left.net;
+    if (net <= 0 || net > left.net)
+      throw fail.invalid(`At most ${left.net} of this charge's net can still be comped or discounted`);
+    const part = (rest: number, whole: number) =>
+      net === left.net ? rest : Math.min(rest, Math.round((whole * net) / l.net_minor));
+    const parts = {
+      net,
+      service: part(left.service, l.service_minor),
+      vat: part(left.vat, l.vat_minor),
+      levy: part(left.levy, l.levy_minor),
+    };
+    const total = parts.net + parts.service + parts.vat + parts.levy;
+    const id = newId("hfl");
+    const label = a.kind === "comp" ? "Comp" : "Discount";
+    const journalId = await postToLedger(t, core, {
+      orgId: op.orgId,
+      propertyId: op.property.id,
+      date: op.property.business_date,
+      kind: "allowance",
+      memo: `${f.number} · ${label} on ${l.description}: ${a.reason}`,
+      ref: `allowance:${id}`,
+      lines: [
+        dr(REVENUE_ACCOUNT[l.department], parts.net),
+        dr(ACC.serviceCharge, parts.service),
+        dr(ACC.vat, parts.vat),
+        dr(ACC.levy, parts.levy),
+        cr(ACC.guestLedger, total),
+      ],
+    });
+    await insertLine(t, op, folioId, {
+      id,
+      kind: "allowance",
+      department: l.department,
+      description: `${label}: ${l.description} — ${a.reason}`,
+      net: -parts.net,
+      service: -parts.service,
+      vat: -parts.vat,
+      levy: -parts.levy,
+      outletId: l.outlet_id,
+      stayId: l.stay_id,
+      allowanceKind: a.kind,
+      allowanceOfLineId: l.id,
+      journalId,
+    });
+    await recordAudit(t, {
+      actor: op.actor,
+      orgId: op.orgId,
+      action: `${label} given (awaiting approval)`,
+      target: f.number,
+      detail: `${l.description} · ${total} · ${a.reason}`,
+    });
+    return id;
+  }
+
   return {
     open,
     charge,
     payment,
+    allowance,
     applyDeposits,
     folioFor,
     toCityLedger,
@@ -471,6 +571,8 @@ export function foliosService(d: HotelDeps) {
         if (ls.length !== new Set(b.lineIds).size) throw fail.invalid("Every line must belong to this folio");
         for (const l of ls) {
           if (l.kind !== "charge" || l.voided_by) throw fail.invalid("Only charges that are not voided can move");
+          if (await hasAllowance(t, l.id))
+            throw fail.conflict(`"${l.description}" has a comp or discount — it stays on this folio`);
           const moved = await t.row("SELECT 1 FROM hotel_folio_lines WHERE kind = 'transfer' AND reference = $1", [
             l.id,
           ]);
@@ -540,6 +642,8 @@ export function foliosService(d: HotelDeps) {
         if (l.voided_by) throw fail.conflict("This charge is already voided");
         if (await t.row("SELECT 1 FROM hotel_folio_lines WHERE kind = 'transfer' AND reference = $1", [l.id]))
           throw fail.conflict("This charge was moved to another folio — void it there");
+        if (await hasAllowance(t, l.id))
+          throw fail.conflict("This charge has a comp or discount — correct it with an allowance, not a void");
         const journal = await core.ledger.getJournal(s.orgId, l.journal_id as string);
         const id = newId("hfl");
         const journalId = await postToLedger(t, core, {
@@ -598,6 +702,33 @@ export function foliosService(d: HotelDeps) {
           s.userId,
         ]);
         await recordAudit(t, { actor: s.actor, orgId: s.orgId, action: "Void approved", target: v.id });
+      });
+      return get(s.property.id, folioId);
+    },
+
+    async postAllowance(s: HotelScope, folioId: string, lineId: string, b: z.output<typeof hotel.postAllowance.body>) {
+      await db.tx((t) => allowance(t, s, folioId, lineId, b));
+      return get(s.property.id, folioId);
+    },
+
+    async approveAllowance(s: HotelScope, folioId: string, allowanceId: string) {
+      await db.tx(async (t) => {
+        const f = await repo.folioRow(t, s.property.id, folioId, true);
+        const a = await t.row<{ id: string; created_by: string | null; allowance_approved_by: string | null }>(
+          `SELECT id, created_by, allowance_approved_by FROM hotel_folio_lines
+           WHERE property_id = $1 AND folio_id = $2 AND id = $3 AND kind = 'allowance' FOR UPDATE`,
+          [s.property.id, f.id, allowanceId],
+        );
+        if (!a) throw fail.notFound("No such comp or discount on this folio");
+        if (a.allowance_approved_by) throw fail.conflict("This allowance is already approved");
+        if (a.created_by === s.userId)
+          throw fail.separationOfDuties("You gave this comp or discount — someone else must approve it");
+        await t.run("UPDATE hotel_folio_lines SET allowance_approved_by = $3 WHERE property_id = $1 AND id = $2", [
+          s.property.id,
+          a.id,
+          s.userId,
+        ]);
+        await recordAudit(t, { actor: s.actor, orgId: s.orgId, action: "Allowance approved", target: a.id });
       });
       return get(s.property.id, folioId);
     },

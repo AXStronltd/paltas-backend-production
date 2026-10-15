@@ -112,6 +112,10 @@ function organisation(r: ReturnType<typeof rng>, cat: ReturnType<typeof catalogu
 
 const clone = <T>(x: T): T => structuredClone(x);
 
+/** Added after the browser file was replaced (the platform trial policy); everything else must match exactly. */
+const ADDED = ["DEFAULT_TRIAL_POLICY", "trialState"];
+const sameNames = (impl: object) => expect(Object.keys(impl).sort()).toEqual([...Object.keys(legacy), ...ADDED].sort());
+
 let candidate: typeof legacy = ts;
 
 /** Run fn on separate copies of the input with each implementation; results and input changes must match. */
@@ -125,8 +129,8 @@ function same<T>(input: T, call: (impl: typeof legacy, input: T) => unknown) {
 }
 
 describe("entitlement rules: TypeScript = the earlier browser implementation", () => {
-  it("exports the same names", () => {
-    expect(Object.keys(ts).sort()).toEqual(Object.keys(legacy).sort());
+  it("exports the same names (plus the trial policy additions)", () => {
+    sameNames(ts);
   });
 
   it("date helpers agree", () => {
@@ -146,7 +150,7 @@ describe("entitlement rules: TypeScript = the earlier browser implementation", (
     "every rule agrees: %s",
     (_label, impl, seeds) => {
       candidate = impl;
-      expect(Object.keys(impl).sort()).toEqual(Object.keys(legacy).sort());
+      sameNames(impl);
       for (let seed = 1; seed <= seeds; seed++) {
         const r = rng(seed);
         const cat = catalogue(r);

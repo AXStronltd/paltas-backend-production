@@ -7,7 +7,7 @@
  * - Two-factor: PALTAS staff always need it; anyone else may turn it on. Secrets are encrypted at rest.
  */
 import { createHash, randomBytes } from "node:crypto";
-import type { Product, Role, SignedInUser, StaffRole } from "@paltas/contracts";
+import { entitlements, type Product, type Role, type SignedInUser, type StaffRole } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import type { Db } from "../../db/database.js";
 import { fail } from "../../http/errors.js";
@@ -205,12 +205,52 @@ export function identityService(ctx: AppContext) {
          ORDER BY o.name`,
         [user.id],
       );
+      const ids = organisations.map((o) => o.id);
+      // trial days left per product (the shared rules' trialState) and whether e-mail verification is awaited
+      const subs = await db.rows<{
+        org_id: string;
+        product: Product;
+        status: "trial" | "active" | "suspended" | "expired";
+        trial_ends: string | null;
+        grace_days: number;
+        anchor: string | null;
+      }>(
+        "SELECT org_id, product, status, trial_ends, grace_days, anchor FROM subscriptions WHERE org_id = ANY($1) ORDER BY created_at, product",
+        [ids],
+      );
+      const verified = new Map(
+        (
+          await db.rows<{ org_id: string; verified: boolean }>(
+            `SELECT s.org_id, u.email_verified_at IS NOT NULL AS verified FROM org_signups s
+             JOIN users u ON u.id = s.user_id WHERE s.org_id = ANY($1)`,
+            [ids],
+          )
+        ).map((r) => [r.org_id, r.verified]),
+      );
+      const today = clock.today();
+      const withTrials = organisations.map((o) => ({
+        ...o,
+        trials: subs
+          .filter((s) => s.org_id === o.id)
+          .flatMap((s) => {
+            const st = entitlements.trialState(
+              { plan: "", status: s.status, trialEnds: s.trial_ends, graceDays: s.grace_days, anchor: s.anchor },
+              today,
+            );
+            return st ? [{ product: s.product, ...st }] : [];
+          }),
+        emailVerification: !verified.has(o.id)
+          ? ("not_required" as const)
+          : verified.get(o.id)
+            ? ("verified" as const)
+            : ("required" as const),
+      }));
       const invitations = await db.rows<{ orgId: string; orgName: string; role: Role }>(
         `SELECT o.id AS "orgId", o.name AS "orgName", m.role FROM memberships m JOIN organisations o ON o.id = m.org_id
          WHERE m.user_id = $1 AND m.status = 'invited' ORDER BY o.name`,
         [user.id],
       );
-      return { user: toSignedInUser(user), organisations, invitations };
+      return { user: toSignedInUser(user), organisations: withTrials, invitations };
     },
 
     /** Accept or decline an invitation from an organisation. Declining leaves no membership behind. */

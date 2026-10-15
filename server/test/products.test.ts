@@ -72,7 +72,7 @@ describe("two products: separate subscriptions that never activate each other", 
     expect((await post(PMO, "/test-developer/projects", { name: "Kilima Gardens Phase 1" })).status).toBe(201);
     expect((await get(PMO, "/test-property/buildings")).body.length).toBe(1);
     const list = await PMO.admin.api.subscriptions.listProducts({ params: { orgId: PMO.orgId } });
-    expect(list.products.every((x) => x.subscribed)).toBe(true);
+    expect(list.products.filter((x) => x.subscribed).map((x) => x.product)).toEqual(["property", "developer"]);
     const offer = await DVO.admin.api.subscriptions.listProducts({ params: { orgId: DVO.orgId } });
     const pmOffer = offer.products.find((p) => p.product === "property")!;
     expect(pmOffer.subscribed).toBe(false);

@@ -29,6 +29,7 @@ interface SubRow {
   plan_id: string | null;
   status: Subscription["status"];
   trial_ends: string | null;
+  grace_days: number;
   anchor: string | null;
   buildings_extra: number;
   buildings_override: number | null;
@@ -85,6 +86,7 @@ async function subscriptionRecord(db: Db, registry: ProductRegistry, o: OrgRow, 
     plan: s.plan_id ?? "CORE",
     status: s.status,
     trialEnds: s.trial_ends,
+    graceDays: s.grace_days,
     anchor: s.anchor,
     addons,
     disabled,
@@ -140,7 +142,7 @@ export async function resolveEntitlement(
 }
 
 /** What a product subscription may use, in the shape of the entitlements endpoint (customer and Super Admin alike). */
-export function toEntitlementsView(en: EntitlementContext) {
+export function toEntitlementsView(en: EntitlementContext, today: string) {
   const e = en.ent;
   return {
     product: en.product,
@@ -153,5 +155,7 @@ export function toEntitlementsView(en: EntitlementContext) {
     sources: Object.fromEntries(Object.entries(e.moduleState).map(([k, v]) => [k, v.source])),
     allowance: e.buildings,
     essentials: e.essentials,
+    /** Trial days and grace left under the shared rules (null when this subscription is not a trial). */
+    trial: entitlements.trialState(en.view.ent, today),
   };
 }

@@ -1,60 +1,110 @@
 /*
- * First start of a NEW production database:  npm run bootstrap -- <email> <credentials-file>
- * Applies the migrations, loads the starting catalogue (existing rows are never overwritten) and creates the FIRST
- * PALTAS Super Admin — only while no staff account exists, so running it again changes nothing.
- * The password and authenticator secret are written to <credentials-file> (a new file, readable only by its owner),
- * never printed, so they stay out of terminals and hosting logs. Run it with the server's own DATABASE_URL and
- * SECRETS_KEY: the authenticator secret is sealed with that key, and the server cannot read it with any other.
+ * The FIRST PALTAS Super Admin of an installation (production included) — one command, two spellings:
+ *
+ *   npm run bootstrap -- <email> <credentials-file>                 (the owner's documented form)
+ *   npm run bootstrap:admin -- --email <email> [--name "<full name>"] [--file <credentials-file>]
+ *   node server/dist/scripts/bootstrap.js …   (or bootstrap-admin.js, the same command) on the server after a build
+ *
+ * Every run applies the pending migrations and loads the starting catalogue (existing rows are never overwritten).
+ * Then, ONLY while no PALTAS staff account exists, it creates the Super Admin (core/admin/bootstrap.ts): a temporary
+ * password that must be changed at first sign-in, an authenticator secret sealed with SECRETS_KEY (two-factor at
+ * every sign-in), audited. Once any staff account exists every run is refused, audited and exits 1: it never creates
+ * a second Super Admin and never resets a password or a secret.
+ *
+ * With a credentials file the password and secret are written to that NEW file (owner-only; it must not exist yet)
+ * and never printed, so they stay out of terminals and hosting logs. Without one they are printed ONCE.
+ * Run it with the server's own DATABASE_URL and SECRETS_KEY: the server cannot read a secret sealed with another key.
  */
-import { randomBytes } from "node:crypto";
 import { writeFile } from "node:fs/promises";
+import { hostname } from "node:os";
+import { parseArgs } from "node:util";
 import { loadConfig } from "../config.js";
+import { bootstrapFirstSuperAdmin, BootstrapRefused, type BootstrapResult } from "../core/admin/bootstrap.js";
 import { seedCatalogue } from "../core/catalogue/catalogue.seed.js";
-import { createUser } from "../core/identity/identity.service.js";
-import { newTotpSecret, otpauthUrl } from "../core/identity/totp.js";
 import { connect } from "../db/database.js";
 import { migrate } from "../db/migrate.js";
 import { secretBox } from "../lib/secret-box.js";
 
-const [email, file] = process.argv.slice(2);
-if (!email || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) || !file) {
-  console.error("Usage: npm run bootstrap -- <super-admin-email> <credentials-file>");
+const USAGE = [
+  "Usage: npm run bootstrap -- <super-admin-email> <credentials-file>",
+  '   or: npm run bootstrap:admin -- --email <address> [--name "<full name>"] [--file <credentials-file>]',
+].join("\n");
+
+function usage(): never {
+  console.error(USAGE);
   process.exit(2);
 }
+
+function readArgs() {
+  try {
+    return parseArgs({
+      options: {
+        email: { type: "string" },
+        name: { type: "string", default: "PALTAS Super Admin" },
+        file: { type: "string" },
+      },
+      allowPositionals: true,
+      strict: true,
+    });
+  } catch {
+    return usage();
+  }
+}
+
+const args = readArgs();
+const email = args.values.email ?? args.positionals[0];
+const file = args.values.file ?? (args.values.email ? undefined : args.positionals[1]);
+if (!email || args.positionals.length > (args.values.email ? 0 : 2)) usage();
+
+/** Written before the account is committed: if the file cannot be created (e.g. it exists), nothing is created. */
+async function toFile(path: string, r: BootstrapResult) {
+  await writeFile(
+    path,
+    [
+      "PALTAS first Super Admin — keep this file safe, then delete it.",
+      `email:                 ${r.email}`,
+      `temporary password:    ${r.temporaryPassword}   (must be changed at first sign-in)`,
+      `authenticator secret:  ${r.authenticatorSecret}`,
+      `authenticator link:    ${r.otpauthUrl}`,
+      "",
+    ].join("\n"),
+    { flag: "wx", mode: 0o600 },
+  );
+}
+
 const config = loadConfig();
 const db = connect(config.databaseUrl, 2);
 try {
   const applied = await migrate(db);
   await seedCatalogue(db);
-  const staff = await db.row<{ n: string }>("SELECT count(*) AS n FROM users WHERE staff_role IS NOT NULL");
-  if (Number(staff?.n) > 0) {
-    console.log(`Nothing to create: ${staff?.n} PALTAS staff account(s) already exist. Catalogue checked.`);
-  } else {
-    const password = randomBytes(18).toString("base64url");
-    const totp = newTotpSecret();
-    // the file first: if it cannot be written (e.g. it already exists), no account is created whose secrets are lost
-    await writeFile(
-      file,
-      [
-        "PALTAS first Super Admin — keep this file safe, then delete it.",
-        `email:                 ${email.toLowerCase()}`,
-        `password:              ${password}`,
-        `authenticator secret:  ${totp}`,
-        `authenticator link:    ${otpauthUrl(totp, email.toLowerCase())}`,
-        "",
-      ].join("\n"),
-      { flag: "wx", mode: 0o600 },
-    );
-    await createUser(db, {
-      email,
-      name: "PALTAS Super Admin",
-      password,
-      staffRole: "super_admin",
-      mfaSecretSealed: secretBox(config.secretsKey).seal(totp),
-    });
-    console.log(`Super Admin ${email.toLowerCase()} created. Credentials written to ${file} (owner-only).`);
-  }
   console.log(`Migrations applied now: ${applied.length ? applied.join(", ") : "none (already up to date)"}.`);
+  console.log("Catalogue checked (existing rows unchanged).");
+  const r = await bootstrapFirstSuperAdmin(
+    db,
+    secretBox(config.secretsKey),
+    { email, name: args.values.name, host: hostname() },
+    file ? (res) => toFile(file, res) : undefined,
+  );
+  if (file) {
+    console.log(
+      `First PALTAS Super Admin ${r.email} created (${config.env}). Credentials written to ${file} (owner-only).`,
+    );
+  } else {
+    console.log(
+      [
+        `First PALTAS Super Admin created (${config.env}). Shown ONCE — not stored anywhere in clear:`,
+        `  e-mail:               ${r.email}`,
+        `  temporary password:   ${r.temporaryPassword}   (must be changed at first sign-in)`,
+        `  authenticator secret: ${r.authenticatorSecret}`,
+        `  authenticator link:   ${r.otpauthUrl}`,
+        "Add the secret to an authenticator app; every sign-in needs its 6-digit code.",
+      ].join("\n"),
+    );
+  }
+} catch (e) {
+  if (!(e instanceof BootstrapRefused)) throw e;
+  console.error(`Refused: ${e.message}`);
+  process.exitCode = 1;
 } finally {
   await db.close();
 }

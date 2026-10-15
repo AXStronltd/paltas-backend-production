@@ -88,10 +88,16 @@ function moduleFromRow(m: ModuleRow): CatalogueModule & {
   };
 }
 
-/** Active plans and all modules, in the shape the entitlement rules and the API use. */
+/**
+ * Active plans and all modules, in the shape the entitlement rules and the API use. Every plan shows the trial
+ * length of the ONE platform trial policy (migration 0013): per-plan trial days are not used.
+ */
 export async function loadCatalogue(db: Db) {
   const modules = (await db.rows<ModuleRow>("SELECT * FROM catalogue_modules ORDER BY key")).map(moduleFromRow);
-  const plans = (await db.rows<PlanRow>("SELECT * FROM catalogue_plans WHERE active ORDER BY id")).map(planFromRow);
+  const policy = await db.row<{ trial_days: number }>("SELECT trial_days FROM trial_policy WHERE id = 1");
+  const plans = (await db.rows<PlanRow>("SELECT * FROM catalogue_plans WHERE active ORDER BY id")).map((p) =>
+    planFromRow({ ...p, trial_days: policy?.trial_days ?? p.trial_days }),
+  );
   return { modules, plans } satisfies Catalogue;
 }
 
