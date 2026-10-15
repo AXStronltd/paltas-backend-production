@@ -138,3 +138,20 @@ export async function resolveEntitlement(
   const ent = entitlements.resolve(catalogue, view, today) as Entitlement;
   return { catalogue, org, product: p, view, ent, products: entitlements.productsOf(org) as Product[] };
 }
+
+/** What a product subscription may use, in the shape of the entitlements endpoint (customer and Super Admin alike). */
+export function toEntitlementsView(en: EntitlementContext) {
+  const e = en.ent;
+  return {
+    product: en.product,
+    products: en.products,
+    status: e.status,
+    usable: e.usable,
+    plan: e.planId,
+    tier: e.tier,
+    modules: e.modules,
+    sources: Object.fromEntries(Object.entries(e.moduleState).map(([k, v]) => [k, v.source])),
+    allowance: e.buildings,
+    essentials: e.essentials,
+  };
+}

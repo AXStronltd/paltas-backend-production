@@ -14,7 +14,7 @@ import { recordAudit } from "../audit/audit.service.js";
 import { loadCatalogue } from "../catalogue/catalogue.service.js";
 import { ensureAccounts } from "../ledger/default-chart.js";
 import { billingService, monthlyChargeMinor, toInvoice } from "./billing.service.js";
-import { loadOrgRecord, resolveEntitlement } from "./entitlement.service.js";
+import { loadOrgRecord, resolveEntitlement, toEntitlementsView } from "./entitlement.service.js";
 
 export function subscriptionsService(ctx: AppContext) {
   const { db, clock, config, products: registry } = ctx;
@@ -23,19 +23,7 @@ export function subscriptionsService(ctx: AppContext) {
 
   return {
     entitlements(s: OrgScope) {
-      const e = s.entitlement.ent;
-      return {
-        product: s.product,
-        products: s.entitlement.products,
-        status: e.status,
-        usable: e.usable,
-        plan: e.planId,
-        tier: e.tier,
-        modules: e.modules,
-        sources: Object.fromEntries(Object.entries(e.moduleState).map(([k, v]) => [k, v.source])),
-        allowance: e.buildings,
-        essentials: e.essentials,
-      };
+      return toEntitlementsView(s.entitlement);
     },
 
     async summary(s: OrgScope) {

@@ -4,9 +4,16 @@ import { z } from "zod";
 import { Product } from "../access.js";
 import { Currency, Email, IsoDate, Reason } from "../common.js";
 import { endpoint } from "../endpoint.js";
-import { AuditEntry, Organisation } from "./organisations.js";
+import { AuditEntry, Member, Organisation } from "./organisations.js";
 import { PaymentEventResult } from "./payments.js";
-import { BillingInvoice, CatalogueSchema, SubscriptionStatusSchema, TierSchema } from "./subscriptions.js";
+import {
+  BillingInvoice,
+  CatalogueSchema,
+  EntitlementsView,
+  PendingChangeSchema,
+  SubscriptionStatusSchema,
+  TierSchema,
+} from "./subscriptions.js";
 
 export const getCatalogue = endpoint({
   id: "admin.catalogue",
@@ -161,4 +168,143 @@ export const adminAudit = endpoint({
   summary: "The platform audit trail, newest first",
   query: z.object({ limit: z.coerce.number().int().min(1).max(500).default(100), orgId: z.string().optional() }),
   response: z.object({ entries: z.array(AuditEntry.extend({ orgId: z.string().nullable() })) }),
+});
+
+// ---------- one organisation in full, and the changes PALTAS makes to it ----------
+const AdminOrgParams = z.object({ orgId: z.string().min(1) });
+
+export const AdminSubscriptionDetail = z.object({
+  product: Product,
+  plan: z.string().nullable(),
+  status: SubscriptionStatusSchema,
+  trialEnds: IsoDate.nullable(),
+  addons: z.array(z.string()),
+  disabled: z.array(z.string()),
+  pending: z.array(PendingChangeSchema),
+  buildings: z.object({ extra: z.number().int(), override: z.number().int().nullable() }),
+  entitlement: EntitlementsView,
+});
+
+export const AdminOrgDetail = Organisation.extend({
+  terms: z.object({ discountPct: z.number(), note: z.string() }),
+  members: z.array(Member),
+  subscriptions: z.array(AdminSubscriptionDetail),
+});
+
+export const getOrganisationDetail = endpoint({
+  id: "admin.orgs.get",
+  method: "GET",
+  path: "/api/v1/admin/orgs/:orgId",
+  auth: "staff",
+  summary: "One organisation with its members, terms and every product subscription as the rules resolve it today",
+  params: AdminOrgParams,
+  response: AdminOrgDetail,
+});
+
+export const updateOrganisation = endpoint({
+  id: "admin.orgs.update",
+  method: "PUT",
+  path: "/api/v1/admin/orgs/:orgId",
+  auth: "staff",
+  summary:
+    "Change an organisation's details, or make someone its administrator. The currency is fixed once an invoice exists.",
+  params: AdminOrgParams,
+  body: z.object({
+    name: z.string().trim().min(3).max(160).optional(),
+    legalName: z.string().trim().min(1).max(200).optional(),
+    country: z.string().trim().min(2).max(80).optional(),
+    currency: Currency.optional(),
+    timezone: z.string().min(1).optional(),
+    admin: z.object({ email: Email, name: z.string().trim().min(2).max(120).optional() }).optional(),
+  }),
+  response: z.object({ ok: z.literal(true), temporaryPassword: z.string().nullable() }),
+});
+
+export const setOrgPlan = endpoint({
+  id: "admin.orgs.plan",
+  method: "PUT",
+  path: "/api/v1/admin/orgs/:orgId/plan",
+  auth: "staff",
+  summary:
+    "Move ONE product subscription to another plan of the same product, now. A scheduled plan change is dropped.",
+  params: AdminOrgParams,
+  body: z.object({ plan: z.string().min(1), reason: Reason }),
+  response: z.object({ ok: z.literal(true), product: Product }),
+});
+
+export const setOrgTrial = endpoint({
+  id: "admin.orgs.trial",
+  method: "PUT",
+  path: "/api/v1/admin/orgs/:orgId/trial",
+  auth: "staff",
+  summary: "Set the trial end date of one product subscription that is on trial",
+  params: AdminOrgParams,
+  body: z.object({ product: Product.optional(), trialEnds: IsoDate, reason: Reason }),
+  response: z.object({ ok: z.literal(true), product: Product }),
+});
+
+export const setOrgTerms = endpoint({
+  id: "admin.orgs.terms",
+  method: "PUT",
+  path: "/api/v1/admin/orgs/:orgId/terms",
+  auth: "staff",
+  summary: "Negotiated terms for the whole organisation: a discount on subscription and add-on prices, and a note",
+  params: AdminOrgParams,
+  body: z.object({ discountPct: z.number().min(0).max(100), note: z.string().trim().max(300).default("") }),
+  response: z.object({ ok: z.literal(true) }),
+});
+
+export const setOrgAllowance = endpoint({
+  id: "admin.orgs.allowance",
+  method: "PUT",
+  path: "/api/v1/admin/orgs/:orgId/allowance",
+  auth: "staff",
+  summary: "Buildings (or projects) for one product subscription: additional ones, and an override of the plan's own",
+  params: AdminOrgParams,
+  body: z.object({
+    product: Product.optional(),
+    extra: z.number().int().min(0).max(500),
+    override: z.number().int().min(0).nullable().default(null),
+    reason: Reason,
+  }),
+  response: z.object({ ok: z.literal(true), product: Product }),
+});
+
+export const setOrgModule = endpoint({
+  id: "admin.orgs.module",
+  method: "PUT",
+  path: "/api/v1/admin/orgs/:orgId/modules/:moduleKey",
+  auth: "staff",
+  summary:
+    "Switch one module on or off for one product subscription. Dependencies are checked; records are never deleted.",
+  params: z.object({ orgId: z.string().min(1), moduleKey: z.string().min(1) }),
+  body: z.object({ product: Product.optional(), on: z.boolean(), reason: Reason }),
+  response: z.object({ ok: z.literal(true), product: Product, modules: z.record(z.string(), z.boolean()) }),
+});
+
+export const AdminInvoiceRow = BillingInvoice.extend({ orgId: z.string(), orgName: z.string() });
+
+export const listInvoices = endpoint({
+  id: "admin.invoices.list",
+  method: "GET",
+  path: "/api/v1/admin/invoices",
+  auth: "staff",
+  summary: "Subscription invoices across organisations, newest first",
+  query: z.object({
+    orgId: z.string().optional(),
+    status: z.enum(["Open", "Payment failed", "Paid", "Void"]).optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(200),
+  }),
+  response: z.object({ invoices: z.array(AdminInvoiceRow) }),
+});
+
+export const voidInvoice = endpoint({
+  id: "admin.invoices.void",
+  method: "POST",
+  path: "/api/v1/admin/invoices/:invoiceId/void",
+  auth: "staff",
+  summary: "Void an unpaid invoice. It stays in the history marked Void; a paid invoice cannot be voided.",
+  params: z.object({ invoiceId: z.string().min(1) }),
+  body: z.object({ reason: Reason }),
+  response: z.object({ ok: z.literal(true) }),
 });

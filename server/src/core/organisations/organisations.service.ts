@@ -68,6 +68,11 @@ export async function loadOrganisation(db: Db, orgId: string): Promise<Organisat
     : null;
 }
 
+/** An organisation's members, by name (every status: active, suspended, invited). */
+export async function loadMembers(db: Db, orgId: string): Promise<Member[]> {
+  return (await db.rows<MemberRow>(MEMBER_SQL + " ORDER BY u.name", [orgId])).map(toMember);
+}
+
 export function organisationsService(ctx: AppContext) {
   const { db } = ctx;
 
@@ -90,7 +95,7 @@ export function organisationsService(ctx: AppContext) {
     },
 
     async listMembers(orgId: string) {
-      return { members: (await db.rows<MemberRow>(MEMBER_SQL + " ORDER BY u.name", [orgId])).map(toMember) };
+      return { members: await loadMembers(db, orgId) };
     },
 
     async addMember(s: OrgScope, input: { email: string; name?: string | undefined; role: Role }) {

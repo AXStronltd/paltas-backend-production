@@ -15,10 +15,10 @@ import { findPlan, saveModule, savePlan, type ModuleInput, type PlanInput } from
 import { createUser } from "../identity/identity.service.js";
 import type { SessionUser } from "../identity/identity.service.js";
 import { CORE_ACCOUNTS, ensureAccounts } from "../ledger/default-chart.js";
-import { loadOrganisation } from "../organisations/organisations.service.js";
+import { loadMembers, loadOrganisation } from "../organisations/organisations.service.js";
 import type { PaymentsService } from "../payments/payments.service.js";
-import type { BillingService } from "../subscriptions/billing.service.js";
-import { resolveEntitlement } from "../subscriptions/entitlement.service.js";
+import { toInvoice, type BillingService } from "../subscriptions/billing.service.js";
+import { resolveEntitlement, toEntitlementsView } from "../subscriptions/entitlement.service.js";
 
 export function staffActor(user: SessionUser, need?: "super_admin"): Actor {
   if (need && user.staffRole !== need) throw fail.staffRoleNotAllowed();
@@ -283,7 +283,353 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
         { manual: true, recordedBy: user.id, eventId: "manual:" + b.ref.toLowerCase() },
       );
     },
+
+    async getOrganisation(orgId: string) {
+      const o = await loadOrganisation(db, orgId);
+      if (!o) throw fail.notFound("Organisation not found");
+      const terms = (await db.row<{ discount_pct: string; terms_note: string }>(
+        "SELECT discount_pct, terms_note FROM organisations WHERE id = $1",
+        [orgId],
+      )) as { discount_pct: string; terms_note: string };
+      const rows = await db.rows<SubscriptionRow>(
+        "SELECT * FROM subscriptions WHERE org_id = $1 ORDER BY created_at, product",
+        [orgId],
+      );
+      const subscriptions = [];
+      for (const r of rows) {
+        const en = await resolveEntitlement(db, ctx.products, clock.today(), orgId, r.product);
+        if (!en) continue;
+        const rec = r.product === en.org.type ? en.org.ent : en.org.subs?.[r.product];
+        subscriptions.push({
+          product: r.product,
+          plan: r.plan_id,
+          status: r.status,
+          trialEnds: r.trial_ends,
+          addons: rec?.addons ?? [],
+          disabled: rec?.disabled ?? [],
+          pending: rec?.pending ?? [],
+          buildings: { extra: r.buildings_extra, override: r.buildings_override },
+          entitlement: toEntitlementsView(en),
+        });
+      }
+      return {
+        ...o,
+        terms: { discountPct: Number(terms.discount_pct), note: terms.terms_note },
+        members: await loadMembers(db, orgId),
+        subscriptions,
+      };
+    },
+
+    async updateOrganisation(
+      user: SessionUser,
+      orgId: string,
+      b: {
+        name?: string | undefined;
+        legalName?: string | undefined;
+        country?: string | undefined;
+        currency?: string | undefined;
+        timezone?: string | undefined;
+        admin?: { email: string; name?: string | undefined } | undefined;
+      },
+    ) {
+      const actor = staffActor(user, "super_admin");
+      return db.tx(async (t) => {
+        const before = await t.row<{
+          name: string;
+          legal_name: string;
+          country: string;
+          currency: string;
+          timezone: string;
+        }>("SELECT name, legal_name, country, currency, timezone FROM organisations WHERE id = $1 FOR UPDATE", [orgId]);
+        if (!before) throw fail.notFound("Organisation not found");
+        if (b.name && b.name.toLowerCase() !== before.name.toLowerCase()) {
+          if (await t.row("SELECT 1 FROM organisations WHERE lower(name) = lower($1) AND id <> $2", [b.name, orgId]))
+            throw fail.conflict("An organisation with this name already exists");
+        }
+        // amounts already invoiced are in the old currency: changing it would make them unreadable
+        if (
+          b.currency &&
+          b.currency !== before.currency &&
+          (await t.row("SELECT 1 FROM billing_invoices WHERE org_id = $1", [orgId]))
+        )
+          throw fail.conflict("The currency cannot change once an invoice has been issued");
+        const after = {
+          name: b.name ?? before.name,
+          legal_name: b.legalName ?? before.legal_name,
+          country: b.country ?? before.country,
+          currency: b.currency ?? before.currency,
+          timezone: b.timezone ?? before.timezone,
+        };
+        await t.run(
+          "UPDATE organisations SET name = $2, legal_name = $3, country = $4, currency = $5, timezone = $6 WHERE id = $1",
+          [orgId, after.name, after.legal_name, after.country, after.currency, after.timezone],
+        );
+        let temporaryPassword: string | null = null;
+        if (b.admin) {
+          let u = await t.row<{ id: string; staff_role: string | null }>(
+            "SELECT id, staff_role FROM users WHERE lower(email) = lower($1)",
+            [b.admin.email],
+          );
+          if (u?.staff_role) throw fail.invalid("A PALTAS staff account cannot administer a client organisation");
+          if (!u) {
+            const created = await createUser(t, { email: b.admin.email, name: b.admin.name ?? b.admin.email });
+            u = { id: created.id, staff_role: null };
+            temporaryPassword = created.temporaryPassword;
+          }
+          await t.run(
+            `INSERT INTO memberships (org_id, user_id, role) VALUES ($1, $2, 'org_admin')
+             ON CONFLICT (org_id, user_id) DO UPDATE SET role = 'org_admin', status = 'active'`,
+            [orgId, u.id],
+          );
+        }
+        await recordAudit(t, {
+          actor,
+          orgId,
+          action: "Organisation details changed",
+          target: orgId,
+          detail: b.admin ? `administrator: ${b.admin.email}` : "",
+          before,
+          after,
+        });
+        return { ok: true as const, temporaryPassword };
+      });
+    },
+
+    async setPlan(user: SessionUser, orgId: string, b: { plan: string; reason: string }) {
+      const actor = staffActor(user, "super_admin");
+      return db.tx(async (t) => {
+        const plan = await findPlan(t, b.plan);
+        if (!plan) throw fail.invalid("Pick a plan");
+        const product = plan.product as Product;
+        const sub = await lockSubscription(t, orgId, product);
+        if (sub.plan_id === plan.id) throw fail.invalid(`Already on ${plan.id}`);
+        await t.run("UPDATE subscriptions SET plan_id = $3 WHERE org_id = $1 AND product = $2", [
+          orgId,
+          product,
+          plan.id,
+        ]);
+        // a plan change scheduled earlier (e.g. a downgrade at the period end) would undo this one
+        await t.run("DELETE FROM subscription_pending WHERE org_id = $1 AND product = $2 AND type = 'plan'", [
+          orgId,
+          product,
+        ]);
+        await recordAudit(t, {
+          actor,
+          orgId,
+          action: "Plan changed",
+          target: product,
+          detail: b.reason,
+          before: { plan: sub.plan_id },
+          after: { plan: plan.id },
+        });
+        return { ok: true as const, product };
+      });
+    },
+
+    async setTrial(
+      user: SessionUser,
+      orgId: string,
+      b: { product?: Product | undefined; trialEnds: string; reason: string },
+    ) {
+      const actor = staffActor(user, "super_admin");
+      return db.tx(async (t) => {
+        const sub = await lockSubscription(t, orgId, b.product);
+        if (sub.status !== "trial") throw fail.invalid("Only a subscription on trial has a trial end date");
+        await t.run("UPDATE subscriptions SET trial_ends = $3 WHERE org_id = $1 AND product = $2", [
+          orgId,
+          sub.product,
+          b.trialEnds,
+        ]);
+        await recordAudit(t, {
+          actor,
+          orgId,
+          action: "Trial end date changed",
+          target: sub.product,
+          detail: b.reason,
+          before: { trialEnds: sub.trial_ends },
+          after: { trialEnds: b.trialEnds },
+        });
+        return { ok: true as const, product: sub.product };
+      });
+    },
+
+    async setTerms(user: SessionUser, orgId: string, b: { discountPct: number; note: string }) {
+      const actor = staffActor(user, "super_admin");
+      return db.tx(async (t) => {
+        const before = await t.row<{ discount_pct: string; terms_note: string }>(
+          "SELECT discount_pct, terms_note FROM organisations WHERE id = $1 FOR UPDATE",
+          [orgId],
+        );
+        if (!before) throw fail.notFound("Organisation not found");
+        await t.run("UPDATE organisations SET discount_pct = $2, terms_note = $3 WHERE id = $1", [
+          orgId,
+          b.discountPct,
+          b.note,
+        ]);
+        // applies to invoices issued from now on; issued invoices are never rewritten
+        await recordAudit(t, {
+          actor,
+          orgId,
+          action: "Negotiated terms changed",
+          target: orgId,
+          detail: `${b.discountPct}%${b.note ? " · " + b.note : ""}`,
+          before: { discountPct: Number(before.discount_pct), note: before.terms_note },
+          after: b,
+        });
+        return { ok: true as const };
+      });
+    },
+
+    async setAllowance(
+      user: SessionUser,
+      orgId: string,
+      b: { product?: Product | undefined; extra: number; override: number | null; reason: string },
+    ) {
+      const actor = staffActor(user, "super_admin");
+      return db.tx(async (t) => {
+        const sub = await lockSubscription(t, orgId, b.product);
+        await t.run(
+          "UPDATE subscriptions SET buildings_extra = $3, buildings_override = $4 WHERE org_id = $1 AND product = $2",
+          [orgId, sub.product, b.extra, b.override],
+        );
+        await recordAudit(t, {
+          actor,
+          orgId,
+          action: "Building allowance changed",
+          target: sub.product,
+          detail: b.reason,
+          before: { extra: sub.buildings_extra, override: sub.buildings_override },
+          after: { extra: b.extra, override: b.override },
+        });
+        return { ok: true as const, product: sub.product };
+      });
+    },
+
+    async setModule(
+      user: SessionUser,
+      orgId: string,
+      key: string,
+      b: { product?: Product | undefined; on: boolean; reason: string },
+    ) {
+      const actor = staffActor(user, "super_admin");
+      return db.tx(async (t) => {
+        const sub = await lockSubscription(t, orgId, b.product);
+        const en = await resolveEntitlement(t, ctx.products, clock.today(), orgId, sub.product);
+        if (!en) throw fail.notFound("Organisation or product subscription not found");
+        const mods = en.catalogue.modules;
+        const m = mods.find((x) => x.key === key);
+        if (!m) throw fail.notFound("Unknown module");
+        if (!m.products.includes(sub.product)) throw fail.invalid(`${m.name} is not offered for this product`);
+        const on = en.ent.modules;
+        const where = [orgId, sub.product, key];
+        if (b.on) {
+          const missing = m.dep.filter((d) => !on[d]);
+          if (missing.length)
+            throw fail.invalid(
+              `${m.name} needs ${missing.map((d) => mods.find((x) => x.key === d)?.name ?? d).join(", ")} first`,
+            );
+          await t.run(
+            "DELETE FROM subscription_disabled WHERE org_id = $1 AND product = $2 AND module_key = $3",
+            where,
+          );
+          if (!en.ent.plan.modules.includes(key))
+            await t.run(
+              `INSERT INTO subscription_addons (org_id, product, module_key, since) VALUES ($1, $2, $3, $4)
+               ON CONFLICT DO NOTHING`,
+              [...where, clock.today()],
+            );
+        } else {
+          const dependents = mods.filter((x) => x.dep.includes(key) && on[x.key]);
+          if (dependents.length)
+            throw fail.invalid(`Switch off ${dependents.map((x) => x.name).join(", ")} first — they depend on it`);
+          await t.run("DELETE FROM subscription_addons WHERE org_id = $1 AND product = $2 AND module_key = $3", where);
+          await t.run(
+            "INSERT INTO subscription_disabled (org_id, product, module_key) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            where,
+          );
+        }
+        // a scheduled cancellation of this add-on is settled by switching it now
+        await t.run(
+          "DELETE FROM subscription_pending WHERE org_id = $1 AND product = $2 AND type = 'cancelAddon' AND module_key = $3",
+          where,
+        );
+        const now = await resolveEntitlement(t, ctx.products, clock.today(), orgId, sub.product);
+        await recordAudit(t, {
+          actor,
+          orgId,
+          action: b.on ? "Module enabled" : "Module disabled",
+          target: `${sub.product}:${key}`,
+          detail: `${m.name} · ${b.reason} (records are kept)`,
+          before: { on: !!on[key] },
+          after: { on: !!now?.ent.modules[key] },
+        });
+        return { ok: true as const, product: sub.product, modules: now?.ent.modules ?? {} };
+      });
+    },
+
+    async listInvoices(q: { orgId?: string | undefined; status?: string | undefined; limit: number }) {
+      const rows = await db.rows<Parameters<typeof toInvoice>[0] & { org_id: string; org_name: string }>(
+        `SELECT i.*, o.name AS org_name FROM billing_invoices i JOIN organisations o ON o.id = i.org_id
+         WHERE ($1::text IS NULL OR i.org_id = $1) AND ($2::text IS NULL OR i.status = $2)
+         ORDER BY i.issued DESC, i.id DESC LIMIT $3`,
+        [q.orgId ?? null, q.status ?? null, q.limit],
+      );
+      return { invoices: rows.map((r) => ({ ...toInvoice(r), orgId: r.org_id, orgName: r.org_name })) };
+    },
+
+    async voidInvoice(user: SessionUser, invoiceId: string, b: { reason: string }) {
+      const actor = staffActor(user, "super_admin");
+      return db.tx(async (t) => {
+        const inv = await t.row<{ org_id: string; status: string }>(
+          "SELECT org_id, status FROM billing_invoices WHERE id = $1 FOR UPDATE",
+          [invoiceId],
+        );
+        if (!inv) throw fail.notFound("Invoice not found");
+        if (inv.status === "Paid") throw fail.conflict("A paid invoice cannot be voided — issue a credit instead");
+        if (inv.status === "Void") throw fail.conflict("This invoice is already void");
+        await t.run("UPDATE billing_invoices SET status = 'Void' WHERE id = $1", [invoiceId]);
+        // an order waiting for this invoice will now never be paid through it
+        await t.run(
+          "UPDATE billing_purchases SET status = 'Cancelled — invoice voided' WHERE invoice_id = $1 AND status LIKE 'Awaiting payment%'",
+          [invoiceId],
+        );
+        await recordAudit(t, {
+          actor,
+          orgId: inv.org_id,
+          action: "Subscription invoice voided",
+          target: invoiceId,
+          detail: b.reason,
+          before: { status: inv.status },
+          after: { status: "Void" },
+        });
+        return { ok: true as const };
+      });
+    },
   };
+}
+
+interface SubscriptionRow {
+  org_id: string;
+  product: Product;
+  plan_id: string | null;
+  status: "trial" | "active" | "suspended" | "expired";
+  trial_ends: string | null;
+  buildings_extra: number;
+  buildings_override: number | null;
+}
+
+/** One product subscription, locked for this change. Product omitted = the organisation's first product. */
+async function lockSubscription(t: Db, orgId: string, product?: Product): Promise<SubscriptionRow> {
+  if (!(await t.row("SELECT 1 FROM organisations WHERE id = $1", [orgId])))
+    throw fail.notFound("Organisation not found");
+  const row = await t.row<SubscriptionRow>(
+    product
+      ? "SELECT * FROM subscriptions WHERE org_id = $1 AND product = $2 FOR UPDATE"
+      : "SELECT * FROM subscriptions WHERE org_id = $1 ORDER BY created_at, product LIMIT 1 FOR UPDATE",
+    product ? [orgId, product] : [orgId],
+  );
+  if (!row) throw fail.notFound(product ? `No ${product} subscription — add the product first` : "No subscription");
+  return row;
 }
 
 export type AdminService = ReturnType<typeof adminService>;
