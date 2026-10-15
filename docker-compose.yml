@@ -1,0 +1,17 @@
+# Local PostgreSQL for development and tests (not for production).
+#   docker compose up -d
+#   DATABASE_URL=postgres://paltas:paltas@127.0.0.1:5432/paltas
+#   PALTAS_TEST_PG=postgres://paltas:paltas@127.0.0.1:5432/postgres
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: paltas
+      POSTGRES_PASSWORD: paltas
+      POSTGRES_DB: paltas
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - paltas-pg:/var/lib/postgresql/data
+volumes:
+  paltas-pg:

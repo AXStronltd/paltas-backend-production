@@ -1,0 +1,41 @@
+{
+  "name": "paltas-backend",
+  "version": "0.2.0",
+  "private": true,
+  "description": "PALTAS backend workspace: the API server, the contracts shared with the front end, and the typed API client. Local only \u2014 not deployed.",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "workspaces": [
+    "contracts",
+    "api-client",
+    "server"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b && tsc -p contracts/test && tsc -p api-client/test && tsc -p server/test",
+    "lint": "eslint . --max-warnings 0",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "npm run build && vitest run",
+    "check": "npm run typecheck && npm run lint && npm run format:check && vitest run && npm run browser:check",
+    "dev": "npm run build && node --env-file-if-exists=server/.env server/dist/main.js",
+    "db:migrate": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/migrate.js",
+    "setup:local": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/setup-local.js",
+    "browser:build": "npm run build && node scripts/build-browser-files.mjs",
+    "browser:check": "node scripts/build-browser-files.mjs --check",
+    "openapi": "npm run build && node scripts/write-openapi.mjs"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.0",
+    "@types/node": "^22.19.0",
+    "@types/pg": "^8.23.1",
+    "esbuild": "^0.28.2",
+    "eslint": "^10.12.0",
+    "prettier": "^3.9.10",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.71.2",
+    "vitest": "^5.0.4"
+  }
+}

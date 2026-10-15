@@ -1,0 +1,16 @@
+{
+  "name": "@paltas/server",
+  "version": "0.2.0",
+  "private": true,
+  "description": "PALTAS API server: shared platform core (identity, organisations, entitlements, subscriptions, payments, audit, ledger). Products plug in under src/products/.",
+  "type": "module",
+  "main": "./dist/main.js",
+  "dependencies": {
+    "@fastify/cors": "^11.3.1",
+    "@fastify/helmet": "^13.2.0",
+    "@fastify/rate-limit": "^11.2.1",
+    "@paltas/contracts": "0.2.0",
+    "fastify": "^5.12.7",
+    "pg": "^8.23.1"
+  }
+}

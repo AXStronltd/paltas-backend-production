@@ -1,0 +1,45 @@
+# Render Blueprint for the PALTAS API (AXStronltd/paltas-backend-production).
+# Nothing here is applied until someone creates a Blueprint from it in the Render dashboard.
+# Secrets are NOT in this file: values marked `sync: false` are entered in the dashboard.
+services:
+  - type: web
+    name: paltas-backend-production
+    runtime: node
+    branch: main
+    # TypeScript is compiled at build time; dev dependencies (the compiler) are needed for that step
+    buildCommand: npm ci --include=dev && npm run build
+    # Applies any pending database migrations (under a lock), then serves on Render's $PORT
+    startCommand: node server/dist/main.js
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL
+        fromDatabase:
+          name: paltas-db
+          property: connectionString
+      - key: BILLING_MODE
+        value: provider
+      - key: TRUST_PROXY
+        value: "true"
+      - key: SESSION_MINUTES
+        value: "30"
+      - key: LOG_LEVEL
+        value: info
+      # 32 random bytes, base64 (openssl rand -base64 32). Encrypts authenticator secrets. Keep it safe: losing it
+      # makes every stored two-factor secret unreadable.
+      - key: SECRETS_KEY
+        sync: false
+      # The front-end origin(s) allowed to call the API, e.g. https://paltashub.com
+      - key: CORS_ORIGINS
+        sync: false
+      # One per payment provider adapter when one exists, e.g. WEBHOOK_SECRET_MPESA (none connected yet)
+
+databases:
+  - name: paltas-db
+    databaseName: paltas
+    postgresMajorVersion: "16"

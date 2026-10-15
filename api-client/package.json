@@ -1,0 +1,19 @@
+{
+  "name": "@paltas/api-client",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Typed client for the PALTAS API, generated from @paltas/contracts. Used by the front end.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "@paltas/contracts": "0.2.0"
+  }
+}

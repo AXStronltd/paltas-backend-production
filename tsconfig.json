@@ -1,0 +1,4 @@
+{
+  "files": [],
+  "references": [{ "path": "contracts" }, { "path": "api-client" }, { "path": "server" }]
+}

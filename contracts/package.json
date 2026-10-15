@@ -1,0 +1,19 @@
+{
+  "name": "@paltas/contracts",
+  "version": "0.2.0",
+  "private": true,
+  "description": "The single definition shared by the PALTAS server and front end: record shapes, every API endpoint, error codes, roles and the entitlement rules.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "dependencies": {
+    "zod": "^4.6.7"
+  }
+}
