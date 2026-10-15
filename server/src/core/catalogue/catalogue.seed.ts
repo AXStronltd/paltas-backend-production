@@ -99,7 +99,7 @@ const PLANS: [
     "developer",
     ["crm", "finance", "payments", "procurement", "intelligence"],
     5,
-    null,
+    150000,
     null,
     5,
     2000,
