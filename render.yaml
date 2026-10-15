@@ -1,12 +1,13 @@
 # Render Blueprint for the PALTAS API (AXStronltd/paltas-backend-production).
 # Nothing here is applied until someone creates a Blueprint from it in the Render dashboard.
 # Secrets are NOT in this file: values marked `sync: false` are entered in the dashboard.
-# Deployed as a separate service and database alongside the live one, so the two cannot collide until cutover.
+# The live PALTAS API (paltas.io proxies /api/* here), with its own database. The old backend is kept only in the
+# paltas-backend-production-back-up branch and the old-backend-final tag.
 services:
   - type: web
     name: paltas-api-v2
     runtime: node
-    branch: new-backend
+    branch: main
     # TypeScript is compiled at build time; dev dependencies (the compiler) are needed for that step
     buildCommand: npm ci --include=dev && npm run build
     # Applies any pending database migrations (under a lock), then serves on Render's $PORT
