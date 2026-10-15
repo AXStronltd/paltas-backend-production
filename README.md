@@ -2,7 +2,7 @@
 
 The PALTAS API server, written in TypeScript on PostgreSQL. Repository: `AXStronltd/paltas-backend-production`. The front end lives in `AXStronltd/paltas-frontend`.
 
-The API is deployed at `https://paltas-api-v2.onrender.com`; the frontend's `https://paltas.io/api/*` proxy reaches it. Its health endpoint reported PostgreSQL healthy on 2026-10-15. The frontend currently uses the API for sign-in, sessions, organisation/entitlement views, and Super Admin operations. Product records are not yet fully integrated: Hotel has a server module, but its frontend is not connected, and the Property Management ledger and other workspace records still use browser storage. Treat the product workspaces as a demo until those records are served through authorized API routes.
+The API is deployed at `https://paltas-api-v2.onrender.com`; the frontend's `https://paltas.io/api/*` proxy reaches it. The frontend currently uses the API for sign-in, sessions, organisation/entitlement views, and Super Admin operations. The product APIs listed in `server/src/products/README.md` are not yet integrated into their browser workspaces, so product records still need end-to-end frontend wiring and staging validation before client use.
 
 The **shared core** that every product uses:
 
@@ -14,7 +14,7 @@ The **shared core** that every product uses:
 - the audit trail;
 - the one double-entry ledger.
 
-Products plug in as modules (`server/src/products/README.md`). Hotel has a server data API but is not connected to its browser workspace. Development has a migration mapping, not workspace CRUD APIs. Property Management, Agent/Host, and Security have no registered product record API yet.
+Products plug in as modules (`server/src/products/README.md`). The Claude bundle adds server domains for Property, Development, Security, and Agency alongside Hotel. These APIs still need frontend integration and production provider setup before any workspace can be called client-ready.
 
 ## Where things are
 
@@ -36,7 +36,7 @@ Products plug in as modules (`server/src/products/README.md`). Hotel has a serve
     src/db/             PostgreSQL access, migrations runner, document numbers
     src/core/<area>/    one folder per area: identity, organisations, access, subscriptions,
                         payments, ledger, audit, catalogue, admin
-    src/products/       registered product domains: Hotel data APIs and Development migration mapping
+    src/products/       registered product domains: Hotel, Property, Development, Security, and Agency
     test/               end-to-end tests against a real PostgreSQL
   docs/openapi.json   API description, generated from the contracts (npm run openapi)
   scripts/            browser-file generator, OpenAPI writer, local PostgreSQL helper
@@ -107,7 +107,7 @@ Each test file gets its own fresh database, copied from a migrated template, so 
 
 ## Render deployment configuration
 
-The existing API service is `https://paltas-api-v2.onrender.com`. `render.yaml` describes the service and database configuration; it is also the reference for a replacement or staging service. A deploy is not complete until the health endpoint reports the database as healthy and the deployed commit is confirmed in Render.
+The existing API service is `https://paltas-api-v2.onrender.com`. `render.yaml` describes the service and database configuration. A deploy is not complete until the health endpoint reports the database as healthy and the deployed commit is confirmed in Render. The backend branch adds `/api/v1/ready` for migration checks. Self-service signup remains disabled in Render because its verification outbox has no connected email provider.
 
 | Setting       | Value                                                                                 |
 | ------------- | ------------------------------------------------------------------------------------- |
@@ -132,6 +132,8 @@ Environment variables (names only; enter the values in Render, never in Git):
 | `SESSION_MINUTES`, `LOG_LEVEL`, `DATABASE_POOL_SIZE`, `LOGIN_RATE_LIMIT_PER_MINUTE` | optional                                                   | Defaults are in `server/.env.example`                                                     |
 | `WEBHOOK_SECRET_<PROVIDER>`                                                         | only when a payment provider adapter exists                | none yet                                                                                  |
 | `PALTAS_TODAY`                                                                      | never in production                                        | refused in production                                                                     |
+| `SIGNUP_ENABLED`                                                                    | keep off until email delivery is connected                 | `false` in `render.yaml`; no email provider is connected yet                              |
+| `SIGNUP_TERMS_VERSION`, `APP_BASE_URL`, `SIGNUP_PER_*`                              | signup configuration                                       | see `server/.env.example`; public signup remains disabled in Render                       |
 
 ## Rules the code follows
 

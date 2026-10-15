@@ -37,6 +37,11 @@ export interface LineRow {
   night_date: string | null;
   voids_line_id: string | null;
   void_approved_by: string | null;
+  allowance_kind: "comp" | "discount" | null;
+  allowance_of_line_id: string | null;
+  allowance_approved_by: string | null;
+  outlet_id: string | null;
+  shift_id: string | null;
   journal_id: string | null;
   created_by: string | null;
   voided_by: string | null;
@@ -84,6 +89,9 @@ export const toLine = (l: LineRow): hotel.FolioLineOut => ({
   voidsLineId: l.voids_line_id,
   voidedBy: l.voided_by,
   voidApprovedBy: l.void_approved_by,
+  allowanceKind: l.allowance_kind,
+  allowanceOfLineId: l.allowance_of_line_id,
+  allowanceApprovedBy: l.allowance_approved_by,
   journalId: l.journal_id,
   createdBy: l.created_by,
 });

@@ -183,6 +183,14 @@ export function roomsService(d: HotelDeps, folios: FoliosService) {
           );
           if (!mine) throw fail.forbidden(`Room ${r.number} is not on your list today`);
         }
+        // a clean that was started and is now finished counts for housekeeping productivity
+        if (status === "clean" && r.hk_status === "cleaning" && r.hk_started_at)
+          await t.run(
+            `INSERT INTO hotel_hk_cleans (id, org_id, property_id, room_id, attendant, business_date, minutes)
+             SELECT $1, $2, $3, id, $4, $5, GREATEST(0, round(extract(epoch FROM now() - hk_started_at) / 60))::int
+             FROM hotel_rooms WHERE id = $6`,
+            [newId("hkc"), s.orgId, s.property.id, s.userId, s.property.business_date, roomId],
+          );
         await t.run(
           `UPDATE hotel_rooms SET hk_status = $2,
              hk_started_at = CASE WHEN $2 = 'cleaning' THEN now() ELSE hk_started_at END,

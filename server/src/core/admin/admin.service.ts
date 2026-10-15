@@ -8,7 +8,6 @@ import type { Product } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import type { Db } from "../../db/database.js";
 import { fail } from "../../http/errors.js";
-import { addDays } from "../../lib/dates.js";
 import { toMajor } from "../../lib/money.js";
 import { recordAudit, type Actor } from "../audit/audit.service.js";
 import { findPlan, saveModule, savePlan, type ModuleInput, type PlanInput } from "../catalogue/catalogue.service.js";
@@ -17,7 +16,9 @@ import type { SessionUser } from "../identity/identity.service.js";
 import { CORE_ACCOUNTS, ensureAccounts } from "../ledger/default-chart.js";
 import { loadMembers, loadOrganisation } from "../organisations/organisations.service.js";
 import type { PaymentsService } from "../payments/payments.service.js";
+import { furtherProductTrial, openSubscription, organisationIdentity, type TrialStart } from "../signup/policy.js";
 import { toInvoice, type BillingService } from "../subscriptions/billing.service.js";
+import { RENEWAL_NOTE } from "../scheduler/platform-jobs.js";
 import { resolveEntitlement, toEntitlementsView } from "../subscriptions/entitlement.service.js";
 
 export function staffActor(user: SessionUser, need?: "super_admin"): Actor {
@@ -25,10 +26,13 @@ export function staffActor(user: SessionUser, need?: "super_admin"): Actor {
   return { userId: user.id, role: user.staffRole ?? "staff" };
 }
 
-/** Everything a new organisation needs in one transaction: the organisation, its first subscription, its chart of accounts. */
+/**
+ * Everything a new organisation needs in one transaction: the organisation, its first subscription (a trial follows
+ * the platform trial policy), its chart of accounts. Demo organisations are refused in production.
+ */
 export async function createOrganisationRecords(
   t: Db,
-  ctx: Pick<AppContext, "clock" | "products">,
+  ctx: Pick<AppContext, "clock" | "products" | "config">,
   input: {
     id?: string;
     name: string;
@@ -40,8 +44,12 @@ export async function createOrganisationRecords(
     timezone: string;
     trial: boolean;
     demo?: boolean;
+    /** Who the business is and which path starts its trial (one trial per business). */
+    trialStart?: Omit<TrialStart, "who"> & { email?: string | null; phone?: string | null };
   },
 ) {
+  if (input.demo && ctx.config.env === "production")
+    throw fail.forbidden("Demo or sample organisations cannot be created in production");
   const plan = await findPlan(t, input.planId);
   if (!plan) throw fail.invalid("Pick a plan");
   if (plan.product !== input.product) throw fail.invalid(`The plan is for ${plan.product}, not ${input.product}`);
@@ -53,28 +61,48 @@ export async function createOrganisationRecords(
     "INSERT INTO organisations (id, name, legal_name, country, currency, timezone, demo) VALUES ($1,$2,$3,$4,$5,$6,$7)",
     [id, input.name, input.legalName || input.name, input.country, input.currency, input.timezone, !!input.demo],
   );
-  await t.run(
-    "INSERT INTO subscriptions (org_id, product, plan_id, status, trial_ends, anchor) VALUES ($1,$2,$3,$4,$5,$6)",
-    [
-      id,
-      input.product,
-      plan.id,
-      input.trial ? "trial" : "active",
-      input.trial ? addDays(today, plan.trial_days || 14) : null,
-      input.trial ? null : today,
-    ],
-  );
+  const start = input.trialStart ?? { source: "staff" as const };
+  await openSubscription(t, {
+    orgId: id,
+    product: input.product,
+    planId: plan.id,
+    today,
+    trial: input.trial
+      ? {
+          ...start,
+          who: { company: input.name, country: input.country, email: start.email ?? null, phone: start.phone ?? null },
+        }
+      : null,
+  });
   await ensureAccounts(t, id, [...CORE_ACCOUNTS, ...ctx.products.accountsFor(input.product)]);
   return { id, plan };
 }
 
 export function adminService(ctx: AppContext, deps: { billing: BillingService; payments: PaymentsService }) {
   const { db, clock } = ctx;
+  const PRICE_APPROVAL =
+    "Prices of an existing plan or module change only through a price change request approved by a second Super Admin (POST /api/v1/admin/price-changes)";
 
   return {
     async savePlan(user: SessionUser, id: string, input: PlanInput) {
       const actor = staffActor(user, "super_admin");
       return db.tx(async (t) => {
+        if (ctx.config.cataloguePriceApproval) {
+          const cur = await t.row<{
+            base_minor: number | null;
+            extra_building_minor: number | null;
+            currency: string | null;
+          }>("SELECT base_minor, extra_building_minor, currency FROM catalogue_plans WHERE id = $1 FOR UPDATE", [id]);
+          if (
+            cur &&
+            (cur.base_minor !== input.baseMinor ||
+              cur.extra_building_minor !== input.extraBuildingMinor ||
+              (input.baseMinor != null || input.extraBuildingMinor != null
+                ? cur.currency !== (input.currency ?? null)
+                : false))
+          )
+            throw fail.conflict(PRICE_APPROVAL);
+        }
         const { before, after } = await savePlan(t, id, input);
         // price and plan changes apply to new invoices; issued invoices are never rewritten
         await recordAudit(t, {
@@ -92,6 +120,18 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
     async saveModule(user: SessionUser, key: string, input: ModuleInput) {
       const actor = staffActor(user, "super_admin");
       return db.tx(async (t) => {
+        if (ctx.config.cataloguePriceApproval && (input.priceMinor !== undefined || input.currency !== undefined)) {
+          const cur = await t.row<{ price_minor: number | null; price_ccy: string | null }>(
+            "SELECT price_minor, price_ccy FROM catalogue_modules WHERE key = $1 FOR UPDATE",
+            [key],
+          );
+          if (
+            cur &&
+            ((input.priceMinor !== undefined && input.priceMinor !== cur.price_minor) ||
+              (input.currency !== undefined && input.currency !== cur.price_ccy))
+          )
+            throw fail.conflict(PRICE_APPROVAL);
+        }
         const { before, after } = await saveModule(t, key, input);
         await recordAudit(t, { actor, orgId: null, action: "Module catalogue changed", target: key, before, after });
         return { ok: true as const };
@@ -133,11 +173,20 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
         timezone: string;
         trial: boolean;
         admin: { email: string; name?: string | undefined };
+        repeatTrialReason?: string | undefined;
       },
     ) {
       const actor = staffActor(user, "super_admin");
       return db.tx(async (t) => {
-        const { id, plan } = await createOrganisationRecords(t, ctx, { ...b, planId: b.plan });
+        const { id, plan } = await createOrganisationRecords(t, ctx, {
+          ...b,
+          planId: b.plan,
+          trialStart: {
+            source: "staff",
+            email: b.admin.email,
+            override: b.repeatTrialReason ? { reason: b.repeatTrialReason, by: user.id } : null,
+          },
+        });
         let u = await t.row<{ id: string; staff_role: string | null }>(
           "SELECT id, staff_role FROM users WHERE lower(email) = lower($1)",
           [b.admin.email],
@@ -207,18 +256,15 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
         if (!plan || plan.product !== b.product) throw fail.invalid("Pick a plan for that product");
         if (await t.row("SELECT 1 FROM subscriptions WHERE org_id = $1 AND product = $2", [orgId, b.product]))
           throw fail.conflict("Already has this product");
-        const today = clock.today();
-        await t.run(
-          "INSERT INTO subscriptions (org_id, product, plan_id, status, trial_ends, anchor) VALUES ($1,$2,$3,$4,$5,$6)",
-          [
-            orgId,
-            b.product,
-            plan.id,
-            b.trial ? "trial" : "active",
-            b.trial ? addDays(today, plan.trial_days || 14) : null,
-            b.trial ? null : today,
-          ],
-        );
+        if (b.trial && !(await furtherProductTrial(t)))
+          throw fail.conflict("The platform trial policy gives a further product no trial — add it as paid");
+        await openSubscription(t, {
+          orgId,
+          product: b.product,
+          planId: plan.id,
+          today: clock.today(),
+          trial: b.trial ? { source: "second_product", who: await organisationIdentity(t, orgId) } : null,
+        });
         await ensureAccounts(t, orgId, ctx.products.accountsFor(b.product));
         await recordAudit(t, {
           actor,
@@ -240,8 +286,8 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
         const from = en.ent.nextBilling ?? clock.today();
         if (
           await t.row(
-            "SELECT 1 FROM billing_invoices WHERE org_id = $1 AND product = $2 AND period_from = $3 AND status <> 'Void' AND note = 'Issued by PALTAS'",
-            [orgId, en.product, from],
+            "SELECT 1 FROM billing_invoices WHERE org_id = $1 AND product = $2 AND period_from = $3 AND status <> 'Void' AND note IN ('Issued by PALTAS', $4)",
+            [orgId, en.product, from, RENEWAL_NOTE],
           )
         ) {
           throw fail.conflict(`A ${en.product} invoice for the period from ${from} already exists`);
@@ -309,7 +355,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
           disabled: rec?.disabled ?? [],
           pending: rec?.pending ?? [],
           buildings: { extra: r.buildings_extra, override: r.buildings_override },
-          entitlement: toEntitlementsView(en),
+          entitlement: toEntitlementsView(en, clock.today()),
         });
       }
       return {

@@ -1,7 +1,7 @@
 /*
  * Cashier shifts: one open shift per person per hotel (database rule), opening float, takings by method from the
- * payments recorded in the shift less the refunds paid out of it (a cash refund is paid from the approver's open
- * shift), closing count and over / short. An open shift blocks the night audit.
+ * payments recorded in the shift (and tips taken with them) less the refunds paid out of it (a cash refund is paid
+ * from the approver's open shift), closing count and over / short. An open shift blocks the night audit.
  */
 import { roleCan, type hotel } from "@paltas/contracts";
 import { recordAudit } from "../../../core/audit/audit.service.js";
@@ -26,8 +26,10 @@ interface ShiftRow {
 
 async function takings(db: Db, shiftId: string) {
   const rows = await db.rows<{ method: hotel.PaymentMethod; n: number }>(
-    `SELECT method, -sum(total_minor)::bigint AS n FROM hotel_folio_lines
-     WHERE shift_id = $1 AND kind IN ('payment', 'refund') GROUP BY method`,
+    `SELECT method, sum(n)::bigint AS n FROM (
+       SELECT method, -total_minor AS n FROM hotel_folio_lines WHERE shift_id = $1 AND kind IN ('payment', 'refund')
+       UNION ALL SELECT method, amount_minor FROM hotel_tips WHERE shift_id = $1) x
+     GROUP BY method`,
     [shiftId],
   );
   const get = (m: hotel.PaymentMethod) => rows.find((r) => r.method === m)?.n ?? 0;

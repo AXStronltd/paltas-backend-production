@@ -2,7 +2,7 @@
   "name": "paltas-backend",
   "version": "0.2.0",
   "private": true,
-  "description": "PALTAS backend workspace: the API server, shared API contracts, and typed browser client.",
+  "description": "PALTAS backend workspace: API server, shared API contracts, and typed browser client; deployed on Render as paltas-api-v2.",
   "type": "module",
   "engines": {
     "node": ">=22.13"

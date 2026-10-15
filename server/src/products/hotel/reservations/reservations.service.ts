@@ -22,6 +22,26 @@ import * as repo from "./reservations.repo.js";
 type ReservationInput = z.output<typeof hotel.ReservationInput>;
 type GuestInput = z.output<typeof hotel.GuestInput>;
 
+/** What a booking adds beyond the basic input (booking engine, channels). */
+export interface BookingExtras {
+  externalRef?: string;
+  /** A sanctioned discount on every night (promo code or member rate), basis points of the plan rate. */
+  discount?: { kind: "promo" | "member"; ref: string; bp: number } | null;
+  /** Per room of the request: features chosen and their price per night — a room with all of them is held. */
+  roomFeatures?: { attributes: string[]; feePerNight: number }[];
+  promoCodeId?: string | null;
+  linenReuse?: boolean;
+  arrivalTime?: string;
+  /** More writes in the booking's own transaction (extras, promo use). */
+  after?: (t: Db, reservationId: string) => Promise<void>;
+}
+
+/** Steps other areas take when a reservation changes (guest lifecycle: messages, loyalty, extras). */
+export interface ReservationHooks {
+  booked(t: Db, op: HotelOp, reservationId: string): Promise<void>;
+  closed(t: Db, op: HotelOp, reservationId: string): Promise<void>;
+}
+
 interface BlockRow {
   id: string;
   property_id: string;
@@ -38,15 +58,43 @@ interface BlockRow {
   master_folio_id: string | null;
 }
 
-export function reservationsService(d: HotelDeps, folios: FoliosService) {
+export function reservationsService(d: HotelDeps, folios: FoliosService, hooks: ReservationHooks) {
   const { core, adapters } = d;
   const { db } = core;
 
   const load = async (t: Db, propertyId: string, id: string) =>
     repo.toReservation(t, await repo.reservationRow(t, propertyId, id));
 
-  /** A returning guest is recognised by e-mail, phone or ID number; otherwise a new profile is created. */
-  async function guestFor(t: Db, orgId: string, g: GuestInput): Promise<string> {
+  /**
+   * A returning guest is recognised by e-mail, phone or ID number; otherwise a new profile is created. A guest with an
+   * e-mail or phone is also the organisation's contact (core/contacts: found or added, never duplicated, type
+   * prospect, tag hotel_guest, consent for the channels they gave); the hotel profile keeps the hotel-only details.
+   */
+  async function guestFor(t: Db, op: HotelOp, g: GuestInput): Promise<string> {
+    const id = await hotelGuest(t, op.orgId, g);
+    if (g.email || g.phone) {
+      const { contact } = await core.contacts.findOrCreate(
+        t,
+        op.orgId,
+        {
+          name: g.name,
+          email: g.email ?? null,
+          phone: g.phone ?? null,
+          types: ["prospect"],
+          tags: ["hotel_guest"],
+          consent: { email: !!g.email, sms: !!g.phone, source: "hotel booking" },
+        },
+        op.actor,
+      );
+      await t.run("UPDATE hotel_guests SET contact_id = $2 WHERE id = $1 AND contact_id IS DISTINCT FROM $2", [
+        id,
+        contact.id,
+      ]);
+    }
+    return id;
+  }
+
+  async function hotelGuest(t: Db, orgId: string, g: GuestInput): Promise<string> {
     const found = await t.row<{ id: string }>(
       `SELECT id FROM hotel_guests WHERE org_id = $1 AND (
          ($2::text IS NOT NULL AND lower(email) = lower($2)) OR ($3::text IS NOT NULL AND phone = $3)
@@ -144,12 +192,42 @@ export function reservationsService(d: HotelDeps, folios: FoliosService) {
     }
   }
 
-  async function create(op: HotelOp, b: ReservationInput, ext: { externalRef?: string } = {}): Promise<string> {
+  /** Hold a room of the type that has every chosen feature for the whole stay (the exclusion constraint decides). */
+  async function holdFeatureRoom(
+    t: Db,
+    op: HotelOp,
+    stayId: string,
+    roomTypeId: string,
+    f: { attributes: string[]; feePerNight: number },
+  ) {
+    const rooms = await t.rows<{ id: string }>(
+      `SELECT id FROM hotel_rooms WHERE property_id = $1 AND room_type_id = $2 AND attributes @> $3::text[]
+         AND service_status = 'in_service' ORDER BY number`,
+      [op.property.id, roomTypeId, f.attributes],
+    );
+    for (const r of rooms) {
+      await t.run("SAVEPOINT hotel_feature_room");
+      try {
+        await t.run(
+          "UPDATE hotel_stays SET room_id = $2, requested_attributes = $3, attribute_fee_minor = $4 WHERE id = $1",
+          [stayId, r.id, f.attributes, f.feePerNight],
+        );
+        await t.run("RELEASE SAVEPOINT hotel_feature_room");
+        return;
+      } catch (e) {
+        if ((e as { code?: string }).code !== "23P01") throw e;
+        await t.run("ROLLBACK TO SAVEPOINT hotel_feature_room");
+      }
+    }
+    throw fail.conflict(`No room with ${f.attributes.join(" + ")} is free for these dates`);
+  }
+
+  async function create(op: HotelOp, b: ReservationInput, ext: BookingExtras = {}, within: Db = db): Promise<string> {
     if (b.arrival < op.property.business_date)
       throw fail.invalid(`Arrival is before the hotel's business date (${op.property.business_date})`);
     if ((b.source === "channel") !== !!b.channelId)
       throw fail.invalid("A channel booking names its channel, and only it");
-    return db.tx(async (t) => {
+    return within.tx(async (t) => {
       const book = await loadRateBook(t, op.property.id);
       if (b.channelId) {
         const c = await t.row<{ active: boolean }>(
@@ -199,6 +277,8 @@ export function reservationsService(d: HotelDeps, folios: FoliosService) {
       }
 
       let waitlisted = false;
+      if (b.waitlist && ext.roomFeatures?.some((f) => f.attributes.length))
+        throw fail.invalid("A booking with chosen room features cannot be waitlisted");
       if (b.waitlist) await t.run("SAVEPOINT hotel_booking");
       try {
         for (const r of rooms)
@@ -218,14 +298,15 @@ export function reservationsService(d: HotelDeps, folios: FoliosService) {
       const number = await nextNumber(t, op.orgId, "RES", 6);
       await t.run(
         `INSERT INTO hotel_reservations (id, org_id, property_id, number, guest_id, arrival, departure, source, channel_id,
-           external_ref, corporate_account_id, group_block_id, special_requests, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+           external_ref, corporate_account_id, group_block_id, special_requests, created_by, promo_code_id, linen_reuse,
+           arrival_time)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
         [
           id,
           op.orgId,
           op.property.id,
           number,
-          await guestFor(t, op.orgId, b.guest),
+          await guestFor(t, op, b.guest),
           b.arrival,
           b.departure,
           grp ? "group" : b.source,
@@ -235,9 +316,12 @@ export function reservationsService(d: HotelDeps, folios: FoliosService) {
           grp?.id ?? null,
           b.specialRequests,
           op.userId,
+          ext.promoCodeId ?? null,
+          ext.linenReuse ?? false,
+          ext.arrivalTime ?? null,
         ],
       );
-      for (const r of rooms) {
+      for (const [i, r] of rooms.entries()) {
         const stayId = newId("hst");
         await t.run(
           `INSERT INTO hotel_stays (id, org_id, property_id, reservation_id, room_type_id, rate_plan_id, adults, children, arrival, departure, status, from_block)
@@ -257,12 +341,20 @@ export function reservationsService(d: HotelDeps, folios: FoliosService) {
             !!grp,
           ],
         );
-        for (const n of r.prices)
+        const disc = r.rateOverrideMinor == null ? ext.discount : null;
+        for (const n of r.prices) {
+          const rate = r.rateOverrideMinor ?? (disc ? n.amount - Math.round((n.amount * disc.bp) / 10_000) : n.amount);
+          const sanctioned = disc && rate < n.amount;
           await t.run(
-            "INSERT INTO hotel_stay_nights (stay_id, date, rate_minor, plan_rate_minor) VALUES ($1,$2,$3,$4)",
-            [stayId, n.date, r.rateOverrideMinor ?? n.amount, n.amount],
+            `INSERT INTO hotel_stay_nights (stay_id, date, rate_minor, plan_rate_minor, discount_kind, discount_ref)
+             VALUES ($1,$2,$3,$4,$5,$6)`,
+            [stayId, n.date, rate, n.amount, sanctioned ? disc.kind : null, sanctioned ? disc.ref : null],
           );
+        }
+        const features = ext.roomFeatures?.[i];
+        if (features?.attributes.length) await holdFeatureRoom(t, op, stayId, r.roomTypeId, features);
       }
+      await ext.after?.(t, id);
       await recordAudit(t, {
         actor: op.actor,
         orgId: op.orgId,
@@ -270,6 +362,7 @@ export function reservationsService(d: HotelDeps, folios: FoliosService) {
         target: number,
         detail: `${b.arrival} → ${b.departure} · ${rooms.length} room(s) · ${grp ? "group" : b.source}${b.channelId ? " · channel" : ""}`,
       });
+      if (!waitlisted) await hooks.booked(t, op, id);
       if (!waitlisted)
         await pushAri(
           t,
@@ -313,13 +406,14 @@ export function reservationsService(d: HotelDeps, folios: FoliosService) {
           else if (daysAhead < plan.free_cancel_days) feeNights = plan.cancel_fee_nights;
         }
         fee += nights.slice(0, feeNights).reduce((n, x) => n + x.rate_minor, 0);
-        await t.run("UPDATE hotel_stays SET status = $2, room_id = NULL WHERE id = $1", [
+        await t.run("UPDATE hotel_stays SET status = $2, room_id = NULL, cancelled_at = now() WHERE id = $1", [
           s.id,
           kind === "cancel" ? "cancelled" : "no_show",
         ]);
         if (s.status === "reserved") await giveBack(t, op, s, s.arrival);
       }
       await t.run("UPDATE hotel_reservations SET cancelled_reason = $2 WHERE id = $1", [id, reason]);
+      await hooks.closed(t, op, id);
       const hasDeposit = !!(await t.row(
         "SELECT 1 FROM hotel_deposits WHERE reservation_id = $1 AND applied_folio_id IS NULL",
         [id],
@@ -470,6 +564,7 @@ export function reservationsService(d: HotelDeps, folios: FoliosService) {
           action: "Waitlisted reservation confirmed",
           target: r.number,
         });
+        await hooks.booked(t, s, id);
         const book = await loadRateBook(t, s.property.id);
         for (const rt of new Set(stays.map((x) => x.room_type_id)))
           await pushAri(t, s, book, [{ roomTypeId: rt, from: r.arrival, to: r.departure }]);

@@ -90,6 +90,9 @@ export function setupService(d: HotelDeps) {
       kind: "company" | "travel_agent";
       credit_limit_minor: number;
       contact_email: string | null;
+      tax_id: string | null;
+      billing_address: string | null;
+      payment_terms_days: number;
     }>("SELECT * FROM hotel_corporate_accounts WHERE org_id = $1 AND id = $2", [orgId, id]);
     if (!a) throw fail.notFound("Company account not found");
     const entries = await t.rows<{ kind: "invoice" | "payment"; date: string; amount_minor: number }>(
@@ -118,6 +121,9 @@ export function setupService(d: HotelDeps) {
       kind: a.kind,
       creditLimitMinor: a.credit_limit_minor,
       contactEmail: a.contact_email,
+      taxId: a.tax_id,
+      billingAddress: a.billing_address,
+      paymentTermsDays: a.payment_terms_days,
       balanceMinor: balance,
       ageing,
     };
@@ -612,8 +618,19 @@ export function setupService(d: HotelDeps) {
         )
           throw fail.conflict("A company account with this name already exists");
         await t.run(
-          "INSERT INTO hotel_corporate_accounts (id, org_id, name, kind, credit_limit_minor, contact_email) VALUES ($1,$2,$3,$4,$5,$6)",
-          [id, s.orgId, b.name, b.kind, b.creditLimitMinor, b.contactEmail ?? null],
+          `INSERT INTO hotel_corporate_accounts (id, org_id, name, kind, credit_limit_minor, contact_email, tax_id,
+             billing_address, payment_terms_days) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+          [
+            id,
+            s.orgId,
+            b.name,
+            b.kind,
+            b.creditLimitMinor,
+            b.contactEmail ?? null,
+            b.taxId ?? null,
+            b.billingAddress ?? null,
+            b.paymentTermsDays,
+          ],
         );
         await recordAudit(t, {
           actor: s.actor,
@@ -673,8 +690,9 @@ export function setupService(d: HotelDeps) {
           lines: [dr(ACC.bank, b.amountMinor), cr(ACC.cityLedger, b.amountMinor)],
         });
         await t.run(
-          `INSERT INTO hotel_city_ledger (id, org_id, property_id, account_id, number, kind, date, amount_minor, reference, journal_id, created_by)
-           VALUES ($1,$2,$3,$4,$5,'payment',$6,$7,$8,$9,$10)`,
+          `INSERT INTO hotel_city_ledger (id, org_id, property_id, account_id, number, kind, date, amount_minor, reference, journal_id,
+             created_by, method, bank_reference)
+           VALUES ($1,$2,$3,$4,$5,'payment',$6,$7,$8,$9,$10,$11,$12)`,
           [
             id,
             s.orgId,
@@ -686,6 +704,8 @@ export function setupService(d: HotelDeps) {
             `${b.method}: ${b.reference}`,
             journalId,
             s.userId,
+            b.method,
+            b.reference,
           ],
         );
         await recordAudit(t, {

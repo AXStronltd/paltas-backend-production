@@ -20,6 +20,8 @@ export function organisationsRoutes(core: CoreServices) {
         write: true,
         anyProduct: true,
       });
+      // a self-service organisation invites its team once its administrator's e-mail address is verified
+      await core.signup.requireVerified(s.orgId);
       return O.addMember(s, req.body);
     }),
     route(organisations.updateMember, async (req) => {

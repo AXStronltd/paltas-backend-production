@@ -1,7 +1,8 @@
 /*
  * Rate plans, prices and restrictions of one hotel, loaded once per request.
- * Price of a night = the season / day-of-week price covering it, else the plan's base rate; a derived plan takes
- * its parent's price and applies its percentage (e.g. BAR − 10 %).
+ * Price of a night = the season / day-of-week price covering it (the shortest season wins, so a one-night price set
+ * by revenue management overrides a longer season), else the plan's base rate; a derived plan takes its parent's
+ * price and applies its percentage (e.g. BAR − 10 %).
  */
 import type { hotel } from "@paltas/contracts";
 import type { Db } from "../../../db/database.js";
@@ -95,9 +96,12 @@ export function priceFor(book: RateBook, planId: string, roomTypeId: string, dat
     const parent = priceFor(book, plan.parent_id, roomTypeId, date, depth + 1);
     return parent == null ? null : Math.round((parent * (10_000 + (plan.derived_bp ?? 0))) / 10_000);
   }
-  const season = book.seasons.find(
-    (s) => s.rate_plan_id === planId && s.room_type_id === roomTypeId && s.date_from <= date && s.date_to >= date,
-  );
+  const span = (s: SeasonRow) => Date.parse(s.date_to) - Date.parse(s.date_from);
+  const season = book.seasons
+    .filter(
+      (s) => s.rate_plan_id === planId && s.room_type_id === roomTypeId && s.date_from <= date && s.date_to >= date,
+    )
+    .reduce<SeasonRow | undefined>((best, s) => (!best || span(s) < span(best) ? s : best), undefined);
   if (season) return season.weekday_minor?.[weekdayIndex(date)] ?? season.amount_minor;
   return book.base.get(`${planId}|${roomTypeId}`) ?? null;
 }

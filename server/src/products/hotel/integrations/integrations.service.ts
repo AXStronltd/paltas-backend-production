@@ -12,29 +12,10 @@ import type { HotelDeps, HotelOp } from "../deps.js";
 import type { ReservationsService } from "../reservations/reservations.service.js";
 import * as resRepo from "../reservations/reservations.repo.js";
 import type { HotelScope } from "../shared/access.js";
+import { recordMessage, toMessage, type MessageRow } from "../shared/outbox.js";
 import { findProperty } from "../shared/property.js";
 import { rooms as roomRows } from "../setup/setup.repo.js";
 import type { SmartRooms } from "./smart.js";
-
-interface MessageRow {
-  id: string;
-  reservation_id: string | null;
-  channel: hotel.MessageOut["channel"];
-  direction: "inbound" | "outbound";
-  body: string;
-  status: string;
-  created_at: string;
-}
-
-const toMessage = (m: MessageRow): hotel.MessageOut => ({
-  id: m.id,
-  reservationId: m.reservation_id,
-  channel: m.channel,
-  direction: m.direction,
-  body: m.body,
-  status: m.status,
-  at: m.created_at,
-});
 
 /** Lower-case words of a text, for matching concierge keywords. */
 const normalise = (s: string) => ` ${s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, " ")} `;
@@ -54,15 +35,7 @@ export function integrationsService(d: HotelDeps, x: { reservations: Reservation
       body: string;
     },
   ): Promise<string> {
-    const id = newId("hms");
-    const status =
-      m.direction === "inbound" ? "Received" : adapters.messaging.deliver({ channel: m.channel, body: m.body });
-    await t.run(
-      `INSERT INTO hotel_messages (id, org_id, property_id, reservation_id, channel, direction, body, status, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-      [id, op.orgId, op.property.id, m.reservationId, m.channel, m.direction, m.body, status, op.userId],
-    );
-    return id;
+    return (await recordMessage(t, d, op, m)) as string;
   }
 
   return {
@@ -98,6 +71,42 @@ export function integrationsService(d: HotelDeps, x: { reservations: Reservation
             connected: true,
             status: "Rule-based answers from the hotel's own FAQ — no external AI",
             note: "Unknown questions are handed to staff as a task.",
+          },
+          {
+            kind: "e_invoicing",
+            ...adapters.einvoicing.state,
+            note: "Tax invoices are issued and numbered here; submission to the tax authority waits for a certified adapter.",
+          },
+          {
+            kind: "kitchen_printers",
+            ...adapters.kitchenPrinters.state,
+            note: "Orders appear on the kitchen screen; nothing is printed.",
+          },
+          {
+            kind: "review_sites",
+            ...adapters.reviewSites.state,
+            note: "Surveys are internal; no review-site invitations.",
+          },
+          {
+            kind: "fx_rates",
+            ...adapters.fxRates.state,
+            note: "Foreign-currency payments use the day's rate staff enter.",
+          },
+          {
+            kind: "rate_shopping",
+            ...adapters.rateShopping.state,
+            note: "No competitor rate or benchmark feed: revenue suggestions use the hotel's own bookings.",
+          },
+          {
+            kind: "payroll_engine",
+            ...adapters.payrollEngine.state,
+            note: "Gross pay, tips and service charge are prepared here; statutory deductions need a payroll engine.",
+          },
+          { kind: "sensors", ...adapters.sensors.state, note: "Meter readings are entered by staff." },
+          {
+            kind: "chain_loyalty",
+            ...adapters.chainLoyalty.state,
+            note: "Points, tiers and member rates run in PALTAS.",
           },
         ],
       };

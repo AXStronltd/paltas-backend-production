@@ -1,0 +1,9 @@
+Customer,Phone Numbers,Email,Full Name,Billing Address,Open Balance
+Kilimani Heights:KH-1A Mary Atieno,0712 401 101,mary.atieno@example.com,Mary Atieno,Kilimani Heights KH-1A,0.00
+Kilimani Heights:KH-1B Samuel Kiptoo,0712 401 102,samuel.kiptoo@example.com,Samuel Kiptoo,Kilimani Heights KH-1B,"20,000.00"
+Kilimani Heights:KH-2A Wanjiru Kamau,0712 401 103,wanjiru.kamau@example.com,Wanjiru Kamau,Kilimani Heights KH-2A,"52,000.00"
+Kilimani Heights:KH-2B Joseph Mwangi,0712 401 104,joseph.mwangi@example.com,Joseph Mwangi,Kilimani Heights KH-2B,0.00
+Joseph Mwangi,0712 401 104,joseph.mwangi@example.com,Joseph Mwangi,,0.00
+Kilimani Heights:KH-3A Halima Abdi,0712 401 105,halima.abdi@example.com,Halima Abdi,Kilimani Heights KH-3A,"60,000.00"
+Kilimani Heights:KH-3B Otieno Omondi,0712 401 106,otieno.omondi@example.com,Otieno Omondi,Kilimani Heights KH-3B,0.00
+Kilimani Heights:KH-4A Grace Njoki,0712 401 107,grace.njoki@example.com,Grace Njoki,Kilimani Heights KH-4A,0.00

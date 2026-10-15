@@ -265,12 +265,15 @@ export function billingService(ctx: AppContext) {
         planId?: string | null;
         taxPct?: number | null;
         note: string;
+        /** Always wait for a real payment, even in BILLING_MODE=simulated (self-service upgrades). */
+        requirePayment?: boolean;
       },
     ) {
       const currency = s.en.org.currency;
+      const simulated = config.billingMode === "simulated" && !o.requirePayment;
       let invoice: BillingInvoice | null = null;
       let status: string;
-      if (config.billingMode === "simulated") {
+      if (simulated) {
         status = "Simulated — local demo, no payment taken";
       } else {
         const charge = oneOffCharge(s.en.ent, currency, o.what, o.amountMinor, o.taxPct);
@@ -304,7 +307,7 @@ export function billingService(ctx: AppContext) {
         ],
       );
       const purchase = row as PurchaseRow;
-      if (config.billingMode === "simulated") await activate(t, purchase);
+      if (simulated) await activate(t, purchase);
       return { purchase: toPurchase(purchase), invoice };
     },
 

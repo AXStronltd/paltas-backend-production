@@ -5,7 +5,9 @@ import { z } from "zod";
 import { Product } from "../access.js";
 import { Confirm, Currency, IsoDate, IsoDateTime, MinorUnits, Reason } from "../common.js";
 import { endpoint } from "../endpoint.js";
+import { exportOrg } from "./ops.js";
 import { OrgParams, ProductQuery } from "./organisations.js";
+import { SubscriptionTrial } from "./identity.js";
 
 // ---------- catalogue (prices are PALTAS configuration, never hard-coded) ----------
 export const PriceSchema = z.object({
@@ -134,6 +136,8 @@ export const EntitlementsView = z.object({
   sources: z.record(z.string(), z.enum(["plan", "organisation", "addon"]).nullable()),
   allowance: Allowance,
   essentials: z.array(z.string()),
+  /** Trial days and grace left (null when this subscription is not a trial). */
+  trial: SubscriptionTrial.nullable(),
 });
 
 export const MonthlyCharge = z.object({
@@ -158,6 +162,7 @@ export const SubscriptionSummary = z.object({
   status: SubscriptionStatusSchema,
   usable: z.boolean(),
   trialEnds: IsoDate.nullable(),
+  trial: SubscriptionTrial.nullable(),
   nextBilling: IsoDate.nullable(),
   modules: z.record(z.string(), ModuleStateSchema),
   essentials: z.array(z.string()),
@@ -326,4 +331,71 @@ export const sendEnterpriseEnquiry = endpoint({
   body: z.object({ note: Reason }),
   response: z.object({ id: z.string(), status: z.literal("New") }),
   status: 201,
+});
+
+// ---------- self-service upgrade (trial or lapsed subscription → paid) ----------
+export const Frequency = z.enum(["monthly", "quarterly", "yearly"]);
+export const PaymentMethod = z.enum(["provider", "bank_transfer"]);
+
+export const getUpgradeOptions = endpoint({
+  id: "subscription.upgradeOptions",
+  method: "GET",
+  path: "/api/v1/orgs/:orgId/subscription/upgrade-options",
+  auth: "user",
+  summary:
+    "Plans this product subscription can move to, from the catalogue, with price, billing period and trial state",
+  params: OrgParams,
+  query: ProductQuery,
+  response: z.object({
+    product: Product,
+    status: SubscriptionStatusSchema,
+    trial: SubscriptionTrial.nullable(),
+    emailVerified: z.boolean(),
+    plans: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        tier: TierSchema.nullable(),
+        frequencies: z.array(Frequency),
+        price: z.object({ amountMinor: MinorUnits, currency: Currency, per: z.string() }).nullable(),
+        contactSales: z.boolean(),
+        current: z.boolean(),
+      }),
+    ),
+    paymentMethods: z.array(z.object({ method: PaymentMethod, available: z.boolean(), note: z.string() })),
+  }),
+});
+
+export const upgrade = endpoint({
+  id: "subscription.upgrade",
+  method: "POST",
+  path: "/api/v1/orgs/:orgId/subscription/upgrade",
+  auth: "user",
+  summary:
+    "Choose a plan and billing period for a trial or lapsed subscription: an invoice is issued, and the subscription " +
+    "becomes active ONLY when that invoice is paid (signed provider event, or a bank transfer confirmed by PALTAS staff)",
+  params: OrgParams,
+  body: z.object({
+    plan: z.string().min(1),
+    frequency: Frequency,
+    payment: PaymentMethod,
+    confirm: Confirm,
+  }),
+  response: PurchaseResult.extend({
+    payment: z.object({ method: PaymentMethod, reference: z.string(), status: z.string(), instructions: z.string() }),
+  }),
+  status: 201,
+});
+
+export const exportData = endpoint({
+  id: "subscription.export",
+  method: "GET",
+  path: "/api/v1/orgs/:orgId/export",
+  auth: "user",
+  summary:
+    "Every record of your organisation as one JSON document, streamed — also after a trial has expired (records are " +
+    "kept). Organisation administrator only; audited with the reason.",
+  params: OrgParams,
+  query: z.object({ reason: Reason }),
+  response: exportOrg.response,
 });

@@ -3,6 +3,8 @@
 import { z } from "@paltas/contracts";
 
 const Bool = z.enum(["true", "false", "1", "0"]).transform((v) => v === "true" || v === "1");
+/** A yes/no setting whose default depends on NODE_ENV: unset or empty means "use the default". */
+const OptionalBool = Bool.optional().or(z.literal("").transform(() => undefined));
 
 const EnvSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
@@ -40,6 +42,34 @@ const EnvSchema = z.object({
   MIGRATION_WORKER: Bool.default(true),
   MIGRATION_WORKER_POLL_MS: z.coerce.number().int().min(50).max(60_000).default(1000),
   MIGRATION_LEASE_MS: z.coerce.number().int().min(500).max(3_600_000).default(60_000),
+  /** Public marketplace abuse limits, per caller address: reads per minute, submissions per hour. */
+  MARKETPLACE_SEARCH_PER_MINUTE: z.coerce.number().int().min(1).max(100_000).default(120),
+  MARKETPLACE_SUBMIT_PER_HOUR: z.coerce.number().int().min(1).max(100_000).default(20),
+  /** The scheduler (core/scheduler): background worker, polling, leases, retries. Worker default: on, except in tests. */
+  SCHEDULER_WORKER: OptionalBool,
+  SCHEDULER_POLL_MS: z.coerce.number().int().min(50).max(60_000).default(5000),
+  SCHEDULER_LEASE_MS: z.coerce.number().int().min(500).max(3_600_000).default(120_000),
+  SCHEDULER_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(20).default(5),
+  SCHEDULER_RETRY_BASE_MS: z.coerce.number().int().min(100).max(3_600_000).default(30_000),
+  /** Renewal invoices are issued this many days before the next billing period starts. */
+  SCHEDULER_RENEWAL_LEAD_DAYS: z.coerce.number().int().min(0).max(60).default(7),
+  /** Requests per minute for sensitive routes (password, two-factor, Super Admin changes, exports), per person. */
+  SENSITIVE_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(120),
+  /** Requests per minute per address for provider webhooks. */
+  WEBHOOK_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(1200),
+  /** Catalogue prices change only through a request approved by a second Super Admin. Default: on in production. */
+  CATALOGUE_PRICE_APPROVAL: OptionalBool,
+  /** How long a stopping server waits for requests and workers to finish before it exits anyway. */
+  SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(25_000),
+  /** Public self-service sign-up (core/signup). Off unless switched on. */
+  SIGNUP_ENABLED: Bool.default(false),
+  /** Sign-up requests per caller address per hour, and per e-mail address per day (also verification messages). */
+  SIGNUP_PER_IP_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(10),
+  SIGNUP_PER_EMAIL_PER_DAY: z.coerce.number().int().min(1).max(100).default(3),
+  /** The version of the PALTAS terms a sign-up must accept (the published terms document). */
+  SIGNUP_TERMS_VERSION: z.string().trim().min(1).max(40).default("2026-10"),
+  /** Where the verification link points (the front end's verification page, which posts the token). */
+  APP_BASE_URL: z.url().default("http://127.0.0.1:8080"),
 });
 
 const MB = 1024 * 1024;
@@ -64,6 +94,36 @@ export interface Config {
   /** Shared signing secret per payment provider adapter, from WEBHOOK_SECRET_<PROVIDER>. */
   webhookSecrets: Record<string, string>;
   migration: MigrationSettings;
+  /** Public marketplace limits per caller address (products/agency/shared/limiter.ts). */
+  marketplace: { searchPerMinute: number; submitPerHour: number };
+  scheduler: SchedulerSettings;
+  sensitiveRateLimitPerMinute: number;
+  webhookRateLimitPerMinute: number;
+  /** Prices of existing plans and modules change only through an approved price change request. */
+  cataloguePriceApproval: boolean;
+  shutdownTimeoutMs: number;
+  signup: SignupSettings;
+}
+
+export interface SignupSettings {
+  enabled: boolean;
+  perIpPerHour: number;
+  perEmailPerDay: number;
+  termsVersion: string;
+  /** Base of the verification link, e.g. https://paltashub.com → https://paltashub.com/verify-email?token=… */
+  appBaseUrl: string;
+}
+
+export interface SchedulerSettings {
+  /** Run the scheduler worker in this process. */
+  worker: boolean;
+  pollMs: number;
+  /** How long a worker's claim on a run lasts without a heartbeat before another worker may take it over. */
+  leaseMs: number;
+  /** Attempts per run before it is marked failed; retries wait retryBaseMs × 2^(attempt − 1), at most one hour. */
+  maxAttempts: number;
+  retryBaseMs: number;
+  renewalLeadDays: number;
 }
 
 export interface MigrationSettings {
@@ -98,6 +158,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   if (production && e.PALTAS_TODAY) throw new Error("PALTAS_TODAY must not be set in production");
   if (production && e.BILLING_MODE === "simulated") throw new Error("BILLING_MODE=simulated is refused in production");
   if (production && !e.SECRETS_KEY) throw new Error("SECRETS_KEY is required in production");
+  if (production && e.SIGNUP_ENABLED && /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(e.APP_BASE_URL))
+    throw new Error("APP_BASE_URL must be the public front-end address in production while SIGNUP_ENABLED is on");
 
   const webhookSecrets = Object.fromEntries(
     Object.entries(env)
@@ -132,6 +194,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
       worker: e.MIGRATION_WORKER,
       workerPollMs: e.MIGRATION_WORKER_POLL_MS,
       leaseMs: e.MIGRATION_LEASE_MS,
+    },
+    scheduler: {
+      worker: e.SCHEDULER_WORKER ?? e.NODE_ENV !== "test",
+      pollMs: e.SCHEDULER_POLL_MS,
+      leaseMs: e.SCHEDULER_LEASE_MS,
+      maxAttempts: e.SCHEDULER_MAX_ATTEMPTS,
+      retryBaseMs: e.SCHEDULER_RETRY_BASE_MS,
+      renewalLeadDays: e.SCHEDULER_RENEWAL_LEAD_DAYS,
+    },
+    sensitiveRateLimitPerMinute: e.SENSITIVE_RATE_LIMIT_PER_MINUTE,
+    webhookRateLimitPerMinute: e.WEBHOOK_RATE_LIMIT_PER_MINUTE,
+    cataloguePriceApproval: e.CATALOGUE_PRICE_APPROVAL ?? production,
+    shutdownTimeoutMs: e.SHUTDOWN_TIMEOUT_MS,
+    signup: {
+      enabled: e.SIGNUP_ENABLED,
+      perIpPerHour: e.SIGNUP_PER_IP_PER_HOUR,
+      perEmailPerDay: e.SIGNUP_PER_EMAIL_PER_DAY,
+      termsVersion: e.SIGNUP_TERMS_VERSION,
+      appBaseUrl: e.APP_BASE_URL.replace(/\/+$/, ""),
+    },
+    marketplace: {
+      searchPerMinute: e.MARKETPLACE_SEARCH_PER_MINUTE,
+      submitPerHour: e.MARKETPLACE_SUBMIT_PER_HOUR,
     },
     ...overrides,
   };

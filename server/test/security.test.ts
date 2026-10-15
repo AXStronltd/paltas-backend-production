@@ -29,7 +29,9 @@ describe("building blocks", () => {
     const sealed = box.seal("JBSWY3DPEHPK3PXP");
     expect(sealed).not.toContain("JBSWY3DPEHPK3PXP");
     expect(box.open(sealed)).toBe("JBSWY3DPEHPK3PXP");
-    const tampered = sealed.slice(0, -2) + (sealed.endsWith("A") ? "BB" : "AA");
+    // change a character inside the sealed text (the last ones may be base64 padding bits that decode the same)
+    const at = Math.floor(sealed.length / 2);
+    const tampered = sealed.slice(0, at) + (sealed[at] === "A" ? "B" : "A") + sealed.slice(at + 1);
     expect(() => box.open(tampered)).toThrow();
     expect(() => secretBox(Buffer.alloc(31).toString("base64")).seal("x")).toThrow(/32 bytes/);
   });

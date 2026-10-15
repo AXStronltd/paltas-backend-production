@@ -2,10 +2,11 @@
 // grants nothing here: a client administrator is never staff.
 import { z } from "zod";
 import { Product } from "../access.js";
-import { Currency, Email, IsoDate, Reason } from "../common.js";
+import { Currency, Email, IsoDate, IsoDateTime, Reason } from "../common.js";
 import { endpoint } from "../endpoint.js";
 import { AuditEntry, Member, Organisation } from "./organisations.js";
 import { PaymentEventResult } from "./payments.js";
+import { SignupRequest, TrialPolicy } from "./signup.js";
 import {
   BillingInvoice,
   CatalogueSchema,
@@ -41,6 +42,7 @@ export const savePlan = endpoint({
     extraBuildingMinor: z.number().int().positive().nullable().default(null),
     currency: Currency.optional(),
     frequency: z.enum(["monthly", "quarterly", "yearly"]).default("monthly"),
+    /** Not used for trials any more: the platform trial policy sets the trial length for every plan. */
     trialDays: z.number().int().min(0).max(90).default(30),
     taxPct: z.number().min(0).max(100).nullable().default(null),
     taxNote: z.string().max(300).default(""),
@@ -105,6 +107,8 @@ export const createOrganisation = endpoint({
     timezone: z.string().min(1).default("UTC"),
     trial: z.boolean().default(true),
     admin: z.object({ email: Email, name: z.string().trim().min(2).max(120).optional() }),
+    /** Start the trial although the same business had one inside the policy window (kept with the trial). */
+    repeatTrialReason: Reason.optional(),
   }),
   response: z.object({ id: z.string(), temporaryPassword: z.string().nullable() }),
   status: 201,
@@ -168,6 +172,106 @@ export const adminAudit = endpoint({
   summary: "The platform audit trail, newest first",
   query: z.object({ limit: z.coerce.number().int().min(1).max(500).default(100), orgId: z.string().optional() }),
   response: z.object({ entries: z.array(AuditEntry.extend({ orgId: z.string().nullable() })) }),
+});
+
+// ---------------------------------------------------------------- the platform trial policy and sign-up review
+export const getTrialPolicy = endpoint({
+  id: "admin.trialPolicy.get",
+  method: "GET",
+  path: "/api/v1/admin/trial-policy",
+  auth: "staff",
+  summary: "The platform trial policy every product follows, with every earlier version",
+  response: z.object({
+    policy: TrialPolicy,
+    history: z.array(
+      z.object({
+        version: z.number().int(),
+        policy: z.record(z.string(), z.unknown()),
+        reason: z.string(),
+        changedBy: z.string().nullable(),
+        changedAt: z.string(),
+      }),
+    ),
+  }),
+});
+
+export const updateTrialPolicy = endpoint({
+  id: "admin.trialPolicy.update",
+  method: "PUT",
+  path: "/api/v1/admin/trial-policy",
+  auth: "staff",
+  summary:
+    "Change the platform trial policy (Super Admin, audited, kept as a new version). New trials of every product " +
+    "follow it at once; a trial already running keeps the days and grace it started with.",
+  body: TrialPolicy.omit({ version: true, updatedAt: true, atExpiry: true, keepRecords: true }).extend({
+    reason: Reason,
+  }),
+  response: TrialPolicy,
+});
+
+export const listSignups = endpoint({
+  id: "admin.signups.list",
+  method: "GET",
+  path: "/api/v1/admin/signups",
+  auth: "staff",
+  summary: "Self-service sign-up requests (e.g. those blocked as a repeat trial, waiting for a decision)",
+  query: z.object({
+    status: z.enum(["created", "duplicate", "blocked_repeat", "allowed", "declined"]).optional(),
+    limit: z.coerce.number().int().min(1).max(500).default(100),
+  }),
+  response: z.object({ signups: z.array(SignupRequest) }),
+});
+
+const SignupParams = z.object({ signupId: z.string().min(1) });
+
+export const allowSignup = endpoint({
+  id: "admin.signups.allow",
+  method: "POST",
+  path: "/api/v1/admin/signups/:signupId/allow",
+  auth: "staff",
+  summary:
+    "Override a repeat-trial block with a reason: the organisation, administrator (the password they chose) and the " +
+    "trial are created now, under the current policy",
+  params: SignupParams,
+  body: z.object({ reason: Reason }),
+  response: SignupRequest,
+});
+
+export const declineSignup = endpoint({
+  id: "admin.signups.decline",
+  method: "POST",
+  path: "/api/v1/admin/signups/:signupId/decline",
+  auth: "staff",
+  summary: "Decline a sign-up blocked as a repeat trial, with a reason (the chosen password is discarded)",
+  params: SignupParams,
+  body: z.object({ reason: Reason }),
+  response: SignupRequest,
+});
+
+export const listUpgrades = endpoint({
+  id: "admin.upgrades.list",
+  method: "GET",
+  path: "/api/v1/admin/upgrades",
+  auth: "staff",
+  summary:
+    "Self-service upgrades and how the customer chose to pay. A bank transfer is confirmed with " +
+    "POST /api/v1/admin/invoices/:invoiceId/receipts (bank reference and reason) or a confirmed bank statement line.",
+  query: z.object({ status: z.enum(["awaiting", "paid", "all"]).default("awaiting") }),
+  response: z.object({
+    upgrades: z.array(
+      z.object({
+        id: z.string(),
+        orgId: z.string(),
+        orgName: z.string(),
+        product: Product,
+        plan: z.string(),
+        frequency: z.enum(["monthly", "quarterly", "yearly"]),
+        method: z.enum(["provider", "bank_transfer"]),
+        invoice: BillingInvoice,
+        requestedAt: IsoDateTime,
+      }),
+    ),
+  }),
 });
 
 // ---------- one organisation in full, and the changes PALTAS makes to it ----------

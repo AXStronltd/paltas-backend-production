@@ -4,7 +4,8 @@ import { route } from "../../http/route.js";
 import type { CoreServices } from "../core-services.js";
 
 // Self-service changes (renew, upgrade, cancel, buy an add-on) deliberately also work on a lapsed subscription:
-// that is how a customer comes back. Only buying more allowance needs an active subscription.
+// that is how a customer comes back. Only buying more allowance needs an active subscription. Anything that leads to
+// a payment waits for a self-service organisation's verified e-mail address (core/signup).
 export function subscriptionsRoutes(core: CoreServices) {
   const { access, subscriptions: S } = core;
   return [
@@ -25,6 +26,7 @@ export function subscriptionsRoutes(core: CoreServices) {
     }),
     route(subscriptions.addProduct, async (req) => {
       const s = await access.scope(req.user, req.params.orgId, { capability: "subscription.own" });
+      await core.signup.requireVerified(s.orgId);
       return S.addProduct(s, req.body.product, req.body.plan);
     }),
     route(subscriptions.buyAddon, async (req) => {
@@ -32,6 +34,7 @@ export function subscriptionsRoutes(core: CoreServices) {
         capability: "subscription.manage",
         product: req.body.product,
       });
+      await core.signup.requireVerified(s.orgId);
       return S.buyAddon(s, req.body.module);
     }),
     route(subscriptions.cancelAddon, async (req) => {
@@ -57,6 +60,7 @@ export function subscriptionsRoutes(core: CoreServices) {
         product === first.product
           ? first
           : await access.scope(req.user, req.params.orgId, { capability: "subscription.manage", product });
+      await core.signup.requireVerified(s.orgId);
       return S.changePlan(s, plan.id);
     }),
     route(subscriptions.buyAllowance, async (req) => {
@@ -65,6 +69,7 @@ export function subscriptionsRoutes(core: CoreServices) {
         product: req.body.product,
         write: true,
       });
+      await core.signup.requireVerified(s.orgId);
       return S.buyAllowance(s);
     }),
     route(subscriptions.cancelSubscription, async (req) => {

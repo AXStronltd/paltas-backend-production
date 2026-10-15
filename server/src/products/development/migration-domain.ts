@@ -475,6 +475,23 @@ async function checks(c: CheckContext): Promise<CheckIssue[]> {
         );
   }
 
+  // … and reserved once: the database allows one open reservation per unit
+  const unitReservations = group(
+    active("reservation").filter((r) => r.values.status === "active"),
+    "unit_ref",
+  );
+  for (const rows of unitReservations.values())
+    if (rows.length > 1)
+      for (const r of rows)
+        out.push(
+          issue(
+            r,
+            "UNIT_RESERVED_TWICE",
+            `The unit has ${rows.length} active reservations (${rows.map((x) => x.sourceId).join(", ")}) — keep one active`,
+            "unit_ref",
+          ),
+        );
+
   for (const k of contracts) {
     const me = `r${k.rowId}`;
     const price =
