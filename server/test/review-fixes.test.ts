@@ -96,13 +96,20 @@ describe("independent review findings stay fixed", () => {
         [orgId],
       );
       // the posting waits for the close, then sees it
-      const posting = poster.query(
-        "UPDATE journal_entries SET status = 'posted', posted_at = now(), approved_by = $1 WHERE id = $2",
-        [fd.userId, w.id],
-      );
+      // Attach a rejection handler immediately: otherwise Vitest reports the expected database error as
+      // unhandled while this test waits for the transaction that closes the month.
+      const posting = poster
+        .query("UPDATE journal_entries SET status = 'posted', posted_at = now(), approved_by = $1 WHERE id = $2", [
+          fd.userId,
+          w.id,
+        ])
+        .then(
+          () => ({ error: null }),
+          (error: Error) => ({ error }),
+        );
       await new Promise((r) => setTimeout(r, 300));
       await closer.query("COMMIT");
-      await expect(posting).rejects.toThrow(/August 2026 is closed/);
+      expect((await posting).error?.message).toMatch(/August 2026 is closed/);
     } finally {
       await closer.end();
       await poster.end();
