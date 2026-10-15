@@ -23,6 +23,7 @@
     "dev": "npm run build && node --env-file-if-exists=server/.env server/dist/main.js",
     "db:migrate": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/migrate.js",
     "setup:local": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/setup-local.js",
+    "bootstrap": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/bootstrap.js",
     "browser:build": "npm run build && node scripts/build-browser-files.mjs",
     "browser:check": "node scripts/build-browser-files.mjs --check",
     "openapi": "npm run build && node scripts/write-openapi.mjs"

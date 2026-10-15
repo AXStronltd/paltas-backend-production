@@ -86,6 +86,16 @@ npm run setup:local                     # schema, catalogue, a Super Admin and t
 npm run dev                             # http://127.0.0.1:8787/api/v1/health
 ```
 
+**A new production database** (once, with the server's own `DATABASE_URL` and `SECRETS_KEY`):
+
+```bash
+npm run bootstrap -- you@example.com ./paltas-superadmin.txt   # schema, catalogue, the FIRST Super Admin (only if none exists)
+```
+
+The password and authenticator secret go to that file (owner-only), never to the screen or the hosting logs. Add the
+authenticator secret to your app, keep the file somewhere safe, then delete it. The catalogue's KES prices are demo
+configuration: confirm them in the Super Admin portal before billing anyone.
+
 ## Check it
 
 ```bash
@@ -179,7 +189,6 @@ The Smart Hotel product (`hotel`), one `ProductModule`. Endpoints: `contracts/sr
 - **Data migration gaps.** OCR (needs a provider); detect / validate / dry run still run inside the request (only the import is a background job); no cancel for an unfinished upload; the Property Management migration domain.
 - **Wiring the HTML workspaces to this API.** They still use browser storage until you approve connecting them.
 - **Real provider adapters.** M-Pesa, card and bank adapters that translate provider callbacks into the signed event format.
-- **First Super Admin in production.** `npm run setup:local` refuses to run in production, and there is no production command to create the first PALTAS staff account yet.
 - **Production hosting:**
   - point-in-time recovery on the database;
   - secrets management;
