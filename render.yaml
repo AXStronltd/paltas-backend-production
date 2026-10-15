@@ -1,11 +1,12 @@
 # Render Blueprint for the PALTAS API (AXStronltd/paltas-backend-production).
 # Nothing here is applied until someone creates a Blueprint from it in the Render dashboard.
 # Secrets are NOT in this file: values marked `sync: false` are entered in the dashboard.
+# Deployed as a separate service and database alongside the live one, so the two cannot collide until cutover.
 services:
   - type: web
-    name: paltas-backend-production
+    name: paltas-api-v2
     runtime: node
-    branch: main
+    branch: new-backend
     # TypeScript is compiled at build time; dev dependencies (the compiler) are needed for that step
     buildCommand: npm ci --include=dev && npm run build
     # Applies any pending database migrations (under a lock), then serves on Render's $PORT
@@ -20,7 +21,7 @@ services:
         value: 0.0.0.0
       - key: DATABASE_URL
         fromDatabase:
-          name: paltas-db
+          name: paltas-v2-db
           property: connectionString
       - key: BILLING_MODE
         value: provider
@@ -40,6 +41,6 @@ services:
       # One per payment provider adapter when one exists, e.g. WEBHOOK_SECRET_MPESA (none connected yet)
 
 databases:
-  - name: paltas-db
+  - name: paltas-v2-db
     databaseName: paltas
     postgresMajorVersion: "16"
