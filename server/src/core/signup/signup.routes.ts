@@ -13,6 +13,7 @@ export function signupRoutes(core: CoreServices) {
     // the public view leaves out how repeats are detected (the response contract drops those fields)
     route(signup.getPolicy, async () => loadPolicy(db)),
     route(signup.getOptions, async () => S.options()),
+    route(signup.getComparison, async (req) => S.comparison(req.query.product)),
     route(signup.create, async (req) => S.create(req.body, req.ip)),
     route(signup.verify, async (req) => S.verify(req.body.token)),
     route(signup.resend, async (req) => S.resend(req.user)),

@@ -27,7 +27,7 @@ import { fail } from "../../http/errors.js";
 import { newId } from "../../lib/ids.js";
 import { createOrganisationRecords } from "../admin/admin.service.js";
 import { recordAudit, SYSTEM, type Actor } from "../audit/audit.service.js";
-import { findPlan, loadCatalogue } from "../catalogue/catalogue.service.js";
+import { findPlan, loadCatalogue, trialCurrency } from "../catalogue/catalogue.service.js";
 import { hashPassword } from "../identity/passwords.js";
 import type { SessionUser } from "../identity/identity.service.js";
 import type { NotificationsService } from "../notifications/notifications.service.js";
@@ -259,6 +259,11 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
     async options() {
       const catalogue = await loadCatalogue(db);
       const moduleName = new Map(catalogue.modules.map((m) => [m.key, m.name]));
+      const trialOpen = new Set(
+        (await db.rows<{ id: string }>("SELECT id FROM catalogue_plans WHERE active AND trial_signup")).map(
+          (r) => r.id,
+        ),
+      );
       return {
         enabled: registrationOpen(),
         termsVersion: settings.termsVersion,
@@ -269,7 +274,9 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
             const base = p.base;
             const product = (p.products[0] === "agents" ? "agency" : p.products[0]) as Product;
             if (!settings.allowedProducts.includes(product)) return [];
-            if (p.tier === "Enterprise" || base?.amount == null || !base.ccy) return [];
+            const priced = p.tier !== "Enterprise" && base?.amount != null && !!base.ccy;
+            // a plan PALTAS prices on request is offered only when it is open for a free trial ("Talk to us")
+            if (!priced && !trialOpen.has(p.id)) return [];
             return [
               {
                 id: p.id,
@@ -281,7 +288,11 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
                   const name = moduleName.get(key);
                   return name ? [{ key, name }] : [];
                 }),
-                price: { amount: base.amount, currency: base.ccy, frequency: p.frequency },
+                price:
+                  priced && base?.amount != null && base.ccy
+                    ? { amount: base.amount, currency: base.ccy, frequency: p.frequency }
+                    : null,
+                contactSales: !priced,
               },
             ];
           })
@@ -289,6 +300,58 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
             (a, b) => TIER_ORDER.indexOf(a.tier ?? "") - TIER_ORDER.indexOf(b.tier ?? "") || a.id.localeCompare(b.id),
           ),
       };
+    },
+
+    /** What each plan of a product includes, by area (catalogue_features), for the public pricing pages. */
+    async comparison(product: Product) {
+      const catalogue = await loadCatalogue(db);
+      const moduleName = new Map(catalogue.modules.map((m) => [m.key, m.name]));
+      const trialOpen = new Set(
+        (await db.rows<{ id: string }>("SELECT id FROM catalogue_plans WHERE active AND trial_signup")).map(
+          (r) => r.id,
+        ),
+      );
+      const plans = catalogue.plans
+        .filter((p) => (p.products[0] === "agents" ? "agency" : p.products[0]) === product)
+        .sort((a, b) => TIER_ORDER.indexOf(a.tier ?? "") - TIER_ORDER.indexOf(b.tier ?? "") || a.id.localeCompare(b.id))
+        .map((p) => {
+          const priced = p.tier !== "Enterprise" && p.base?.amount != null && !!p.base.ccy;
+          return {
+            id: p.id,
+            name: p.name,
+            tier: p.tier ?? null,
+            price:
+              priced && p.base?.amount != null && p.base.ccy
+                ? { amount: p.base.amount, currency: p.base.ccy, frequency: p.frequency }
+                : null,
+            contactSales: !priced,
+            trial: (priced || trialOpen.has(p.id)) && settings.allowedProducts.includes(product),
+            buildingsIncluded: p.buildingsIncluded ?? 0,
+            modules: p.modules.flatMap((key) => {
+              const name = moduleName.get(key);
+              return name ? [{ key, name }] : [];
+            }),
+          };
+        });
+      const rows = await db.rows<{ id: string; area: string; label: string; module_key: string | null }>(
+        "SELECT id, area, label, module_key FROM catalogue_features WHERE product = $1 ORDER BY area_order, sort, id",
+        [product],
+      );
+      const areas: {
+        area: string;
+        features: { id: string; label: string; module: { key: string; name: string } | null; plans: string[] }[];
+      }[] = [];
+      for (const r of rows) {
+        let a = areas.find((x) => x.area === r.area);
+        if (!a) areas.push((a = { area: r.area, features: [] }));
+        a.features.push({
+          id: r.id,
+          label: r.label,
+          module: r.module_key ? { key: r.module_key, name: moduleName.get(r.module_key) ?? r.module_key } : null,
+          plans: plans.filter((p) => !r.module_key || p.modules.some((m) => m.key === r.module_key)).map((p) => p.id),
+        });
+      }
+      return { product, trialDays: (await loadPolicy(db)).trialDays, plans, areas };
     },
 
     async create(b: SignupBody, ip: string) {
@@ -319,10 +382,14 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
       const plan = await findPlan(db, b.plan);
       if (!plan || plan.product !== b.product)
         throw fail.invalid(`Pick a ${entitlements.PRODUCT_NAME[b.product]} plan from the PALTAS catalogue`);
-      if (plan.tier === "Enterprise" || plan.base_minor == null || !plan.currency)
+      const priced = plan.tier !== "Enterprise" && plan.base_minor != null && !!plan.currency;
+      if (!priced && !plan.trial_signup)
         throw fail.invalid("This plan is agreed with PALTAS — send an Enterprise enquiry instead", {
           contactSales: true,
         });
+      // a "Talk to us" plan open for a trial opens in its product's catalogue currency; its price is agreed later
+      const currency = await trialCurrency(db, plan);
+      if (!currency) throw fail.conflict("This plan has no currency in the PALTAS catalogue yet — contact PALTAS");
       // the same work for every outcome, so the answer time says little about existing accounts
       const passwordHash = await hashPassword(b.password);
       const today = clock.today();
@@ -394,7 +461,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         }
         const { orgId, userId } = await openWorkspace(
           t,
-          { ...b, plan_id: plan.id, admin_name: b.adminName, phone, currency: plan.currency as string, passwordHash },
+          { ...b, plan_id: plan.id, admin_name: b.adminName, phone, currency, passwordHash },
           null,
         );
         await insert("created", { orgId, userId });
@@ -526,10 +593,11 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         if ((await duplicates(t, r.email, r.company)).length)
           throw fail.conflict("The e-mail address or organisation name is now in use — decline this request");
         const plan = await findPlan(t, r.plan_id);
-        if (!plan?.currency) throw fail.conflict("The plan is no longer offered — decline this request");
+        const currency = plan ? await trialCurrency(t, plan) : null;
+        if (!plan || !currency) throw fail.conflict("The plan is no longer offered — decline this request");
         const { orgId, userId } = await openWorkspace(
           t,
-          { ...r, currency: plan.currency, passwordHash: r.password_hash as string },
+          { ...r, currency, passwordHash: r.password_hash as string },
           { reason, by: actor.userId },
         );
         await t.run(

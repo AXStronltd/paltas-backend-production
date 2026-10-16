@@ -46,8 +46,9 @@ export const getPolicy = endpoint({
 
 /**
  * Public registration metadata: whether sign-up is open, the terms to accept, the trial length of the platform trial
- * policy and every self-service plan with its tier, modules and price (catalogue rows; none is in code). Enterprise
- * and unpriced plans are agreed with PALTAS and are not listed. No staff or organisation record is exposed.
+ * policy and every self-service plan with its tier, modules and price (catalogue rows; none is in code). A plan PALTAS
+ * prices on request is listed only when it is open for a free trial (price null, contactSales). No staff or
+ * organisation record is exposed.
  */
 export const getOptions = endpoint({
   id: "signup.options",
@@ -68,12 +69,63 @@ export const getOptions = endpoint({
         tier: z.enum(["Standard", "Pro", "Enterprise"]).nullable(),
         /** The modules the plan includes, named in words. */
         modules: z.array(z.object({ key: z.string(), name: z.string() })),
-        /** Amount in major units (e.g. 150000 = KES 150,000) per billing period. */
-        price: z.object({
-          amount: z.number(),
-          currency: z.string(),
-          frequency: z.enum(["monthly", "quarterly", "yearly"]),
-        }),
+        /** Amount in major units (e.g. 150000 = KES 150,000) per billing period; null when PALTAS prices it on request. */
+        price: z
+          .object({
+            amount: z.number(),
+            currency: z.string(),
+            frequency: z.enum(["monthly", "quarterly", "yearly"]),
+          })
+          .nullable(),
+        /** Priced on request ("Talk to us"); a free trial can still be started. */
+        contactSales: z.boolean(),
+      }),
+    ),
+  }),
+});
+
+/**
+ * The public plan comparison for one product, built from the catalogue: every active plan (price, or "Talk to us"),
+ * and every feature in words grouped by area, with the plans that include it.
+ */
+export const getComparison = endpoint({
+  id: "signup.comparison",
+  method: "GET",
+  path: "/api/v1/public/plan-comparison",
+  auth: "public",
+  summary: "What each plan of a product includes, by area, from the catalogue (prices, or Talk to us)",
+  query: z.object({ product: Product }),
+  response: z.object({
+    product: Product,
+    trialDays: z.number().int(),
+    plans: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        tier: z.enum(["Standard", "Pro", "Enterprise"]).nullable(),
+        price: z
+          .object({ amount: z.number(), currency: z.string(), frequency: z.enum(["monthly", "quarterly", "yearly"]) })
+          .nullable(),
+        contactSales: z.boolean(),
+        /** A free trial can be started from sign-up. */
+        trial: z.boolean(),
+        buildingsIncluded: z.number().int(),
+        modules: z.array(z.object({ key: z.string(), name: z.string() })),
+      }),
+    ),
+    areas: z.array(
+      z.object({
+        area: z.string(),
+        features: z.array(
+          z.object({
+            id: z.string(),
+            label: z.string(),
+            /** The module that brings it; null = in every plan. */
+            module: z.object({ key: z.string(), name: z.string() }).nullable(),
+            /** Plan ids that include it. */
+            plans: z.array(z.string()),
+          }),
+        ),
       }),
     ),
   }),

@@ -233,6 +233,7 @@ export const ADMIN_API = {
 export const SIGNUP_API = {
   policy: signup.getPolicy,
   options: signup.getOptions,
+  comparison: signup.getComparison,
   create: signup.create,
   verify: signup.verify,
   resend: signup.resend,

@@ -366,14 +366,18 @@ export const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
       "security.reports.read",
       "notifications.read",
       "notifications.manage",
-      // The company owner can run its daily property workflows. Money approvals remain separate capabilities
-      // and still require another person under each record's maker/checker rules.
+      // The company owner can run every part of Property Management, finance included, so a one-person trial can use
+      // the whole workspace. Separation of duties stays per record: nobody approves, pays or releases what they
+      // prepared, entered or approved themselves (the services refuse it), so money still needs a second person.
       ...PM_CONTACTS,
       "contacts.merge",
       ...PM_OPERATIONS,
-      "property.billing",
-      "property.payments.record",
-      "property.bills.submit",
+      ...PM_FINANCE.filter((c) => !PM_OPERATIONS.includes(c)),
+      "ledger.prepare",
+      "ledger.approve",
+      "ledger.accounts.manage",
+      "ledger.periods.close",
+      "payments.reconcile",
     ],
   },
   finance_director: {

@@ -37,6 +37,22 @@ export interface PlanRow {
   tax_note: string;
   cap_sites: number | null;
   cap_units: number | null;
+  /** A plan priced by PALTAS on request ("Talk to us") that a business may still start a free trial of (migration 0019). */
+  trial_signup?: boolean;
+}
+
+/**
+ * The currency a trial of an unpriced plan opens in: the currency of the same product's priced plans (the catalogue's,
+ * never a hard-coded one). Null when the product has no priced plan to take it from.
+ */
+export async function trialCurrency(db: Db, plan: PlanRow): Promise<string | null> {
+  if (plan.currency) return plan.currency;
+  const r = await db.row<{ currency: string }>(
+    `SELECT currency FROM catalogue_plans WHERE product = $1 AND active AND base_minor IS NOT NULL AND currency IS NOT NULL
+     ORDER BY base_minor LIMIT 1`,
+    [plan.product],
+  );
+  return r?.currency ?? null;
 }
 
 const majorPrice = (minor: number | null, ccy: string | null, per = "month") =>
