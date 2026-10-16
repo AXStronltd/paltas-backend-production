@@ -3,6 +3,7 @@ import { z } from "zod";
 import { Product, Role } from "../access.js";
 import { Currency, Email, IsoDateTime } from "../common.js";
 import { endpoint } from "../endpoint.js";
+import { CompanyRegistrationProfile } from "./signup.js";
 
 export const OrgParams = z.object({ orgId: z.string().min(1) });
 /** Which product subscription a request is about. Omitted = the organisation's first product. */
@@ -12,6 +13,7 @@ export const Organisation = z.object({
   id: z.string(),
   name: z.string(),
   legalName: z.string(),
+  registrationProfile: CompanyRegistrationProfile.nullable().optional(),
   country: z.string(),
   currency: Currency,
   timezone: z.string(),

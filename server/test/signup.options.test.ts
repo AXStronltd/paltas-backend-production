@@ -15,7 +15,14 @@ describe("public registration options", () => {
     expect(r.body.enabled).toBe(true);
     expect(r.body.termsUrl).toBe("https://paltas.example/terms");
     expect(r.body.plans.length).toBeGreaterThan(0);
-    expect(Object.keys(r.body).sort()).toEqual(["enabled", "plans", "termsUrl", "termsVersion", "trialDays"]);
+    expect(Object.keys(r.body).sort()).toEqual([
+      "enabled",
+      "plans",
+      "profileRequired",
+      "termsUrl",
+      "termsVersion",
+      "trialDays",
+    ]);
     for (const p of r.body.plans) {
       expect(Object.keys(p).sort()).toEqual(["id", "modules", "name", "price", "product", "tier"]);
       expect(p.price.amount).toBeGreaterThanOrEqual(0);

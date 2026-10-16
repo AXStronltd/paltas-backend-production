@@ -60,6 +60,7 @@ export const getOptions = endpoint({
     termsVersion: z.string(),
     termsUrl: z.string().nullable(),
     trialDays: z.number().int(),
+    profileRequired: z.boolean().default(false),
     plans: z.array(
       z.object({
         id: z.string(),
@@ -85,8 +86,37 @@ export const Phone = z
   .trim()
   .regex(/^\+[1-9][\d\s()-]{7,24}$/, "Give the phone number in international form, e.g. +254700000000");
 
+/** Company-supplied registration details; this is not government identity verification. */
+export const CompanyRegistrationProfile = z.object({
+  version: z.literal("2026-10"),
+  companyType: z.enum(["limited_company", "sole_trader", "partnership", "non_profit", "other"]),
+  registrationNumber: z.string().trim().max(80).optional(),
+  tradingName: z.string().trim().max(160).optional(),
+  addressLine1: z.string().trim().min(3).max(200),
+  addressLine2: z.string().trim().max(200).optional(),
+  city: z.string().trim().min(2).max(100),
+  region: z.string().trim().max(100).optional(),
+  postalCode: z.string().trim().max(30).optional(),
+  companyEmail: Email.optional(),
+  website: z
+    .url()
+    .max(300)
+    .refine((value) => {
+      const u = new URL(value);
+      return ["http:", "https:"].includes(u.protocol) && !u.username && !u.password;
+    }, "Use an http or https company website without credentials")
+    .optional(),
+  administratorPhone: Phone.optional(),
+  administratorTitle: z.string().trim().max(120).optional(),
+  authorityAccepted: z.literal(true),
+  requestedTier: z.enum(["Standard", "Pro", "Enterprise"]),
+  enterpriseRequirements: z.string().trim().max(1000).optional(),
+});
+export type CompanyRegistrationProfile = z.infer<typeof CompanyRegistrationProfile>;
+
 export const SignupBody = z.object({
   company: z.string().trim().min(2).max(160),
+  companyProfile: CompanyRegistrationProfile.optional(),
   country: z.string().trim().min(2).max(80),
   timezone: z.string().trim().min(1).max(60).default("UTC"),
   product: Product,

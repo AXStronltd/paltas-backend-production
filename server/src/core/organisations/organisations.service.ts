@@ -44,6 +44,7 @@ export async function loadOrganisation(db: Db, orgId: string): Promise<Organisat
     id: string;
     name: string;
     legal_name: string;
+    registration_profile: Organisation["registrationProfile"];
     country: string;
     currency: string;
     timezone: string;
@@ -59,6 +60,7 @@ export async function loadOrganisation(db: Db, orgId: string): Promise<Organisat
         id: o.id,
         name: o.name,
         legalName: o.legal_name,
+        registrationProfile: o.registration_profile ?? null,
         country: o.country,
         currency: o.currency,
         timezone: o.timezone,
