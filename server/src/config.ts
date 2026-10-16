@@ -63,6 +63,7 @@ const EnvSchema = z.object({
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(25_000),
   /** Public self-service sign-up (core/signup). Off unless switched on. */
   SIGNUP_ENABLED: Bool.default(false),
+  SIGNUP_REQUIRE_PROFILE: Bool.default(false),
   SIGNUP_PRODUCTS: z
     .string()
     .default("property")
@@ -179,6 +180,7 @@ export function parseMailbox(raw: string): { name: string; address: string } | n
 
 export interface SignupSettings {
   enabled: boolean;
+  requireProfile?: boolean;
   allowedProducts: z.infer<typeof Product>[];
   perIpPerHour: number;
   perEmailPerDay: number;
@@ -320,6 +322,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     shutdownTimeoutMs: e.SHUTDOWN_TIMEOUT_MS,
     signup: {
       enabled: e.SIGNUP_ENABLED,
+      requireProfile: e.SIGNUP_REQUIRE_PROFILE,
       allowedProducts: [...new Set(e.SIGNUP_PRODUCTS)],
       perIpPerHour: e.SIGNUP_PER_IP_PER_HOUR,
       perEmailPerDay: e.SIGNUP_PER_EMAIL_PER_DAY,

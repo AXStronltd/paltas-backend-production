@@ -66,6 +66,7 @@ interface SignupRow {
   email: string;
   phone: string;
   password_hash: string | null;
+  registration_profile?: SignupBody["companyProfile"] | null;
   terms_version: string;
   terms_accepted_at: string;
   ip: string;
@@ -178,7 +179,12 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
     r: Pick<
       SignupRow,
       "company" | "country" | "timezone" | "product" | "plan_id" | "admin_name" | "email" | "phone"
-    > & { currency: string; passwordHash: string },
+    > & {
+      currency: string;
+      passwordHash: string;
+      companyProfile?: SignupBody["companyProfile"];
+      registration_profile?: SignupBody["companyProfile"] | null;
+    },
     override: { reason: string; by: string } | null,
   ) {
     const userId = newId("usr");
@@ -200,6 +206,35 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
       trialStart: { source: "signup", email: r.email, phone: r.phone, override },
     });
     await t.run("INSERT INTO memberships (org_id, user_id, role) VALUES ($1, $2, 'org_admin')", [orgId, userId]);
+    const profile = r.companyProfile ?? r.registration_profile;
+    if (profile) {
+      await t.run("UPDATE organisations SET registration_profile=$2::jsonb WHERE id=$1", [
+        orgId,
+        JSON.stringify(profile),
+      ]);
+      if (profile.requestedTier === "Enterprise") {
+        const enquiryId = newId("ent");
+        await t.run("INSERT INTO enterprise_enquiries(id,org_id,note,created_by) VALUES($1,$2,$3,$4)", [
+          enquiryId,
+          orgId,
+          "Enterprise requested during registration for " +
+            r.product +
+            ". The customer starts the selected " +
+            r.plan_id +
+            " trial; Enterprise pricing and activation require an agreed quote.\n" +
+            (profile.enterpriseRequirements || "Please contact the company administrator to discuss requirements."),
+          userId,
+        ]);
+        await recordAudit(t, {
+          actor: { userId, role: "org_admin" },
+          orgId,
+          action: "Enterprise enquiry recorded during registration",
+          target: enquiryId,
+          detail: r.product + " · quote requested; no Enterprise activation or charge",
+        });
+      }
+    }
+
     return { orgId, userId };
   }
 
@@ -263,6 +298,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         enabled: registrationOpen(),
         termsVersion: settings.termsVersion,
         termsUrl: settings.termsUrl || null,
+        profileRequired: settings.requireProfile,
         trialDays: (await loadPolicy(db)).trialDays,
         plans: catalogue.plans
           .flatMap((p) => {
@@ -299,6 +335,10 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         throw fail.invalid(`Accept the current PALTAS terms (version ${settings.termsVersion})`, {
           termsVersion: settings.termsVersion,
         });
+      if (settings.requireProfile && !b.companyProfile)
+        throw fail.invalid("Please refresh registration and complete your company address and administrator details.", {
+          profileRequired: true,
+        });
       if (!validTimezone(b.timezone)) throw fail.invalid("Pick a time zone such as Africa/Nairobi");
       const phone = phoneKey(b.phone);
       const [byIp, byEmail] = await Promise.all([
@@ -323,6 +363,12 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         throw fail.invalid("This plan is agreed with PALTAS — send an Enterprise enquiry instead", {
           contactSales: true,
         });
+      if (
+        b.companyProfile &&
+        b.companyProfile.requestedTier !== "Enterprise" &&
+        b.companyProfile.requestedTier !== plan.tier
+      )
+        throw fail.invalid("Choose the plan matching your selected tier.");
       // the same work for every outcome, so the answer time says little about existing accounts
       const passwordHash = await hashPassword(b.password);
       const today = clock.today();
@@ -338,8 +384,8 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
           t.run(
             `INSERT INTO org_signups (id, status, org_id, user_id, company, company_key, country, timezone, product,
                plan_id, admin_name, email, phone, password_hash, terms_version, terms_accepted_at, ip, signed_up_on,
-               opened_on, matched)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now(),$16,$17,$18,$19)`,
+               opened_on, matched, registration_profile)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,now(),$16,$17,$18,$19,$20::jsonb)`,
             [
               id,
               status,
@@ -360,6 +406,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
               today,
               extra.orgId ? today : null,
               JSON.stringify(extra.matched ?? []),
+              b.companyProfile ? JSON.stringify(b.companyProfile) : null,
             ],
           );
         const dup = await duplicates(t, b.email, b.company);
