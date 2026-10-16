@@ -73,10 +73,12 @@ services:
       # Without SMTP_PASSWORD the server still starts: messages stay "recorded — not sent" and production sign-up
       # stays closed. If this Render plan blocks outbound 465/587, switch to PLATFORM_EMAIL_PROVIDER=resend with
       # RESEND_API_KEY and a verified sending domain.
+      # Live sender: Resend with the verified paltas.io domain (RESEND_API_KEY entered in the dashboard).
+      # SMTP (Gmail) stays available as a fallback by switching the provider to smtp and entering SMTP_PASSWORD.
       - key: PLATFORM_EMAIL_PROVIDER
-        value: smtp
+        value: resend
       - key: PLATFORM_EMAIL_FROM
-        value: "PALTAS <supportpaltas@gmail.com>"
+        value: "PALTAS <verify@paltas.io>"
       - key: SMTP_HOST
         value: smtp.gmail.com
       - key: SMTP_PORT
