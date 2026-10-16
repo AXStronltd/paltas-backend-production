@@ -31,6 +31,12 @@ describe("business-first company registration", () => {
     ).toBe(400);
   });
 
+  it("returns a field error for a malformed company website", async () => {
+    expect(
+      (await postSignup(S, { ...signupBody("property"), companyProfile: { ...profile, website: "invalid" } })).status,
+    ).toBe(400);
+  });
+
   it("saves company and administrator details for every configured business", async () => {
     for (const product of ALL_PRODUCTS) {
       const b = signupBody(product);
