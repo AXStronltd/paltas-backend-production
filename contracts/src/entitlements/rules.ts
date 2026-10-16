@@ -473,7 +473,7 @@ export function canBuy(cat: Catalogue, org: ResolvableOrg, key: string, today: s
   if (!s.offered)
     return {
       ok: false,
-      why: m.name + " is not offered for " + (PRODUCT_NAME[en.product] || en.product) + " workspaces",
+      why: m.name + " is not offered for " + en.product + " workspaces",
     };
   if (m.available === false) return { ok: false, why: m.name + " is not available yet" };
   const clash = (m.excludes || []).filter((x) => en.modules[x]);
