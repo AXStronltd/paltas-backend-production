@@ -118,7 +118,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
     if (config.env !== "production") return true;
     return (
       /^https:\/\//.test(settings.termsUrl) &&
-      deps.notifications.providers().some((p) => p.channel === "email" && p.connected)
+      deps.notifications.providers().some((p) => p.channel === "email" && p.key === "platform_resend" && p.connected)
     );
   }
 
@@ -143,7 +143,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
       vars: {
         name: v.name,
         productName: entitlements.PRODUCT_NAME[v.product] ?? v.product,
-        link: `${settings.appBaseUrl}/verify-email?token=${token}`,
+        link: `${settings.appBaseUrl}/verify-email#token=${token}`,
         expiresAt,
       },
       source: "platform",

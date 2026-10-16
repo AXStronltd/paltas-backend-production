@@ -63,6 +63,9 @@ const EnvSchema = z.object({
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(25_000),
   /** Public self-service sign-up (core/signup). Off unless switched on. */
   SIGNUP_ENABLED: Bool.default(false),
+  PLATFORM_EMAIL_PROVIDER: z.enum(["none", "resend"]).default("none"),
+  RESEND_API_KEY: z.string().trim().min(1).optional(),
+  PLATFORM_EMAIL_FROM: z.email().optional(),
   /** Sign-up requests per caller address per hour, and per e-mail address per day (also verification messages). */
   SIGNUP_PER_IP_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(10),
   SIGNUP_PER_EMAIL_PER_DAY: z.coerce.number().int().min(1).max(100).default(3),
@@ -104,6 +107,7 @@ export interface Config {
   cataloguePriceApproval: boolean;
   shutdownTimeoutMs: number;
   signup: SignupSettings;
+  platformEmail?: { apiKey: string; from: string };
 }
 
 export interface SignupSettings {
@@ -154,6 +158,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   }
   const e = parsed.data;
   const production = e.NODE_ENV === "production";
+  if (e.PLATFORM_EMAIL_PROVIDER === "resend" && (!e.RESEND_API_KEY || !e.PLATFORM_EMAIL_FROM))
+    throw new Error("Resend requires RESEND_API_KEY and PLATFORM_EMAIL_FROM");
   if (e.SECRETS_KEY && !isSecretsKey(e.SECRETS_KEY)) {
     throw new Error("SECRETS_KEY must be exactly 32 bytes encoded as canonical base64");
   }
@@ -209,6 +215,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     webhookRateLimitPerMinute: e.WEBHOOK_RATE_LIMIT_PER_MINUTE,
     cataloguePriceApproval: e.CATALOGUE_PRICE_APPROVAL ?? production,
     shutdownTimeoutMs: e.SHUTDOWN_TIMEOUT_MS,
+    platformEmail:
+      e.PLATFORM_EMAIL_PROVIDER === "resend" && e.RESEND_API_KEY && e.PLATFORM_EMAIL_FROM
+        ? { apiKey: e.RESEND_API_KEY, from: e.PLATFORM_EMAIL_FROM }
+        : undefined,
     signup: {
       enabled: e.SIGNUP_ENABLED,
       perIpPerHour: e.SIGNUP_PER_IP_PER_HOUR,

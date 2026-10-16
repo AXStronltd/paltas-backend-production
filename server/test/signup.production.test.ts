@@ -89,7 +89,7 @@ describe("production: no demo or sample organisations", () => {
 
   it("self-service sign-up in production creates a real (non-demo) organisation with a real trial", async () => {
     S.app.core.notifications.registerAdapter({
-      key: "connected-test-email",
+      key: "platform_resend",
       channel: "email",
       label: "Production-gate test adapter",
       connected: true,
