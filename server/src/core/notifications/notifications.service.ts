@@ -281,6 +281,8 @@ export function notificationsService(ctx: AppContext) {
       channel: Channel,
       b: { provider: string; fromName: string; fromAddress: string; replyTo: string; enabled: boolean },
     ) {
+      if (b.provider === "platform_resend")
+        throw fail.forbidden("The platform verification sender is managed by PALTAS");
       const a = adapters.get(adapterKey(channel, b.provider));
       if (!a) throw fail.invalid(`No ${channel} provider "${b.provider}"`);
       if (!a.connected && a.key !== "test") throw fail.conflict(`${a.label} is not connected: ${a.status}`);
