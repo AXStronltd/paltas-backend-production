@@ -360,12 +360,14 @@ export const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
       "security.reports.read",
       "notifications.read",
       "notifications.manage",
-      // property management: sets up the portfolio and the team; money is decided by finance
+      // The company owner can run its daily property workflows. Money approvals remain separate capabilities
+      // and still require another person under each record's maker/checker rules.
       ...PM_CONTACTS,
       "contacts.merge",
-      "property.read",
-      "property.setup",
-      "property.reports.read",
+      ...PM_OPERATIONS,
+      "property.billing",
+      "property.payments.record",
+      "property.bills.submit",
     ],
   },
   finance_director: {
