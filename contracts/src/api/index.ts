@@ -790,6 +790,8 @@ export const PROPERTY_API = {
   publishNotice: property.publishNotice,
   listNotices: property.listNotices,
   addDocument: property.addDocument,
+  uploadDocumentFile: property.uploadDocumentFile,
+  downloadDocumentFile: property.downloadDocumentFile,
   listDocuments: property.listDocuments,
   importBankLines: property.importBankLines,
   listBankLines: property.listBankLines,

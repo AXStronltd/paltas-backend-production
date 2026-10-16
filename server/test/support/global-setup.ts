@@ -13,7 +13,18 @@ import { seedCatalogue } from "../../dist/core/catalogue/catalogue.seed.js";
 
 /** Each test run gets its own template, so two runs at the same time never drop each other's. */
 export const templateName = () => process.env.PALTAS_TEST_TEMPLATE ?? "paltas_test_template";
-export const adminUrl = () => process.env.PALTAS_TEST_PG ?? "postgres://paltas@127.0.0.1:55432/postgres";
+export function safeTestAdminUrl(value: string): string {
+  const url = new URL(value);
+  if (
+    !["postgres:", "postgresql:"].includes(url.protocol) ||
+    !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname)
+  ) {
+    throw new Error("Database tests require an isolated PostgreSQL server on localhost");
+  }
+  return url.toString();
+}
+export const adminUrl = () =>
+  safeTestAdminUrl(process.env.PALTAS_TEST_PG ?? "postgres://paltas@127.0.0.1:55432/postgres");
 export const dbUrl = (name: string) => {
   const u = new URL(adminUrl());
   u.pathname = "/" + name;
@@ -26,7 +37,7 @@ export default async function setup() {
   const TEMPLATE = templateName();
   const admin = new pg.Client({ connectionString: adminUrl() });
   await admin.connect().catch((e: Error) => {
-    throw new Error(`Tests need PostgreSQL at ${adminUrl()} (set PALTAS_TEST_PG): ${e.message}`);
+    throw new Error("Tests need isolated local PostgreSQL (set PALTAS_TEST_PG)", { cause: e });
   });
   try {
     await admin.query(`DROP DATABASE IF EXISTS ${TEMPLATE} WITH (FORCE)`);

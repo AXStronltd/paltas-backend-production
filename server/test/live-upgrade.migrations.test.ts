@@ -2,7 +2,7 @@
 // — migrations 0001–0006 exactly as the live server recorded them, the live catalogue seed, the Super Admin the first
 // `npm run bootstrap` created, and representative rows (organisations, members, trial and active subscriptions,
 // invoices, posted journals, data-migration jobs with imported records, hotel data) — then lets THIS code start on
-// it in production mode: migrations 0007–0013 must apply, every row must survive, and the server must be healthy.
+// it in production mode: migrations 0007–0014 must apply, every row must survive, and the server must be healthy.
 import { createHash, randomBytes } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -22,7 +22,7 @@ import { adminUrl, dbUrl } from "./support/global-setup.js";
 const MIGRATIONS = fileURLToPath(new URL("../migrations/", import.meta.url));
 const ROWS = fileURLToPath(new URL("./support/legacy-0006-rows.sql", import.meta.url));
 const LIVE = ["0001", "0002", "0003", "0004", "0005", "0006"];
-const NEW = ["0007", "0008", "0009", "0010", "0011", "0012", "0013"];
+const NEW = ["0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014"];
 const KEY = randomBytes(32).toString("base64");
 
 /** Exactly what the live server's migrate() did: each file applied and recorded with its checksum. */
@@ -64,7 +64,7 @@ const COUNTED = [
   "hotel_messages",
 ];
 
-describe("live database upgrade: 0001–0006 with real rows, then 0007–0013", () => {
+describe("live database upgrade: 0001–0006 with real rows, then 0007–0014", () => {
   const name = `paltas_upgrade_${process.pid}_${randomBytes(3).toString("hex")}`;
   const url = dbUrl(name);
   let db: Database;
@@ -112,7 +112,7 @@ describe("live database upgrade: 0001–0006 with real rows, then 0007–0013", 
     expect(before).toMatchObject({ organisations: 3, subscriptions: 3, journal_entries: 2, dev_reservations: 2 });
   });
 
-  it("applies 0007–0013 on it, keeps every row, and fills new columns with safe values", async () => {
+  it("applies 0007–0014 on it, keeps every row, and fills new columns with safe values", async () => {
     const applied = await migrate(db);
     expect(applied.map((v) => v.slice(0, 4))).toEqual(NEW);
     expect(await migrate(db)).toEqual([]); // and again: nothing to do, checksums of 0001–0006 unchanged

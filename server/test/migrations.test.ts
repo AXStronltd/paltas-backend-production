@@ -38,6 +38,7 @@ describe("migrations", () => {
         "0011_hotel_extensions",
         "0012_platform_ops",
         "0013_self_service",
+        "0014_property_document_files",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything
