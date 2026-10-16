@@ -2,12 +2,15 @@
  * Delivery provider boundaries for the notifications outbox. PALTAS hands a message to a provider ONLY through one of
  * these adapters; the provider later reports "sent" / "failed" through the signed delivery webhook.
  *
- * No provider is connected yet:
+ * Adapters:
  *   - "test" (every channel): accepts the message into the queue and says "Not connected — test adapter". It never
  *     returns a provider message id, so nothing it handles can ever become "sent" (the database refuses that too).
- *   - SMTP / e-mail API, SMS API, WhatsApp Cloud API, push: BLOCKED until credentials and a certified adapter exist.
- *     They are listed so the settings screen shows them, and they cannot be selected.
- * A real adapter replaces a blocked one here (connected: true) and returns the provider's message id.
+ *   - PALTAS's own e-mail ("platform_smtp" / "platform_resend" / …, email-providers.ts): registered only when
+ *     PLATFORM_EMAIL_PROVIDER and its credentials are set; used only for PALTAS's own transactional e-mails and never
+ *     selectable by an organisation. Acceptance makes a message "sent"; an HTTPS provider's webhook
+ *     "delivered"/"bounced"; SMTP never reports delivery.
+ *   - an organisation's own SMTP, SMS API, WhatsApp Cloud API, push: BLOCKED until credentials and a certified adapter exist. They are
+ *     listed so the settings screen shows them, and they cannot be selected.
  */
 import type { notifications } from "@paltas/contracts";
 
@@ -23,8 +26,14 @@ export interface OutboundMessage {
   from: { name: string; address: string; replyTo: string };
 }
 
+/**
+ * accepted + sent: the provider took the message and returned its id ("sent"); accepted without sent: handed on
+ * without a provider id ("queued", the test adapter); not accepted: refused ("failed"), or with retry a temporary
+ * problem (stays "recorded" for the next dispatch).
+ */
 export type SubmitResult =
-  { accepted: true; providerMessageId: string | null; note: string } | { accepted: false; note: string };
+  | { accepted: true; providerMessageId: string | null; note: string; sent?: boolean }
+  | { accepted: false; note: string; retry?: boolean };
 
 export interface NotificationAdapter {
   key: string;

@@ -25,6 +25,7 @@ import { newId } from "../../../lib/ids.js";
 import { can } from "../shared/access.js";
 import { findProject, lineAmount } from "../shared/records.js";
 import { costCode, requireApproval, settingsRow } from "../shared/rules.js";
+import { formatMoney } from "../../../lib/money.js";
 
 type Body<E extends { body: z.ZodType }> = z.output<E["body"]>;
 type Out<T extends z.ZodType> = z.input<T>;
@@ -555,7 +556,9 @@ export function procurementService(core: CoreServices) {
         const report = await costReportOf(t, s.orgId, c.project_id);
         const from = report.rows.find((r) => r.costCode === c.from_code);
         if (!from || from.revisedMinor < c.amount_minor)
-          throw fail.conflict(`Not enough budget left on ${c.from_code} (${from?.revisedMinor ?? 0})`);
+          throw fail.conflict(
+            `Not enough budget left on ${c.from_code} (${formatMoney(from?.revisedMinor ?? 0, s.entitlement.org.currency)})`,
+          );
         await ensureLine(t, s.orgId, c.project_id, c.from_code);
         await ensureLine(t, s.orgId, c.project_id, c.to_code);
         // a change order adds scope: it goes into the forecast of the receiving line
@@ -893,7 +896,9 @@ export function procurementService(core: CoreServices) {
       if (sp.status !== "approved") throw fail.conflict(`${sp.name} is not an approved supplier yet`);
       const fromLines = b.lines.reduce((n, l) => n + lineAmount(l.qty, l.unitPriceMinor), 0);
       if (b.lines.length && b.amountMinor !== undefined && b.amountMinor !== fromLines)
-        throw fail.invalid(`The amount (${b.amountMinor}) is not the total of the lines (${fromLines})`);
+        throw fail.invalid(
+          `The amount (${formatMoney(b.amountMinor, s.entitlement.org.currency)}) is not the total of the lines (${formatMoney(fromLines, s.entitlement.org.currency)})`,
+        );
       const amount = b.lines.length ? fromLines : (b.amountMinor ?? 0);
       if (b.requisitionId) {
         const r = await findReq(t, s.orgId, b.requisitionId, true);

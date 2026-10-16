@@ -1,6 +1,6 @@
 // All settings come from environment variables, checked once at start-up. Nothing else reads process.env.
 // See server/.env.example for every setting with an explanation.
-import { z } from "@paltas/contracts";
+import { Product, z } from "@paltas/contracts";
 
 const Bool = z.enum(["true", "false", "1", "0"]).transform((v) => v === "true" || v === "1");
 /** A yes/no setting whose default depends on NODE_ENV: unset or empty means "use the default". */
@@ -63,9 +63,16 @@ const EnvSchema = z.object({
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(25_000),
   /** Public self-service sign-up (core/signup). Off unless switched on. */
   SIGNUP_ENABLED: Bool.default(false),
-  PLATFORM_EMAIL_PROVIDER: z.enum(["none", "resend"]).default("none"),
-  RESEND_API_KEY: z.string().trim().min(1).optional(),
-  PLATFORM_EMAIL_FROM: z.email().optional(),
+  SIGNUP_PRODUCTS: z
+    .string()
+    .default("property")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(Product).max(5)),
   /** Sign-up requests per caller address per hour, and per e-mail address per day (also verification messages). */
   SIGNUP_PER_IP_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(10),
   SIGNUP_PER_EMAIL_PER_DAY: z.coerce.number().int().min(1).max(100).default(3),
@@ -74,6 +81,42 @@ const EnvSchema = z.object({
   SIGNUP_TERMS_URL: z.union([z.literal(""), z.url()]).default(""),
   /** Where the verification link points (the front end's verification page, which posts the token). */
   APP_BASE_URL: z.url().default("http://127.0.0.1:8080"),
+  /** The public sign-up options (plans, terms): requests per minute per address, and browser cache life. */
+  PUBLIC_READ_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(120),
+  PUBLIC_CACHE_SECONDS: z.coerce.number().int().min(0).max(86_400).default(300),
+  /** Self-service password reset: link life (minutes) and request limits. */
+  PASSWORD_RESET_MINUTES: z.coerce.number().int().min(5).max(240).default(30),
+  PASSWORD_RESET_PER_IP_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(20),
+  PASSWORD_RESET_PER_ACCOUNT_PER_HOUR: z.coerce.number().int().min(1).max(100).default(3),
+  /**
+   * PALTAS's own e-mail (verification, password reset, trial notices) — core/notifications/email-providers.ts.
+   * none, or a provider without its credentials = messages are recorded only, never sent; the server still starts.
+   */
+  PLATFORM_EMAIL_PROVIDER: z
+    .enum(["none", "smtp", "resend", "postmark", "sendgrid"])
+    .or(z.literal("").transform(() => "none" as const))
+    .default("none"),
+  /** The one sending mailbox ("PALTAS <supportpaltas@gmail.com>"); its address is also the reply-to and help contact. */
+  PLATFORM_EMAIL_FROM: z.string().trim().default("PALTAS <supportpaltas@gmail.com>"),
+  /** SMTP (PLATFORM_EMAIL_PROVIDER=smtp): e.g. smtp.gmail.com, 465 (implicit TLS) or 587 (STARTTLS), the account and
+   * its app password. SMTP_SECURE overrides the TLS mode (default: implicit TLS on 465, STARTTLS otherwise). */
+  SMTP_HOST: z.string().trim().optional(),
+  SMTP_PORT: z.coerce.number().int().min(1).max(65535).default(465),
+  SMTP_SECURE: OptionalBool,
+  SMTP_USER: z.string().trim().optional(),
+  SMTP_PASSWORD: z.string().optional(),
+  /** HTTPS e-mail APIs: the key of the provider chosen in PLATFORM_EMAIL_PROVIDER. */
+  RESEND_API_KEY: z.string().trim().optional(),
+  POSTMARK_SERVER_TOKEN: z.string().trim().optional(),
+  SENDGRID_API_KEY: z.string().trim().optional(),
+  /** Verifies the provider's delivery webhook: Resend signing secret (whsec_…), Postmark "user:password" of the
+   * webhook's basic auth, or SendGrid's verification public key (base64). */
+  PLATFORM_EMAIL_WEBHOOK_SECRET: z.string().optional(),
+  /** The provider's API address. Only for tests against a local fake server; the default is the provider's own. */
+  PLATFORM_EMAIL_API_URL: z
+    .url()
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
 });
 
 const MB = 1024 * 1024;
@@ -107,16 +150,41 @@ export interface Config {
   cataloguePriceApproval: boolean;
   shutdownTimeoutMs: number;
   signup: SignupSettings;
-  platformEmail?: { apiKey: string; from: string };
+  /** Public read-only answers (signup.options): per-address limit and Cache-Control max-age. */
+  publicRead: { perMinute: number; cacheSeconds: number };
+  email: EmailSettings;
+  passwordReset: { minutes: number; perIpPerHour: number; perAccountPerHour: number };
+}
+
+export interface EmailSettings {
+  /** null = no provider configured (or its credentials are missing): messages stay "recorded — not sent". */
+  provider: "smtp" | "resend" | "postmark" | "sendgrid" | null;
+  /** Why the chosen provider is not in use (e.g. SMTP_PASSWORD not entered yet), for the logs and the report. */
+  notConfigured: string | null;
+  apiKey: string | null;
+  smtp: { host: string; port: number; secure: boolean; user: string; password: string } | null;
+  /** PLATFORM_EMAIL_FROM: display name and address. */
+  fromName: string;
+  fromAddress: string;
+  webhookSecret: string | null;
+  apiUrl: string | null;
+}
+
+/** "Name <address>" or a bare address. */
+export function parseMailbox(raw: string): { name: string; address: string } | null {
+  const m = /^\s*(?:"?([^"<]*?)"?\s*<([^<>\s]+@[^<>\s]+\.[^<>\s]+)>|([^<>\s]+@[^<>\s]+\.[^<>\s]+))\s*$/.exec(raw);
+  if (!m) return null;
+  return { name: (m[1] ?? "").trim(), address: (m[2] ?? m[3] ?? "").toLowerCase() };
 }
 
 export interface SignupSettings {
   enabled: boolean;
+  allowedProducts: z.infer<typeof Product>[];
   perIpPerHour: number;
   perEmailPerDay: number;
   termsVersion: string;
   termsUrl: string;
-  /** Base of the verification link, e.g. https://paltashub.com → https://paltashub.com/verify-email?token=… */
+  /** Base of the verification link, e.g. https://paltashub.com → https://paltashub.com/verify-email#token=… */
   appBaseUrl: string;
 }
 
@@ -158,8 +226,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   }
   const e = parsed.data;
   const production = e.NODE_ENV === "production";
-  if (e.PLATFORM_EMAIL_PROVIDER === "resend" && (!e.RESEND_API_KEY || !e.PLATFORM_EMAIL_FROM))
-    throw new Error("Resend requires RESEND_API_KEY and PLATFORM_EMAIL_FROM");
   if (e.SECRETS_KEY && !isSecretsKey(e.SECRETS_KEY)) {
     throw new Error("SECRETS_KEY must be exactly 32 bytes encoded as canonical base64");
   }
@@ -168,6 +234,43 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   if (production && !e.SECRETS_KEY) throw new Error("SECRETS_KEY is required in production");
   if (production && e.SIGNUP_ENABLED && /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(e.APP_BASE_URL))
     throw new Error("APP_BASE_URL must be the public front-end address in production while SIGNUP_ENABLED is on");
+
+  // A missing or incomplete e-mail set-up is never an error: the live API must still start. Messages then stay
+  // "recorded — not sent", and production sign-up stays closed until a provider is in use (signup.service).
+  const chosen = e.PLATFORM_EMAIL_PROVIDER === "none" ? null : e.PLATFORM_EMAIL_PROVIDER;
+  const from = parseMailbox(e.PLATFORM_EMAIL_FROM);
+  const apiKey =
+    (chosen === "resend"
+      ? e.RESEND_API_KEY
+      : chosen === "postmark"
+        ? e.POSTMARK_SERVER_TOKEN
+        : chosen === "sendgrid"
+          ? e.SENDGRID_API_KEY
+          : undefined) || null;
+  const smtp =
+    e.SMTP_HOST && e.SMTP_USER && e.SMTP_PASSWORD
+      ? {
+          host: e.SMTP_HOST,
+          port: e.SMTP_PORT,
+          secure: e.SMTP_SECURE ?? e.SMTP_PORT === 465,
+          user: e.SMTP_USER,
+          password: e.SMTP_PASSWORD,
+        }
+      : null;
+  const KEY_NAME = { resend: "RESEND_API_KEY", postmark: "POSTMARK_SERVER_TOKEN", sendgrid: "SENDGRID_API_KEY" };
+  const notConfigured = !chosen
+    ? null
+    : !from
+      ? 'PLATFORM_EMAIL_FROM is not a mailbox, e.g. "PALTAS <supportpaltas@gmail.com>"'
+      : chosen === "smtp"
+        ? smtp
+          ? null
+          : "PLATFORM_EMAIL_PROVIDER=smtp needs SMTP_HOST, SMTP_USER and SMTP_PASSWORD"
+        : apiKey
+          ? null
+          : `PLATFORM_EMAIL_PROVIDER=${chosen} needs ${KEY_NAME[chosen]}`;
+  if (production && e.PLATFORM_EMAIL_API_URL && !e.PLATFORM_EMAIL_API_URL.startsWith("https://"))
+    throw new Error("PLATFORM_EMAIL_API_URL must be https in production (it is for tests against a local fake server)");
 
   const webhookSecrets = Object.fromEntries(
     Object.entries(env)
@@ -215,17 +318,30 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     webhookRateLimitPerMinute: e.WEBHOOK_RATE_LIMIT_PER_MINUTE,
     cataloguePriceApproval: e.CATALOGUE_PRICE_APPROVAL ?? production,
     shutdownTimeoutMs: e.SHUTDOWN_TIMEOUT_MS,
-    platformEmail:
-      e.PLATFORM_EMAIL_PROVIDER === "resend" && e.RESEND_API_KEY && e.PLATFORM_EMAIL_FROM
-        ? { apiKey: e.RESEND_API_KEY, from: e.PLATFORM_EMAIL_FROM }
-        : undefined,
     signup: {
       enabled: e.SIGNUP_ENABLED,
+      allowedProducts: [...new Set(e.SIGNUP_PRODUCTS)],
       perIpPerHour: e.SIGNUP_PER_IP_PER_HOUR,
       perEmailPerDay: e.SIGNUP_PER_EMAIL_PER_DAY,
       termsVersion: e.SIGNUP_TERMS_VERSION,
       termsUrl: e.SIGNUP_TERMS_URL,
       appBaseUrl: e.APP_BASE_URL.replace(/\/+$/, ""),
+    },
+    publicRead: { perMinute: e.PUBLIC_READ_RATE_LIMIT_PER_MINUTE, cacheSeconds: e.PUBLIC_CACHE_SECONDS },
+    passwordReset: {
+      minutes: e.PASSWORD_RESET_MINUTES,
+      perIpPerHour: e.PASSWORD_RESET_PER_IP_PER_HOUR,
+      perAccountPerHour: e.PASSWORD_RESET_PER_ACCOUNT_PER_HOUR,
+    },
+    email: {
+      provider: chosen && !notConfigured ? chosen : null,
+      notConfigured,
+      apiKey,
+      smtp,
+      fromName: from?.name || "PALTAS",
+      fromAddress: from?.address ?? "",
+      webhookSecret: e.PLATFORM_EMAIL_WEBHOOK_SECRET?.trim() || null,
+      apiUrl: e.PLATFORM_EMAIL_API_URL?.replace(/\/+$/, "") ?? null,
     },
     marketplace: {
       searchPerMinute: e.MARKETPLACE_SEARCH_PER_MINUTE,

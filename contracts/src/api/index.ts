@@ -120,6 +120,7 @@ export const NOTIFICATIONS_API = {
   getMessage: notifications.getMessage,
   recordMessage: notifications.recordMessage,
   deliveryReport: notifications.deliveryWebhook,
+  emailWebhook: notifications.emailWebhook,
 } as const;
 
 /** Payment provider adapter endpoints (kept as their own constant so the API type stays small enough to declare). */
@@ -150,6 +151,8 @@ export const IDENTITY_API = {
   changePassword: identity.changePassword,
   startMfa: identity.startMfa,
   confirmMfa: identity.confirmMfa,
+  requestPasswordReset: identity.requestPasswordReset,
+  completePasswordReset: identity.completePasswordReset,
 } as const;
 
 export const ORGANISATIONS_API = {
@@ -273,6 +276,7 @@ export const HOTEL_API = {
   createProperty: hotel.createProperty,
   getProperty: hotel.getProperty,
   updateProperty: hotel.updateProperty,
+  getPropertyStaff: hotel.getPropertyStaff,
   setPropertyStaff: hotel.setPropertyStaff,
   getSetup: hotel.getSetup,
   createRoomType: hotel.createRoomType,
@@ -319,6 +323,7 @@ export const HOTEL_API = {
   voidLine: hotel.voidLine,
   approveVoid: hotel.approveVoid,
   requestRefund: hotel.requestRefund,
+  listRefunds: hotel.listRefunds,
   approveRefund: hotel.approveRefund,
   outletCharge: hotel.outletCharge,
   roomBoard: hotel.roomBoard,
@@ -498,6 +503,7 @@ export const SECURITY_API = {
   setClientPortalUsers: security.setClientPortalUsers,
   listSites: security.listSites,
   createSite: security.createSite,
+  updateSite: security.updateSite,
   getSite: security.getSite,
   createPost: security.createPost,
   updatePostOrder: security.updatePostOrder,
@@ -519,6 +525,7 @@ export const SECURITY_API = {
   issueEquipment: security.issueEquipment,
   returnEquipment: security.returnEquipment,
   listShifts: security.listShifts,
+  myDuty: security.myDuty,
   createShifts: security.createShifts,
   assignShift: security.assignShift,
   unassignShift: security.unassignShift,
@@ -790,6 +797,8 @@ export const PROPERTY_API = {
   publishNotice: property.publishNotice,
   listNotices: property.listNotices,
   addDocument: property.addDocument,
+  uploadDocumentFile: property.uploadDocumentFile,
+  downloadDocumentFile: property.downloadDocumentFile,
   listDocuments: property.listDocuments,
   importBankLines: property.importBankLines,
   listBankLines: property.listBankLines,

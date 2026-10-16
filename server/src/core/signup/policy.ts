@@ -36,6 +36,7 @@ interface PolicyRow {
   at_expiry: "read_only";
   keep_records: true;
   export_allowed: boolean;
+  suspend_unverified_requires_delivery: boolean;
   updated_at: string;
 }
 
@@ -52,6 +53,7 @@ const toPolicy = (r: PolicyRow): TrialPolicy => ({
   atExpiry: r.at_expiry,
   keepRecords: r.keep_records,
   exportAllowed: r.export_allowed,
+  suspendUnverifiedRequiresDelivery: r.suspend_unverified_requires_delivery,
   updatedAt: r.updated_at,
 });
 
@@ -76,10 +78,14 @@ export function policyRecord(p: TrialPolicy) {
     atExpiry: p.atExpiry,
     keepRecords: p.keepRecords,
     exportAllowed: p.exportAllowed,
+    suspendUnverifiedRequiresDelivery: p.suspendUnverifiedRequiresDelivery,
   };
 }
 
-export type PolicyInput = Omit<TrialPolicy, "version" | "updatedAt" | "atExpiry" | "keepRecords">;
+export type PolicyInput = Omit<
+  TrialPolicy,
+  "version" | "updatedAt" | "atExpiry" | "keepRecords" | "suspendUnverifiedRequiresDelivery"
+> & { suspendUnverifiedRequiresDelivery?: boolean | undefined };
 
 /** Save a new version and keep it in the history. The caller checks the Super Admin role and audits. */
 export async function savePolicy(t: Db, input: PolicyInput, reason: string, userId: string) {
@@ -90,7 +96,8 @@ export async function savePolicy(t: Db, input: PolicyInput, reason: string, user
   const row = await t.row<PolicyRow>(
     `UPDATE trial_policy SET version = version + 1, trial_days = $1, grace_days = $2, reminder_days = $3,
        verify_within_days = $4, verify_link_hours = $5, repeat_window_days = $6, repeat_match = $7,
-       second_product = $8, export_allowed = $9, updated_by = $10, updated_at = now()
+       second_product = $8, export_allowed = $9, updated_by = $10, updated_at = now(),
+       suspend_unverified_requires_delivery = COALESCE($11, suspend_unverified_requires_delivery)
      WHERE id = 1 RETURNING *`,
     [
       input.trialDays,
@@ -103,6 +110,7 @@ export async function savePolicy(t: Db, input: PolicyInput, reason: string, user
       input.secondProduct,
       input.exportAllowed,
       userId,
+      input.suspendUnverifiedRequiresDelivery ?? null,
     ],
   );
   const after = toPolicy(row as PolicyRow);

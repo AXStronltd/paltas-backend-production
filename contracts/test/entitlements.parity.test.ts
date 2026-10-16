@@ -113,7 +113,8 @@ function organisation(r: ReturnType<typeof rng>, cat: ReturnType<typeof catalogu
 const clone = <T>(x: T): T => structuredClone(x);
 
 /** Added after the browser file was replaced (the platform trial policy); everything else must match exactly. */
-const ADDED = ["DEFAULT_TRIAL_POLICY", "trialState"];
+// plus the module names in words for messages (a missing catalogue row never shows its internal key)
+const ADDED = ["DEFAULT_TRIAL_POLICY", "trialState", "MODULE_NAME", "moduleName"];
 const sameNames = (impl: object) => expect(Object.keys(impl).sort()).toEqual([...Object.keys(legacy), ...ADDED].sort());
 
 let candidate: typeof legacy = ts;

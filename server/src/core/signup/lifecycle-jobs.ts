@@ -8,7 +8,8 @@
  *     - trial ended: once a trial has run out of its grace days (the renewals job marks it expired), each
  *       administrator gets one "trial ended" message (records kept, export allowed);
  *     - unverified: a self-service trial whose administrator has not verified the e-mail address within
- *       policy.verifyWithinDays is suspended (records kept; verifying lifts it).
+ *       policy.verifyWithinDays is suspended (records kept; verifying lifts it) — only while an e-mail provider is
+ *       configured, unless the policy's suspendUnverifiedRequiresDelivery is switched off.
  *
  * Expiry itself (trial end + grace days → "expired", read-only) is the platform.subscriptions.renewals job.
  */
@@ -88,6 +89,8 @@ export function trialJobs(
                   trialEnds: st.trialEnds,
                   daysLeft: String(st.daysLeft),
                   graceDays: String(s.grace_days),
+                  daysLeftText: st.daysLeft === 1 ? "1 day" : `${st.daysLeft} days`,
+                  link: `${ctx.config.signup.appBaseUrl}/account.html#upgrade`,
                 },
                 source: "platform",
                 sourceRef,
@@ -99,7 +102,11 @@ export function trialJobs(
         }
         const suspended = await deps.signup.suspendUnverified(policy, today);
         return {
-          summary: `${reminders} trial reminder(s) · ${ended} trial-ended notice(s) recorded (outbox, not sent) · ${suspended} unverified sign-up(s) suspended`,
+          summary:
+            `${reminders} trial reminder(s) · ${ended} trial-ended notice(s) recorded in the outbox · ` +
+            (suspended === null
+              ? "unverified sign-ups not suspended: no e-mail provider is configured"
+              : `${suspended} unverified sign-up(s) suspended`),
         };
       },
     },

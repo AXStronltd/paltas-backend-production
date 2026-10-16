@@ -290,11 +290,19 @@ describe("hotel operations", () => {
       body: { amountMinor: 500_000, method: "card", reason: "Overpaid at check-in" },
     });
     await refused(api(st.receptionist).approveRefund({ params: { ...P, refundId: r1.id } }), 403, "ROLE_NOT_ALLOWED");
+    // the approver finds what waits for approval without knowing the id
+    const waiting = await api(st.general_manager).listRefunds({ params: P, query: { status: "requested" } });
+    expect(waiting.refunds.map((r) => [r.id, r.amountMinor, r.status])).toEqual([[r1.id, 500_000, "requested"]]);
+    expect(waiting.refunds[0]!.folioId).toBe(lena.folioId);
+    await refused(api(st.receptionist).listRefunds({ params: P, query: {} }), 403, "ROLE_NOT_ALLOWED");
     const bank = await ledgerSum("1000");
     expect((await api(st.general_manager).approveRefund({ params: { ...P, refundId: r1.id } })).status).toBe(
       "approved",
     );
     expect(await ledgerSum("1000")).toBe(bank - 500_000);
+    expect((await api(st.general_manager).listRefunds({ params: P, query: { status: "requested" } })).refunds).toEqual(
+      [],
+    );
     const r2 = await api(st.front_office_manager).requestRefund({
       params: { ...P, folioId: lena.folioId },
       body: { amountMinor: 300_000, method: "card", reason: "Second overpayment" },

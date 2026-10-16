@@ -10,6 +10,7 @@ import { opsService, type OpsService } from "./admin/ops.service.js";
 import { loadCatalogue } from "./catalogue/catalogue.service.js";
 import { contactsService, type ContactsService } from "./contacts/contacts.service.js";
 import { identityService, type IdentityService } from "./identity/identity.service.js";
+import { passwordResetService, type PasswordResetService } from "./identity/password-reset.js";
 import { ledgerService, type LedgerService } from "./ledger/ledger.service.js";
 import { migrationService, type MigrationService } from "./migration/migration.service.js";
 import { notificationsService, type NotificationsService } from "./notifications/notifications.service.js";
@@ -32,6 +33,8 @@ import { subscriptionsService, type SubscriptionsService } from "./subscriptions
 export interface CoreServices {
   db: Database;
   identity: IdentityService;
+  /** Self-service password reset by e-mail link. */
+  passwordReset: PasswordResetService;
   access: OrgAccess;
   organisations: OrganisationsService;
   subscriptions: SubscriptionsService;
@@ -68,7 +71,7 @@ export function createCoreServices(ctx: AppContext): CoreServices {
   // a provider payment whose reference matches nothing is kept and held for review
   ctx.products.addPaymentHandler(UNMATCHED_PAYMENT, unmatchedPaymentHandler);
   const ledger = ledgerService(ctx);
-  const notifications = notificationsService(ctx);
+  const notifications = notificationsService(ctx, ctx.emailTransport);
   const scheduler = schedulerService(ctx);
   scheduler.register(platformJobs(ctx, { billing: subscriptions.billing, notifications }));
   const signup = signupService(ctx, { notifications });
@@ -76,6 +79,7 @@ export function createCoreServices(ctx: AppContext): CoreServices {
   return {
     db: ctx.db,
     identity: identityService(ctx),
+    passwordReset: passwordResetService(ctx, { notifications }),
     access: orgAccess(ctx),
     organisations: organisationsService(ctx),
     subscriptions,

@@ -23,6 +23,7 @@ import type { HotelScope } from "../shared/access.js";
 import { daysBetween } from "../shared/dates.js";
 import { cr, dr, lockBusinessDate, postToLedger } from "../shared/posting.js";
 import { fromBp } from "../shared/property.js";
+import { formatMoney } from "../../../lib/money.js";
 
 interface BudgetRow {
   month: string;
@@ -300,7 +301,8 @@ export function financeService(d: HotelDeps, x: { reports: ReportsService }) {
           const fund = (await F.ledgerTotals(t, s.property.id, "1900-01-01", s.property.business_date)).net(
             ACC.ffeReserve,
           );
-          if (fund < b.costMinor) throw fail.conflict(`The FF&E reserve holds ${fund}`);
+          if (fund < b.costMinor)
+            throw fail.conflict(`The FF&E reserve holds ${formatMoney(fund, s.entitlement.org.currency)}`);
         }
         const number = await nextNumber(t, s.orgId, "FA", 5);
         const from = { bank: ACC.bank, payable: ACC.payables, ffe_reserve: ACC.ffeReserve }[b.fundedFrom];

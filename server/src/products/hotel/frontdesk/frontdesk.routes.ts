@@ -74,6 +74,7 @@ export function frontdeskRoutes(
     route(hotel.requestRefund, async (req) =>
       F.requestRefund(await g.hotel(req, "hotel.folio.manage", WRITE), req.params.folioId, req.body),
     ),
+    route(hotel.listRefunds, async (req) => F.listRefunds(await g.hotel(req, "hotel.folio.approve"), req.query.status)),
     route(hotel.approveRefund, async (req) =>
       F.approveRefund(await g.hotel(req, "hotel.folio.approve", WRITE), req.params.refundId),
     ),

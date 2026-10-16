@@ -23,6 +23,9 @@ export const TrialPolicy = z.object({
   atExpiry: z.literal("read_only"),
   keepRecords: z.literal(true),
   exportAllowed: z.boolean(),
+  /** On: an unverified sign-up is suspended only while an e-mail provider is configured (nobody is suspended for a
+   * link that could never reach them). */
+  suspendUnverifiedRequiresDelivery: z.boolean(),
   updatedAt: IsoDateTime,
 });
 export type TrialPolicy = z.infer<typeof TrialPolicy>;
@@ -33,25 +36,39 @@ export const getPolicy = endpoint({
   path: "/api/v1/public/trial-policy",
   auth: "public",
   summary: "The platform trial policy every product follows (trial and grace days, reminders, what happens at expiry)",
-  response: TrialPolicy.omit({ updatedAt: true, repeatWindowDays: true, repeatMatch: true }),
+  response: TrialPolicy.omit({
+    updatedAt: true,
+    repeatWindowDays: true,
+    repeatMatch: true,
+    suspendUnverifiedRequiresDelivery: true,
+  }),
 });
 
-/** Public registration metadata; no staff catalogue or organisation records are exposed. */
+/**
+ * Public registration metadata: whether sign-up is open, the terms to accept, the trial length of the platform trial
+ * policy and every self-service plan with its tier, modules and price (catalogue rows; none is in code). Enterprise
+ * and unpriced plans are agreed with PALTAS and are not listed. No staff or organisation record is exposed.
+ */
 export const getOptions = endpoint({
   id: "signup.options",
   method: "GET",
   path: "/api/v1/public/signup-options",
   auth: "public",
-  summary: "Available signup plans, current terms and whether registration is open",
+  summary: "Available signup plans (tier, modules, price), current terms, trial days and whether registration is open",
   response: z.object({
     enabled: z.boolean(),
     termsVersion: z.string(),
     termsUrl: z.string().nullable(),
+    trialDays: z.number().int(),
     plans: z.array(
       z.object({
         id: z.string(),
         name: z.string(),
         product: Product,
+        tier: z.enum(["Standard", "Pro", "Enterprise"]).nullable(),
+        /** The modules the plan includes, named in words. */
+        modules: z.array(z.object({ key: z.string(), name: z.string() })),
+        /** Amount in major units (e.g. 150000 = KES 150,000) per billing period. */
         price: z.object({
           amount: z.number(),
           currency: z.string(),

@@ -67,6 +67,32 @@ services:
       # the server refuses to start in production with sign-up on and a local address here.
       - key: APP_BASE_URL
         value: https://paltas.io
+      # PALTAS's own e-mail (verification, password reset, trial notices). Gmail over SMTP for now:
+      # smtp.gmail.com:465 (implicit TLS) with a Google "App password" (2-step verification on the account).
+      # SMTP reports acceptance only: messages become "sent (accepted by mail server)", never "delivered".
+      # Without SMTP_PASSWORD the server still starts: messages stay "recorded — not sent" and production sign-up
+      # stays closed. If this Render plan blocks outbound 465/587, switch to PLATFORM_EMAIL_PROVIDER=resend with
+      # RESEND_API_KEY and a verified sending domain.
+      - key: PLATFORM_EMAIL_PROVIDER
+        value: smtp
+      - key: PLATFORM_EMAIL_FROM
+        value: "PALTAS <supportpaltas@gmail.com>"
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "465"
+      - key: SMTP_USER
+        value: supportpaltas@gmail.com
+      - key: SMTP_PASSWORD
+        sync: false
+      # Only for PLATFORM_EMAIL_PROVIDER=resend (later): the API key and the delivery-webhook signing secret
+      - key: RESEND_API_KEY
+        sync: false
+      - key: PLATFORM_EMAIL_WEBHOOK_SECRET
+        sync: false
+      # The published terms page; production sign-up stays closed until it is an https address
+      - key: SIGNUP_TERMS_URL
+        sync: false
 
 databases:
   - name: paltas-v2-db

@@ -25,6 +25,7 @@ import {
   splitProportionally,
   sum,
 } from "../shared/util.js";
+import { formatMoney } from "../../../lib/money.js";
 
 /** Who runs billing: a member (their scope) or the PALTAS scheduler (no user). */
 export type BillingOp = Pick<OrgScope, "orgId" | "actor" | "today"> & { userId: string | null };
@@ -356,7 +357,9 @@ export function billingService(d: PmDeps) {
         await t.run("SELECT 1 FROM pm_invoices WHERE org_id = $1 AND id = $2 FOR UPDATE", [s.orgId, invoiceId]);
         const inv = await R.invoiceRow(t, s.orgId, invoiceId);
         if (b.amountMinor > R.balanceOf(inv))
-          throw fail.conflict(`Only ${R.balanceOf(inv)} of ${inv.number} is unpaid — a credit note cannot exceed it`);
+          throw fail.conflict(
+            `Only ${formatMoney(R.balanceOf(inv), s.entitlement.org.currency)} of ${inv.number} is unpaid — a credit note cannot exceed it`,
+          );
         const id = newId("pcn");
         const number = await nextNumber(t, numberScope(s.orgId), "CN", 5);
         await t.run(

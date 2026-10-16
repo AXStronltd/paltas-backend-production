@@ -34,6 +34,7 @@ import {
   POSTED,
   settleBankChanges,
 } from "../procurement/procurement.service.js";
+import { formatMoney } from "../../../lib/money.js";
 
 type Body<E extends { body: z.ZodType }> = z.output<E["body"]>;
 type Out<T extends z.ZodType> = z.input<T>;
@@ -305,7 +306,9 @@ export function payablesService(core: CoreServices) {
       const net = lines.length ? lines.reduce((n, l) => n + lineAmount(l.qty, l.unitPriceMinor), 0) : b.netMinor;
       if (net === undefined) throw fail.invalid("Give the invoice lines or the net amount");
       if (lines.length && b.netMinor !== undefined && b.netMinor !== net)
-        throw fail.invalid(`The net amount (${b.netMinor}) is not the total of the lines (${net})`);
+        throw fail.invalid(
+          `The net amount (${formatMoney(b.netMinor, s.entitlement.org.currency)}) is not the total of the lines (${formatMoney(net, s.entitlement.org.currency)})`,
+        );
       if (b.evidenceDocumentId) await requireDocument(t, s.orgId, b.evidenceDocumentId);
       const a = amounts(net, b.vatBp, b.whtBp, retentionBp);
       const id = newId("dsi");
@@ -581,7 +584,10 @@ export function payablesService(core: CoreServices) {
       );
       const left = (m?.held ?? 0) - (m?.released ?? 0);
       if (b.amountMinor > left)
-        throw fail.invalid(`Only ${left} of retention is held on this contract`, { heldMinor: left });
+        throw fail.invalid(
+          `Only ${formatMoney(left, s.entitlement.org.currency)} of retention is held on this contract`,
+          { heldMinor: left },
+        );
       const id = newId("dsi");
       const no = `RET-${po.number ?? po.id}-${(m?.n ?? 0) + 1}`;
       await t.run(

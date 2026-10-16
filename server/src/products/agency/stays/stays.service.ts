@@ -27,6 +27,7 @@ import { findContact, linkContact, type Person } from "../shared/contacts.js";
 import { quote } from "../shared/quote.js";
 import { daysBetween, exclusive, shareOf, unique } from "../shared/util.js";
 import { findStay, STAY_SQL, toStay, type StayRow } from "./stays.repo.js";
+import { formatMoney } from "../../../lib/money.js";
 
 export const TAKEN = "Those nights are already booked or blocked";
 
@@ -298,7 +299,9 @@ export function staysService(d: AgencyDeps) {
           if (!["confirmed", "checked_in", "completed"].includes(r.status))
             throw fail.conflict(`A ${r.status} booking takes no payment`);
           if (b.amountMinor > r.total_minor - r.paid_minor)
-            throw fail.invalid(`At most ${r.total_minor - r.paid_minor} is still due on this stay`);
+            throw fail.invalid(
+              `At most ${formatMoney(r.total_minor - r.paid_minor, s.entitlement.org.currency)} is still due on this stay`,
+            );
           const credit = r.status === "completed" ? ACC.guestReceivable : ACC.guestDeposits;
           lines = [
             { account: ACC.bank, debitMinor: b.amountMinor, dimensions: dims },
@@ -306,7 +309,10 @@ export function staysService(d: AgencyDeps) {
           ];
         } else {
           if (r.status === "completed") throw fail.conflict("After check-out, correct the stay with a journal");
-          if (b.amountMinor > r.paid_minor) throw fail.invalid(`At most ${r.paid_minor} was paid on this stay`);
+          if (b.amountMinor > r.paid_minor)
+            throw fail.invalid(
+              `At most ${formatMoney(r.paid_minor, s.entitlement.org.currency)} was paid on this stay`,
+            );
           lines = [
             { account: ACC.guestDeposits, debitMinor: b.amountMinor, dimensions: dims },
             { account: ACC.bank, creditMinor: b.amountMinor, dimensions: dims },
@@ -370,7 +376,9 @@ export function staysService(d: AgencyDeps) {
         await t.run("SELECT 1 FROM contacts WHERE id = $1 FOR UPDATE", [owner.id]);
         const bal = await ownerBalance(t, s, owner.id, owner.name);
         if (b.amountMinor > bal.dueMinor)
-          throw fail.invalid(`${owner.name} is due ${bal.dueMinor} — no more can be paid out`);
+          throw fail.invalid(
+            `${owner.name} is due ${formatMoney(bal.dueMinor, s.entitlement.org.currency)} — no more can be paid out`,
+          );
         const id = newId("po");
         await t.run(
           `INSERT INTO agency_payouts (id, org_id, number, owner_contact_id, amount_minor, note, prepared_by)
@@ -415,7 +423,9 @@ export function staysService(d: AgencyDeps) {
             value: p.owner_contact_id,
           }));
           if (p.amount_minor > owed)
-            throw fail.conflict(`${p.owner_name} is owed ${owed} in the ledger — less than this payout`);
+            throw fail.conflict(
+              `${p.owner_name} is owed ${formatMoney(owed, s.entitlement.org.currency)} in the ledger — less than this payout`,
+            );
           const j = await post(d.core, t, {
             orgId: s.orgId,
             date: s.today,

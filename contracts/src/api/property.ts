@@ -667,6 +667,7 @@ export const DocumentRecord = z.object({
   id: z.string(),
   name: z.string(),
   docType: z.string(),
+  fileStored: z.boolean().default(false),
   linkEntity: z.string().nullable(),
   linkId: z.string().nullable(),
   filename: z.string(),
@@ -2061,6 +2062,46 @@ export const listDocuments = endpoint({
   params: OrgParams,
   query: z.object({ linkEntity: z.enum(DOCUMENT_LINKS).optional(), linkId: Id.optional() }),
   response: z.object({ documents: z.array(DocumentRecord) }),
+});
+
+/** Document bytes stay private; access always passes the organisation gate. Files are never served inline. */
+const DocumentFile = z.object({
+  filename: z
+    .string()
+    .trim()
+    .min(1)
+    .max(200)
+    .regex(/^[^\\/]+$/)
+    .refine(
+      (value) => [...value].every((c) => c.charCodeAt(0) > 31 && c.charCodeAt(0) !== 127),
+      "Filename contains control characters",
+    ),
+  mediaType: z.enum(["application/pdf", "image/png", "image/jpeg", "text/plain", "text/csv"]),
+  contentBase64: z
+    .string()
+    .min(4)
+    .max(2796204)
+    .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+});
+const DocumentParams = OrgParams.extend({ documentId: Id });
+export const uploadDocumentFile = endpoint({
+  id: "property.documents.upload",
+  method: "POST",
+  path: `${Base}/documents/:documentId/file`,
+  auth: "user",
+  summary: "Store a private document file up to 2 MiB; 256 MiB total per company",
+  params: DocumentParams,
+  body: DocumentFile,
+  response: z.object({ stored: z.literal(true), sizeBytes: z.number().int(), sha256: z.string() }),
+});
+export const downloadDocumentFile = endpoint({
+  id: "property.documents.download",
+  method: "GET",
+  path: `${Base}/documents/:documentId/file`,
+  auth: "user",
+  summary: "Read private document bytes after company and permission checks; treat downloads as untrusted files",
+  params: DocumentParams,
+  response: DocumentFile.extend({ sha256: z.string() }),
 });
 
 // ---- bank reconciliation

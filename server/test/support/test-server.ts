@@ -10,7 +10,7 @@ import { randomBytes } from "node:crypto";
 import pg from "pg";
 import { createClient, type PaltasClient } from "@paltas/api-client";
 import type { Product, Role } from "@paltas/contracts";
-import { buildApp, type App } from "../../dist/app.js";
+import { buildApp, type App, type AppOptions } from "../../dist/app.js";
 import { loadConfig, type Config } from "../../dist/config.js";
 import { connect } from "../../dist/db/database.js";
 import { createUser } from "../../dist/core/identity/identity.service.js";
@@ -66,7 +66,7 @@ export interface TestServer {
 let counter = 0;
 
 export async function startServer(
-  o: { products?: ProductModule[]; config?: Partial<Config> } = {},
+  o: { products?: ProductModule[]; config?: Partial<Config>; emailTransport?: AppOptions["emailTransport"] } = {},
 ): Promise<TestServer> {
   const name = `paltas_test_${process.pid}_${++counter}_${randomBytes(3).toString("hex")}`;
   const admin = new pg.Client({ connectionString: adminUrl() });
@@ -86,7 +86,12 @@ export async function startServer(
     o.config,
   );
   const db = connect(config.databaseUrl, 5);
-  const app = await buildApp(config, { db, products: o.products ?? [], migrate: false });
+  const app = await buildApp(config, {
+    db,
+    products: o.products ?? [],
+    migrate: false,
+    ...(o.emailTransport ? { emailTransport: o.emailTransport } : {}),
+  });
   await app.server.listen({ host: "127.0.0.1", port: 0 });
   const addr = app.server.server.address();
   const base = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;

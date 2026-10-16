@@ -30,6 +30,7 @@ import type { HotelScope } from "../shared/access.js";
 import { cr, dr, lockBusinessDate, postToLedger } from "../shared/posting.js";
 import { applyTaxes } from "../shared/tax.js";
 import * as repo from "./folios.repo.js";
+import { formatMoney } from "../../../lib/money.js";
 
 export interface ChargeInput {
   department: hotel.HotelDepartment;
@@ -352,7 +353,8 @@ export function foliosService(d: HotelDeps) {
   async function close(t: Db, op: HotelOp, folioId: string): Promise<void> {
     const f = await repo.folioRow(t, op.property.id, folioId, true);
     const bal = await repo.balance(t, folioId);
-    if (bal !== 0) throw fail.conflict(`Folio ${f.number} does not balance (${bal})`);
+    if (bal !== 0)
+      throw fail.conflict(`Folio ${f.number} does not balance (${formatMoney(bal, op.property.currency)})`);
     await t.run("UPDATE hotel_folios SET status = 'closed', closed_at = now() WHERE id = $1", [folioId]);
     await recordAudit(t, { actor: op.actor, orgId: op.orgId, action: "Folio closed", target: f.number });
   }
@@ -400,7 +402,9 @@ export function foliosService(d: HotelDeps) {
     };
     const net = a.amountMinor ?? left.net;
     if (net <= 0 || net > left.net)
-      throw fail.invalid(`At most ${left.net} of this charge's net can still be comped or discounted`);
+      throw fail.invalid(
+        `At most ${formatMoney(left.net, op.property.currency)} of this charge's net can still be comped or discounted`,
+      );
     const part = (rest: number, whole: number) =>
       net === left.net ? rest : Math.min(rest, Math.round((whole * net) / l.net_minor));
     const parts = {
@@ -739,7 +743,9 @@ export function foliosService(d: HotelDeps) {
         const f = await repo.folioRow(t, s.property.id, folioId, true);
         const bal = await repo.balance(t, folioId);
         if (b.amountMinor > -bal)
-          throw fail.invalid(`The folio holds a credit of ${Math.max(0, -bal)}; refund at most that`);
+          throw fail.invalid(
+            `The folio holds a credit of ${formatMoney(Math.max(0, -bal), s.property.currency)}; refund at most that`,
+          );
         await t.run(
           `INSERT INTO hotel_refunds (id, org_id, property_id, folio_id, amount_minor, method, reason, requested_by)
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -754,6 +760,44 @@ export function foliosService(d: HotelDeps) {
         });
       });
       return refund(id);
+    },
+
+    /** Refunds of this hotel, newest first (status "requested" = waiting for a second person to approve). */
+    async listRefunds(s: HotelScope, status?: "requested" | "approved") {
+      const rows = await db.rows<{
+        id: string;
+        folio_id: string;
+        amount_minor: number;
+        method: hotel.PaymentMethod;
+        reason: string;
+        status: "requested" | "approved";
+        requested_by: string;
+        approved_by: string | null;
+        created_at: string;
+        folio_number: string;
+        guest_name: string;
+      }>(
+        `SELECT r.*, f.number AS folio_number, f.name AS guest_name FROM hotel_refunds r
+         JOIN hotel_folios f ON f.id = r.folio_id
+         WHERE r.org_id = $1 AND r.property_id = $2 AND ($3::text IS NULL OR r.status = $3)
+         ORDER BY r.created_at DESC, r.id`,
+        [s.orgId, s.property.id, status ?? null],
+      );
+      return {
+        refunds: rows.map((r) => ({
+          id: r.id,
+          folioId: r.folio_id,
+          amountMinor: Number(r.amount_minor),
+          method: r.method,
+          reason: r.reason,
+          status: r.status,
+          requestedBy: r.requested_by,
+          approvedBy: r.approved_by,
+          folioNumber: r.folio_number,
+          guestName: r.guest_name,
+          requestedAt: new Date(r.created_at).toISOString(),
+        })),
+      };
     },
 
     async approveRefund(s: HotelScope, refundId: string) {

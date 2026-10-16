@@ -50,6 +50,8 @@ export interface AppOptions {
   products?: ProductModule[];
   /** Run migrations at start-up (default true). */
   migrate?: boolean;
+  /** Tests only: reach the e-mail provider through local fake servers (a fetch, the fake SMTP certificate). */
+  emailTransport?: AppContext["emailTransport"];
 }
 
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<App> {
@@ -73,6 +75,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     log: server.log,
     secrets: secretBox(config.secretsKey),
     products: new ProductRegistry(options.products ?? PRODUCTS),
+    ...(options.emailTransport ? { emailTransport: options.emailTransport } : {}),
   };
   const core = createCoreServices(ctx);
 
@@ -96,7 +99,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       ),
   });
   server.addHook("onSend", async (_req, reply, payload) => {
-    reply.header("Cache-Control", "no-store");
+    // nothing is cached, except the public read-only answers a route marked cacheable (route.ts)
+    if (!reply.hasHeader("Cache-Control")) reply.header("Cache-Control", "no-store");
     return payload;
   });
   // keep the exact bytes: webhook signatures are computed over them
@@ -139,7 +143,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
 
   // ---- routes: core first, then each product
   const routes: Route[] = [
-    ...identityRoutes(ctx, core.identity),
+    ...identityRoutes(ctx, core.identity, core.passwordReset),
     ...organisationsRoutes(core),
     ...subscriptionsRoutes(core),
     ...paymentsRoutes(core.payments),
@@ -147,7 +151,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     ...adminRoutes(core),
     ...migrationRoutes(core),
     ...opsRoutes(ctx, core),
-    ...notificationsRoutes(core),
+    ...notificationsRoutes(core, config),
     ...providersRoutes(core),
     ...contactsRoutes(core),
     ...signupRoutes(core),
@@ -164,7 +168,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       login: config.loginRateLimitPerMinute,
       sensitive: config.sensitiveRateLimitPerMinute,
       webhook: config.webhookRateLimitPerMinute,
+      publicRead: config.publicRead.perMinute,
     },
+    config.publicRead.cacheSeconds,
   );
 
   // scheduled jobs: the platform's own (registered by the core) and each product's

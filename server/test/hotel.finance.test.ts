@@ -132,7 +132,7 @@ describe("hotel finance: budgets, manager's report, fixed assets, FF&E", () => {
       fundedFrom: "ffe_reserve" as const,
     };
     await expect(api(st.accountant).createAsset({ params: P, body: { ...fund, costMinor: 100_000 } })).rejects.toThrow(
-      /FF&E reserve holds 48000/,
+      /FF&E reserve holds [A-Z]{3} 480\.00/,
     );
     await api(st.accountant).createAsset({ params: P, body: { ...fund, costMinor: 40_000 } });
     const v = await api(st.general_manager).ffeReserve({ params: P });

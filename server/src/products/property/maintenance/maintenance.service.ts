@@ -16,6 +16,8 @@ import { settingsOf } from "../setup/setup.service.js";
 import { numberScope } from "../shared/money.js";
 import * as R from "../shared/records.js";
 import { addDays } from "../shared/util.js";
+import { formatMoney } from "../../../lib/money.js";
+import { orgCurrency } from "../shared/money.js";
 
 interface RequestRow {
   id: string;
@@ -243,7 +245,9 @@ export function maintenanceService(d: PmDeps) {
       if (!UNLIMITED.includes(by.role)) {
         const limit = (await settingsOf(t, orgId)).poLimits[by.role] ?? 0;
         if ((w.po_amount_minor ?? 0) > limit)
-          throw fail.forbidden(`Above your approval limit (${limit}) — the finance director must approve it`);
+          throw fail.forbidden(
+            `Above your approval limit (${formatMoney(limit, await orgCurrency(t, orgId))}) — the finance director must approve it`,
+          );
       }
       await t.run("UPDATE pm_work_orders SET po_approved_by = $2 WHERE id = $1", [id, by.userId]);
     }

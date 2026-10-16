@@ -458,5 +458,6 @@ describe("ledger", () => {
       "MODULE_NOT_ENTITLED",
     );
     expect(r.details).toMatchObject({ module: "finance", canBuy: true });
+    expect(r.message).toMatch(/^Finance and Accounting is not in your plan/);
   });
 });

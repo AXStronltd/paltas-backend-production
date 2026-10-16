@@ -31,3 +31,15 @@ export function toMinor(major: number, currency: string): number {
 export function toMajor(minor: number, currency: string): number {
   return minor / 10 ** decimalsOf(currency);
 }
+
+/**
+ * An amount as people read it in a message: "KES 66,300.00" (minor units in, the currency's own decimals out).
+ * Every server message that quotes money uses this; raw minor units never reach a person.
+ */
+export function formatMoney(minor: number, currency: string): string {
+  const d = decimalsOf(currency);
+  const n = new Intl.NumberFormat("en-GB", { minimumFractionDigits: d, maximumFractionDigits: d }).format(
+    toMajor(minor, currency),
+  );
+  return `${currency} ${n}`;
+}

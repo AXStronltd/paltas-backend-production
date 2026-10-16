@@ -462,6 +462,45 @@ export function setupService(d: SecurityDeps) {
       });
     },
 
+    /** Change only the fields sent; the change is audited with the values before and after. */
+    async updateSite(s: OrgScope, siteId: string, b: Body<typeof security.updateSite>) {
+      return db.tx(async (t) => {
+        const before = await findSite(t, s.orgId, siteId);
+        if (b.clientId) await findClient(t, s.orgId, b.clientId);
+        const has = (k: keyof typeof b) => b[k] !== undefined;
+        await t.run(
+          `UPDATE sec_sites SET client_id = $3, name = $4, area = $5, kind = $6, risk = $7, lat = $8, lng = $9,
+             radius_m = $10, instructions = $11, alarm_provider = $12, alarm_account_ref = $13
+           WHERE org_id = $1 AND id = $2`,
+          [
+            s.orgId,
+            siteId,
+            has("clientId") ? b.clientId : before.client_id,
+            b.name ?? before.name,
+            b.area ?? before.area,
+            b.kind ?? before.kind,
+            b.risk ?? before.risk,
+            has("geofence") ? (b.geofence?.lat ?? null) : before.lat,
+            has("geofence") ? (b.geofence?.lng ?? null) : before.lng,
+            has("geofence") ? (b.geofence?.radiusM ?? null) : before.radius_m,
+            b.instructions ?? before.instructions,
+            has("alarmMonitoring") ? (b.alarmMonitoring?.provider ?? null) : before.alarm_provider,
+            has("alarmMonitoring") ? (b.alarmMonitoring?.accountRef ?? null) : before.alarm_account_ref,
+          ],
+        );
+        const after = await findSite(t, s.orgId, siteId);
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Security site changed",
+          target: siteId,
+          before: toSite(before),
+          after: toSite(after),
+        });
+        return toSite(after);
+      });
+    },
+
     async updatePostOrder(s: OrgScope, postId: string, text: string) {
       return db.tx(async (t) => {
         const n = await t.run(

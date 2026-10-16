@@ -13,7 +13,7 @@ import type { Readable } from "node:stream";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { SessionUser } from "../core/identity/identity.service.js";
 import { fail } from "./errors.js";
-import { rateLimitFor, type RateLimits } from "./rate-limits.js";
+import { PUBLIC_READ_IDS, rateLimitFor, type RateLimits } from "./rate-limits.js";
 
 type Def = EndpointDefinition<
   z.ZodType<Record<string, unknown>>,
@@ -41,6 +41,8 @@ export interface Route {
   handler(req: RequestContext<Def>): Promise<unknown>;
   /** The handler answers with a stream (large exports) instead of one object. */
   stream?: true;
+  /** Per-route upload cap; the default JSON limit remains unchanged. */
+  bodyLimit?: number;
 }
 
 export interface StreamedAnswer {
@@ -85,9 +87,15 @@ function parse<T extends z.ZodType>(schema: T, value: unknown, part: string): z.
   return r.data;
 }
 
-export function registerRoutes(app: FastifyInstance, deps: RouteDependencies, routes: Route[], limits: RateLimits) {
+export function registerRoutes(
+  app: FastifyInstance,
+  deps: RouteDependencies,
+  routes: Route[],
+  limits: RateLimits,
+  publicCacheSeconds = 0,
+) {
   const seen = new Set<string>();
-  for (const { endpoint, handler, stream } of routes) {
+  for (const { endpoint, handler, stream, bodyLimit } of routes) {
     const key = `${endpoint.method} ${endpoint.path}`;
     if (seen.has(key)) throw new Error(`Two handlers for ${key}`);
     seen.add(key);
@@ -96,6 +104,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDependencies, ro
     app.route({
       method: endpoint.method,
       url: endpoint.path,
+      ...(bodyLimit ? { bodyLimit } : {}),
       config: rateLimit ? { rateLimit } : {},
       handler: async (request: FastifyRequest, reply) => {
         const user = await caller(endpoint, request, deps);
@@ -121,13 +130,17 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDependencies, ro
         }
         const checked = endpoint.response.safeParse(out);
         if (!checked.success) {
+          // a response can hold secrets (a temporary password, a reset link): nothing derived from it is logged
           request.log.error(
-            { endpoint: endpoint.id, issues: checked.error.issues },
+            { route: `${request.method} ${request.routeOptions.url}`, issueCount: checked.error.issues.length },
             "Response does not match its contract",
           );
-          throw new Error(`Response for ${endpoint.id} does not match its contract`);
+          throw new Error(`Response for ${request.method} ${request.routeOptions.url} does not match its contract`);
         }
         reply.status(endpoint.status);
+        // the same answer for everyone: browsers and the front end's CDN may keep it for a while
+        if (PUBLIC_READ_IDS.has(endpoint.id) && publicCacheSeconds > 0)
+          reply.header("Cache-Control", `public, max-age=${publicCacheSeconds}`);
         return checked.data;
       },
     });

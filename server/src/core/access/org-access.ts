@@ -122,7 +122,7 @@ export function requireModule(s: OrgScope, key: string): void {
   if (ent.modules[key]) return;
   const st = ent.moduleState[key];
   const q = entitlements.canBuy(catalogue, view, key, s.today);
-  const name = catalogue.modules.find((m) => m.key === key)?.name ?? key;
+  const name = entitlements.moduleName(catalogue, key);
   throw fail.moduleNotEntitled(`${name} is not in your plan. Existing records stay readable.`, {
     module: key,
     reason: st?.why || "Not in your plan",

@@ -208,7 +208,7 @@ describe("self-service upgrade and payment", () => {
     const run = (await sa.api.ops.listRuns({ params: { jobId: jobs[0]!.id } })).runs[0]!;
     expect([run.status, run.summary]).toEqual([
       "succeeded",
-      expect.stringMatching(/trial reminder\(s\) .* recorded \(outbox, not sent\)/),
+      expect.stringMatching(/trial reminder\(s\) .* recorded in the outbox/),
     ]);
   });
 });

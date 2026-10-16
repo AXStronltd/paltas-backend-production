@@ -347,6 +347,8 @@ export const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
       ...DEV_ALL,
       "hotel.read",
       "hotel.setup",
+      // the person who signs up finishes the first-run set-up alone: prices and rate plans
+      "hotel.rates.manage",
       "hotel.group.read",
       "agency.read",
       "agency.listings.manage",
@@ -356,16 +358,22 @@ export const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
       "security.read",
       "security.setup",
       "security.guards.manage",
+      // first-run set-up alone: the first roster, the reception desk and the control room
+      "security.roster.manage",
+      "security.visitors",
+      "security.control",
       "security.access.manage",
       "security.reports.read",
       "notifications.read",
       "notifications.manage",
-      // property management: sets up the portfolio and the team; money is decided by finance
+      // The company owner can run its daily property workflows. Money approvals remain separate capabilities
+      // and still require another person under each record's maker/checker rules.
       ...PM_CONTACTS,
       "contacts.merge",
-      "property.read",
-      "property.setup",
-      "property.reports.read",
+      ...PM_OPERATIONS,
+      "property.billing",
+      "property.payments.record",
+      "property.bills.submit",
     ],
   },
   finance_director: {

@@ -1,11 +1,14 @@
 // The notifications outbox: every e-mail, SMS, WhatsApp message and push notification any product wants to send is
 // RECORDED here first, with its template, the organisation's sender settings and a consent check.
 //
-//   recorded → queued (handed to a provider adapter) → sent / failed (ONLY when the provider reports it, through the
-//   signed delivery webhook).  suppressed = refused by the consent rules, never handed to anyone.
+//   recorded → sent (a real provider ACCEPTED it and returned its message id) → delivered / bounced (ONLY from the
+//   provider's signed delivery webhook). queued = handed to the test adapter: nothing sent. failed = refused.
+//   suppressed = refused by the consent rules, never handed to anyone.
 //
-// No live provider is connected yet: every channel uses a test adapter that says "Not connected — test adapter" and
-// never makes a message "sent" (the database refuses "sent" without a real provider's message id).
+// PALTAS's own e-mail goes through SMTP, Resend, Postmark or SendGrid once PLATFORM_EMAIL_PROVIDER and its credentials are
+// set (SMTP: "sent" = accepted by the mail server, never "delivered"); until then, and for
+// SMS, WhatsApp and push, a test adapter says "Not connected — test adapter" and never makes a message "sent" (the
+// database refuses "sent", "delivered" and "bounced" without a real provider's message id).
 import { z } from "zod";
 import { Email, IsoDateTime } from "../common.js";
 import { endpoint } from "../endpoint.js";
@@ -15,7 +18,15 @@ export const CHANNELS = ["email", "sms", "whatsapp", "push"] as const;
 export const Channel = z.enum(CHANNELS);
 export type Channel = z.infer<typeof Channel>;
 
-export const NotificationStatus = z.enum(["recorded", "queued", "sent", "failed", "suppressed"]);
+export const NotificationStatus = z.enum([
+  "recorded",
+  "queued",
+  "sent",
+  "delivered",
+  "bounced",
+  "failed",
+  "suppressed",
+]);
 export type NotificationStatus = z.infer<typeof NotificationStatus>;
 
 /** transactional: about something the person asked for (a booking, an invoice). marketing: anything else. */
@@ -178,6 +189,8 @@ export const Notification = z.object({
   createdAt: IsoDateTime,
   queuedAt: IsoDateTime.nullable(),
   sentAt: IsoDateTime.nullable(),
+  deliveredAt: IsoDateTime.nullable(),
+  bouncedAt: IsoDateTime.nullable(),
   failedAt: IsoDateTime.nullable(),
 });
 export type Notification = z.infer<typeof Notification>;
@@ -248,4 +261,20 @@ export const deliveryWebhook = endpoint({
   params: z.object({ provider: z.string().regex(/^[a-z0-9_-]{2,40}$/) }),
   body: DeliveryReport,
   response: z.object({ duplicate: z.boolean(), messageId: z.string(), status: NotificationStatus }),
+});
+
+/**
+ * The configured e-mail provider's own delivery webhook (Resend, Postmark or SendGrid), verified with that provider's
+ * documented scheme (Svix signature, basic auth, signed event webhook — PLATFORM_EMAIL_WEBHOOK_SECRET). Delivered → delivered,
+ * bounced / dropped → bounced. Any other provider answers 404.
+ */
+export const emailWebhook = endpoint({
+  id: "webhooks.email",
+  method: "POST",
+  path: "/api/v1/webhooks/email/:provider",
+  auth: "public",
+  summary: "Delivery events from the configured e-mail provider (verified with the provider's own signature scheme)",
+  params: z.object({ provider: z.enum(["resend", "postmark", "sendgrid"]) }),
+  body: z.unknown(),
+  response: z.object({ received: z.number().int(), applied: z.number().int() }),
 });

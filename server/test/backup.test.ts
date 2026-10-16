@@ -1,6 +1,7 @@
 // Backup and restore drill: dump a database with financial records, damage it, restore into a fresh database and
-// check every record and total. Production uses managed PostgreSQL backups with point-in-time recovery; this drill
-// proves the procedure and the verification step locally. Skipped when pg_dump/pg_restore are not installed.
+// compare every table and financial total. This isolated drill does not verify managed production retention or PITR.
+// Backup tools are mandatory in CI; developer machines may skip when they are absent.
+import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,6 +24,23 @@ function tool(name: string): string | null {
 }
 const pgDump = tool("pg_dump");
 const pgRestore = tool("pg_restore");
+if (process.env.CI && (!pgDump || !pgRestore))
+  throw new Error("CI requires pg_dump and pg_restore for recovery verification");
+
+async function fingerprint(query: (sql: string) => Promise<any[]>) {
+  const tables = await query("SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename");
+  const result: Record<string, { rows: number; sha256: string }> = {};
+  for (const { tablename } of tables) {
+    const quoted = '"' + String(tablename).replaceAll('"', '""') + '"';
+    const rows = await query(
+      `SELECT row_to_json(t)::text AS record FROM public.${quoted} AS t ORDER BY row_to_json(t)::text`,
+    );
+    const hash = createHash("sha256");
+    for (const row of rows) hash.update(row.record + "\n");
+    result[tablename] = { rows: rows.length, sha256: hash.digest("hex") };
+  }
+  return result;
+}
 
 describe.skipIf(!pgDump || !pgRestore)("backup and restore", () => {
   let S: TestServer;
@@ -55,6 +73,25 @@ describe.skipIf(!pgDump || !pgRestore)("backup and restore", () => {
       await fd.api.ledger.approveJournal({ params: { orgId, journalId: j.id } });
     }
     await admin.api.subscriptions.buyAddon({ params: { orgId }, body: { module: "crm", confirm: "CONFIRM" } });
+    // Include actual private file bytes in the every-table recovery fingerprint.
+    const fileBytes = Buffer.from("Synthetic recovery document\n");
+    await S.sql("INSERT INTO pm_documents(id,org_id,doc_type,filename) VALUES($1,$2,$3,$4)", [
+      "recovery-document",
+      orgId,
+      "test",
+      "recovery.txt",
+    ]);
+    await S.sql(
+      "INSERT INTO pm_document_files(document_id,org_id,filename,media_type,content,sha256) VALUES($1,$2,$3,$4,$5,$6)",
+      [
+        "recovery-document",
+        orgId,
+        "recovery.txt",
+        "text/plain",
+        fileBytes,
+        createHash("sha256").update(fileBytes).digest("hex"),
+      ],
+    );
     const totals = async (q: (sql: string) => Promise<any[]>) => ({
       journals: (await q("SELECT count(*)::int AS n FROM journal_entries"))[0].n,
       lines: (
@@ -66,6 +103,7 @@ describe.skipIf(!pgDump || !pgRestore)("backup and restore", () => {
       audit: (await q("SELECT count(*)::int AS n FROM audit_log"))[0].n,
     });
     const before = await totals((sql) => S.sql(sql));
+    const beforeRows = await fingerprint((sql) => S.sql(sql));
 
     const dir = mkdtempSync(join(tmpdir(), "paltas-backup-"));
     const file = join(dir, "paltas.dump");
@@ -74,7 +112,7 @@ describe.skipIf(!pgDump || !pgRestore)("backup and restore", () => {
     execFileSync(pgDump as string, ["--format=custom", "--file", file, source]);
     const backupMs = Date.now() - t0;
 
-    // damage: remove the source database entirely
+    // Stop the source application; restore only into a separate disposable test database
     await S.app.close();
     const a = new pg.Client({ connectionString: adminUrl() });
     await a.connect();
@@ -89,11 +127,13 @@ describe.skipIf(!pgDump || !pgRestore)("backup and restore", () => {
     const c = new pg.Client({ connectionString: dbUrl(restored) });
     await c.connect();
     const after = await totals(async (sql) => (await c.query(sql)).rows);
+    const afterRows = await fingerprint(async (sql) => (await c.query(sql)).rows);
     // the restored ledger still enforces its rules
     await expect(c.query("UPDATE journal_entries SET memo = 'x'")).rejects.toThrow(/cannot be (changed|edited)/);
     await c.end();
     rmSync(dir, { recursive: true, force: true });
     expect(after).toEqual(before);
-    console.log(JSON.stringify({ backupMs, restoreMs }));
+    expect(afterRows).toEqual(beforeRows);
+    console.log(JSON.stringify({ backupMs, restoreMs, tablesVerified: Object.keys(beforeRows).length }));
   });
 });

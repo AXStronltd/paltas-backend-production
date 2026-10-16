@@ -128,7 +128,9 @@ export function platformJobs(
       defaultCron: "* * * * *",
       async run() {
         const c = await deps.notifications.dispatchPending();
-        return { summary: `${c.queued} queued · ${c.failed} refused by the adapter · ${c.waiting} waiting` };
+        return {
+          summary: `${c.sent} sent (accepted by the provider) · ${c.queued} queued (test adapter, not sent) · ${c.failed} refused · ${c.retrying} to retry · ${c.waiting} waiting`,
+        };
       },
     },
   ];

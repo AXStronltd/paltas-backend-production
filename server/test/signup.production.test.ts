@@ -6,6 +6,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createOrganisationRecords } from "../dist/core/admin/admin.service.js";
+import { loadConfig } from "../dist/config.js";
 import { seedCatalogue } from "../dist/core/catalogue/catalogue.seed.js";
 import { DEFAULTS } from "./support/platform-fixtures.js";
 import { postSignup, signupBody, signupServer } from "./support/signup-fixture.js";
@@ -87,23 +88,53 @@ describe("production: no demo or sample organisations", () => {
     expect(options.body.enabled).toBe(false);
   });
 
+  it("production with Gmail SMTP chosen but no SMTP_PASSWORD yet: starts and answers, sign-up stays closed", async () => {
+    const email = loadConfig({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgres://unused",
+      PLATFORM_EMAIL_PROVIDER: "smtp",
+      SMTP_HOST: "smtp.gmail.com",
+      SMTP_PORT: "465",
+      SMTP_USER: "supportpaltas@gmail.com",
+      PLATFORM_EMAIL_FROM: "PALTAS <supportpaltas@gmail.com>",
+    }).email;
+    expect([email.provider, email.notConfigured]).toEqual([
+      null,
+      "PLATFORM_EMAIL_PROVIDER=smtp needs SMTP_HOST, SMTP_USER and SMTP_PASSWORD",
+    ]);
+    const P = await signupServer({ termsUrl: "https://paltas.example/terms" }, { env: "production", email });
+    try {
+      expect((await P.raw("GET", "/api/v1/health")).status).toBe(200);
+      expect((await P.raw("GET", "/api/v1/public/signup-options")).body.enabled).toBe(false);
+      expect((await postSignup(P, signupBody("property"))).status).toBe(403);
+    } finally {
+      await P.close();
+    }
+  });
+
   it("self-service sign-up in production creates a real (non-demo) organisation with a real trial", async () => {
-    S.app.core.notifications.registerAdapter({
-      key: "platform_resend",
-      channel: "email",
-      label: "Production-gate test adapter",
-      connected: true,
-      status: "Test-only connection",
-      submit: async () => ({ accepted: true, providerMessageId: "test-message", note: "Test only" }),
-    });
-    const b = signupBody("security");
-    expect((await postSignup(S, b)).status).toBe(201);
-    const rows = await S.sql<{ demo: boolean; status: string; staff_role: string | null }>(
-      `SELECT o.demo, s.status, u.staff_role FROM organisations o JOIN subscriptions s ON s.org_id = o.id
-       JOIN memberships m ON m.org_id = o.id JOIN users u ON u.id = m.user_id WHERE u.email = lower($1)`,
-      [b.email],
-    );
-    expect(rows).toEqual([{ demo: false, status: "trial", staff_role: null }]);
-    expect(await S.sql("SELECT 1 FROM organisations WHERE demo")).toEqual([]);
+    const email = loadConfig({
+      NODE_ENV: "test",
+      DATABASE_URL: "postgres://unused",
+      PLATFORM_EMAIL_PROVIDER: "smtp",
+      SMTP_HOST: "smtp.gmail.com",
+      SMTP_USER: "supportpaltas@gmail.com",
+      SMTP_PASSWORD: "test-only-never-used",
+    }).email;
+    // nothing is dispatched here (no scheduler): the configured provider only opens the production gate
+    const P = await signupServer({ termsUrl: "https://paltas.example/terms" }, { env: "production", email });
+    try {
+      const b = signupBody("security");
+      expect((await postSignup(P, b)).status).toBe(201);
+      const rows = await P.sql<{ demo: boolean; status: string; staff_role: string | null }>(
+        `SELECT o.demo, s.status, u.staff_role FROM organisations o JOIN subscriptions s ON s.org_id = o.id
+         JOIN memberships m ON m.org_id = o.id JOIN users u ON u.id = m.user_id WHERE u.email = lower($1)`,
+        [b.email],
+      );
+      expect(rows).toEqual([{ demo: false, status: "trial", staff_role: null }]);
+      expect(await P.sql("SELECT 1 FROM organisations WHERE demo")).toEqual([]);
+    } finally {
+      await P.close();
+    }
   });
 });

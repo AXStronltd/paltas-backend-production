@@ -20,6 +20,7 @@ import { leadEvent } from "../leads/leads.repo.js";
 import { findListing } from "../listings/listings.repo.js";
 import { findContact, tag } from "../shared/contacts.js";
 import { shareOf, toBp, toPct, unique } from "../shared/util.js";
+import { formatMoney } from "../../../lib/money.js";
 
 interface AgreementRow {
   id: string;
@@ -409,7 +410,9 @@ export function dealsService(d: AgencyDeps) {
         const m = await commission(t, s.orgId, id, true);
         if (m.status !== "approved") throw fail.conflict("Only an approved, unpaid commission can receive money");
         if (b.amountMinor > m.total_minor - m.received_minor)
-          throw fail.invalid(`At most ${m.total_minor - m.received_minor} is still due on this commission`);
+          throw fail.invalid(
+            `At most ${formatMoney(m.total_minor - m.received_minor, s.entitlement.org.currency)} is still due on this commission`,
+          );
         if (b.receivedOn > s.today) throw fail.invalid("Money cannot be received in the future");
         const rid = newId("crc");
         const j = await post(d.core, t, {

@@ -17,6 +17,7 @@ import * as folioRepo from "../folios/folios.repo.js";
 import { cr, dr, postToLedger } from "./posting.js";
 import type { PropertyRow } from "./property.js";
 import { applyTaxes } from "./tax.js";
+import { formatMoney } from "../../../lib/money.js";
 
 export type SaleDepartment = Exclude<hotel.HotelDepartment, "noshow">;
 
@@ -129,7 +130,10 @@ export function settler(d: HotelDeps, folios: FoliosService) {
     const due = await folioRepo.balance(t, folioId);
     const paid = sale.settlement.payments.reduce((n, p) => n + p.amountMinor, 0);
     if (paid !== due)
-      throw fail.invalid(`The total with taxes is ${due}; the payments add up to ${paid}`, { totalMinor: due });
+      throw fail.invalid(
+        `The total with taxes is ${formatMoney(due, op.property.currency)}; the payments add up to ${formatMoney(paid, op.property.currency)}`,
+        { totalMinor: due },
+      );
     let tips = 0;
     for (const p of sale.settlement.payments) {
       await folios.payment(t, op, folioId, p);

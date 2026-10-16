@@ -19,6 +19,7 @@ import { findProperty, listPropertyRows, toBp, toProperty } from "../shared/prop
 import { cr, dr, lockBusinessDate, postToLedger } from "../shared/posting.js";
 import { loadRateBook, toRatePlan, toRestriction } from "../shared/rates.js";
 import * as repo from "./setup.repo.js";
+import { formatMoney } from "../../../lib/money.js";
 
 type PropertyInput = z.output<typeof hotel.createProperty.body>;
 type RatePlanInput = z.output<typeof hotel.createRatePlan.body>;
@@ -233,6 +234,15 @@ export function setupService(d: HotelDeps) {
         });
       });
       return toProperty(await findProperty(db, s.orgId, s.property.id));
+    },
+
+    async staff(s: HotelScope) {
+      const rows = await db.rows<{ user_id: string }>(
+        "SELECT user_id FROM hotel_property_staff WHERE org_id = $1 AND property_id = $2",
+        [s.orgId, s.property.id],
+      );
+      // the same order PUT …/staff answers with (JavaScript's sort, not the database collation)
+      return { userIds: rows.map((r) => r.user_id).sort() };
     },
 
     async setStaff(s: HotelScope, userIds: string[]) {
@@ -678,7 +688,9 @@ export function setupService(d: HotelDeps) {
         ]);
         const before = await corporateAccount(t, s.orgId, accountId, s.today);
         if (b.amountMinor > before.balanceMinor)
-          throw fail.invalid(`The account owes ${before.balanceMinor}; record at most that amount`);
+          throw fail.invalid(
+            `The account owes ${formatMoney(before.balanceMinor, s.entitlement.org.currency)}; record at most that amount`,
+          );
         const id = newId("hcl");
         const journalId = await postToLedger(t, core, {
           orgId: s.orgId,

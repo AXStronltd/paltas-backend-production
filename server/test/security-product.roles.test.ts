@@ -70,8 +70,8 @@ describe("security roles and separation of duties", () => {
     await no(
       sec(st.guardA).acknowledgeAlarm({ params: { orgId, alarmId: "x" }, body: { at: eat("2026-10-11", "10:00") } }),
     );
-    // gate officers: visitors and the book only
-    await no(sec(st.gate_officer).listSites({ params: P() }));
+    // gate officers: visitors and the book only (they may list the sites to choose the desk's site)
+    expect((await sec(st.gate_officer).listSites({ params: P() })).sites.length).toBeGreaterThan(0);
     await no(
       sec(st.gate_officer).raiseAlarm({
         params: P(),

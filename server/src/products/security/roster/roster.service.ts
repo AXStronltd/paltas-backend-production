@@ -16,6 +16,7 @@ import type { Db } from "../../../db/database.js";
 import { fail } from "../../../http/errors.js";
 import { newId } from "../../../lib/ids.js";
 import type { SecurityDeps } from "../deps.js";
+import { patrolOut } from "../field/field.service.js";
 import { insertAlarm, writeOccurrence } from "../field/records.js";
 import { loadSettings } from "../setup/setup.service.js";
 import { actingGuard, findGuard, type GuardRow } from "../shared/access.js";
@@ -152,6 +153,65 @@ export function rosterService(d: SecurityDeps) {
   }
 
   return {
+    /** The signed-in guard's own duty (security.field): nothing about any other guard. */
+    async myDuty(s: OrgScope, q: z.output<typeof security.myDuty.query>) {
+      const g = await db.row<GuardRow>(
+        "SELECT * FROM sec_guards WHERE org_id = $1 AND user_id = $2 ORDER BY id LIMIT 1",
+        [s.orgId, s.userId],
+      );
+      if (!g) return { guard: null, shifts: [], posts: [], patrols: [] };
+      const rows = await db.rows<ShiftRow>(
+        `SELECT * FROM sec_shifts WHERE org_id = $1 AND guard_id = $2 AND starts_at >= $3 AND starts_at < $4
+         ORDER BY starts_at, id`,
+        [s.orgId, g.id, q.from, q.to],
+      );
+      const posts = await db.rows<{
+        id: string;
+        site_id: string;
+        site_name: string;
+        name: string;
+        order_version: number;
+        order_text: string;
+        acknowledged: boolean;
+      }>(
+        `SELECT p.id, p.site_id, si.name AS site_name, p.name, p.order_version, p.order_text,
+           EXISTS (SELECT 1 FROM sec_post_order_acks a WHERE a.post_id = p.id AND a.version = p.order_version
+             AND a.guard_id = $2) AS acknowledged
+         FROM sec_posts p JOIN sec_sites si ON si.id = p.site_id
+         WHERE p.org_id = $1 AND p.id = ANY($3::text[]) ORDER BY si.name, p.name`,
+        [s.orgId, g.id, [...new Set(rows.map((r) => r.post_id))]],
+      );
+      const patrolIds = await db.rows<{ id: string }>(
+        `SELECT id FROM sec_patrols WHERE org_id = $1 AND guard_id = $2 AND started_at >= $3 AND started_at < $4
+         ORDER BY started_at`,
+        [s.orgId, g.id, q.from, q.to],
+      );
+      const patrols = [];
+      for (const r of patrolIds) patrols.push(await patrolOut(db, s.orgId, r.id));
+      return {
+        guard: {
+          id: g.id,
+          name: g.name,
+          grade: g.grade,
+          status: g.status,
+          licenceNo: g.licence_no,
+          licenceExpiry: g.licence_expiry,
+          homeSiteId: g.home_site_id,
+        },
+        shifts: rows.map(toShift),
+        posts: posts.map((p) => ({
+          id: p.id,
+          siteId: p.site_id,
+          siteName: p.site_name,
+          name: p.name,
+          orderVersion: p.order_version,
+          orderText: p.order_text,
+          acknowledged: p.acknowledged,
+        })),
+        patrols,
+      };
+    },
+
     async listShifts(s: OrgScope, q: z.output<typeof security.listShifts.query>) {
       const rows = await db.rows<ShiftRow>(
         `SELECT * FROM sec_shifts WHERE org_id = $1 AND starts_at >= $2 AND starts_at < $3
