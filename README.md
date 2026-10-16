@@ -196,3 +196,7 @@ The Smart Hotel product (`hotel`), one `ProductModule`. Endpoints: `contracts/sr
   - secrets management;
   - monitoring.
 - **External review.** An independent security review and penetration test.
+
+### Multi-block and custom naming
+
+Property Management supports custom block names and safe block archiving, with active-lease protection and unit toilet/size details. See [multi-block safety and API usage](docs/MULTI-BLOCK-SAFETY.md). This development change requires its own reviewed migration and release.
