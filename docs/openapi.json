@@ -131214,14 +131214,6 @@
                     "minLength": 2,
                     "maxLength": 160
                   },
-                  "partyType": {
-                    "default": "individual",
-                    "type": "string",
-                    "enum": [
-                      "individual",
-                      "company"
-                    ]
-                  },
                   "email": {
                     "type": "string",
                     "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
@@ -131229,32 +131221,6 @@
                   "phone": {
                     "type": "string",
                     "pattern": "^\\+?[\\d\\s().-]{7,20}$"
-                  },
-                  "types": {
-                    "default": [],
-                    "maxItems": 6,
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "enum": [
-                        "tenant",
-                        "owner",
-                        "supplier",
-                        "prospect",
-                        "guarantor",
-                        "other"
-                      ]
-                    }
-                  },
-                  "tags": {
-                    "default": [],
-                    "maxItems": 20,
-                    "type": "array",
-                    "items": {
-                      "type": "string",
-                      "minLength": 1,
-                      "maxLength": 40
-                    }
                   },
                   "taxId": {
                     "type": "string",
@@ -131291,6 +131257,37 @@
                         "minLength": 2,
                         "maxLength": 200
                       }
+                    }
+                  },
+                  "partyType": {
+                    "type": "string",
+                    "enum": [
+                      "individual",
+                      "company"
+                    ]
+                  },
+                  "types": {
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": [
+                        "tenant",
+                        "owner",
+                        "supplier",
+                        "prospect",
+                        "guarantor",
+                        "other"
+                      ]
+                    }
+                  },
+                  "tags": {
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 40
                     }
                   },
                   "userId": {

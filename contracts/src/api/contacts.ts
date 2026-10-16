@@ -181,10 +181,16 @@ export const updateContact = endpoint({
   auth: "user",
   summary: "Change a contact's details, types, tags or consent (a change of email or phone is checked for duplicates)",
   params: ContactParams,
-  body: ContactFields.partial().extend({
-    /** Link a portal sign-in: the person must be a member of the organisation with the tenant or owner role. */
-    userId: Id.nullable().optional(),
-  }),
+  // Zod defaults on optional fields must not turn an omitted patch field into a destructive update.
+  body: ContactFields.omit({ partyType: true, types: true, tags: true })
+    .partial()
+    .extend({
+      partyType: z.enum(["individual", "company"]).optional(),
+      types: z.array(ContactType).max(6).optional(),
+      tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+      /** Link a portal sign-in: the person must be a member of the organisation with the tenant or owner role. */
+      userId: Id.nullable().optional(),
+    }),
   response: Contact,
 });
 
