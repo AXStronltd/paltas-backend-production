@@ -102,6 +102,141 @@ describe("private property document files", () => {
       400,
     );
   });
+  it("allows only the linked tenant or owner to download explicitly shared files", async () => {
+    const o = await pmOrg(S, { name: "Portal Documents" });
+    const manager = o.staff.property_manager;
+    const b = await setUpBuilding(o.orgId, manager, { units: ["T1"] });
+    const tenant = await S.addMember(o.orgId, o.admin.api, "tenant");
+    const stranger = await S.addMember(o.orgId, o.admin.api, "tenant");
+    const owner = await S.addMember(o.orgId, o.admin.api, "owner");
+    const c = (
+      await manager.api.contacts.createContact({
+        params: { orgId: o.orgId },
+        body: { name: "Document Tenant", types: ["tenant"] },
+      })
+    ).contact;
+    const foreign = (
+      await manager.api.contacts.createContact({
+        params: { orgId: o.orgId },
+        body: { name: "Other Tenant", types: ["tenant"] },
+      })
+    ).contact;
+    await o.admin.api.contacts.updateContact({
+      params: { orgId: o.orgId, contactId: c.id },
+      body: { userId: tenant.userId },
+    });
+    await o.admin.api.contacts.updateContact({
+      params: { orgId: o.orgId, contactId: foreign.id },
+      body: { userId: stranger.userId },
+    });
+    await o.admin.api.contacts.updateContact({
+      params: { orgId: o.orgId, contactId: b.ownerId },
+      body: { userId: owner.userId },
+    });
+    const add = async (
+      visibility: "staff" | "tenant" | "owner",
+      linkEntity: "contact" | "property",
+      linkId: string,
+    ) => {
+      const d = await manager.api.property.addDocument({
+        params: { orgId: o.orgId },
+        body: {
+          name: "Shared inspection",
+          docType: "inspection",
+          linkEntity,
+          linkId,
+          filename: file.filename,
+          visibility,
+        },
+      });
+      await manager.api.property.uploadDocumentFile({ params: { orgId: o.orgId, documentId: d.id }, body: file });
+      return d.id;
+    };
+    const shared = await add("tenant", "contact", c.id),
+      privateDoc = await add("staff", "contact", c.id),
+      ownerDoc = await add("owner", "property", b.propertyId);
+    expect(
+      (await tenant.api.property.downloadDocumentFile({ params: { orgId: o.orgId, documentId: shared } }))
+        .contentBase64,
+    ).toBe(file.contentBase64);
+    await refused(stranger.api.property.downloadDocumentFile({ params: { orgId: o.orgId, documentId: shared } }), 404);
+    await refused(
+      tenant.api.property.downloadDocumentFile({ params: { orgId: o.orgId, documentId: privateDoc } }),
+      404,
+    );
+    await refused(tenant.api.property.downloadDocumentFile({ params: { orgId: o.orgId, documentId: ownerDoc } }), 404);
+    expect(
+      (await owner.api.property.ownerPortal({ params: { orgId: o.orgId }, query: {} })).documents.map((d) => d.id),
+    ).toContain(ownerDoc);
+    expect(
+      (await owner.api.property.downloadDocumentFile({ params: { orgId: o.orgId, documentId: ownerDoc } }))
+        .contentBase64,
+    ).toBe(file.contentBase64);
+    await refused(owner.api.property.downloadDocumentFile({ params: { orgId: o.orgId, documentId: shared } }), 404);
+    await refused(
+      tenant.api.property.uploadDocumentFile({ params: { orgId: o.orgId, documentId: shared }, body: file }),
+      403,
+    );
+  });
+
+  it("keeps classified identity and employment files disabled", async () => {
+    const o = await pmOrg(S, { name: "Sensitive document controls" });
+    const b = await setUpBuilding(o.orgId, o.staff.property_manager);
+    for (const docType of ["ID", "Passport", "Payslip", "Tenant screening"]) {
+      const doc = await o.staff.property_manager.api.property.addDocument({
+        params: { orgId: o.orgId },
+        body: {
+          name: "Reference only",
+          docType,
+          linkEntity: "property",
+          linkId: b.propertyId,
+          filename: file.filename,
+          visibility: "staff",
+        },
+      });
+      await refused(
+        o.staff.property_manager.api.property.uploadDocumentFile({
+          params: { orgId: o.orgId, documentId: doc.id },
+          body: file,
+        }),
+        400,
+      );
+    }
+  });
+
+  it("can disable new uploads without disabling metadata", async () => {
+    const stopped = await startPropertyServer({ pmDocumentFileUploadsEnabled: false });
+    try {
+      const o = await pmOrg(stopped),
+        b = await setUpBuilding(o.orgId, o.staff.property_manager);
+      const doc = await o.staff.property_manager.api.property.addDocument({
+        params: { orgId: o.orgId },
+        body: {
+          name: "Metadata remains available",
+          docType: "inspection",
+          linkEntity: "property",
+          linkId: b.propertyId,
+          filename: file.filename,
+          visibility: "staff",
+        },
+      });
+      await refused(
+        o.staff.property_manager.api.property.uploadDocumentFile({
+          params: { orgId: o.orgId, documentId: doc.id },
+          body: file,
+        }),
+        400,
+      );
+      expect(
+        (await o.staff.property_manager.api.property.listDocuments({ params: { orgId: o.orgId } })).documents.map(
+          (d) => d.id,
+        ),
+      ).toContain(doc.id);
+    } finally {
+      await stopped.close();
+    }
+  });
+
   it("records upload and download audit entries without document contents", async () => {
     const a = await S.sql(
       "SELECT action,detail FROM audit_log WHERE org_id=$1 AND target=$2 AND action LIKE 'Document file%'",

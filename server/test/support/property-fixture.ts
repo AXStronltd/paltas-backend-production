@@ -3,13 +3,14 @@
  * a property with units, an owner and a management agreement, and a tenant. Amounts are KES minor units.
  */
 import { randomBytes } from "node:crypto";
+import type { Config } from "../../dist/config.js";
 import type { Role } from "@paltas/contracts";
 import { property } from "../../dist/products/property/index.js";
 import { migrationSettings } from "./migration-fixtures.js";
 import { startServer, type Person, type TestServer } from "./test-server.js";
 
-export async function startPropertyServer(): Promise<TestServer> {
-  return startServer({ products: [property], config: { migration: migrationSettings() } });
+export async function startPropertyServer(config: Partial<Config> = {}): Promise<TestServer> {
+  return startServer({ products: [property], config: { migration: migrationSettings(), ...config } });
 }
 
 export const PM_ROLES = [
