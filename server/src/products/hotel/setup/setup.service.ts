@@ -238,10 +238,11 @@ export function setupService(d: HotelDeps) {
 
     async staff(s: HotelScope) {
       const rows = await db.rows<{ user_id: string }>(
-        "SELECT user_id FROM hotel_property_staff WHERE org_id = $1 AND property_id = $2 ORDER BY user_id",
+        "SELECT user_id FROM hotel_property_staff WHERE org_id = $1 AND property_id = $2",
         [s.orgId, s.property.id],
       );
-      return { userIds: rows.map((r) => r.user_id) };
+      // the same order PUT …/staff answers with (JavaScript's sort, not the database collation)
+      return { userIds: rows.map((r) => r.user_id).sort() };
     },
 
     async setStaff(s: HotelScope, userIds: string[]) {
