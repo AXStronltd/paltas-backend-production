@@ -341,6 +341,10 @@ describe("hotel inventory and group", () => {
       params: PA(),
       body: { userIds: [st.general_manager.userId, st.front_office_manager.userId] },
     });
+    // the assignment can be read back, exactly as saved
+    expect((await st.general_manager.api.hotel.getPropertyStaff({ params: PA() })).userIds).toEqual(
+      [st.general_manager.userId, st.front_office_manager.userId].sort(),
+    );
     const mine = await st.receptionist.api.hotel.listProperties({ params: { orgId } });
     expect(mine.properties.map((p) => p.id)).toEqual([B.propertyId]);
     await refused(st.receptionist.api.hotel.getSetup({ params: PA() }), 404);

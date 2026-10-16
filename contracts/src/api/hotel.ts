@@ -737,6 +737,16 @@ export const updateProperty = endpoint({
   response: Property,
 });
 
+export const getPropertyStaff = endpoint({
+  id: "hotel.properties.staff.get",
+  method: "GET",
+  path: `${P}/staff`,
+  auth: "user",
+  summary: "The members assigned to work at this hotel",
+  params: PropParams,
+  response: z.object({ userIds: z.array(z.string()) }),
+});
+
 export const setPropertyStaff = endpoint({
   id: "hotel.properties.staff",
   method: "PUT",
@@ -1421,6 +1431,19 @@ export const requestRefund = endpoint({
   body: z.object({ amountMinor: PositiveMinorUnits, method: PaymentMethod, reason: Reason }),
   response: Refund,
   status: 201,
+});
+
+export const listRefunds = endpoint({
+  id: "hotel.refunds.list",
+  method: "GET",
+  path: `${P}/refunds`,
+  auth: "user",
+  summary: "Refunds of this hotel, newest first; status=requested lists those waiting for someone to approve them",
+  params: PropParams,
+  query: z.object({ status: z.enum(["requested", "approved"]).optional() }),
+  response: z.object({
+    refunds: z.array(Refund.extend({ folioNumber: z.string(), guestName: z.string(), requestedAt: IsoDateTime })),
+  }),
 });
 
 export const approveRefund = endpoint({

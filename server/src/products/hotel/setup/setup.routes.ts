@@ -13,6 +13,7 @@ export function setupRoutes(access: HotelAccess, S: SetupService) {
     route(hotel.createProperty, async (req) => S.createProperty(await g.org(req, "hotel.setup", WRITE), req.body)),
     route(hotel.getProperty, async (req) => toProperty((await g.hotel(req, "hotel.read")).property)),
     route(hotel.updateProperty, async (req) => S.updateProperty(await g.hotel(req, "hotel.setup", WRITE), req.body)),
+    route(hotel.getPropertyStaff, async (req) => S.staff(await g.hotel(req, "hotel.read"))),
     route(hotel.setPropertyStaff, async (req) =>
       S.setStaff(await g.hotel(req, "hotel.setup", WRITE), req.body.userIds),
     ),

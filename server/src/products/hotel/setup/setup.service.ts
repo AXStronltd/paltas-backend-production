@@ -236,6 +236,14 @@ export function setupService(d: HotelDeps) {
       return toProperty(await findProperty(db, s.orgId, s.property.id));
     },
 
+    async staff(s: HotelScope) {
+      const rows = await db.rows<{ user_id: string }>(
+        "SELECT user_id FROM hotel_property_staff WHERE org_id = $1 AND property_id = $2 ORDER BY user_id",
+        [s.orgId, s.property.id],
+      );
+      return { userIds: rows.map((r) => r.user_id) };
+    },
+
     async setStaff(s: HotelScope, userIds: string[]) {
       const unique = [...new Set(userIds)];
       const members = await db.rows<{ user_id: string }>(

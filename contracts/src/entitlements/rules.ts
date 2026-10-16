@@ -470,7 +470,11 @@ export function canBuy(cat: Catalogue, org: ResolvableOrg, key: string, today: s
     };
   if (s.source === "addon" && !s.cancelsOn)
     return { ok: false, owned: true, why: m.name + " is already active on your subscription" };
-  if (!s.offered) return { ok: false, why: m.name + " is not offered for " + (PRODUCT_NAME[en.product] || en.product) + " workspaces" };
+  if (!s.offered)
+    return {
+      ok: false,
+      why: m.name + " is not offered for " + (PRODUCT_NAME[en.product] || en.product) + " workspaces",
+    };
   if (m.available === false) return { ok: false, why: m.name + " is not available yet" };
   const clash = (m.excludes || []).filter((x) => en.modules[x]);
   if (clash.length)
