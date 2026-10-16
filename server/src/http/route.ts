@@ -130,10 +130,9 @@ export function registerRoutes(
         }
         const checked = endpoint.response.safeParse(out);
         if (!checked.success) {
-          request.log.error(
-            { endpoint: endpoint.id, issues: checked.error.issues },
-            "Response does not match its contract",
-          );
+          // where and why only: a response can hold secrets (a temporary password), so no values are logged
+          const issues = checked.error.issues.map((i) => ({ path: i.path.join("."), code: i.code }));
+          request.log.error({ endpoint: endpoint.id, issues }, "Response does not match its contract");
           throw new Error(`Response for ${endpoint.id} does not match its contract`);
         }
         reply.status(endpoint.status);
