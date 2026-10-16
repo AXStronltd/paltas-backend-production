@@ -58,8 +58,8 @@ services:
         value: "25000"
       # Self-service sign-up and free trials (the trial policy itself is a database row the Super Admin changes)
       - key: SIGNUP_ENABLED
-        value: "false"
-      # Keep disabled until real verification email delivery is connected and tested.
+        value: "true"
+      # Public sign-up is open; it still stays closed automatically until e-mail delivery and the terms URL are set.
       # The version of the published PALTAS terms a sign-up must accept
       - key: SIGNUP_TERMS_VERSION
         value: "2026-10"
@@ -92,7 +92,7 @@ services:
         sync: false
       # The published terms page; production sign-up stays closed until it is an https address
       - key: SIGNUP_TERMS_URL
-        sync: false
+        value: https://paltas.io/terms.html
 
 databases:
   - name: paltas-v2-db
