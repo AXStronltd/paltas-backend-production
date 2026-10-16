@@ -141,3 +141,28 @@ export const confirmMfa = endpoint({
   body: z.object({ code: SixDigitCode }),
   response: Ok,
 });
+
+/** The same answer whether or not the address has an account, so it never tells anyone who uses PALTAS. */
+export const PasswordResetReceived = z.object({ received: z.literal(true), message: z.string() });
+
+export const requestPasswordReset = endpoint({
+  id: "auth.passwordReset.request",
+  method: "POST",
+  path: "/api/v1/public/password-reset",
+  auth: "public",
+  summary:
+    "Ask for a password reset link by e-mail. The answer is the same whether or not the address has an account; " +
+    "the link (single use, short-lived) goes through the e-mail outbox. Limited per address and per e-mail.",
+  body: z.object({ email: Email }),
+  response: PasswordResetReceived,
+});
+
+export const completePasswordReset = endpoint({
+  id: "auth.passwordReset.complete",
+  method: "POST",
+  path: "/api/v1/public/password-reset/complete",
+  auth: "public",
+  summary: "Set a new password with the token from the reset link (works once, expires); every session is signed out",
+  body: z.object({ token: z.string().trim().min(20).max(200), newPassword: NewPassword }),
+  response: Ok,
+});

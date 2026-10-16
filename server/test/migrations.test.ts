@@ -41,6 +41,7 @@ describe("migrations", () => {
         "0014_property_document_files",
         "0015_catalogue_seed",
         "0016_email_delivery",
+        "0017_password_reset",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything

@@ -151,6 +151,8 @@ export const IDENTITY_API = {
   changePassword: identity.changePassword,
   startMfa: identity.startMfa,
   confirmMfa: identity.confirmMfa,
+  requestPasswordReset: identity.requestPasswordReset,
+  completePasswordReset: identity.completePasswordReset,
 } as const;
 
 export const ORGANISATIONS_API = {

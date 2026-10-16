@@ -84,6 +84,10 @@ const EnvSchema = z.object({
   /** The public sign-up options (plans, terms): requests per minute per address, and browser cache life. */
   PUBLIC_READ_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(120),
   PUBLIC_CACHE_SECONDS: z.coerce.number().int().min(0).max(86_400).default(300),
+  /** Self-service password reset: link life (minutes) and request limits. */
+  PASSWORD_RESET_MINUTES: z.coerce.number().int().min(5).max(240).default(30),
+  PASSWORD_RESET_PER_IP_PER_HOUR: z.coerce.number().int().min(1).max(10_000).default(20),
+  PASSWORD_RESET_PER_ACCOUNT_PER_HOUR: z.coerce.number().int().min(1).max(100).default(3),
   /**
    * PALTAS's own e-mail (verification, password reset, trial notices) — core/notifications/email-providers.ts.
    * none, or a provider without its credentials = messages are recorded only, never sent; the server still starts.
@@ -149,6 +153,7 @@ export interface Config {
   /** Public read-only answers (signup.options): per-address limit and Cache-Control max-age. */
   publicRead: { perMinute: number; cacheSeconds: number };
   email: EmailSettings;
+  passwordReset: { minutes: number; perIpPerHour: number; perAccountPerHour: number };
 }
 
 export interface EmailSettings {
@@ -323,6 +328,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
       appBaseUrl: e.APP_BASE_URL.replace(/\/+$/, ""),
     },
     publicRead: { perMinute: e.PUBLIC_READ_RATE_LIMIT_PER_MINUTE, cacheSeconds: e.PUBLIC_CACHE_SECONDS },
+    passwordReset: {
+      minutes: e.PASSWORD_RESET_MINUTES,
+      perIpPerHour: e.PASSWORD_RESET_PER_IP_PER_HOUR,
+      perAccountPerHour: e.PASSWORD_RESET_PER_ACCOUNT_PER_HOUR,
+    },
     email: {
       provider: chosen && !notConfigured ? chosen : null,
       notConfigured,

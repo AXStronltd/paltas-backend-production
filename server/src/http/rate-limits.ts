@@ -33,6 +33,8 @@ const SENSITIVE_IDS = new Set([
   "paymentProviders.bank.import",
   "paymentProviders.bank.confirm",
   "paymentProviders.bank.ignore",
+  "auth.passwordReset.request",
+  "auth.passwordReset.complete",
   "signup.create",
   "signup.verify",
   "signup.resend",

@@ -143,7 +143,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
 
   // ---- routes: core first, then each product
   const routes: Route[] = [
-    ...identityRoutes(ctx, core.identity),
+    ...identityRoutes(ctx, core.identity, core.passwordReset),
     ...organisationsRoutes(core),
     ...subscriptionsRoutes(core),
     ...paymentsRoutes(core.payments),

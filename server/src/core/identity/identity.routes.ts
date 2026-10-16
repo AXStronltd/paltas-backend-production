@@ -3,8 +3,9 @@ import type { AppContext } from "../../context.js";
 import { ApiError } from "../../http/errors.js";
 import { route } from "../../http/route.js";
 import type { IdentityService } from "./identity.service.js";
+import type { PasswordResetService } from "./password-reset.js";
 
-export function identityRoutes(ctx: AppContext, ids: IdentityService) {
+export function identityRoutes(ctx: AppContext, ids: IdentityService, reset: PasswordResetService) {
   return [
     // "ok" means the database answers too, so the host's health check notices when it cannot be reached
     route(identity.health, async () => {
@@ -38,6 +39,8 @@ export function identityRoutes(ctx: AppContext, ids: IdentityService) {
       await ids.changePassword(req.user, req.body.currentPassword, req.body.newPassword);
       return { ok: true as const };
     }),
+    route(identity.requestPasswordReset, async (req) => reset.request(req.body.email, req.ip)),
+    route(identity.completePasswordReset, async (req) => reset.complete(req.body.token, req.body.newPassword)),
     route(identity.startMfa, async (req) => ids.startMfa(req.user)),
     route(identity.confirmMfa, async (req) => {
       await ids.confirmMfa(req.user, req.body.code);
