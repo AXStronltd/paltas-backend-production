@@ -39,6 +39,7 @@ import {
   toInstalment,
   type ContractRow,
 } from "../shared/records.js";
+import { formatMoney } from "../../../lib/money.js";
 
 type Body<E extends { body: z.ZodType }> = z.output<E["body"]>;
 type Out<T extends z.ZodType> = z.input<T>;
@@ -209,9 +210,12 @@ export function collectionsService(core: CoreServices) {
         const left = i.amount_minor - i.paid_minor;
         if (left <= 0) throw fail.conflict("That instalment is already paid");
         if (!finance && b.amountMinor !== left)
-          throw fail.invalid(`The amount must equal the instalment (${left}); part-payments go through finance`, {
-            openMinor: left,
-          });
+          throw fail.invalid(
+            `The amount must equal the instalment (${formatMoney(left, s.entitlement.org.currency)}); part-payments go through finance`,
+            {
+              openMinor: left,
+            },
+          );
         if (b.amountMinor > left) throw fail.invalid("The amount is more than the instalment still owes");
         const waiting = await t.row(
           "SELECT 1 FROM dev_payment_reports WHERE instalment_id = $1 AND status = 'awaiting_verification'",

@@ -30,6 +30,7 @@ import type { HotelScope } from "../shared/access.js";
 import { cr, dr, lockBusinessDate, postToLedger } from "../shared/posting.js";
 import { applyTaxes } from "../shared/tax.js";
 import * as repo from "./folios.repo.js";
+import { formatMoney } from "../../../lib/money.js";
 
 export interface ChargeInput {
   department: hotel.HotelDepartment;
@@ -352,7 +353,8 @@ export function foliosService(d: HotelDeps) {
   async function close(t: Db, op: HotelOp, folioId: string): Promise<void> {
     const f = await repo.folioRow(t, op.property.id, folioId, true);
     const bal = await repo.balance(t, folioId);
-    if (bal !== 0) throw fail.conflict(`Folio ${f.number} does not balance (${bal})`);
+    if (bal !== 0)
+      throw fail.conflict(`Folio ${f.number} does not balance (${formatMoney(bal, op.property.currency)})`);
     await t.run("UPDATE hotel_folios SET status = 'closed', closed_at = now() WHERE id = $1", [folioId]);
     await recordAudit(t, { actor: op.actor, orgId: op.orgId, action: "Folio closed", target: f.number });
   }
@@ -400,7 +402,9 @@ export function foliosService(d: HotelDeps) {
     };
     const net = a.amountMinor ?? left.net;
     if (net <= 0 || net > left.net)
-      throw fail.invalid(`At most ${left.net} of this charge's net can still be comped or discounted`);
+      throw fail.invalid(
+        `At most ${formatMoney(left.net, op.property.currency)} of this charge's net can still be comped or discounted`,
+      );
     const part = (rest: number, whole: number) =>
       net === left.net ? rest : Math.min(rest, Math.round((whole * net) / l.net_minor));
     const parts = {

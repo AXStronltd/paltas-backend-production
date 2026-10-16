@@ -15,6 +15,7 @@ import { ACC } from "../accounts.js";
 import type { PmDeps } from "../deps.js";
 import type { PaymentsService } from "../payments/payments.service.js";
 import { pmBalance } from "../shared/posting.js";
+import { formatMoney } from "../../../lib/money.js";
 
 interface LineRow {
   id: string;
@@ -236,7 +237,9 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
         );
         if (!hit) throw fail.notFound("Nothing recorded and unmatched with that id");
         if (hit.amount !== Math.abs(line.amount_minor))
-          throw fail.conflict(`Amounts differ: the line is ${Math.abs(line.amount_minor)}, the record ${hit.amount}`);
+          throw fail.conflict(
+            `Amounts differ: the line is ${formatMoney(Math.abs(line.amount_minor), s.entitlement.org.currency)}, the record ${formatMoney(hit.amount, s.entitlement.org.currency)}`,
+          );
         await link(t, s, line, b.to, b.id);
       });
       await db.tx((t) =>
@@ -344,7 +347,9 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
         if (r.prepared_by === s.userId)
           throw fail.separationOfDuties("You prepared this reconciliation — someone else signs it off");
         if (r.difference_minor !== 0)
-          throw fail.conflict(`The reconciliation has a difference of ${r.difference_minor} — resolve it first`);
+          throw fail.conflict(
+            `The reconciliation has a difference of ${formatMoney(r.difference_minor, s.entitlement.org.currency)} — resolve it first`,
+          );
         await t.run(
           "UPDATE pm_reconciliations SET status = 'approved', approved_by = $2, approved_at = now() WHERE id = $1",
           [id, s.userId],

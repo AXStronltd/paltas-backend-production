@@ -20,6 +20,7 @@ import type { SecurityDeps } from "../deps.js";
 import { loadSettings, toClient, type ContractRow } from "../setup/setup.service.js";
 import { cr, dr, postToLedger } from "../shared/posting.js";
 import { daysBetween, findClient, findSite, must, orgTimezone, shareOf, type ClientRow } from "../shared/util.js";
+import { formatMoney } from "../../../lib/money.js";
 
 type Body<E extends { body: z.ZodType }> = z.output<E["body"]>;
 type LineKind = security.Invoice["lines"][number]["kind"];
@@ -211,7 +212,10 @@ export function billingService(d: SecurityDeps) {
       const inv = await invoiceRow(t, s.orgId, invoiceId, true);
       if (inv.client_id !== c.id) throw fail.invalid(`Invoice ${inv.number} belongs to another client`);
       const { balance } = balanceOf(inv, s.today);
-      if (amount > balance) throw fail.conflict(`Invoice ${inv.number} has only ${balance} left to pay`);
+      if (amount > balance)
+        throw fail.conflict(
+          `Invoice ${inv.number} has only ${formatMoney(balance, s.entitlement.org.currency)} left to pay`,
+        );
     }
     const total = [...merged.values()].reduce((n, v) => n + v, 0);
     const id = newId("src");
@@ -467,7 +471,10 @@ export function billingService(d: SecurityDeps) {
         if (amount <= 0)
           throw fail.invalid(`${c.name} does not withhold ${b.kind === "vat" ? "VAT" : "income tax"} on this invoice`);
         const { balance } = balanceOf(inv, s.today);
-        if (amount > balance) throw fail.conflict(`Invoice ${inv.number} has only ${balance} left to settle`);
+        if (amount > balance)
+          throw fail.conflict(
+            `Invoice ${inv.number} has only ${formatMoney(balance, s.entitlement.org.currency)} left to settle`,
+          );
         const exists = await t.row("SELECT 1 FROM sec_tax_certificates WHERE invoice_id = $1 AND kind = $2", [
           invoiceId,
           b.kind,

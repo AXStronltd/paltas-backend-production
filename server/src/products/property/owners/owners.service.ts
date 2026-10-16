@@ -17,6 +17,7 @@ import { numberScope } from "../shared/money.js";
 import { ownerFunds } from "../shared/owner-funds.js";
 import { cr, dr, post } from "../shared/posting.js";
 import { sum } from "../shared/util.js";
+import { formatMoney } from "../../../lib/money.js";
 
 interface PayoutRow {
   id: string;
@@ -194,7 +195,9 @@ export function ownersService(d: PmDeps) {
         const balance = (await ownerFunds(t, s.orgId, s.today, ownerId)).get(ownerId) ?? 0;
         const amount = balance - prof.reserve_minor;
         if (amount <= 0)
-          throw fail.conflict(`Nothing to pay above the reserve: funds ${balance}, reserve ${prof.reserve_minor}`);
+          throw fail.conflict(
+            `Nothing to pay above the reserve: funds ${formatMoney(balance, s.entitlement.org.currency)}, reserve ${formatMoney(prof.reserve_minor, s.entitlement.org.currency)}`,
+          );
         const id = newId("ppo");
         const number = await nextNumber(t, numberScope(s.orgId), "OPY", 5);
         await t.run(
@@ -236,7 +239,9 @@ export function ownersService(d: PmDeps) {
           throw fail.separationOfDuties("You approved this payout — someone else releases it");
         const funds = (await ownerFunds(t, s.orgId, s.today, p.owner_id)).get(p.owner_id) ?? 0;
         if (funds < p.amount_minor)
-          throw fail.conflict(`The owner's funds are now ${funds}, less than the payout ${p.amount_minor} — cancel it`);
+          throw fail.conflict(
+            `The owner's funds are now ${formatMoney(funds, s.entitlement.org.currency)}, less than the payout ${formatMoney(p.amount_minor, s.entitlement.org.currency)} — cancel it`,
+          );
         const journalId = await post(t, core, {
           orgId: s.orgId,
           date: s.today,

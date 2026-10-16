@@ -22,6 +22,7 @@ import { settingsOf } from "../setup/setup.service.js";
 import { cr, dr, post } from "./posting.js";
 import * as R from "./records.js";
 import { applyBp, splitProportionally, sum, toBp } from "./util.js";
+import { formatMoney } from "../../../lib/money.js";
 
 export interface NewInvoiceLine {
   code: string;
@@ -204,7 +205,9 @@ export async function allocate(
 ): Promise<string> {
   if (a.amount <= 0) throw fail.invalid("An allocation must be above zero");
   if (a.amount > R.balanceOf(a.invoice))
-    throw fail.conflict(`${a.invoice.number} has only ${R.balanceOf(a.invoice)} outstanding`);
+    throw fail.conflict(
+      `${a.invoice.number} has only ${formatMoney(R.balanceOf(a.invoice), await orgCurrency(t, a.invoice.org_id))} outstanding`,
+    );
   const id = newId("pal");
   await t.run(
     `INSERT INTO pm_allocations (id, org_id, invoice_id, amount_minor, source, payment_id, deposit_refund_id, credit_note_id,
@@ -275,4 +278,11 @@ export function oldestFirst(invoices: R.InvoiceRow[], amount: number): [R.Invoic
     left -= take;
   }
   return out;
+}
+
+/** The organisation's currency, for messages that quote money. */
+export async function orgCurrency(t: Db, orgId: string): Promise<string> {
+  return (
+    (await t.row<{ currency: string }>("SELECT currency FROM organisations WHERE id = $1", [orgId]))?.currency ?? "KES"
+  );
 }

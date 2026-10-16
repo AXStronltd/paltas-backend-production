@@ -20,6 +20,7 @@ import { allocate, numberScope, oldestFirst, openInvoicesForUpdate } from "../sh
 import { cr, dr, post } from "../shared/posting.js";
 import * as R from "../shared/records.js";
 import { sum } from "../shared/util.js";
+import { formatMoney } from "../../../lib/money.js";
 
 interface ClaimRow {
   id: string;
@@ -143,7 +144,9 @@ export function paymentsService(d: PmDeps) {
         const inv = open.find((i) => i.id === a.invoiceId);
         if (!inv) throw fail.invalid(`Invoice ${a.invoiceId} is not an open invoice of this tenant`);
         if (a.amountMinor > R.balanceOf(inv))
-          throw fail.invalid(`${inv.number} has only ${R.balanceOf(inv)} outstanding`);
+          throw fail.invalid(
+            `${inv.number} has only ${formatMoney(R.balanceOf(inv), s.entitlement.org.currency)} outstanding`,
+          );
         plan.push([inv, a.amountMinor]);
       }
       if (sum(plan, (p) => p[1]) > b.amountMinor) throw fail.invalid("The allocations add up to more than the payment");
@@ -415,7 +418,9 @@ export function paymentsService(d: PmDeps) {
         );
         const deductions = sum(b.deductions, (x) => x.amountMinor);
         if (arrears + deductions > held)
-          throw fail.invalid(`Deductions (${deductions}) and arrears (${arrears}) exceed the deposit held (${held})`);
+          throw fail.invalid(
+            `Deductions (${formatMoney(deductions, s.entitlement.org.currency)}) and arrears (${formatMoney(arrears, s.entitlement.org.currency)}) exceed the deposit held (${formatMoney(held, s.entitlement.org.currency)})`,
+          );
         const refund = held - arrears - deductions;
         if (refund > 0 && !b.refundReference)
           throw fail.invalid("Give the bank reference the refund will be paid with (it is matched on the statement)");
@@ -470,7 +475,9 @@ export function paymentsService(d: PmDeps) {
         const l = await R.leaseRow(t, s.orgId, r.lease_id, true);
         const held = (await R.depositsHeld(t, s.orgId, [l.id])).get(l.id) ?? 0;
         if (held !== r.held_minor)
-          throw fail.conflict(`The deposit held changed (${r.held_minor} → ${held}) — reject this and request again`);
+          throw fail.conflict(
+            `The deposit held changed (${formatMoney(r.held_minor, s.entitlement.org.currency)} → ${formatMoney(held, s.entitlement.org.currency)}) — reject this and request again`,
+          );
         const open = r.arrears_minor
           ? await openInvoicesForUpdate(t, s.orgId, l.tenant_id, DEPOSIT_TARGETS, [l.id])
           : [];

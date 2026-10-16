@@ -29,6 +29,7 @@ var __paltasBundle = (() => {
     DEFAULT_TRIAL_POLICY: () => DEFAULT_TRIAL_POLICY,
     ESSENTIALS: () => ESSENTIALS,
     FLOOR: () => FLOOR,
+    MODULE_NAME: () => MODULE_NAME,
     PRODUCT_NAME: () => PRODUCT_NAME,
     TIER_RANK: () => TIER_RANK,
     addDays: () => addDays,
@@ -36,6 +37,7 @@ var __paltasBundle = (() => {
     canBuy: () => canBuy,
     canChangePlan: () => canChangePlan,
     charges: () => charges,
+    moduleName: () => moduleName,
     nextBilling: () => nextBilling,
     priceIn: () => priceIn,
     productOf: () => productOf,
@@ -91,6 +93,16 @@ var __paltasBundle = (() => {
     hotel: "Hotel",
     security: "Security Services"
   };
+  var MODULE_NAME = {
+    crm: "Advanced CRM and Marketing",
+    maint: "Maintenance",
+    finance: "Finance and Accounting",
+    payments: "Payments and Banking",
+    procurement: "Supplier and Procurement Management",
+    intelligence: "Advanced Reports and Intelligence",
+    docs: "Document Intelligence",
+    automation: "Workflow Automation"
+  };
   var rank = (tier) => tier ? TIER_RANK[tier] || 0 : 0;
   var r2 = (n) => Math.round(n * 100) / 100;
   function addDays(d, n) {
@@ -134,7 +146,7 @@ var __paltasBundle = (() => {
     var _a;
     return (_a = cat.modules.find((m) => m.key === key)) != null ? _a : null;
   }
-  var moduleName = (cat, key) => (moduleByKey(cat, key) || { name: key }).name;
+  var moduleName = (cat, key) => (moduleByKey(cat, key) || { name: MODULE_NAME[key] || "This module" }).name;
   function corePlan(org) {
     return {
       id: "CORE",
@@ -417,7 +429,7 @@ var __paltasBundle = (() => {
     if (s.source === "addon" && !s.cancelsOn)
       return { ok: false, owned: true, why: m.name + " is already active on your subscription" };
     if (!s.offered)
-      return { ok: false, why: m.name + " is not offered for " + en.product + " workspaces" };
+      return { ok: false, why: m.name + " is not offered for " + (PRODUCT_NAME[en.product] || en.product) + " workspaces" };
     if (m.available === false)
       return { ok: false, why: m.name + " is not available yet" };
     const clash = (m.excludes || []).filter((x) => en.modules[x]);

@@ -27,6 +27,7 @@ import { fill, recordMessage, templateFor, toMessage, type MessageRow } from "..
 import { cr, dr, lockBusinessDate, postToLedger } from "../shared/posting.js";
 import { findProperty } from "../shared/property.js";
 import { fromRateMicro, toForeign, toLocal, toRateMicro } from "./fx.js";
+import { formatMoney } from "../../../lib/money.js";
 
 interface InvoiceRow {
   id: string;
@@ -378,7 +379,10 @@ export function billingService(d: HotelDeps, x: { folios: FoliosService }) {
       await db.tx(async (t) => {
         const f = await folioRepo.folioRow(t, s.property.id, folioId, true);
         const balance = await folioRepo.balance(t, f.id);
-        if (balance !== 0) throw fail.conflict(`Settle folio ${f.number} first (balance ${balance})`);
+        if (balance !== 0)
+          throw fail.conflict(
+            `Settle folio ${f.number} first (balance ${formatMoney(balance, s.entitlement.org.currency)})`,
+          );
         if (
           await t.row(
             "SELECT 1 FROM hotel_invoices WHERE folio_id = $1 AND kind = 'invoice' AND cancelled_by_id IS NULL",
@@ -789,7 +793,9 @@ export function billingService(d: HotelDeps, x: { folios: FoliosService }) {
         if (!["card", "mobile_money"].includes(p.method))
           throw fail.invalid("Only card and mobile-money payments are charged back");
         if (p.amount !== -line.amount_minor)
-          throw fail.invalid(`The chargeback (${-line.amount_minor}) must equal the payment (${p.amount})`);
+          throw fail.invalid(
+            `The chargeback (${formatMoney(-line.amount_minor, s.entitlement.org.currency)}) must equal the payment (${formatMoney(p.amount, s.entitlement.org.currency)})`,
+          );
         if (await t.row("SELECT 1 FROM hotel_bank_lines WHERE chargeback_source = $1", [p.source]))
           throw fail.conflict("This payment was already charged back");
         const journalId = await postToLedger(t, core, {

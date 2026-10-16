@@ -114,6 +114,10 @@ describe("PALTAS platform: entitlements, billing, isolation", () => {
     const lead = await post(A, "/test-property/leads", { name: "Grace" });
     expect(lead.status).toBe(403);
     expect(lead.body.error.code).toBe("MODULE_NOT_ENTITLED");
+    // the module is named in words, never by its internal key
+    expect(lead.body.error.message).toBe(
+      "Advanced CRM and Marketing is not in your plan. Existing records stay readable.",
+    );
     expect(lead.body.error.details.canBuy).toBe(true);
     expect((await get(A, "/test-property/leads")).status).toBe(200);
   });

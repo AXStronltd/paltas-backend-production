@@ -19,6 +19,7 @@ import type { SecurityDeps } from "../deps.js";
 import { payrollRules } from "../setup/setup.service.js";
 import { cr, dr, postToLedger } from "../shared/posting.js";
 import { findSite, must, orgTimezone, shareOf, toBp } from "../shared/util.js";
+import { formatMoney } from "../../../lib/money.js";
 
 type Body<E extends { body: z.ZodType }> = z.output<E["body"]>;
 type Amount = { code: string; amountMinor: number };
@@ -391,7 +392,8 @@ export function payrollService(d: SecurityDeps) {
       return db.tx(async (t) => {
         await t.run("SELECT pg_advisory_xact_lock(hashtext($1))", [`sec-remit:${s.orgId}:${b.account}`]);
         const owed = await creditBalance(t, s.orgId, b.account);
-        if (b.amountMinor > owed) throw fail.conflict(`Only ${owed} is owed on account ${b.account}`);
+        if (b.amountMinor > owed)
+          throw fail.conflict(`Only ${formatMoney(owed, s.entitlement.org.currency)} is owed on account ${b.account}`);
         const id = newId("srm");
         const number = await nextNumber(t, s.orgId, "SRM");
         const journalId = await postToLedger(t, core, {

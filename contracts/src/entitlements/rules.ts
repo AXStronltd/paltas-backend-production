@@ -93,6 +93,21 @@ export const PRODUCT_NAME: Record<string, string> = {
   security: "Security Services",
 };
 
+/**
+ * Module names in words, for messages when a catalogue row is missing (people never read internal keys). The
+ * catalogue's own name wins whenever the row exists.
+ */
+export const MODULE_NAME: Record<string, string> = {
+  crm: "Advanced CRM and Marketing",
+  maint: "Maintenance",
+  finance: "Finance and Accounting",
+  payments: "Payments and Banking",
+  procurement: "Supplier and Procurement Management",
+  intelligence: "Advanced Reports and Intelligence",
+  docs: "Document Intelligence",
+  automation: "Workflow Automation",
+};
+
 /** Any organisation shape resolve() accepts: a stored record or a per-product view. */
 type ResolvableOrg = (OrgRecord | OrgView) & { shared?: Record<string, string>; products?: string[] };
 
@@ -148,7 +163,8 @@ function planById(cat: Catalogue, id: string): Plan | null {
 function moduleByKey(cat: Catalogue, key: string): CatalogueModule | null {
   return cat.modules.find((m) => m.key === key) ?? null;
 }
-const moduleName = (cat: Catalogue, key: string): string => (moduleByKey(cat, key) || { name: key }).name;
+export const moduleName = (cat: Catalogue, key: string): string =>
+  (moduleByKey(cat, key) || { name: MODULE_NAME[key] || "This module" }).name;
 
 function corePlan(org: { type?: OrgType }): Plan {
   return {
@@ -454,7 +470,7 @@ export function canBuy(cat: Catalogue, org: ResolvableOrg, key: string, today: s
     };
   if (s.source === "addon" && !s.cancelsOn)
     return { ok: false, owned: true, why: m.name + " is already active on your subscription" };
-  if (!s.offered) return { ok: false, why: m.name + " is not offered for " + en.product + " workspaces" };
+  if (!s.offered) return { ok: false, why: m.name + " is not offered for " + (PRODUCT_NAME[en.product] || en.product) + " workspaces" };
   if (m.available === false) return { ok: false, why: m.name + " is not available yet" };
   const clash = (m.excludes || []).filter((x) => en.modules[x]);
   if (clash.length)
