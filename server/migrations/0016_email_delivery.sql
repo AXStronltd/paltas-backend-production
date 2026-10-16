@@ -18,8 +18,7 @@ ALTER TABLE notifications ADD COLUMN bounced_at timestamptz;
 ALTER TABLE notifications ADD CONSTRAINT notification_outcome_needs_provider CHECK (
   status NOT IN ('delivered', 'bounced')
   OR (provider IS NOT NULL AND provider <> 'test' AND provider_message_id IS NOT NULL));
-CREATE INDEX notifications_provider_lookup ON notifications (provider, provider_message_id)
-  WHERE provider_message_id IS NOT NULL;
+-- (provider, provider_message_id) lookups use the unique index notifications_provider_msg of 0012.
 
 -- ---------------------------------------------------------------- trial policy: no suspension without e-mail
 -- On (default): an unverified sign-up is suspended only while an e-mail provider is configured, so nobody is

@@ -26,9 +26,9 @@ const NEW = ["0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014", "00
 const KEY = randomBytes(32).toString("base64");
 
 /** Exactly what the live server's migrate() did: each file applied and recorded with its checksum. */
-async function applyLiveMigrations(db: Database) {
-  const files = (await readdir(MIGRATIONS)).filter((f) => LIVE.includes(f.slice(0, 4))).sort();
-  expect(files).toHaveLength(LIVE.length);
+async function applyLiveMigrations(db: Database, versions: string[] = LIVE) {
+  const files = (await readdir(MIGRATIONS)).filter((f) => versions.includes(f.slice(0, 4))).sort();
+  expect(files).toHaveLength(versions.length);
   await db.tx(async (t) => {
     await t.run(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`);
@@ -316,5 +316,152 @@ describe("live database without catalogue modules: 0015 gives existing subscript
     expect(await db.rows("SELECT org_id, plan_id, status FROM subscriptions")).toEqual([
       { org_id: "org_nomod_hotel", plan_id: "HOTEL-STD", status: "active" },
     ]);
+  });
+});
+
+// The live paltas-v2-db today: migrations 0001–0013 applied (the recovery export shows 13), the bootstrap catalogue,
+// one Super Admin, and rows in every table this release's migrations touch. Then this code's migrations 0014–0017
+// apply and the server starts in production exactly as render.yaml configures it — Gmail SMTP chosen, SMTP password
+// possibly not entered yet — and must be healthy and ready.
+describe("live database at main (0001–0013) with real rows, then 0014–0017 and a production start", () => {
+  const name = `paltas_main_${process.pid}_${randomBytes(3).toString("hex")}`;
+  const url = dbUrl(name);
+  const MAIN = ["0007", "0008", "0009", "0010", "0011", "0012", "0013"];
+  let db: Database;
+  let app: App | null = null;
+  const admin = { email: "main-admin@paltashub.test", password: "Owner-Chosen-Password-3", secret: newTotpSecret() };
+  let before: Record<string, unknown[]>;
+  const SNAPSHOT: Record<string, string> = {
+    notifications: "SELECT id, status, provider, provider_message_id, body FROM notifications ORDER BY id",
+    templates: "SELECT id, subject, body FROM notification_templates WHERE org_id IS NOT NULL ORDER BY id",
+    documents: "SELECT id, org_id, filename, sha256 FROM pm_documents ORDER BY id",
+    plans: "SELECT id, base_minor, currency, modules FROM catalogue_plans ORDER BY id",
+    modules: "SELECT key, name, price_minor FROM catalogue_modules ORDER BY key",
+    policy: "SELECT version, trial_days, grace_days, verify_within_days FROM trial_policy",
+    users: "SELECT id, email, password_hash FROM users ORDER BY id",
+    subscriptions: "SELECT org_id, product, plan_id, status FROM subscriptions ORDER BY org_id, product",
+    journals: "SELECT id, status FROM journal_entries ORDER BY id",
+  };
+
+  beforeAll(async () => {
+    const a = new pg.Client({ connectionString: adminUrl() });
+    await a.connect();
+    await a.query(`CREATE DATABASE ${name}`);
+    await a.end();
+    db = connect(url, 2);
+    // the live history: 0001–0006 with real rows, then main's 0007–0013, each recorded with its checksum
+    await applyLiveMigrations(db);
+    await seedCatalogue(db); // the bootstrap seed
+    await createUser(db, {
+      email: admin.email,
+      name: "PALTAS Super Admin",
+      password: admin.password,
+      staffRole: "super_admin",
+      mfaSecretSealed: secretBox(KEY).seal(admin.secret),
+    });
+    await db.run(await readFile(ROWS, "utf8")); // organisations, members, subscriptions, invoices, journals, hotel…
+    await applyLiveMigrations(db, MAIN);
+    // a Super Admin already re-priced a plan and a module: the catalogue migration must not touch them
+    await db.run("UPDATE catalogue_plans SET base_minor = 2_750_000 WHERE id = 'PM-STARTER'");
+    await db.run("UPDATE catalogue_modules SET price_minor = 650_000 WHERE key = 'finance'");
+    // the outbox as main left it: a recorded verification, a test-adapter queued one, a provider-sent one
+    await db.run(
+      `INSERT INTO notifications (id, org_id, channel, to_address, category, template_key, subject, body, status,
+         provider, provider_message_id, source, source_ref) VALUES
+       ('ntf_main_1', 'org_legacy_pm', 'email', 'admin@legacy.test', 'transactional', 'signup.verify', 'Verify',
+        'Hello', 'recorded', NULL, NULL, 'platform', 'signup.verify:main1'),
+       ('ntf_main_2', 'org_legacy_pm', 'email', 'admin@legacy.test', 'transactional', NULL, 'Note', 'Body',
+        'queued', 'test', NULL, 'manual', NULL),
+       ('ntf_main_3', 'org_legacy_hotel', 'email', 'guest@legacy.test', 'transactional', NULL, 'Stay', 'Body',
+        'sent', 'platform_resend', 're-main-3', 'hotel', NULL)`,
+    );
+    // an organisation's own template wording, and a property document record without bytes
+    await db.run(
+      `INSERT INTO notification_templates (id, org_id, key, channel, subject, body) VALUES
+       ('tpl_main_org', 'org_legacy_pm', 'signup.verify', 'email', 'Our wording', 'Hello {{name}} {{link}}')`,
+    );
+    await db.run(`INSERT INTO pm_properties (id, org_id, name) VALUES ('pmp_main_1', 'org_legacy_pm', 'Almas Tower')`);
+    await db.run(
+      `INSERT INTO pm_documents (id, org_id, doc_type, filename) VALUES ('pmd_main_1', 'org_legacy_pm', 'lease', 'lease.pdf')`,
+    );
+    before = Object.fromEntries(
+      await Promise.all(Object.entries(SNAPSHOT).map(async ([k, q]) => [k, await db.rows(q)] as const)),
+    );
+  });
+
+  afterAll(async () => {
+    await app?.close();
+    await db?.close();
+    const a = new pg.Client({ connectionString: adminUrl() });
+    await a.connect();
+    await a.query(`DROP DATABASE IF EXISTS ${name} WITH (FORCE)`);
+    await a.end();
+  });
+
+  it("applies only 0014–0017, additively: every existing row and every changed price is kept", async () => {
+    const applied = await migrate(db);
+    expect(applied.map((v) => v.slice(0, 4))).toEqual(["0014", "0015", "0016", "0017"]);
+    expect(await migrate(db)).toEqual([]); // checksums of 0001–0013 unchanged
+    for (const [k, q] of Object.entries(SNAPSHOT)) {
+      const after = await db.rows(q);
+      if (k === "plans" || k === "modules") {
+        // the catalogue only gains rows; nothing that existed changes
+        for (const row of before[k]!) expect(after).toContainEqual(row);
+      } else if (k === "policy") {
+        expect(after).toEqual(before[k]);
+        expect(await db.row("SELECT suspend_unverified_requires_delivery AS s FROM trial_policy")).toEqual({
+          s: true,
+        });
+      } else expect([k, after]).toEqual([k, before[k]]);
+    }
+    expect(Number((await db.row<{ n: string }>("SELECT count(*) AS n FROM catalogue_modules"))?.n)).toBe(8);
+    // every plan's modules exist, so existing subscriptions get their plans' modules
+    expect(
+      await db.rows(
+        "SELECT p.id, m FROM catalogue_plans p, unnest(p.modules) m WHERE m NOT IN (SELECT key FROM catalogue_modules)",
+      ),
+    ).toEqual([]);
+    // new statuses are allowed; the old ones still hold
+    await db.run("UPDATE notifications SET status = 'delivered', delivered_at = now() WHERE id = 'ntf_main_3'");
+    await expect(db.run("UPDATE notifications SET status = 'delivered' WHERE id = 'ntf_main_2'")).rejects.toThrow();
+    expect(await db.rows("SELECT * FROM password_resets")).toEqual([]);
+    expect(await db.rows("SELECT document_id FROM pm_document_files")).toEqual([]);
+  });
+
+  it("starts in production as render.yaml configures it, with the SMTP password not entered: healthy and ready", async () => {
+    const config = loadConfig({
+      NODE_ENV: "production",
+      DATABASE_URL: url,
+      SECRETS_KEY: KEY,
+      LOG_LEVEL: "silent",
+      HOST: "127.0.0.1",
+      SIGNUP_ENABLED: "true",
+      APP_BASE_URL: "https://paltas.io",
+      SCHEDULER_WORKER: "false",
+      MIGRATION_WORKER: "false",
+      PLATFORM_EMAIL_PROVIDER: "smtp",
+      PLATFORM_EMAIL_FROM: "PALTAS <supportpaltas@gmail.com>",
+      SMTP_HOST: "smtp.gmail.com",
+      SMTP_PORT: "465",
+      SMTP_USER: "supportpaltas@gmail.com",
+    });
+    expect(config.email.provider).toBeNull();
+    app = await buildApp(config);
+    await app.server.listen({ host: "127.0.0.1", port: 0 });
+    const addr = app.server.server.address();
+    const base = `http://127.0.0.1:${typeof addr === "object" && addr ? addr.port : 0}`;
+    const api = createClient({ baseUrl: base, token: null, validateResponses: true });
+    expect(await api.identity.health()).toMatchObject({ ok: true, database: "postgres" });
+    const ready = await (await fetch(base + "/api/v1/ready")).json();
+    expect(ready).toMatchObject({ ready: true, database: "up", migrations: { pending: [] } });
+    // no e-mail provider in use and no published terms yet: public sign-up stays closed, the API stays up
+    const options = await api.signup.options();
+    expect(options.enabled).toBe(false);
+    expect(options.plans.length).toBeGreaterThan(0);
+    const s = await api.identity.login({
+      body: { email: admin.email, password: admin.password, code: totp(admin.secret) },
+    });
+    const staff = createClient({ baseUrl: base, token: s.token, validateResponses: true });
+    expect((await staff.admin.listOrganisations()).organisations.length).toBe(3);
   });
 });
