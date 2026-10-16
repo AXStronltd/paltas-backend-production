@@ -1,0 +1,41 @@
+# Proposed isolated staging service. This file does not change the production Blueprint.
+# Provision only with a NEW staging database URL and NEW secret; never reuse production values.
+services:
+  - type: web
+    name: paltas-api-staging
+    runtime: node
+    plan: free
+    branch: codex/property-onboarding-gates
+    autoDeployTrigger: off
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: node server/dist/main.js
+    healthCheckPath: /api/v1/ready
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: HOST
+        value: 0.0.0.0
+      - key: DATABASE_URL
+        sync: false
+      - key: SECRETS_KEY
+        sync: false
+      - key: TRUST_PROXY
+        value: "true"
+      - key: BILLING_MODE
+        value: provider
+      - key: SIGNUP_ENABLED
+        value: "false"
+      - key: SIGNUP_PRODUCTS
+        value: property
+      - key: APP_BASE_URL
+        sync: false
+      - key: CORS_ORIGINS
+        sync: false
+      - key: PLATFORM_EMAIL_PROVIDER
+        value: none
+      - key: SCHEDULER_WORKER
+        value: "false"
+      - key: MIGRATION_WORKER
+        value: "false"

@@ -114,7 +114,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
   const { db, clock, config } = ctx;
   const settings = config.signup;
   function registrationOpen() {
-    if (!settings.enabled) return false;
+    if (!settings.enabled || !settings.allowedProducts.length) return false;
     if (config.env !== "production") return true;
     return (
       /^https:\/\//.test(settings.termsUrl) &&
@@ -253,12 +253,14 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         termsUrl: settings.termsUrl || null,
         plans: catalogue.plans.flatMap((p) => {
           const base = p.base;
+          const product = (p.products[0] === "agents" ? "agency" : p.products[0]) as Product;
+          if (!settings.allowedProducts.includes(product)) return [];
           if (p.tier === "Enterprise" || base?.amount == null || !base.ccy) return [];
           return [
             {
               id: p.id,
               name: p.name,
-              product: (p.products[0] === "agents" ? "agency" : p.products[0]) as Product,
+              product,
               price: { amount: base.amount, currency: base.ccy, frequency: p.frequency },
             },
           ];
@@ -268,6 +270,8 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
 
     async create(b: SignupBody, ip: string) {
       if (!registrationOpen()) throw fail.forbidden("Self-service sign-up is not open — contact PALTAS");
+      if (!settings.allowedProducts.includes(b.product))
+        throw fail.forbidden("Registration for this product is not open — contact PALTAS");
       if (b.terms.version !== settings.termsVersion)
         throw fail.invalid(`Accept the current PALTAS terms (version ${settings.termsVersion})`, {
           termsVersion: settings.termsVersion,
