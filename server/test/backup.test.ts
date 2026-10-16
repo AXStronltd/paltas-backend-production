@@ -73,6 +73,25 @@ describe.skipIf(!pgDump || !pgRestore)("backup and restore", () => {
       await fd.api.ledger.approveJournal({ params: { orgId, journalId: j.id } });
     }
     await admin.api.subscriptions.buyAddon({ params: { orgId }, body: { module: "crm", confirm: "CONFIRM" } });
+    // Include actual private file bytes in the every-table recovery fingerprint.
+    const fileBytes = Buffer.from("Synthetic recovery document\n");
+    await S.sql("INSERT INTO pm_documents(id,org_id,doc_type,filename) VALUES($1,$2,$3,$4)", [
+      "recovery-document",
+      orgId,
+      "test",
+      "recovery.txt",
+    ]);
+    await S.sql(
+      "INSERT INTO pm_document_files(document_id,org_id,filename,media_type,content,sha256) VALUES($1,$2,$3,$4,$5,$6)",
+      [
+        "recovery-document",
+        orgId,
+        "recovery.txt",
+        "text/plain",
+        fileBytes,
+        createHash("sha256").update(fileBytes).digest("hex"),
+      ],
+    );
     const totals = async (q: (sql: string) => Promise<any[]>) => ({
       journals: (await q("SELECT count(*)::int AS n FROM journal_entries"))[0].n,
       lines: (
