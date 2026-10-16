@@ -2,7 +2,7 @@
 // — migrations 0001–0006 exactly as the live server recorded them, the live catalogue seed, the Super Admin the first
 // `npm run bootstrap` created, and representative rows (organisations, members, trial and active subscriptions,
 // invoices, posted journals, data-migration jobs with imported records, hotel data) — then lets THIS code start on
-// it in production mode: migrations 0007–0017 must apply, every row must survive, and the server must be healthy.
+// it in production mode: migrations 0007–0018 must apply, every row must survive, and the server must be healthy.
 import { createHash, randomBytes } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -22,7 +22,7 @@ import { adminUrl, dbUrl } from "./support/global-setup.js";
 const MIGRATIONS = fileURLToPath(new URL("../migrations/", import.meta.url));
 const ROWS = fileURLToPath(new URL("./support/legacy-0006-rows.sql", import.meta.url));
 const LIVE = ["0001", "0002", "0003", "0004", "0005", "0006"];
-const NEW = ["0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017"];
+const NEW = ["0007", "0008", "0009", "0010", "0011", "0012", "0013", "0014", "0015", "0016", "0017", "0018"];
 const KEY = randomBytes(32).toString("base64");
 
 /** Exactly what the live server's migrate() did: each file applied and recorded with its checksum. */
@@ -64,7 +64,7 @@ const COUNTED = [
   "hotel_messages",
 ];
 
-describe("live database upgrade: 0001–0006 with real rows, then 0007–0017", () => {
+describe("live database upgrade: 0001–0006 with real rows, then 0007–0018", () => {
   const name = `paltas_upgrade_${process.pid}_${randomBytes(3).toString("hex")}`;
   const url = dbUrl(name);
   let db: Database;
@@ -122,7 +122,7 @@ describe("live database upgrade: 0001–0006 with real rows, then 0007–0017", 
     expect(before).toMatchObject({ organisations: 3, subscriptions: 3, journal_entries: 2, dev_reservations: 2 });
   });
 
-  it("applies 0007–0017 on it, keeps every row, and fills new columns with safe values", async () => {
+  it("applies 0007–0018 on it, keeps every row, and fills new columns with safe values", async () => {
     const applied = await migrate(db);
     expect(applied.map((v) => v.slice(0, 4))).toEqual(NEW);
     expect(await migrate(db)).toEqual([]); // and again: nothing to do, checksums of 0001–0006 unchanged
@@ -288,7 +288,7 @@ describe("live database without catalogue modules: 0015 gives existing subscript
     await a.end();
   });
 
-  it("applies 0007–0017 and the hotel subscription now has maintenance, finance and documents", async () => {
+  it("applies 0007–0018 and the hotel subscription now has maintenance, finance and documents", async () => {
     const config = loadConfig({
       NODE_ENV: "production",
       DATABASE_URL: url,
@@ -320,10 +320,10 @@ describe("live database without catalogue modules: 0015 gives existing subscript
 });
 
 // The live paltas-v2-db today: migrations 0001–0013 applied (the recovery export shows 13), the bootstrap catalogue,
-// one Super Admin, and rows in every table this release's migrations touch. Then this code's migrations 0014–0017
+// one Super Admin, and rows in every table this release's migrations touch. Then this code's migrations 0014–0018
 // apply and the server starts in production exactly as render.yaml configures it — Gmail SMTP chosen, SMTP password
 // possibly not entered yet — and must be healthy and ready.
-describe("live database at main (0001–0013) with real rows, then 0014–0017 and a production start", () => {
+describe("live database at main (0001–0013) with real rows, then 0014–0018 and a production start", () => {
   const name = `paltas_main_${process.pid}_${randomBytes(3).toString("hex")}`;
   const url = dbUrl(name);
   const MAIN = ["0007", "0008", "0009", "0010", "0011", "0012", "0013"];
@@ -335,6 +335,7 @@ describe("live database at main (0001–0013) with real rows, then 0014–0017 a
     notifications: "SELECT id, status, provider, provider_message_id, body FROM notifications ORDER BY id",
     templates: "SELECT id, subject, body FROM notification_templates WHERE org_id IS NOT NULL ORDER BY id",
     documents: "SELECT id, org_id, filename, sha256 FROM pm_documents ORDER BY id",
+    contacts: "SELECT id, org_id, name, email, phone, types, notes FROM contacts ORDER BY id",
     plans: "SELECT id, base_minor, currency, modules FROM catalogue_plans ORDER BY id",
     modules: "SELECT key, name, price_minor FROM catalogue_modules ORDER BY key",
     policy: "SELECT version, trial_days, grace_days, verify_within_days FROM trial_policy",
@@ -384,6 +385,13 @@ describe("live database at main (0001–0013) with real rows, then 0014–0017 a
     await db.run(
       `INSERT INTO pm_documents (id, org_id, doc_type, filename) VALUES ('pmd_main_1', 'org_legacy_pm', 'lease', 'lease.pdf')`,
     );
+    // contacts as the front end kept them on main: other phones and e-mails as "tel:" / "mail:" tags (moved by 0018)
+    await db.run(
+      `INSERT INTO contacts (id, org_id, name, email, phone, types, tags) VALUES
+       ('con_main_1', 'org_legacy_pm', 'Juma Baraka', 'juma@baobab.test', '+254 722 410 001', '{tenant}',
+        '{vip,"tel:+254 733 410 002","mail:juma.work@baobab.test","emergency:con_main_2","tel:+254 744 410 003"}'),
+       ('con_main_2', 'org_legacy_pm', 'Amani Baraka', NULL, '+254 700 000 002', '{other}', '{}')`,
+    );
     before = Object.fromEntries(
       await Promise.all(Object.entries(SNAPSHOT).map(async ([k, q]) => [k, await db.rows(q)] as const)),
     );
@@ -398,9 +406,9 @@ describe("live database at main (0001–0013) with real rows, then 0014–0017 a
     await a.end();
   });
 
-  it("applies only 0014–0017, additively: every existing row and every changed price is kept", async () => {
+  it("applies only 0014–0018, additively: every existing row and every changed price is kept", async () => {
     const applied = await migrate(db);
-    expect(applied.map((v) => v.slice(0, 4))).toEqual(["0014", "0015", "0016", "0017"]);
+    expect(applied.map((v) => v.slice(0, 4))).toEqual(["0014", "0015", "0016", "0017", "0018"]);
     expect(await migrate(db)).toEqual([]); // checksums of 0001–0013 unchanged
     for (const [k, q] of Object.entries(SNAPSHOT)) {
       const after = await db.rows(q);
@@ -426,6 +434,20 @@ describe("live database at main (0001–0013) with real rows, then 0014–0017 a
     await expect(db.run("UPDATE notifications SET status = 'delivered' WHERE id = 'ntf_main_2'")).rejects.toThrow();
     expect(await db.rows("SELECT * FROM password_resets")).toEqual([]);
     expect(await db.rows("SELECT document_id FROM pm_document_files")).toEqual([]);
+    // 0018: the tagged phones and e-mails are now fields, in the order entered; every other tag stays
+    expect(
+      await db.rows(
+        "SELECT id, other_phones, other_emails, tags FROM contacts WHERE org_id = 'org_legacy_pm' ORDER BY id",
+      ),
+    ).toEqual([
+      {
+        id: "con_main_1",
+        other_phones: ["+254 733 410 002", "+254 744 410 003"],
+        other_emails: ["juma.work@baobab.test"],
+        tags: ["vip", "emergency:con_main_2"],
+      },
+      { id: "con_main_2", other_phones: [], other_emails: [], tags: [] },
+    ]);
   });
 
   it("starts in production as render.yaml configures it, with the SMTP password not entered: healthy and ready", async () => {

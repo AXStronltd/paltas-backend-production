@@ -25,6 +25,11 @@ Release branch for the PALTAS backend (live service `paltas-api-v2`, database `p
    - `PUT …/security/sites/:siteId`
 9. **Live-upgrade test.** A database at main's schema (0001–0013) is filled with rows, then 0014–0017 are applied. A production start follows, with SMTP chosen and no password: health and ready both pass.
 
+## Follow-up 1 (`claude/followup-1`)
+
+- **Contacts:** other phones and e-mails are fields (`otherPhones`, `otherEmails`), migration `0018_contact_channels`; the front end's `tel:` / `mail:` tags are moved into them by that migration. Deploy this before the front end that uses the fields.
+- **Live-upgrade test** covers 0018: main's schema with tagged contacts, then 0014–0018.
+
 ## Left to do (known gaps)
 
 - **Document store.** A PostgreSQL file store exists for **Property only** (PR #11). It still needs:

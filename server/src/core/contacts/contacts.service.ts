@@ -25,6 +25,8 @@ export interface ContactInput {
   partyType?: "individual" | "company" | undefined;
   email?: string | null | undefined;
   phone?: string | null | undefined;
+  otherPhones?: string[] | undefined;
+  otherEmails?: string[] | undefined;
   types?: C.ContactType[] | undefined;
   tags?: string[] | undefined;
   taxId?: string | null | undefined;
@@ -71,6 +73,33 @@ const PORTAL_ROLES: readonly Role[] = ["tenant", "owner"];
 
 const uniq = <T>(xs: T[]) => [...new Set(xs)];
 
+/**
+ * A contact's other phone numbers or e-mail addresses: each once (phones compared by their last 9 digits, e-mails
+ * without case), never repeating the main one.
+ */
+function others(
+  values: (string | null | undefined)[],
+  main: string | null | undefined,
+  key: (v: string) => string | null,
+) {
+  const seen = new Set<string>();
+  const m = main ? key(main) : null;
+  if (m) seen.add(m);
+  const out: string[] = [];
+  for (const raw of values) {
+    const v = (raw ?? "").trim();
+    const k = v ? key(v) : null;
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    out.push(v);
+  }
+  return out;
+}
+const otherPhones = (values: (string | null | undefined)[], main: string | null | undefined) =>
+  others(values, main, repo.normPhone);
+const otherEmails = (values: (string | null | undefined)[], main: string | null | undefined) =>
+  others(values, main, repo.normEmail);
+
 export function contactsService(ctx: AppContext, deps: { notifications: NotificationsService }) {
   const { db } = ctx;
 
@@ -94,8 +123,8 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
     await t.run(
       `INSERT INTO contacts (id, org_id, name, party_type, email, phone, types, tags, tax_id, address, notes,
          consent_email, consent_sms, consent_whatsapp, consent_inapp, consent_marketing, consent_source, consent_at,
-         created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+         created_by, other_phones, other_emails)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)`,
       [
         id,
         orgId,
@@ -116,6 +145,8 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
         input.consent?.source ?? "",
         consentGiven ? new Date().toISOString() : null,
         by,
+        otherPhones(input.otherPhones ?? [], input.phone),
+        otherEmails(input.otherEmails ?? [], input.email),
       ],
     );
     return load(t, orgId, id);
@@ -346,7 +377,8 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
           `UPDATE contacts SET name = $3, party_type = $4, email = $5, phone = $6, types = $7, tags = $8, tax_id = $9,
              address = $10, notes = $11, consent_email = $12, consent_sms = $13, consent_whatsapp = $14,
              consent_inapp = $15, consent_marketing = $16, consent_source = $17,
-             consent_at = CASE WHEN $18 THEN now() ELSE consent_at END, user_id = $19, updated_at = now()
+             consent_at = CASE WHEN $18 THEN now() ELSE consent_at END, user_id = $19, other_phones = $20,
+             other_emails = $21, updated_at = now()
            WHERE org_id = $1 AND id = $2`,
           [
             s.orgId,
@@ -368,6 +400,8 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
             c?.source ?? (consentChanged ? "Changed by staff" : before.consent_source),
             consentChanged,
             input.userId === undefined ? before.user_id : input.userId,
+            otherPhones(input.otherPhones ?? before.other_phones, phone),
+            otherEmails(input.otherEmails ?? before.other_emails, email),
           ],
         );
         const after = await load(t, s.orgId, id);
@@ -456,7 +490,7 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
              types = ARRAY(SELECT DISTINCT unnest(types || $3::text[]) ORDER BY 1),
              tags = ARRAY(SELECT DISTINCT unnest(tags || $4::text[]) ORDER BY 1),
              email = COALESCE(email, $5), phone = COALESCE(phone, $6), tax_id = COALESCE(tax_id, $7),
-             address = COALESCE(address, $8), user_id = $9,
+             address = COALESCE(address, $8), user_id = $9, other_phones = $15, other_emails = $16,
              consent_email = consent_email AND $10, consent_sms = consent_sms AND $11,
              consent_whatsapp = consent_whatsapp AND $12, consent_inapp = consent_inapp AND $13,
              consent_marketing = consent_marketing AND $14, updated_at = now()
@@ -476,6 +510,9 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
             drop.consent_whatsapp,
             drop.consent_inapp,
             drop.consent_marketing,
+            // nothing is lost: the merged contact's numbers and addresses join the ones kept
+            otherPhones([...keep.other_phones, drop.phone, ...drop.other_phones], keep.phone ?? drop.phone),
+            otherEmails([...keep.other_emails, drop.email, ...drop.other_emails], keep.email ?? drop.email),
           ],
         );
         await t.run(

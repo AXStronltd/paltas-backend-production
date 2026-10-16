@@ -1,4 +1,4 @@
-// SQL for the one contact store (migration 0007): contacts, their activities and recorded messages.
+// SQL for the one contact store (migrations 0007 and 0018): contacts, their activities and recorded messages.
 import type { contacts as C } from "@paltas/contracts";
 import type { Db } from "../../db/database.js";
 
@@ -11,6 +11,8 @@ export interface ContactRow {
   email_norm: string | null;
   phone: string | null;
   phone_norm: string | null;
+  other_phones: string[];
+  other_emails: string[];
   types: C.ContactType[];
   tags: string[];
   tax_id: string | null;
@@ -64,6 +66,8 @@ export const toContact = (r: ContactRow): C.Contact => ({
   partyType: r.party_type,
   email: r.email,
   phone: r.phone,
+  otherPhones: r.other_phones,
+  otherEmails: r.other_emails,
   types: r.types,
   tags: r.tags,
   taxId: r.tax_id,

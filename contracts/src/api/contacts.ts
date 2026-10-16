@@ -47,6 +47,9 @@ export const Contact = z.object({
   partyType: z.enum(["individual", "company"]),
   email: z.string().nullable(),
   phone: z.string().nullable(),
+  /** Further phone numbers and e-mail addresses, besides the main ones (which alone are used to find duplicates). */
+  otherPhones: z.array(z.string()),
+  otherEmails: z.array(z.string()),
   types: z.array(ContactType),
   tags: z.array(z.string()),
   taxId: z.string().nullable(),
@@ -125,6 +128,8 @@ const ContactFields = z.object({
   partyType: z.enum(["individual", "company"]).default("individual"),
   email: Email.optional(),
   phone: Phone.optional(),
+  otherPhones: z.array(Phone).max(10).default([]),
+  otherEmails: z.array(Email).max(10).default([]),
   types: z.array(ContactType).max(6).default([]),
   tags: z.array(z.string().trim().min(1).max(40)).max(20).default([]),
   taxId: z.string().trim().max(60).optional(),
@@ -179,13 +184,17 @@ export const updateContact = endpoint({
   method: "PUT",
   path: `${Base}/:contactId`,
   auth: "user",
-  summary: "Change a contact's details, types, tags or consent (a change of email or phone is checked for duplicates)",
+  summary:
+    "Change a contact's details, other phones and e-mails, types, tags or consent (a change of the main email or phone is checked for duplicates)",
   params: ContactParams,
   // Zod defaults on optional fields must not turn an omitted patch field into a destructive update.
-  body: ContactFields.omit({ partyType: true, types: true, tags: true })
+  body: ContactFields.omit({ partyType: true, types: true, tags: true, otherPhones: true, otherEmails: true })
     .partial()
     .extend({
       partyType: z.enum(["individual", "company"]).optional(),
+      /** The whole list each time: an empty list removes every other number (or address). */
+      otherPhones: z.array(Phone).max(10).optional(),
+      otherEmails: z.array(Email).max(10).optional(),
       types: z.array(ContactType).max(6).optional(),
       tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
       /** Link a portal sign-in: the person must be a member of the organisation with the tenant or owner role. */
