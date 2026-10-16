@@ -184,6 +184,10 @@ The Smart Hotel product (`hotel`), one `ProductModule`. Endpoints: `contracts/sr
 - **Integration boundaries** (`integrations/adapters.ts`): channel manager (availability + rates queued per channel; bookings arrive on the signed webhook `POST /api/v1/webhooks/hotel/channels/:provider`, secret `WEBHOOK_SECRET_<PROVIDER>`), door locks / mobile keys, room controls / energy, messaging. Only labelled test adapters exist: every response says "Not connected — test adapter" and nothing leaves PALTAS. The concierge answers from the hotel's own FAQ and hands anything else to staff; no external AI.
 - **Group views** (central availability, consolidated KPIs, management fees) answer only for organisations with two or more hotels and the `hotel.group.read` capability.
 
+## Contacts (`server/src/core/contacts/`)
+
+- The one contact store of an organisation (migration `0007`). Besides the main e-mail and phone (the dedupe keys), a contact keeps `otherPhones` and `otherEmails` (migration `0018`; the front end's earlier `tel:` / `mail:` tags were moved into them). Each is kept once, never repeating the main one; a change sends the whole list; a merge keeps the numbers and addresses of both.
+
 ## Not done yet (backend)
 
 - **Product modules.** Property Management is next, then the rest of Development, then Security.

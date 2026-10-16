@@ -131643,6 +131643,18 @@
                               "null"
                             ]
                           },
+                          "otherPhones": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "otherEmails": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
                           "types": {
                             "type": "array",
                             "items": {
@@ -131762,6 +131774,8 @@
                           "partyType",
                           "email",
                           "phone",
+                          "otherPhones",
+                          "otherEmails",
                           "types",
                           "tags",
                           "taxId",
@@ -131843,6 +131857,24 @@
                   "phone": {
                     "type": "string",
                     "pattern": "^\\+?[\\d\\s().-]{7,20}$"
+                  },
+                  "otherPhones": {
+                    "default": [],
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\+?[\\d\\s().-]{7,20}$"
+                    }
+                  },
+                  "otherEmails": {
+                    "default": [],
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+                    }
                   },
                   "types": {
                     "default": [],
@@ -131956,6 +131988,18 @@
                             "null"
                           ]
                         },
+                        "otherPhones": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "otherEmails": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "types": {
                           "type": "array",
                           "items": {
@@ -132075,6 +132119,8 @@
                         "partyType",
                         "email",
                         "phone",
+                        "otherPhones",
+                        "otherEmails",
                         "types",
                         "tags",
                         "taxId",
@@ -132178,6 +132224,18 @@
                             "null"
                           ]
                         },
+                        "otherPhones": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "otherEmails": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "types": {
                           "type": "array",
                           "items": {
@@ -132297,6 +132355,8 @@
                         "partyType",
                         "email",
                         "phone",
+                        "otherPhones",
+                        "otherEmails",
                         "types",
                         "tags",
                         "taxId",
@@ -132498,7 +132558,7 @@
       },
       "put": {
         "operationId": "contacts.update",
-        "summary": "Change a contact's details, types, tags or consent (a change of email or phone is checked for duplicates)",
+        "summary": "Change a contact's details, other phones and e-mails, types, tags or consent (a change of the main email or phone is checked for duplicates)",
         "security": [
           {
             "bearer": []
@@ -132587,6 +132647,22 @@
                       "company"
                     ]
                   },
+                  "otherPhones": {
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^\\+?[\\d\\s().-]{7,20}$"
+                    }
+                  },
+                  "otherEmails": {
+                    "maxItems": 10,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+                    }
+                  },
                   "types": {
                     "maxItems": 6,
                     "type": "array",
@@ -132661,6 +132737,18 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "otherPhones": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "otherEmails": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     },
                     "types": {
                       "type": "array",
@@ -132781,6 +132869,8 @@
                     "partyType",
                     "email",
                     "phone",
+                    "otherPhones",
+                    "otherEmails",
                     "types",
                     "tags",
                     "taxId",
@@ -132869,6 +132959,18 @@
                                 "string",
                                 "null"
                               ]
+                            },
+                            "otherPhones": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "otherEmails": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
                             },
                             "types": {
                               "type": "array",
@@ -132989,6 +133091,8 @@
                             "partyType",
                             "email",
                             "phone",
+                            "otherPhones",
+                            "otherEmails",
                             "types",
                             "tags",
                             "taxId",
@@ -133117,6 +133221,18 @@
                             "null"
                           ]
                         },
+                        "otherPhones": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "otherEmails": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "types": {
                           "type": "array",
                           "items": {
@@ -133236,6 +133352,8 @@
                         "partyType",
                         "email",
                         "phone",
+                        "otherPhones",
+                        "otherEmails",
                         "types",
                         "tags",
                         "taxId",
@@ -156995,6 +157113,18 @@
                             "null"
                           ]
                         },
+                        "otherPhones": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "otherEmails": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "types": {
                           "type": "array",
                           "items": {
@@ -157114,6 +157244,8 @@
                         "partyType",
                         "email",
                         "phone",
+                        "otherPhones",
+                        "otherEmails",
                         "types",
                         "tags",
                         "taxId",
@@ -158442,6 +158574,18 @@
                             "null"
                           ]
                         },
+                        "otherPhones": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "otherEmails": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
                         "types": {
                           "type": "array",
                           "items": {
@@ -158561,6 +158705,8 @@
                         "partyType",
                         "email",
                         "phone",
+                        "otherPhones",
+                        "otherEmails",
                         "types",
                         "tags",
                         "taxId",
