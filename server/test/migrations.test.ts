@@ -39,6 +39,7 @@ describe("migrations", () => {
         "0012_platform_ops",
         "0013_self_service",
         "0014_property_document_files",
+        "0015_catalogue_seed",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything

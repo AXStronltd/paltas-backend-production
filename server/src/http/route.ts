@@ -13,7 +13,7 @@ import type { Readable } from "node:stream";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { SessionUser } from "../core/identity/identity.service.js";
 import { fail } from "./errors.js";
-import { rateLimitFor, type RateLimits } from "./rate-limits.js";
+import { PUBLIC_READ_IDS, rateLimitFor, type RateLimits } from "./rate-limits.js";
 
 type Def = EndpointDefinition<
   z.ZodType<Record<string, unknown>>,
@@ -87,7 +87,13 @@ function parse<T extends z.ZodType>(schema: T, value: unknown, part: string): z.
   return r.data;
 }
 
-export function registerRoutes(app: FastifyInstance, deps: RouteDependencies, routes: Route[], limits: RateLimits) {
+export function registerRoutes(
+  app: FastifyInstance,
+  deps: RouteDependencies,
+  routes: Route[],
+  limits: RateLimits,
+  publicCacheSeconds = 0,
+) {
   const seen = new Set<string>();
   for (const { endpoint, handler, stream, bodyLimit } of routes) {
     const key = `${endpoint.method} ${endpoint.path}`;
@@ -131,6 +137,9 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDependencies, ro
           throw new Error(`Response for ${endpoint.id} does not match its contract`);
         }
         reply.status(endpoint.status);
+        // the same answer for everyone: browsers and the front end's CDN may keep it for a while
+        if (PUBLIC_READ_IDS.has(endpoint.id) && publicCacheSeconds > 0)
+          reply.header("Cache-Control", `public, max-age=${publicCacheSeconds}`);
         return checked.data;
       },
     });

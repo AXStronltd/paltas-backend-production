@@ -247,10 +247,12 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
 
     async options() {
       const catalogue = await loadCatalogue(db);
+      const moduleName = new Map(catalogue.modules.map((m) => [m.key, m.name]));
       return {
         enabled: registrationOpen(),
         termsVersion: settings.termsVersion,
         termsUrl: settings.termsUrl || null,
+        trialDays: (await loadPolicy(db)).trialDays,
         plans: catalogue.plans.flatMap((p) => {
           const base = p.base;
           const product = (p.products[0] === "agents" ? "agency" : p.products[0]) as Product;
@@ -261,6 +263,12 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
               id: p.id,
               name: p.name,
               product,
+              tier: p.tier ?? null,
+              // only modules that exist in the catalogue: a plan never promises an unknown module
+              modules: p.modules.flatMap((key) => {
+                const name = moduleName.get(key);
+                return name ? [{ key, name }] : [];
+              }),
               price: { amount: base.amount, currency: base.ccy, frequency: p.frequency },
             },
           ];

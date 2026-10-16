@@ -96,7 +96,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       ),
   });
   server.addHook("onSend", async (_req, reply, payload) => {
-    reply.header("Cache-Control", "no-store");
+    // nothing is cached, except the public read-only answers a route marked cacheable (route.ts)
+    if (!reply.hasHeader("Cache-Control")) reply.header("Cache-Control", "no-store");
     return payload;
   });
   // keep the exact bytes: webhook signatures are computed over them
@@ -164,7 +165,9 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       login: config.loginRateLimitPerMinute,
       sensitive: config.sensitiveRateLimitPerMinute,
       webhook: config.webhookRateLimitPerMinute,
+      publicRead: config.publicRead.perMinute,
     },
+    config.publicRead.cacheSeconds,
   );
 
   // scheduled jobs: the platform's own (registered by the core) and each product's

@@ -84,6 +84,9 @@ const EnvSchema = z.object({
   SIGNUP_TERMS_URL: z.union([z.literal(""), z.url()]).default(""),
   /** Where the verification link points (the front end's verification page, which posts the token). */
   APP_BASE_URL: z.url().default("http://127.0.0.1:8080"),
+  /** The public sign-up options (plans, terms): requests per minute per address, and browser cache life. */
+  PUBLIC_READ_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(120),
+  PUBLIC_CACHE_SECONDS: z.coerce.number().int().min(0).max(86_400).default(300),
 });
 
 const MB = 1024 * 1024;
@@ -117,6 +120,8 @@ export interface Config {
   cataloguePriceApproval: boolean;
   shutdownTimeoutMs: number;
   signup: SignupSettings;
+  /** Public read-only answers (signup.options): per-address limit and Cache-Control max-age. */
+  publicRead: { perMinute: number; cacheSeconds: number };
   platformEmail?: { apiKey: string; from: string };
 }
 
@@ -239,6 +244,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
       termsUrl: e.SIGNUP_TERMS_URL,
       appBaseUrl: e.APP_BASE_URL.replace(/\/+$/, ""),
     },
+    publicRead: { perMinute: e.PUBLIC_READ_RATE_LIMIT_PER_MINUTE, cacheSeconds: e.PUBLIC_CACHE_SECONDS },
     marketplace: {
       searchPerMinute: e.MARKETPLACE_SEARCH_PER_MINUTE,
       submitPerHour: e.MARKETPLACE_SUBMIT_PER_HOUR,

@@ -3,6 +3,10 @@
  * confirmed by PALTAS before any customer is billed; tax rates must be confirmed with a tax adviser. After seeding,
  * Super Admin changes prices through the admin API — nothing in the code reads a price.
  * Seeding is idempotent: existing rows are never overwritten.
+ *
+ * Migration 0014_catalogue_seed.sql inserts exactly these rows on every database (production included), so a server
+ * started on a database created by migrations alone has the whole catalogue; this function stays for local set-up and
+ * bootstrap, and a test checks that both give the same catalogue.
  */
 import type { Db } from "../../db/database.js";
 
