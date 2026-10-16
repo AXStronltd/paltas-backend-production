@@ -132,10 +132,10 @@ export function registerRoutes(
         if (!checked.success) {
           // a response can hold secrets (a temporary password, a reset link): nothing derived from it is logged
           request.log.error(
-            { endpoint: endpoint.id, issueCount: checked.error.issues.length },
+            { route: `${request.method} ${request.routeOptions.url}`, issueCount: checked.error.issues.length },
             "Response does not match its contract",
           );
-          throw new Error(`Response for ${endpoint.id} does not match its contract`);
+          throw new Error(`Response for ${request.method} ${request.routeOptions.url} does not match its contract`);
         }
         reply.status(endpoint.status);
         // the same answer for everyone: browsers and the front end's CDN may keep it for a while
