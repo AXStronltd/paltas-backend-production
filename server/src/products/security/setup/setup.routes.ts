@@ -23,7 +23,13 @@ export function setupRoutes(a: SecurityAccess, S: SetupService) {
     route(security.setClientPortalUsers, async (req) =>
       S.setPortalUsers(await a.scope(req, "security.setup", WRITE), req.params.clientId, req.body.userIds),
     ),
-    route(security.listSites, async (req) => S.listSites(await a.scope(req, "security.read"))),
+    // the gate / reception officer chooses the site at the desk, so the site list is open to security.visitors too
+    route(security.listSites, async (req) =>
+      S.listSites(await a.scopeAny(req, ["security.read", "security.visitors"])),
+    ),
+    route(security.updateSite, async (req) =>
+      S.updateSite(await a.scope(req, "security.setup", WRITE), req.params.siteId, req.body),
+    ),
     route(security.createSite, async (req) => S.createSite(await a.scope(req, "security.setup", WRITE), req.body)),
     route(security.getSite, async (req) => S.getSite(await a.scope(req, "security.read"), req.params.siteId)),
     route(security.createPost, async (req) =>

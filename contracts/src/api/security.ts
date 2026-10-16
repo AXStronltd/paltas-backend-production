@@ -311,6 +311,37 @@ export const createSite = endpoint({
   status: 201,
 });
 
+export const updateSite = endpoint({
+  id: "security.sites.update",
+  method: "PUT",
+  path: `${Base}/sites/:siteId`,
+  auth: "user",
+  summary: "Change a site's details, geofence or alarm-monitoring account. Only the fields sent change.",
+  params: OrgParams.extend({ siteId: Id }),
+  // no defaults here: an omitted field must stay as it is
+  body: z.object({
+    clientId: Id.nullable().optional(),
+    name: Name.optional(),
+    area: z.string().trim().max(160).optional(),
+    kind: z.string().trim().min(1).max(80).optional(),
+    risk: z.enum(RISKS).optional(),
+    geofence: Geofence.nullable().optional(),
+    instructions: Text.optional(),
+    alarmMonitoring: z
+      .object({
+        provider: z
+          .string()
+          .trim()
+          .toLowerCase()
+          .regex(/^[a-z0-9]{2,30}$/),
+        accountRef: Code,
+      })
+      .nullable()
+      .optional(),
+  }),
+  response: Site,
+});
+
 export const getSite = endpoint({
   id: "security.sites.get",
   method: "GET",
@@ -911,6 +942,45 @@ export const Patrol = z.object({
   ),
   /** Share of checkpoints scanned on time (closed rounds only). */
   compliancePct: z.number().nullable(),
+});
+
+/** A guard's own duty: the shifts assigned to them, the post orders of those posts and their patrol rounds. */
+export const myDuty = endpoint({
+  id: "security.me.duty",
+  method: "GET",
+  path: `${Base}/me/duty`,
+  auth: "user",
+  summary:
+    "The signed-in guard's own record, shifts starting between two moments, the post orders of those posts " +
+    "(and whether the current version is acknowledged) and their patrol rounds. Empty when the member is no guard.",
+  params: OrgParams,
+  query: z.object({ from: Moment, to: Moment }),
+  response: z.object({
+    guard: z
+      .object({
+        id: z.string(),
+        name: z.string(),
+        grade: z.string(),
+        status: z.string(),
+        licenceNo: z.string(),
+        licenceExpiry: IsoDate,
+        homeSiteId: z.string().nullable(),
+      })
+      .nullable(),
+    shifts: z.array(Shift),
+    posts: z.array(
+      z.object({
+        id: z.string(),
+        siteId: z.string(),
+        siteName: z.string(),
+        name: z.string(),
+        orderVersion: z.number().int(),
+        orderText: z.string(),
+        acknowledged: z.boolean(),
+      }),
+    ),
+    patrols: z.array(Patrol),
+  }),
 });
 
 export const listPatrols = endpoint({

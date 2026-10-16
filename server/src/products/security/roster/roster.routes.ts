@@ -10,6 +10,7 @@ export function rosterRoutes(a: SecurityAccess, R: RosterService) {
   const field = (req: Req) => a.scope(req, "security.field", WRITE);
   return [
     route(security.listShifts, async (req) => R.listShifts(await a.scope(req, "security.read"), req.query)),
+    route(security.myDuty, async (req) => R.myDuty(await a.scope(req, "security.field"), req.query)),
     route(security.createShifts, async (req) => R.createShifts(await roster(req), req.body)),
     route(security.assignShift, async (req) => R.assignShift(await roster(req), req.params.shiftId, req.body.guardId)),
     route(security.unassignShift, async (req) =>
