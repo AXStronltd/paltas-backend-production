@@ -4,6 +4,7 @@
  * for the channel — never "sent" from here. Documents are metadata (name, type, file name, size, checksum, what they
  * belong to, who may see them); the files themselves stay where they were uploaded.
  */
+import { createHash } from "node:crypto";
 import type { contacts as C, property as P } from "@paltas/contracts";
 import type { OrgScope } from "../../../core/access/org-access.js";
 import { recordAudit } from "../../../core/audit/audit.service.js";
@@ -32,6 +33,7 @@ interface DocumentRow {
   link_entity: string | null;
   link_id: string | null;
   filename: string;
+  file_stored?: boolean;
   size_bytes: number | null;
   sha256: string | null;
   visibility: "staff" | "tenant" | "owner";
@@ -57,6 +59,7 @@ export const toDocument = (r: DocumentRow) => ({
   linkEntity: r.link_entity,
   linkId: r.link_id,
   filename: r.filename,
+  fileStored: r.file_stored ?? false,
   sizeBytes: r.size_bytes,
   sha256: r.sha256,
   visibility: r.visibility,
@@ -190,6 +193,88 @@ export function commsService(d: PmDeps) {
       });
     },
 
+    async uploadFile(
+      s: OrgScope,
+      documentId: string,
+      b: { filename: string; mediaType: string; contentBase64: string },
+    ) {
+      const content = Buffer.from(b.contentBase64, "base64");
+      if (content.length < 1 || content.length > 2 * 1024 * 1024 || content.toString("base64") !== b.contentBase64)
+        throw fail.invalid("Choose a file no larger than 2 MiB.");
+      if (
+        (b.mediaType === "application/pdf" && content.subarray(0, 5).toString() !== "%PDF-") ||
+        (b.mediaType === "image/png" && content.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") ||
+        (b.mediaType === "image/jpeg" && content.subarray(0, 3).toString("hex") !== "ffd8ff") ||
+        (b.mediaType.startsWith("text/") &&
+          (content.includes(0) || /<script|<html|<!doctype/i.test(content.subarray(0, 4096).toString())))
+      )
+        throw fail.invalid("The file does not match its selected type.");
+      const hash = createHash("sha256").update(content).digest("hex");
+      return db.tx(async (t) => {
+        await t.row("SELECT id FROM organisations WHERE id=$1 FOR UPDATE", [s.orgId]);
+        const doc = await t.row<DocumentRow>("SELECT * FROM pm_documents WHERE org_id=$1 AND id=$2 FOR UPDATE", [
+          s.orgId,
+          documentId,
+        ]);
+        if (!doc) throw fail.notFound("Document not found");
+        if (await t.row("SELECT 1 FROM pm_document_files WHERE org_id=$1 AND document_id=$2", [s.orgId, documentId]))
+          throw fail.conflict("A file is already stored. Create a new document record for a new version.");
+        const usage = await t.row<{ bytes: string }>(
+          "SELECT COALESCE(sum(octet_length(content)),0)::text AS bytes FROM pm_document_files WHERE org_id=$1 AND document_id<>$2",
+          [s.orgId, documentId],
+        );
+        if (Number(usage?.bytes || 0) + content.length > 256 * 1024 * 1024)
+          throw fail.invalid("Your company document storage is full. Contact PALTAS support.");
+        await t.run(
+          `INSERT INTO pm_document_files(document_id,org_id,filename,media_type,content,sha256,uploaded_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7)`,
+          [documentId, s.orgId, b.filename, b.mediaType, content, hash, s.userId],
+        );
+        await t.run("UPDATE pm_documents SET filename=$3,size_bytes=$4,sha256=$5 WHERE org_id=$1 AND id=$2", [
+          s.orgId,
+          documentId,
+          b.filename,
+          content.length,
+          hash,
+        ]);
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Document file stored",
+          target: documentId,
+          detail: b.filename + " · " + content.length + " bytes · SHA256 " + hash,
+        });
+        return { stored: true as const, sizeBytes: content.length, sha256: hash };
+      });
+    },
+    async downloadFile(s: OrgScope, documentId: string) {
+      const f = await db.row<{
+        filename: string;
+        media_type: "application/pdf" | "image/png" | "image/jpeg" | "text/plain" | "text/csv";
+        content: Buffer;
+        sha256: string;
+      }>("SELECT filename,media_type,content,sha256 FROM pm_document_files WHERE org_id=$1 AND document_id=$2", [
+        s.orgId,
+        documentId,
+      ]);
+      if (!f) throw fail.notFound("No file has been uploaded for this document");
+      if (createHash("sha256").update(f.content).digest("hex") !== f.sha256)
+        throw fail.invalid("This file failed its integrity check. Contact support.");
+      await recordAudit(db, {
+        actor: s.actor,
+        orgId: s.orgId,
+        action: "Document file downloaded",
+        target: documentId,
+        detail: f.filename,
+      });
+      return {
+        filename: f.filename,
+        mediaType: f.media_type,
+        contentBase64: f.content.toString("base64"),
+        sha256: f.sha256,
+      };
+    },
+
     async listDocuments(s: OrgScope, f: { linkEntity?: string | undefined; linkId?: string | undefined }) {
       return {
         documents: (
@@ -206,10 +291,10 @@ export function commsService(d: PmDeps) {
 }
 
 export function documents(db: Db, orgId: string, where: string, params: unknown[]) {
-  return db.rows<DocumentRow>(`SELECT * FROM pm_documents WHERE org_id = $1 AND ${where} ORDER BY created_at DESC`, [
-    orgId,
-    ...params,
-  ]);
+  return db.rows<DocumentRow>(
+    `SELECT *, EXISTS(SELECT 1 FROM pm_document_files f WHERE f.document_id=pm_documents.id AND f.org_id=pm_documents.org_id) AS file_stored FROM pm_documents WHERE org_id = $1 AND ${where} ORDER BY created_at DESC`,
+    [orgId, ...params],
+  );
 }
 
 export type CommsService = ReturnType<typeof commsService>;

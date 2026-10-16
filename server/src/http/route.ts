@@ -41,6 +41,8 @@ export interface Route {
   handler(req: RequestContext<Def>): Promise<unknown>;
   /** The handler answers with a stream (large exports) instead of one object. */
   stream?: true;
+  /** Per-route upload cap; the default JSON limit remains unchanged. */
+  bodyLimit?: number;
 }
 
 export interface StreamedAnswer {
@@ -87,7 +89,7 @@ function parse<T extends z.ZodType>(schema: T, value: unknown, part: string): z.
 
 export function registerRoutes(app: FastifyInstance, deps: RouteDependencies, routes: Route[], limits: RateLimits) {
   const seen = new Set<string>();
-  for (const { endpoint, handler, stream } of routes) {
+  for (const { endpoint, handler, stream, bodyLimit } of routes) {
     const key = `${endpoint.method} ${endpoint.path}`;
     if (seen.has(key)) throw new Error(`Two handlers for ${key}`);
     seen.add(key);
@@ -96,6 +98,7 @@ export function registerRoutes(app: FastifyInstance, deps: RouteDependencies, ro
     app.route({
       method: endpoint.method,
       url: endpoint.path,
+      ...(bodyLimit ? { bodyLimit } : {}),
       config: rateLimit ? { rateLimit } : {},
       handler: async (request: FastifyRequest, reply) => {
         const user = await caller(endpoint, request, deps);

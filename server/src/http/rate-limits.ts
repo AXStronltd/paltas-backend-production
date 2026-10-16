@@ -43,6 +43,8 @@ export function personOrAddress(req: FastifyRequest): string {
 
 export function rateLimitFor(e: Pick<EndpointDefinition, "id" | "auth" | "method">, limits: RateLimits) {
   const minute = "1 minute";
+  if (e.id === "property.documents.upload") return { max: 10, timeWindow: minute, keyGenerator: personOrAddress };
+  if (e.id === "property.documents.download") return { max: 30, timeWindow: minute, keyGenerator: personOrAddress };
   if (e.id === "auth.login") return { max: limits.login, timeWindow: minute };
   if (e.auth === "signed-webhook") return { max: limits.webhook, timeWindow: minute };
   if (SENSITIVE_IDS.has(e.id) || (e.auth === "staff" && e.method !== "GET"))
