@@ -102,8 +102,12 @@ export const CompanyRegistrationProfile = z.object({
     .url()
     .max(300)
     .refine((value) => {
-      const u = new URL(value);
-      return ["http:", "https:"].includes(u.protocol) && !u.username && !u.password;
+      try {
+        const u = new URL(value);
+        return ["http:", "https:"].includes(u.protocol) && !u.username && !u.password;
+      } catch {
+        return false;
+      }
     }, "Use an http or https company website without credentials")
     .optional(),
   administratorPhone: Phone.optional(),
