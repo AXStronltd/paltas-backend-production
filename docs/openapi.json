@@ -158408,6 +158408,114 @@
         }
       }
     },
+    "/api/v1/public/signup-options": {
+      "get": {
+        "operationId": "signup.options",
+        "summary": "Available signup plans, current terms and whether registration is open",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean"
+                    },
+                    "termsVersion": {
+                      "type": "string"
+                    },
+                    "termsUrl": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "plans": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "product": {
+                            "type": "string",
+                            "enum": [
+                              "property",
+                              "developer",
+                              "agency",
+                              "hotel",
+                              "security"
+                            ]
+                          },
+                          "price": {
+                            "type": "object",
+                            "properties": {
+                              "amount": {
+                                "type": "number"
+                              },
+                              "currency": {
+                                "type": "string"
+                              },
+                              "frequency": {
+                                "type": "string",
+                                "enum": [
+                                  "monthly",
+                                  "quarterly",
+                                  "yearly"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "amount",
+                              "currency",
+                              "frequency"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "product",
+                          "price"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "enabled",
+                    "termsVersion",
+                    "termsUrl",
+                    "plans"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/public/signup": {
       "post": {
         "operationId": "signup.create",

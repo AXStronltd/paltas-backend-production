@@ -27,7 +27,7 @@ import { fail } from "../../http/errors.js";
 import { newId } from "../../lib/ids.js";
 import { createOrganisationRecords } from "../admin/admin.service.js";
 import { recordAudit, SYSTEM, type Actor } from "../audit/audit.service.js";
-import { findPlan } from "../catalogue/catalogue.service.js";
+import { findPlan, loadCatalogue } from "../catalogue/catalogue.service.js";
 import { hashPassword } from "../identity/passwords.js";
 import type { SessionUser } from "../identity/identity.service.js";
 import type { NotificationsService } from "../notifications/notifications.service.js";
@@ -113,6 +113,14 @@ function validTimezone(tz: string): boolean {
 export function signupService(ctx: AppContext, deps: { notifications: NotificationsService }) {
   const { db, clock, config } = ctx;
   const settings = config.signup;
+  function registrationOpen() {
+    if (!settings.enabled) return false;
+    if (config.env !== "production") return true;
+    return (
+      /^https:\/\//.test(settings.termsUrl) &&
+      deps.notifications.providers().some((p) => p.channel === "email" && p.key === "platform_resend" && p.connected)
+    );
+  }
 
   /** Record a verification message with a fresh single-use link; earlier open links stop working. */
   async function issueVerification(
@@ -135,7 +143,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
       vars: {
         name: v.name,
         productName: entitlements.PRODUCT_NAME[v.product] ?? v.product,
-        link: `${settings.appBaseUrl}/verify-email?token=${token}`,
+        link: `${settings.appBaseUrl}/verify-email#token=${token}`,
         expiresAt,
       },
       source: "platform",
@@ -237,8 +245,29 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
   return {
     issueVerification,
 
+    async options() {
+      const catalogue = await loadCatalogue(db);
+      return {
+        enabled: registrationOpen(),
+        termsVersion: settings.termsVersion,
+        termsUrl: settings.termsUrl || null,
+        plans: catalogue.plans.flatMap((p) => {
+          const base = p.base;
+          if (p.tier === "Enterprise" || base?.amount == null || !base.ccy) return [];
+          return [
+            {
+              id: p.id,
+              name: p.name,
+              product: (p.products[0] === "agents" ? "agency" : p.products[0]) as Product,
+              price: { amount: base.amount, currency: base.ccy, frequency: p.frequency },
+            },
+          ];
+        }),
+      };
+    },
+
     async create(b: SignupBody, ip: string) {
-      if (!settings.enabled) throw fail.forbidden("Self-service sign-up is not open — contact PALTAS");
+      if (!registrationOpen()) throw fail.forbidden("Self-service sign-up is not open — contact PALTAS");
       if (b.terms.version !== settings.termsVersion)
         throw fail.invalid(`Accept the current PALTAS terms (version ${settings.termsVersion})`, {
           termsVersion: settings.termsVersion,

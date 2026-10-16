@@ -11,6 +11,7 @@
  *   - WhatsApp needs an explicit opt-in for the purpose (WhatsApp Business policy), transactional included;
  *   - other transactional messages go unless the person opted out of that channel.
  */
+import { resendAdapter } from "./resend.js";
 import type { notifications as N } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import type { Db } from "../../db/database.js";
@@ -157,6 +158,12 @@ export function notificationsService(ctx: AppContext) {
   const adapterKey = (channel: Channel, key: string) => `${channel}:${key}`;
   for (const a of defaultAdapters()) adapters.set(adapterKey(a.channel, a.key), a);
 
+  const platformEmail = ctx.config.platformEmail;
+  if (platformEmail) {
+    const adapter = resendAdapter(platformEmail);
+    adapters.set(adapterKey(adapter.channel, adapter.key), adapter);
+  }
+
   async function latestConsent(t: Db, orgId: string, channel: Channel, address: string, purpose: Category) {
     return t.row<{ granted: boolean }>(
       `SELECT granted FROM notification_consents WHERE org_id = $1 AND channel = $2 AND address = $3 AND purpose = $4
@@ -274,6 +281,8 @@ export function notificationsService(ctx: AppContext) {
       channel: Channel,
       b: { provider: string; fromName: string; fromAddress: string; replyTo: string; enabled: boolean },
     ) {
+      if (b.provider === "platform_resend")
+        throw fail.forbidden("The platform verification sender is managed by PALTAS");
       const a = adapters.get(adapterKey(channel, b.provider));
       if (!a) throw fail.invalid(`No ${channel} provider "${b.provider}"`);
       if (!a.connected && a.key !== "test") throw fail.conflict(`${a.label} is not connected: ${a.status}`);
@@ -480,7 +489,13 @@ export function notificationsService(ctx: AppContext) {
           [limit],
         );
         for (const n of rows) {
-          if (n.s_enabled === false) {
+          const platform =
+            !!platformEmail &&
+            n.source === "platform" &&
+            n.channel === "email" &&
+            n.category === "transactional" &&
+            n.source_ref?.startsWith("signup.");
+          if (!platform && n.s_enabled === false) {
             counts.waiting++;
             await t.run("UPDATE notifications SET status_note = $2 WHERE id = $1", [
               n.id,
@@ -488,8 +503,9 @@ export function notificationsService(ctx: AppContext) {
             ]);
             continue;
           }
-          const provider = n.s_provider ?? "test";
-          const a = adapters.get(adapterKey(n.channel, provider));
+          const provider = platform ? "platform_resend" : (n.s_provider ?? "test");
+          const a =
+            provider === "platform_resend" && !platform ? undefined : adapters.get(adapterKey(n.channel, provider));
           let res: Awaited<ReturnType<NotificationAdapter["submit"]>>;
           try {
             res = a

@@ -78,7 +78,7 @@ export async function verificationToken(S: TestServer, email: string): Promise<s
      ORDER BY created_at DESC, id DESC LIMIT 1`,
     [email],
   );
-  const m = /verify-email\?token=([A-Za-z0-9_-]+)/.exec(n?.body ?? "");
+  const m = /verify-email[?#]token=([A-Za-z0-9_-]+)/.exec(n?.body ?? "");
   if (!m?.[1]) throw new Error("No verification link recorded for " + email);
   return m[1];
 }

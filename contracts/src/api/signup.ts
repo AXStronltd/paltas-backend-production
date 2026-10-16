@@ -36,6 +36,32 @@ export const getPolicy = endpoint({
   response: TrialPolicy.omit({ updatedAt: true, repeatWindowDays: true, repeatMatch: true }),
 });
 
+/** Public registration metadata; no staff catalogue or organisation records are exposed. */
+export const getOptions = endpoint({
+  id: "signup.options",
+  method: "GET",
+  path: "/api/v1/public/signup-options",
+  auth: "public",
+  summary: "Available signup plans, current terms and whether registration is open",
+  response: z.object({
+    enabled: z.boolean(),
+    termsVersion: z.string(),
+    termsUrl: z.string().nullable(),
+    plans: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        product: Product,
+        price: z.object({
+          amount: z.number(),
+          currency: z.string(),
+          frequency: z.enum(["monthly", "quarterly", "yearly"]),
+        }),
+      }),
+    ),
+  }),
+});
+
 /** A phone number in international form (+254700000000); spaces, brackets and dashes are allowed and ignored. */
 export const Phone = z
   .string()
