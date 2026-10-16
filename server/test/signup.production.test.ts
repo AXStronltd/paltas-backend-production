@@ -17,7 +17,7 @@ describe("production: no demo or sample organisations", () => {
   let S: TestServer;
 
   beforeAll(async () => {
-    S = await signupServer({}, { env: "production" });
+    S = await signupServer({ termsUrl: "https://paltas.example/terms" }, { env: "production" });
   });
   afterAll(() => S.close());
 
@@ -78,7 +78,24 @@ describe("production: no demo or sample organisations", () => {
     expect(r.stderr).toMatch(/setup:local is for local computers only/);
   });
 
+  it("production refuses registration without a connected email provider even when enabled", async () => {
+    const b = signupBody("property");
+    expect((await postSignup(S, b)).status).toBe(403);
+    expect(await S.sql("SELECT 1 FROM users WHERE email = $1", [b.email])).toEqual([]);
+    const options = await S.raw("GET", "/api/v1/public/signup-options");
+    expect(options.status).toBe(200);
+    expect(options.body.enabled).toBe(false);
+  });
+
   it("self-service sign-up in production creates a real (non-demo) organisation with a real trial", async () => {
+    S.app.core.notifications.registerAdapter({
+      key: "connected-test-email",
+      channel: "email",
+      label: "Production-gate test adapter",
+      connected: true,
+      status: "Test-only connection",
+      submit: async () => ({ accepted: true, providerMessageId: "test-message", note: "Test only" }),
+    });
     const b = signupBody("security");
     expect((await postSignup(S, b)).status).toBe(201);
     const rows = await S.sql<{ demo: boolean; status: string; staff_role: string | null }>(

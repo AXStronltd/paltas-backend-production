@@ -68,6 +68,7 @@ const EnvSchema = z.object({
   SIGNUP_PER_EMAIL_PER_DAY: z.coerce.number().int().min(1).max(100).default(3),
   /** The version of the PALTAS terms a sign-up must accept (the published terms document). */
   SIGNUP_TERMS_VERSION: z.string().trim().min(1).max(40).default("2026-10"),
+  SIGNUP_TERMS_URL: z.union([z.literal(""), z.url()]).default(""),
   /** Where the verification link points (the front end's verification page, which posts the token). */
   APP_BASE_URL: z.url().default("http://127.0.0.1:8080"),
 });
@@ -110,6 +111,7 @@ export interface SignupSettings {
   perIpPerHour: number;
   perEmailPerDay: number;
   termsVersion: string;
+  termsUrl: string;
   /** Base of the verification link, e.g. https://paltashub.com → https://paltashub.com/verify-email?token=… */
   appBaseUrl: string;
 }
@@ -212,6 +214,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
       perIpPerHour: e.SIGNUP_PER_IP_PER_HOUR,
       perEmailPerDay: e.SIGNUP_PER_EMAIL_PER_DAY,
       termsVersion: e.SIGNUP_TERMS_VERSION,
+      termsUrl: e.SIGNUP_TERMS_URL,
       appBaseUrl: e.APP_BASE_URL.replace(/\/+$/, ""),
     },
     marketplace: {

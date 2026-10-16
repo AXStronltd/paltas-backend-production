@@ -229,6 +229,7 @@ export const ADMIN_API = {
 /** Self-service sign-up, e-mail verification and the public trial policy. */
 export const SIGNUP_API = {
   policy: signup.getPolicy,
+  options: signup.getOptions,
   create: signup.create,
   verify: signup.verify,
   resend: signup.resend,
