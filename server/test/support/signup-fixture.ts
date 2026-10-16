@@ -28,7 +28,14 @@ export function signupServer(signup: Partial<Config["signup"]> = {}, more: Parti
   return startServer({
     products: PRODUCTS,
     config: {
-      signup: { ...DEFAULTS.signup, enabled: true, perIpPerHour: 1000, perEmailPerDay: 50, ...signup },
+      signup: {
+        ...DEFAULTS.signup,
+        allowedProducts: ALL_PRODUCTS,
+        enabled: true,
+        perIpPerHour: 1000,
+        perEmailPerDay: 50,
+        ...signup,
+      },
       ...more,
     },
   });

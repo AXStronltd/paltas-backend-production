@@ -1,6 +1,6 @@
 // All settings come from environment variables, checked once at start-up. Nothing else reads process.env.
 // See server/.env.example for every setting with an explanation.
-import { z } from "@paltas/contracts";
+import { Product, z } from "@paltas/contracts";
 
 const Bool = z.enum(["true", "false", "1", "0"]).transform((v) => v === "true" || v === "1");
 /** A yes/no setting whose default depends on NODE_ENV: unset or empty means "use the default". */
@@ -63,6 +63,16 @@ const EnvSchema = z.object({
   SHUTDOWN_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(25_000),
   /** Public self-service sign-up (core/signup). Off unless switched on. */
   SIGNUP_ENABLED: Bool.default(false),
+  SIGNUP_PRODUCTS: z
+    .string()
+    .default("property")
+    .transform((value) =>
+      value
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean),
+    )
+    .pipe(z.array(Product).max(5)),
   PLATFORM_EMAIL_PROVIDER: z.enum(["none", "resend"]).default("none"),
   RESEND_API_KEY: z.string().trim().min(1).optional(),
   PLATFORM_EMAIL_FROM: z.email().optional(),
@@ -112,11 +122,12 @@ export interface Config {
 
 export interface SignupSettings {
   enabled: boolean;
+  allowedProducts: z.infer<typeof Product>[];
   perIpPerHour: number;
   perEmailPerDay: number;
   termsVersion: string;
   termsUrl: string;
-  /** Base of the verification link, e.g. https://paltashub.com → https://paltashub.com/verify-email?token=… */
+  /** Base of the verification link, e.g. https://paltashub.com → https://paltashub.com/verify-email#token=… */
   appBaseUrl: string;
 }
 
@@ -221,6 +232,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
         : undefined,
     signup: {
       enabled: e.SIGNUP_ENABLED,
+      allowedProducts: [...new Set(e.SIGNUP_PRODUCTS)],
       perIpPerHour: e.SIGNUP_PER_IP_PER_HOUR,
       perEmailPerDay: e.SIGNUP_PER_EMAIL_PER_DAY,
       termsVersion: e.SIGNUP_TERMS_VERSION,
