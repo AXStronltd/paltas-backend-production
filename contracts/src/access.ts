@@ -347,6 +347,8 @@ export const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
       ...DEV_ALL,
       "hotel.read",
       "hotel.setup",
+      // the person who signs up finishes the first-run set-up alone: prices and rate plans
+      "hotel.rates.manage",
       "hotel.group.read",
       "agency.read",
       "agency.listings.manage",
@@ -356,6 +358,10 @@ export const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
       "security.read",
       "security.setup",
       "security.guards.manage",
+      // first-run set-up alone: the first roster, the reception desk and the control room
+      "security.roster.manage",
+      "security.visitors",
+      "security.control",
       "security.access.manage",
       "security.reports.read",
       "notifications.read",
