@@ -51,7 +51,7 @@ export function rateLimitFor(e: Pick<EndpointDefinition, "id" | "auth" | "method
   if (e.id === "property.documents.upload") return { max: 10, timeWindow: minute, keyGenerator: personOrAddress };
   if (e.id === "property.documents.download") return { max: 30, timeWindow: minute, keyGenerator: personOrAddress };
   if (e.id === "auth.login") return { max: limits.login, timeWindow: minute };
-  if (e.auth === "signed-webhook") return { max: limits.webhook, timeWindow: minute };
+  if (e.auth === "signed-webhook" || e.id === "webhooks.email") return { max: limits.webhook, timeWindow: minute };
   if (PUBLIC_READ_IDS.has(e.id)) return { max: limits.publicRead, timeWindow: minute };
   if (SENSITIVE_IDS.has(e.id) || (e.auth === "staff" && e.method !== "GET"))
     return { max: limits.sensitive, timeWindow: minute, keyGenerator: personOrAddress };

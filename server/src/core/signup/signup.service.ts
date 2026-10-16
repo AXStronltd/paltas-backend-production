@@ -101,6 +101,14 @@ const toDto = (r: SignupRow): SignupDto => ({
 
 const SIGNUP_SQL = `SELECT s.*, u.email_verified_at FROM org_signups s LEFT JOIN users u ON u.id = s.user_id`;
 
+/** "18 October 2026, 14:05 UTC" — how a person reads a link's expiry in a message. */
+export function readableMoment(iso: string): string {
+  const d = new Date(iso);
+  const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric", timeZone: "UTC" });
+  const time = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" });
+  return `${date.format(d)}, ${time.format(d)} UTC`;
+}
+
 function validTimezone(tz: string): boolean {
   try {
     new Intl.DateTimeFormat("en", { timeZone: tz });
@@ -110,16 +118,19 @@ function validTimezone(tz: string): boolean {
   }
 }
 
+const TIER_ORDER = ["Standard", "Pro", "Enterprise", ""];
+
 export function signupService(ctx: AppContext, deps: { notifications: NotificationsService }) {
   const { db, clock, config } = ctx;
   const settings = config.signup;
+  /**
+   * Production prerequisites for public sign-up: published HTTPS terms and a platform e-mail provider in use (so the
+   * verification link can reach the person). Missing either only keeps sign-up closed; the server runs normally.
+   */
   function registrationOpen() {
     if (!settings.enabled || !settings.allowedProducts.length) return false;
     if (config.env !== "production") return true;
-    return (
-      /^https:\/\//.test(settings.termsUrl) &&
-      deps.notifications.providers().some((p) => p.channel === "email" && p.key === "platform_resend" && p.connected)
-    );
+    return /^https:\/\//.test(settings.termsUrl) && deps.notifications.emailDeliveryConfigured();
   }
 
   /** Record a verification message with a fresh single-use link; earlier open links stop working. */
@@ -144,7 +155,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         name: v.name,
         productName: entitlements.PRODUCT_NAME[v.product] ?? v.product,
         link: `${settings.appBaseUrl}/verify-email#token=${token}`,
-        expiresAt,
+        expiresAt: readableMoment(expiresAt),
       },
       source: "platform",
       sourceRef: "signup.verify:" + id,
@@ -253,26 +264,30 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         termsVersion: settings.termsVersion,
         termsUrl: settings.termsUrl || null,
         trialDays: (await loadPolicy(db)).trialDays,
-        plans: catalogue.plans.flatMap((p) => {
-          const base = p.base;
-          const product = (p.products[0] === "agents" ? "agency" : p.products[0]) as Product;
-          if (!settings.allowedProducts.includes(product)) return [];
-          if (p.tier === "Enterprise" || base?.amount == null || !base.ccy) return [];
-          return [
-            {
-              id: p.id,
-              name: p.name,
-              product,
-              tier: p.tier ?? null,
-              // only modules that exist in the catalogue: a plan never promises an unknown module
-              modules: p.modules.flatMap((key) => {
-                const name = moduleName.get(key);
-                return name ? [{ key, name }] : [];
-              }),
-              price: { amount: base.amount, currency: base.ccy, frequency: p.frequency },
-            },
-          ];
-        }),
+        plans: catalogue.plans
+          .flatMap((p) => {
+            const base = p.base;
+            const product = (p.products[0] === "agents" ? "agency" : p.products[0]) as Product;
+            if (!settings.allowedProducts.includes(product)) return [];
+            if (p.tier === "Enterprise" || base?.amount == null || !base.ccy) return [];
+            return [
+              {
+                id: p.id,
+                name: p.name,
+                product,
+                tier: p.tier ?? null,
+                // only modules that exist in the catalogue: a plan never promises an unknown module
+                modules: p.modules.flatMap((key) => {
+                  const name = moduleName.get(key);
+                  return name ? [{ key, name }] : [];
+                }),
+                price: { amount: base.amount, currency: base.ccy, frequency: p.frequency },
+              },
+            ];
+          })
+          .sort(
+            (a, b) => TIER_ORDER.indexOf(a.tier ?? "") - TIER_ORDER.indexOf(b.tier ?? "") || a.id.localeCompare(b.id),
+          ),
       };
     },
 
@@ -555,8 +570,13 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
       });
     },
 
-    /** Suspend trials whose administrator never verified the e-mail address in time (scheduler, daily). */
-    async suspendUnverified(policy: TrialPolicy, today: string) {
+    /**
+     * Suspend trials whose administrator never verified the e-mail address in time (scheduler, daily). With the
+     * policy's suspendUnverifiedRequiresDelivery (default on) nobody is suspended while no e-mail provider is
+     * configured: the verification link could never have reached them. Returns null when skipped for that reason.
+     */
+    async suspendUnverified(policy: TrialPolicy, today: string): Promise<number | null> {
+      if (policy.suspendUnverifiedRequiresDelivery && !deps.notifications.emailDeliveryConfigured()) return null;
       const due = await db.rows<{ id: string; org_id: string; email: string; admin_name: string }>(
         `SELECT s.id, s.org_id, s.email, s.admin_name FROM org_signups s JOIN users u ON u.id = s.user_id
          WHERE s.status IN ('created', 'allowed') AND u.email_verified_at IS NULL AND s.unverified_suspended_at IS NULL
@@ -592,7 +612,11 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
             to: d.email,
             category: "transactional",
             templateKey: "signup.unverified",
-            vars: { name: d.admin_name, days: String(policy.verifyWithinDays) },
+            vars: {
+              name: d.admin_name,
+              days: String(policy.verifyWithinDays),
+              link: `${settings.appBaseUrl}/account.html#signin`,
+            },
             source: "platform",
             sourceRef: "signup.unverified:" + d.id,
           });

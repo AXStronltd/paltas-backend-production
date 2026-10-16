@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { resendAdapter } from "../dist/core/notifications/resend.js";
+import { loadConfig } from "../dist/config.js";
+import { emailAdapter } from "../dist/core/notifications/email-providers.js";
 
 const message = {
   id: "ntf-123",
@@ -8,42 +9,57 @@ const message = {
   to: "customer@example.com",
   subject: "Verify your email",
   body: "Your private verification link",
-  from: { name: "Untrusted", address: "untrusted@example.com", replyTo: "untrusted@example.com" },
+  from: { name: "", address: "", replyTo: "" },
 };
 
-describe("platform verification email adapter", () => {
-  it("uses the fixed provider, platform sender and stable idempotency key", async () => {
+const settings = () => {
+  const email = loadConfig({
+    NODE_ENV: "test",
+    DATABASE_URL: "postgres://unused",
+    PLATFORM_EMAIL_PROVIDER: "resend",
+    RESEND_API_KEY: "private-test-key",
+    PLATFORM_EMAIL_FROM: "PALTAS <verify@paltas.io>",
+  }).email;
+  return { ...email, provider: "resend" as const };
+};
+
+describe("platform e-mail adapter (Resend)", () => {
+  it("uses the fixed provider, the platform sender and a stable idempotency key", async () => {
     let calls = 0;
     const request: typeof fetch = async (url, init) => {
       calls++;
       expect(url).toBe("https://api.resend.com/emails");
-      expect(init?.redirect).toBe("error");
-      expect(init?.headers).toMatchObject({ "Idempotency-Key": "paltas/ntf-123" });
-      expect(JSON.parse(String(init?.body))).toEqual({
-        from: "verify@paltas.io",
+      expect(init?.headers).toMatchObject({ "Idempotency-Key": "ntf-123", Authorization: "Bearer private-test-key" });
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        from: '"PALTAS" <verify@paltas.io>',
         to: [message.to],
         subject: message.subject,
         text: message.body,
       });
       return new Response(JSON.stringify({ id: "provider-123" }));
     };
-    const adapter = resendAdapter({ apiKey: "private-test-key", from: "verify@paltas.io" }, request);
-    expect(await adapter.submit(message)).toMatchObject({ accepted: true, providerMessageId: "provider-123" });
+    const adapter = emailAdapter(settings(), { fetch: request });
+    expect(adapter.key).toBe("platform_resend");
+    expect(await adapter.submit(message)).toMatchObject({
+      accepted: true,
+      sent: true,
+      providerMessageId: "provider-123",
+    });
     expect(calls).toBe(1);
   });
 
-  it("does not expose provider response bodies or thrown secrets", async () => {
-    for (const request of [
-      async () => new Response("private-test-key", { status: 401 }),
-      async () => {
-        throw new Error("private-test-key");
+  it("does not expose the key; a refusal fails and a network error is retried", async () => {
+    const refusedBy = emailAdapter(settings(), { fetch: async () => new Response("{}", { status: 401 }) });
+    const refusal = await refusedBy.submit(message);
+    expect(refusal).toMatchObject({ accepted: false });
+    expect("retry" in refusal && refusal.retry).toBeFalsy();
+    const unreachable = emailAdapter(settings(), {
+      fetch: async () => {
+        throw new Error("connect failed");
       },
-      async () => new Response(JSON.stringify({ id: "invalid\nreceipt" })),
-    ]) {
-      const adapter = resendAdapter({ apiKey: "private-test-key", from: "verify@paltas.io" }, request);
-      const result = await adapter.submit(message);
-      expect(result.accepted).toBe(false);
-      expect(JSON.stringify(result)).not.toContain("private-test-key");
-    }
+    });
+    const network = await unreachable.submit(message);
+    expect(network).toMatchObject({ accepted: false, retry: true });
+    for (const r of [refusal, network]) expect(JSON.stringify(r)).not.toContain("private-test-key");
   });
 });

@@ -58,7 +58,12 @@ describe("the platform trial policy", () => {
     expect({ ...pub, repeatWindowDays: D.repeatWindowDays, repeatMatch: D.repeatMatch }).toEqual({ ...D, version: 1 });
     expect(pub).not.toHaveProperty("repeatMatch");
     const { policy, history } = await sa.api.admin.trialPolicy();
-    expect(policy).toEqual({ ...D, version: 1, updatedAt: expect.any(String) });
+    expect(policy).toEqual({
+      ...D,
+      version: 1,
+      suspendUnverifiedRequiresDelivery: true,
+      updatedAt: expect.any(String),
+    });
     expect(browserRules.DEFAULT_TRIAL_POLICY).toEqual(entitlements.DEFAULT_TRIAL_POLICY);
     expect(history.map((h) => [h.version, h.changedBy])).toEqual([[1, null]]);
     // every plan in the catalogue shows the policy's trial length, whatever its own (unused) column says

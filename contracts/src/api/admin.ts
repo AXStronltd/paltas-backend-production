@@ -204,6 +204,8 @@ export const updateTrialPolicy = endpoint({
     "Change the platform trial policy (Super Admin, audited, kept as a new version). New trials of every product " +
     "follow it at once; a trial already running keeps the days and grace it started with.",
   body: TrialPolicy.omit({ version: true, updatedAt: true, atExpiry: true, keepRecords: true }).extend({
+    /** Omitted = keep the current setting. */
+    suspendUnverifiedRequiresDelivery: z.boolean().optional(),
     reason: Reason,
   }),
   response: TrialPolicy,

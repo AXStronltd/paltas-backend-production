@@ -260,10 +260,10 @@ describe("notifications outbox", () => {
     // an unknown provider has no secret
     expect((await signedPost(S, "/api/v1/webhooks/notifications/nosuch", report, MAIL_SECRET)).status).toBe(404);
     const ok = await signedPost(S, "/api/v1/webhooks/notifications/fakemail", report, MAIL_SECRET);
-    expect([ok.status, ok.body]).toEqual([200, { duplicate: false, messageId: m.id, status: "sent" }]);
+    expect([ok.status, ok.body]).toEqual([200, { duplicate: false, messageId: m.id, status: "delivered" }]);
     const dup = await signedPost(S, "/api/v1/webhooks/notifications/fakemail", report, MAIL_SECRET);
     expect(dup.body.duplicate).toBe(true);
-    // a later bounce turns it to failed
+    // a later bounce turns it to bounced
     await signedPost(
       S,
       "/api/v1/webhooks/notifications/fakemail",
@@ -271,9 +271,10 @@ describe("notifications outbox", () => {
       MAIL_SECRET,
     );
     got = await N().getMessage({ params: { ...P(), messageId: m.id } });
-    expect([got.message.status, got.message.statusNote]).toEqual([
-      "failed",
+    expect([got.message.status, got.message.statusNote, !!got.message.bouncedAt]).toEqual([
+      "bounced",
       "failed: Mailbox full — reported by fakemail",
+      true,
     ]);
     expect(got.events.map((e) => [e.providerEventId, e.status])).toEqual([
       ["evt-1", "delivered"],
@@ -341,7 +342,7 @@ describe("notifications outbox", () => {
     for (let i = 0; i < 5 && (await S.app.core.schedulerWorker.runOnce()); i++);
     const runs = await sa.api.ops.listRuns({ params: { jobId: job.id } });
     expect(runs.runs.find((r) => r.trigger === "manual")?.summary).toMatch(
-      /^1 queued · 0 refused by the adapter · 0 waiting$/,
+      /^0 sent \(accepted by the provider\) · 1 queued \(test adapter, not sent\) · 0 refused · 0 to retry · 0 waiting$/,
     );
   });
 

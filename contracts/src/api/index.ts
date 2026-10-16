@@ -120,6 +120,7 @@ export const NOTIFICATIONS_API = {
   getMessage: notifications.getMessage,
   recordMessage: notifications.recordMessage,
   deliveryReport: notifications.deliveryWebhook,
+  emailWebhook: notifications.emailWebhook,
 } as const;
 
 /** Payment provider adapter endpoints (kept as their own constant so the API type stays small enough to declare). */

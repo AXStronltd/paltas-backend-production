@@ -121,6 +121,19 @@ describe("e-mail verification", () => {
     expect((await late.api.subscriptions.entitlements({ params: { orgId: late.orgId }, query: {} })).status).toBe(
       "trial",
     );
+    // no e-mail provider is configured: the policy (default) suspends nobody for a link that could not reach them
+    const skipped = await dailyJobs(S, "2026-10-19");
+    expect(skipped.summary).toMatch(/unverified sign-ups not suspended: no e-mail provider is configured/);
+    expect((await late.api.subscriptions.entitlements({ params: { orgId: late.orgId }, query: {} })).status).toBe(
+      "trial",
+    );
+    // a Super Admin switches the safeguard off (audited policy version): now the window applies
+    const sa = await S.staff();
+    const { policy } = await sa.api.admin.trialPolicy();
+    const input = { ...policy }; // fields the update does not take are dropped by its contract
+    await sa.api.admin.updateTrialPolicy({
+      body: { ...input, suspendUnverifiedRequiresDelivery: false, reason: "Suspend unverified sign-ups now" },
+    });
     const r = await dailyJobs(S, "2026-10-19");
     expect(r.summary).toMatch(/[1-9]\d* unverified sign-up\(s\) suspended/);
     const e = await late.api.subscriptions.entitlements({ params: { orgId: late.orgId }, query: {} });
@@ -156,6 +169,9 @@ describe("e-mail verification", () => {
         "Suspension lifted — e-mail address verified",
       ]),
     );
+    await sa.api.admin.updateTrialPolicy({
+      body: { ...input, suspendUnverifiedRequiresDelivery: true, reason: "Back to the safe default" },
+    });
     S.setToday(TODAY);
   });
 });

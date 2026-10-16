@@ -23,6 +23,9 @@ export const TrialPolicy = z.object({
   atExpiry: z.literal("read_only"),
   keepRecords: z.literal(true),
   exportAllowed: z.boolean(),
+  /** On: an unverified sign-up is suspended only while an e-mail provider is configured (nobody is suspended for a
+   * link that could never reach them). */
+  suspendUnverifiedRequiresDelivery: z.boolean(),
   updatedAt: IsoDateTime,
 });
 export type TrialPolicy = z.infer<typeof TrialPolicy>;
@@ -33,7 +36,12 @@ export const getPolicy = endpoint({
   path: "/api/v1/public/trial-policy",
   auth: "public",
   summary: "The platform trial policy every product follows (trial and grace days, reminders, what happens at expiry)",
-  response: TrialPolicy.omit({ updatedAt: true, repeatWindowDays: true, repeatMatch: true }),
+  response: TrialPolicy.omit({
+    updatedAt: true,
+    repeatWindowDays: true,
+    repeatMatch: true,
+    suspendUnverifiedRequiresDelivery: true,
+  }),
 });
 
 /**

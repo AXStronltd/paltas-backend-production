@@ -50,6 +50,8 @@ export interface AppOptions {
   products?: ProductModule[];
   /** Run migrations at start-up (default true). */
   migrate?: boolean;
+  /** Tests only: reach the e-mail provider through local fake servers (a fetch, the fake SMTP certificate). */
+  emailTransport?: AppContext["emailTransport"];
 }
 
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<App> {
@@ -73,6 +75,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     log: server.log,
     secrets: secretBox(config.secretsKey),
     products: new ProductRegistry(options.products ?? PRODUCTS),
+    ...(options.emailTransport ? { emailTransport: options.emailTransport } : {}),
   };
   const core = createCoreServices(ctx);
 
@@ -148,7 +151,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     ...adminRoutes(core),
     ...migrationRoutes(core),
     ...opsRoutes(ctx, core),
-    ...notificationsRoutes(core),
+    ...notificationsRoutes(core, config),
     ...providersRoutes(core),
     ...contactsRoutes(core),
     ...signupRoutes(core),

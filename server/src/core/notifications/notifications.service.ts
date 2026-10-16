@@ -2,16 +2,18 @@
  * The notifications outbox, used by every product (core.notifications.record(...)).
  *
  *   record      template + organisation's wording + consent check → "recorded" (or "suppressed", never handed on)
- *   dispatch    (scheduler job, every minute) each recorded message goes to the organisation's provider adapter for
- *               its channel → "queued"; an adapter refusing it → "failed"
- *   report      the provider's signed delivery webhook → "sent" / "failed". Nothing else ever makes a message "sent".
+ *   dispatch    (scheduler job, every minute) each recorded message goes to its provider adapter: the organisation's
+ *               sender for its channel, or — for PALTAS's own e-mails (source "platform": verification, password
+ *               reset, trial reminders) — the configured e-mail provider (PLATFORM_EMAIL_PROVIDER). A real provider's accepted
+ *               answer with its message id → "sent"; the test adapter → "queued" (nothing sent); a refusal →
+ *               "failed"; a temporary problem → stays "recorded" and is tried again (at most MAX_ATTEMPTS times).
+ *   report      the provider's signed delivery webhook → "delivered" / "bounced" (or "failed" before acceptance).
  *
  * Consent rules (latest entry per organisation, channel, address and purpose decides):
  *   - marketing on any channel needs an explicit opt-in;
  *   - WhatsApp needs an explicit opt-in for the purpose (WhatsApp Business policy), transactional included;
  *   - other transactional messages go unless the person opted out of that channel.
  */
-import { resendAdapter } from "./resend.js";
 import type { notifications as N } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import type { Db } from "../../db/database.js";
@@ -20,6 +22,7 @@ import { newId } from "../../lib/ids.js";
 import type { OrgScope } from "../access/org-access.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { defaultAdapters, type Channel, type NotificationAdapter } from "./adapters.js";
+import { emailAdapter, MAX_ATTEMPTS, type EmailEvent, type EmailTransport } from "./email-providers.js";
 
 type Category = "transactional" | "marketing";
 type Status = N.NotificationStatus;
@@ -43,7 +46,10 @@ interface NotificationRow {
   created_at: string;
   queued_at: string | null;
   sent_at: string | null;
+  delivered_at: string | null;
+  bounced_at: string | null;
   failed_at: string | null;
+  attempts: number;
 }
 
 interface SenderRow {
@@ -139,6 +145,8 @@ const toMessage = (r: NotificationRow): N.Notification => ({
   createdAt: r.created_at,
   queuedAt: r.queued_at,
   sentAt: r.sent_at,
+  deliveredAt: r.delivered_at,
+  bouncedAt: r.bounced_at,
   failedAt: r.failed_at,
 });
 
@@ -152,17 +160,22 @@ const toConsent = (c: ConsentRow) => ({
   recordedAt: c.recorded_at,
 });
 
-export function notificationsService(ctx: AppContext) {
-  const { db, log } = ctx;
+/** PALTAS's own sender ("platform_smtp", "platform_resend", …): never an organisation's. */
+const isPlatformKey = (key: string) => key.startsWith("platform_");
+
+export function notificationsService(ctx: AppContext, transport: EmailTransport = {}) {
+  const { db, log, config } = ctx;
   const adapters = new Map<string, NotificationAdapter>();
   const adapterKey = (channel: Channel, key: string) => `${channel}:${key}`;
   for (const a of defaultAdapters()) adapters.set(adapterKey(a.channel, a.key), a);
-
-  const platformEmail = ctx.config.platformEmail;
-  if (platformEmail) {
-    const adapter = resendAdapter(platformEmail);
-    adapters.set(adapterKey(adapter.channel, adapter.key), adapter);
-  }
+  // PALTAS's own e-mail provider (PLATFORM_EMAIL_PROVIDER): none configured = recorded only, as before. It is
+  // registered as "platform_<provider>" and no organisation can ever choose it as its own sender.
+  const email = config.email;
+  const platformEmail = email.provider ? emailAdapter({ ...email, provider: email.provider }, transport) : null;
+  if (platformEmail) adapters.set(adapterKey("email", platformEmail.key), platformEmail);
+  else if (email.notConfigured)
+    log.warn({ reason: email.notConfigured }, "E-mail provider not in use: messages are recorded only");
+  const helpEmail = email.fromAddress;
 
   async function latestConsent(t: Db, orgId: string, channel: Channel, address: string, purpose: Category) {
     return t.row<{ granted: boolean }>(
@@ -207,7 +220,7 @@ export function notificationsService(ctx: AppContext) {
       const tpl = await template(t, input.orgId, input.templateKey, input.channel);
       if (!tpl) throw fail.invalid(`No ${input.channel} template "${input.templateKey}"`);
       const org = await t.row<{ name: string }>("SELECT name FROM organisations WHERE id = $1", [input.orgId]);
-      const vars: Record<string, string> = { orgName: org?.name ?? "", ...input.vars };
+      const vars: Record<string, string> = { orgName: org?.name ?? "", helpEmail, ...input.vars };
       const missing = variablesOf(tpl.subject, tpl.body).filter((v) => vars[v] === undefined);
       if (missing.length) throw fail.invalid(`The template needs a value for: ${missing.join(", ")}`, { missing });
       subject = render(tpl.subject, vars);
@@ -238,6 +251,30 @@ export function notificationsService(ctx: AppContext) {
     return toMessage(row as NotificationRow);
   }
 
+  /**
+   * One delivery outcome on a message. queued → sent / delivered / failed; sent → delivered / bounced;
+   * delivered → bounced (a late bounce). Anything else (a report for a failed or bounced message) changes nothing.
+   */
+  async function applyOutcome(t: Db, n: NotificationRow, kind: "sent" | "delivered" | "undelivered", note: string) {
+    const from = n.status;
+    let to: Status | null = null;
+    if (kind === "sent" && from === "queued") to = "sent";
+    else if (kind === "delivered" && (from === "queued" || from === "sent")) to = "delivered";
+    else if (kind === "undelivered")
+      to = from === "queued" ? "failed" : from === "sent" || from === "delivered" ? "bounced" : null;
+    if (!to) return from;
+    await t.run(
+      `UPDATE notifications SET status = $2, status_note = $3,
+         sent_at = CASE WHEN $2 IN ('sent', 'delivered') THEN COALESCE(sent_at, now()) ELSE sent_at END,
+         delivered_at = CASE WHEN $2 = 'delivered' THEN now() ELSE delivered_at END,
+         bounced_at = CASE WHEN $2 = 'bounced' THEN now() ELSE bounced_at END,
+         failed_at = CASE WHEN $2 = 'failed' THEN now() ELSE failed_at END
+       WHERE id = $1`,
+      [n.id, to, note.slice(0, 500)],
+    );
+    return to;
+  }
+
   async function senders(orgId: string) {
     const rows = await db.rows<SenderRow>("SELECT * FROM notification_senders WHERE org_id = $1", [orgId]);
     return CHANNELS.map((channel) => {
@@ -264,14 +301,17 @@ export function notificationsService(ctx: AppContext) {
       adapters.set(adapterKey(a.channel, a.key), a);
     },
 
+    /** The providers an organisation can choose from (PALTAS's own platform sender is not one of them). */
     providers() {
-      return [...adapters.values()].map((a) => ({
-        key: a.key,
-        channel: a.channel,
-        label: a.label,
-        connected: a.connected,
-        status: a.status,
-      }));
+      return [...adapters.values()]
+        .filter((a) => !isPlatformKey(a.key))
+        .map((a) => ({
+          key: a.key,
+          channel: a.channel,
+          label: a.label,
+          connected: a.connected,
+          status: a.status,
+        }));
     },
 
     senders,
@@ -281,8 +321,7 @@ export function notificationsService(ctx: AppContext) {
       channel: Channel,
       b: { provider: string; fromName: string; fromAddress: string; replyTo: string; enabled: boolean },
     ) {
-      if (b.provider === "platform_resend")
-        throw fail.forbidden("The platform verification sender is managed by PALTAS");
+      if (isPlatformKey(b.provider)) throw fail.forbidden("The PALTAS platform sender is managed by PALTAS");
       const a = adapters.get(adapterKey(channel, b.provider));
       if (!a) throw fail.invalid(`No ${channel} provider "${b.provider}"`);
       if (!a.connected && a.key !== "test") throw fail.conflict(`${a.label} is not connected: ${a.status}`);
@@ -469,7 +508,7 @@ export function notificationsService(ctx: AppContext) {
      * Accepted → "queued"; refused by the adapter → "failed". A turned-off sender keeps them waiting.
      */
     async dispatchPending(limit = 100) {
-      const counts = { queued: 0, failed: 0, waiting: 0 };
+      const counts = { sent: 0, queued: 0, failed: 0, waiting: 0, retrying: 0 };
       await db.tx(async (t) => {
         const rows = await t.rows<
           NotificationRow & {
@@ -489,12 +528,10 @@ export function notificationsService(ctx: AppContext) {
           [limit],
         );
         for (const n of rows) {
+          // PALTAS's own transactional e-mails (verification, password reset, trial notices) go through the platform
+          // provider whatever the organisation's sender settings say; nothing else ever does
           const platform =
-            !!platformEmail &&
-            n.source === "platform" &&
-            n.channel === "email" &&
-            n.category === "transactional" &&
-            n.source_ref?.startsWith("signup.");
+            !!platformEmail && n.source === "platform" && n.channel === "email" && n.category === "transactional";
           if (!platform && n.s_enabled === false) {
             counts.waiting++;
             await t.run("UPDATE notifications SET status_note = $2 WHERE id = $1", [
@@ -503,9 +540,8 @@ export function notificationsService(ctx: AppContext) {
             ]);
             continue;
           }
-          const provider = platform ? "platform_resend" : (n.s_provider ?? "test");
-          const a =
-            provider === "platform_resend" && !platform ? undefined : adapters.get(adapterKey(n.channel, provider));
+          const provider = platform ? (platformEmail as NotificationAdapter).key : (n.s_provider ?? "test");
+          const a = !platform && isPlatformKey(provider) ? undefined : adapters.get(adapterKey(n.channel, provider));
           let res: Awaited<ReturnType<NotificationAdapter["submit"]>>;
           try {
             res = a
@@ -523,7 +559,20 @@ export function notificationsService(ctx: AppContext) {
             log.warn({ err, message: n.id, provider }, "Notification adapter error");
             res = { accepted: false, note: `${provider}: ${(err as Error).message}`.slice(0, 500) };
           }
-          if (res.accepted) {
+          if (res.accepted && res.sent && res.providerMessageId) {
+            counts.sent++;
+            await t.run(
+              `UPDATE notifications SET status = 'sent', provider = $2, provider_message_id = $3, status_note = $4,
+                 queued_at = now(), sent_at = now(), attempts = attempts + 1 WHERE id = $1`,
+              [n.id, provider, res.providerMessageId, res.note],
+            );
+          } else if (!res.accepted && res.retry && n.attempts + 1 < MAX_ATTEMPTS) {
+            counts.retrying++;
+            await t.run("UPDATE notifications SET status_note = $2, attempts = attempts + 1 WHERE id = $1", [
+              n.id,
+              `${res.note} (attempt ${n.attempts + 1} of ${MAX_ATTEMPTS})`.slice(0, 500),
+            ]);
+          } else if (res.accepted) {
             counts.queued++;
             await t.run(
               `UPDATE notifications SET status = 'queued', provider = $2, provider_message_id = $3, status_note = $4,
@@ -557,20 +606,47 @@ export function notificationsService(ctx: AppContext) {
           [n.id, n.org_id, provider, r.id, r.status, r.detail ?? ""],
         );
         if (!inserted) return { duplicate: true, messageId: n.id, status: n.status };
-        const to: Status = r.status === "sent" || r.status === "delivered" ? "sent" : "failed";
-        // queued → sent / failed; a sent message may still bounce (→ failed); a failed one stays failed
-        const allowed = n.status === "queued" || (n.status === "sent" && to === "failed");
-        if (!allowed) return { duplicate: false, messageId: n.id, status: n.status };
-        const note = `${r.status}${r.detail ? ": " + r.detail : ""} — reported by ${provider}`;
-        await t.run(
-          `UPDATE notifications SET status = $2, status_note = $3,
-             sent_at = CASE WHEN $2 = 'sent' THEN now() ELSE sent_at END,
-             failed_at = CASE WHEN $2 = 'failed' THEN now() ELSE failed_at END
-           WHERE id = $1`,
-          [n.id, to, note.slice(0, 500)],
+        const kind = r.status === "sent" ? "sent" : r.status === "delivered" ? "delivered" : "undelivered";
+        const to = await applyOutcome(
+          t,
+          n,
+          kind,
+          `${r.status}${r.detail ? ": " + r.detail : ""} — reported by ${provider}`,
         );
         return { duplicate: false, messageId: n.id, status: to };
       });
+    },
+
+    /** Is a real e-mail provider configured for PALTAS's own messages (verification, reset, reminders)? */
+    emailDeliveryConfigured: () => !!platformEmail,
+
+    /** Delivery outcomes from the configured e-mail provider's webhook (already verified with its own scheme). */
+    async receiveEmailEvents(provider: string, events: EmailEvent[]) {
+      let applied = 0;
+      for (const e of events) {
+        await db.tx(async (t) => {
+          const n = await t.row<NotificationRow>(
+            "SELECT * FROM notifications WHERE provider = $1 AND provider_message_id = $2 FOR UPDATE",
+            [`platform_${provider}`, e.messageId],
+          );
+          if (!n) return; // not a PALTAS message (or another provider's): acknowledged, nothing to do
+          const inserted = await t.run(
+            `INSERT INTO notification_events (notification_id, org_id, provider, provider_event_id, status, detail)
+             VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (provider, provider_event_id) DO NOTHING`,
+            [n.id, n.org_id, provider, e.eventId, e.outcome, e.detail.slice(0, 500)],
+          );
+          if (!inserted || e.outcome === "other" || e.outcome === "complained") return;
+          const before = n.status;
+          const after = await applyOutcome(
+            t,
+            n,
+            e.outcome === "delivered" ? "delivered" : "undelivered",
+            `${e.outcome}: ${e.detail} — reported by ${provider}`,
+          );
+          if (after !== before) applied++;
+        });
+      }
+      return { received: events.length, applied };
     },
   };
 }

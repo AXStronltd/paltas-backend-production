@@ -40,6 +40,7 @@ describe("migrations", () => {
         "0013_self_service",
         "0014_property_document_files",
         "0015_catalogue_seed",
+        "0016_email_delivery",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything

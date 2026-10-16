@@ -6,6 +6,7 @@
 import { randomBytes } from "node:crypto";
 import type { PaltasClient } from "@paltas/api-client";
 import type { Product } from "@paltas/contracts";
+import type { AppOptions } from "../../dist/app.js";
 import type { Config } from "../../dist/config.js";
 import { PRODUCTS } from "../../dist/products/index.js";
 import { SALE } from "./agency-fixture.js";
@@ -24,9 +25,14 @@ export const STANDARD: Record<Product, string> = {
 };
 export const TERMS = DEFAULTS.signup.termsVersion;
 
-export function signupServer(signup: Partial<Config["signup"]> = {}, more: Partial<Config> = {}) {
+export function signupServer(
+  signup: Partial<Config["signup"]> = {},
+  more: Partial<Config> = {},
+  emailTransport?: AppOptions["emailTransport"],
+) {
   return startServer({
     products: PRODUCTS,
+    ...(emailTransport ? { emailTransport } : {}),
     config: {
       signup: {
         ...DEFAULTS.signup,

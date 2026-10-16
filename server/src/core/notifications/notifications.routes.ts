@@ -1,10 +1,12 @@
 import { notifications } from "@paltas/contracts";
+import type { Config } from "../../config.js";
 import { route } from "../../http/route.js";
 import type { CoreServices } from "../core-services.js";
+import { parseEmailEvents, verifyEmailWebhook } from "./email-providers.js";
 
 // Organisation routes: notifications.read to look, notifications.manage (active subscription) to change.
 // The delivery webhook is verified by the route layer (auth "signed-webhook", WEBHOOK_SECRET_<PROVIDER>).
-export function notificationsRoutes(core: CoreServices) {
+export function notificationsRoutes(core: CoreServices, config: Config) {
   const { access, notifications: N } = core;
   const read = (user: Parameters<typeof access.scope>[0], orgId: string) =>
     access.scope(user, orgId, { capability: "notifications.read", anyProduct: true });
@@ -49,5 +51,11 @@ export function notificationsRoutes(core: CoreServices) {
       N.recordByHand(await manage(req.user, req.params.orgId), req.body),
     ),
     route(notifications.deliveryWebhook, async (req) => N.receiveReport(req.params.provider, req.body)),
+    // verified here, on the exact bytes received, with the provider's own scheme (not the PALTAS HMAC header)
+    route(notifications.emailWebhook, async (req) => {
+      const p = req.params.provider;
+      verifyEmailWebhook(config.email, p, req.header, req.rawBody ?? Buffer.alloc(0));
+      return N.receiveEmailEvents(p, parseEmailEvents(p, req.body, req.header));
+    }),
   ];
 }

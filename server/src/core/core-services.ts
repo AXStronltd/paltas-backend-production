@@ -68,7 +68,7 @@ export function createCoreServices(ctx: AppContext): CoreServices {
   // a provider payment whose reference matches nothing is kept and held for review
   ctx.products.addPaymentHandler(UNMATCHED_PAYMENT, unmatchedPaymentHandler);
   const ledger = ledgerService(ctx);
-  const notifications = notificationsService(ctx);
+  const notifications = notificationsService(ctx, ctx.emailTransport);
   const scheduler = schedulerService(ctx);
   scheduler.register(platformJobs(ctx, { billing: subscriptions.billing, notifications }));
   const signup = signupService(ctx, { notifications });
