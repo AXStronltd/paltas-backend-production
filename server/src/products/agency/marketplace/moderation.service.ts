@@ -152,8 +152,8 @@ export function moderationService(d: AgencyDeps) {
     async approve(user: SessionUser, id: string, note: string) {
       const actor = staffActor(user);
       return db.tx(async (t) => {
-        const l = await listing(t, id);
         await t.run("SELECT 1 FROM agency_listings WHERE id = $1 FOR UPDATE", [id]);
+        const l = await listing(t, id);
         if (l.status !== "pending_review")
           throw fail.conflict(`This listing is ${l.status.replace("_", " ")}, not waiting for review`);
         await t.run(
@@ -175,8 +175,8 @@ export function moderationService(d: AgencyDeps) {
     async reject(user: SessionUser, id: string, reason: string) {
       const actor = staffActor(user);
       return db.tx(async (t) => {
-        const l = await listing(t, id);
         await t.run("SELECT 1 FROM agency_listings WHERE id = $1 FOR UPDATE", [id]);
+        const l = await listing(t, id);
         if (!["pending_review", "published"].includes(l.status))
           throw fail.conflict(`This listing is ${l.status}, neither waiting for review nor published`);
         await t.run(
