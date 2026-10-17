@@ -1,12 +1,13 @@
 // HTTP only: the public marketplace (auth "public": no sign-in, limited per caller address) and PALTAS staff
 // moderation (auth "staff").
 import { marketplace as M } from "@paltas/contracts";
-import { route } from "../../../http/route.js";
+import { route, streamRoute } from "../../../http/route.js";
 import type { ModerationService } from "./moderation.service.js";
 import type { PublicService } from "./public.service.js";
 
 export function marketplaceRoutes(P: PublicService, S: ModerationService) {
   return [
+    streamRoute(M.mediaContent, async (req) => P.mediaContent(req.ip, req.params.listingId, req.params.mediaId)),
     route(M.searchListings, async (req) => P.search(req.ip, req.query)),
     route(M.getListing, async (req) => P.get(req.ip, req.params.listingId)),
     route(M.listingAvailability, async (req) =>

@@ -39,7 +39,13 @@ for (const e of allEndpoints()) {
       ? { requestBody: { required: true, content: { "application/json": { schema: schema(e.body, "input") } } } }
       : {}),
     responses: {
-      [e.status]: { description: "Success", content: { "application/json": { schema: schema(e.response, "output") } } },
+      [e.status]: {
+        description: "Success",
+        content:
+          e.id === "marketplace.mediaContent"
+            ? { "image/jpeg": { schema: { type: "string", format: "binary" } } }
+            : { "application/json": { schema: schema(e.response, "output") } },
+      },
       default: {
         description: "Error",
         content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
