@@ -258,6 +258,27 @@ export const addMedia = endpoint({
   status: 201,
 });
 
+export const uploadPhoto = endpoint({
+  id: "agency.listings.uploadPhoto",
+  method: "POST",
+  path: `${base}/listings/:listingId/photos`,
+  auth: "user",
+  summary:
+    "Upload a real JPEG, PNG or WebP photo (2 MiB input); normalize and persist bytes, up to 20 photos per listing and 100 MiB per company",
+  params: ListingParams,
+  body: z.object({
+    fileName: z.string().trim().min(1).max(200),
+    caption: z.string().trim().max(200).default(""),
+    contentBase64: z
+      .string()
+      .min(4)
+      .max(2796204)
+      .regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+  }),
+  response: z.object({ media: Listing.shape.media.element, stored: z.literal(true) }),
+  status: 201,
+});
+
 export const removeMedia = endpoint({
   id: "agency.listings.removeMedia",
   method: "DELETE",

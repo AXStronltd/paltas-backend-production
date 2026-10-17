@@ -49,6 +49,7 @@ export interface StreamedAnswer {
   /** JSON written as it is produced; its shape is the endpoint's response contract. */
   body: Readable;
   filename: string;
+  contentType?: "image/jpeg";
 }
 
 /** Bind a handler to its endpoint definition. */
@@ -122,10 +123,14 @@ export function registerRoutes(
         };
         const out = await handler(ctx);
         if (stream) {
-          const { body, filename } = out as StreamedAnswer;
+          const { body, filename, contentType } = out as StreamedAnswer;
           reply.status(endpoint.status);
-          reply.header("Content-Type", "application/json; charset=utf-8");
-          reply.header("Content-Disposition", `attachment; filename="${filename.replace(/[^\w.-]/g, "_")}"`);
+          reply.header("Content-Type", contentType ?? "application/json; charset=utf-8");
+          if (contentType) reply.header("Cache-Control", "no-store");
+          reply.header(
+            "Content-Disposition",
+            `${contentType ? "inline" : "attachment"}; filename="${filename.replace(/[^\w.-]/g, "_")}"`,
+          );
           return reply.send(body);
         }
         const checked = endpoint.response.safeParse(out);

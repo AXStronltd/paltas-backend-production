@@ -6,6 +6,7 @@ import {
   client,
   ledgerBalance,
   publishedListing,
+  photoBody,
   SALE,
   sha,
   startAgencyServer,
@@ -66,16 +67,7 @@ describe("agency rules", () => {
 
   it("concurrent staff approvals publish once and refuse the stale decision", async () => {
     const l = await A.manager.api.agency.createListing({ params: PA(), body: SALE });
-    await A.manager.api.agency.addMedia({
-      params: { ...PA(), listingId: l.id },
-      body: {
-        kind: "photo",
-        fileName: "review.jpg",
-        contentType: "image/jpeg",
-        sizeBytes: 100,
-        sha256: sha("concurrent-review"),
-      },
-    });
+    await A.manager.api.agency.uploadPhoto({ params: { ...PA(), listingId: l.id }, body: await photoBody() });
     await A.manager.api.agency.submitListing({ params: { ...PA(), listingId: l.id } });
     const staff = await S.staff();
     const outcomes = await Promise.allSettled(
@@ -115,10 +107,7 @@ describe("agency rules", () => {
     await refused(A.accountant.api.agency.createListing(draft), 403, "ROLE_NOT_ALLOWED");
     // a leasing agent drafts listings but cannot submit them to the marketplace
     const l = await A.agent.api.agency.createListing(draft);
-    await A.agent.api.agency.addMedia({
-      params: { ...PA(), listingId: l.id },
-      body: { kind: "photo", fileName: "p.jpg", contentType: "image/jpeg", sizeBytes: 10, sha256: sha("p") },
-    });
+    await A.agent.api.agency.uploadPhoto({ params: { ...PA(), listingId: l.id }, body: await photoBody() });
     await refused(A.agent.api.agency.submitListing({ params: { ...PA(), listingId: l.id } }), 403, "ROLE_NOT_ALLOWED");
     await A.manager.api.agency.submitListing({ params: { ...PA(), listingId: l.id } });
     // only PALTAS staff publish: no customer endpoint and no database path can publish without a reviewer

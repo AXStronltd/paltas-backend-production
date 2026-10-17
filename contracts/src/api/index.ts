@@ -29,6 +29,7 @@ export const AGENCY_API = {
   submitListing: agency.submitListing,
   unpublishListing: agency.unpublishListing,
   addMedia: agency.addMedia,
+  uploadPhoto: agency.uploadPhoto,
   removeMedia: agency.removeMedia,
   listingCalendar: agency.listingCalendar,
   setRates: agency.setRates,
@@ -63,6 +64,7 @@ export const AGENCY_API = {
 } as const;
 
 export const MARKETPLACE_API = {
+  mediaContent: marketplace.mediaContent,
   search: marketplace.searchListings,
   getListing: marketplace.getListing,
   availability: marketplace.listingAvailability,

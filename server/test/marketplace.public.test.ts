@@ -7,7 +7,7 @@ import {
   client,
   publishedListing,
   SALE,
-  sha,
+  photoBody,
   startAgencyServer,
   STAY,
   type AgencyOrg,
@@ -72,10 +72,7 @@ describe("public marketplace", () => {
     const P = { orgId: A.orgId };
     const draft = await api.createListing({ params: P, body: { ...SALE, title: "Draft flat in Nyali" } });
     const waiting = await api.createListing({ params: P, body: { ...SALE, title: "Waiting flat in Nyali" } });
-    await api.addMedia({
-      params: { ...P, listingId: waiting.id },
-      body: { kind: "photo", fileName: "a.jpg", contentType: "image/jpeg", sizeBytes: 1000, sha256: sha("w") },
-    });
+    await api.uploadPhoto({ params: { ...P, listingId: waiting.id }, body: await photoBody() });
     await api.submitListing({ params: { ...P, listingId: waiting.id } });
     const all = await S.api.marketplace.search({ query: { limit: 50 } });
     expect(all.listings.map((l) => l.id).sort()).toEqual([saleA, stayB].sort());

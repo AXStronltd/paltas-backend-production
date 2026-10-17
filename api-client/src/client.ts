@@ -90,6 +90,15 @@ export function createClient(options: ClientOptions): PaltasClient {
     } catch (e) {
       throw new PaltasApiError(0, "NETWORK_ERROR", "Could not reach the PALTAS server: " + (e as Error).message);
     }
+    // Image endpoint serves binary JPEG for <img>; typed callers receive a safe data URL.
+    if (res.ok && endpoint.id === "marketplace.mediaContent") {
+      if (res.headers.get("content-type") !== "image/jpeg")
+        throw new PaltasApiError(res.status, "INVALID_RESPONSE", "Expected a JPEG photo");
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      let binary = "";
+      for (let i = 0; i < bytes.length; i += 8192) binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+      return ("data:image/jpeg;base64," + btoa(binary)) as ResponseOf<E>;
+    }
     const text = await res.text();
     let data: unknown;
     try {
