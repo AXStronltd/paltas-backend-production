@@ -1,3 +1,4 @@
+import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Owners: the owner statement (built from the owner's own postings in the ledger, so its closing equals the ledger by
  * construction and is checked against it) and owner payouts — prepared by one person, approved by a second, released by
@@ -179,7 +180,7 @@ export function ownersService(d: PmDeps) {
     },
 
     async prepare(s: OrgScope, ownerId: string) {
-      const id = await db.tx(async (t) => {
+      const id = await financeTransaction(db, s.orgId, async (t) => {
         const owner = await core.contacts.live(t, s.orgId, ownerId, true);
         if (!owner.types.includes("owner")) throw fail.notFound("Owner not found");
         const prof = await t.row<{ bank_verified_at: string | null; reserve_minor: number }>(
@@ -219,7 +220,7 @@ export function ownersService(d: PmDeps) {
     },
 
     async approve(s: OrgScope, id: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const p = await payoutRow(t, s.orgId, id, true);
         if (p.status !== "prepared") throw fail.conflict(`This payout is already ${p.status}`);
         if (p.prepared_by === s.userId)
@@ -231,7 +232,7 @@ export function ownersService(d: PmDeps) {
     },
 
     async release(s: OrgScope, id: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const p = await payoutRow(t, s.orgId, id, true);
         if (p.status !== "approved")
           throw fail.conflict(`Only an approved payout can be released (this one is ${p.status})`);
@@ -267,7 +268,7 @@ export function ownersService(d: PmDeps) {
     },
 
     async cancel(s: OrgScope, id: string, reason: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const p = await payoutRow(t, s.orgId, id, true);
         if (p.status !== "prepared" && p.status !== "approved")
           throw fail.conflict(`A ${p.status} payout cannot be cancelled`);

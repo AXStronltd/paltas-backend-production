@@ -36,6 +36,7 @@ export interface SystemJournalInput {
   /** The source document (invoice, payment …). The same document is never posted twice. */
   sourceRef: string;
   lines: repo.NewLine[];
+  reverses?: string;
 }
 
 async function orgCurrency(db: Db, orgId: string): Promise<string> {
@@ -261,6 +262,10 @@ export function ledgerService(ctx: AppContext) {
     async reverseJournal(s: OrgScope, id: string, input: { date: string; reason: string }) {
       const original = await load(db, s.orgId, id);
       if (original.status !== "posted") throw fail.conflict("Only a posted journal can be reversed");
+      if (original.source !== "manual")
+        throw fail.conflict(
+          "Correct this transaction in its product workflow so the source records and ledger stay together",
+        );
       if (original.reversedBy) throw fail.conflict(`Already reversed by ${original.reversedBy}`);
       if (input.date < original.date) throw fail.invalid("A reversal cannot be dated before the journal it reverses");
       const pending = await db.row(
@@ -291,6 +296,12 @@ export function ledgerService(ctx: AppContext) {
         [input.orgId, input.source, input.sourceRef],
       );
       if (existing) return load(t, input.orgId, existing.id);
+      if (input.reverses) {
+        const original = await repo.entry(t, input.orgId, input.reverses, true);
+        if (!original || original.status !== "posted" || original.reversed_by)
+          throw fail.conflict("The original journal cannot be reversed");
+        if (input.date < original.date) throw fail.invalid("A correction cannot predate its original posting");
+      }
       await checkLines(t, input.orgId, input.lines);
       const id = newId("je");
       const number = await nextNumber(t, input.orgId, "JE", 6);
@@ -306,7 +317,7 @@ export function ledgerService(ctx: AppContext) {
           source: input.source,
           source_ref: input.sourceRef,
           prepared_by: null,
-          reverses: null,
+          reverses: input.reverses ?? null,
         },
         input.lines,
       );

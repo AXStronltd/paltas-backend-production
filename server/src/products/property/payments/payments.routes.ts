@@ -8,6 +8,15 @@ import type { PaymentsService } from "./payments.service.js";
 export function paymentsRoutes(access: PmAccess, P: PaymentsService) {
   const g = gate(access);
   return [
+    route(api.rejectPaymentReversal, async (req) =>
+      P.rejectReversal(await g.org(req, "property.payments.record", FINANCE), req.params.paymentId, req.body.reason),
+    ),
+    route(api.requestPaymentReversal, async (req) =>
+      P.requestReversal(await g.org(req, "property.payments.record", FINANCE), req.params.paymentId, req.body.reason),
+    ),
+    route(api.approvePaymentReversal, async (req) =>
+      P.approveReversal(await g.org(req, "property.payments.record", FINANCE), req.params.paymentId),
+    ),
     route(api.recordPayment, async (req) => P.record(await g.org(req, "property.payments.record", FINANCE), req.body)),
     route(api.listPayments, async (req) => P.list(await g.org(req, "property.read"), req.query)),
     route(api.getPayment, async (req) =>
