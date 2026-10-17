@@ -198,6 +198,10 @@ export function commsService(d: PmDeps) {
       documentId: string,
       b: { filename: string; mediaType: string; contentBase64: string },
     ) {
+      if (d.ctx.config.pmDocumentFileUploadsEnabled === false)
+        throw fail.invalid(
+          "File uploads are temporarily unavailable. Your saved records and downloads remain available.",
+        );
       const content = Buffer.from(b.contentBase64, "base64");
       if (content.length < 1 || content.length > 2 * 1024 * 1024 || content.toString("base64") !== b.contentBase64)
         throw fail.invalid("Choose a file no larger than 2 MiB.");
@@ -217,6 +221,10 @@ export function commsService(d: PmDeps) {
           documentId,
         ]);
         if (!doc) throw fail.notFound("Document not found");
+        if (/identity|passport|national.?id|driver.?s?.?(licen[cs]e)|payslip|screening|^id$/i.test(doc.doc_type))
+          throw fail.invalid(
+            "Identity, employment and screening files are not enabled. Keep only the document reference until your local privacy and retention controls are approved.",
+          );
         if (await t.row("SELECT 1 FROM pm_document_files WHERE org_id=$1 AND document_id=$2", [s.orgId, documentId]))
           throw fail.conflict("A file is already stored. Create a new document record for a new version.");
         const usage = await t.row<{ bytes: string }>(
@@ -248,6 +256,11 @@ export function commsService(d: PmDeps) {
       });
     },
     async downloadFile(s: OrgScope, documentId: string) {
+      if (s.role === "tenant" || s.role === "owner") {
+        const contact = await core.contacts.ofUser(s.orgId, s.userId);
+        if (!contact || !(await portalDocuments(db, s.orgId, contact.id, s.role)).some((d) => d.id === documentId))
+          throw fail.notFound("Document not found");
+      }
       const f = await db.row<{
         filename: string;
         media_type: "application/pdf" | "image/png" | "image/jpeg" | "text/plain" | "text/csv";
@@ -298,3 +311,15 @@ export function documents(db: Db, orgId: string, where: string, params: unknown[
 }
 
 export type CommsService = ReturnType<typeof commsService>;
+
+/** Exactly the document references visible in each portal; file downloads use the same filter. */
+export function portalDocuments(db: Db, orgId: string, contactId: string, role: "tenant" | "owner") {
+  return documents(
+    db,
+    orgId,
+    role === "tenant"
+      ? "visibility = 'tenant' AND ((link_entity = 'contact' AND link_id = $2) OR (link_entity = 'lease' AND link_id IN (SELECT id FROM pm_leases WHERE org_id=$1 AND tenant_id=$2 AND status IN ('active','ended'))))"
+      : "visibility = 'owner' AND ((link_entity = 'contact' AND link_id = $2) OR (link_entity = 'property' AND link_id IN (SELECT property_id FROM pm_agreements WHERE org_id=$1 AND owner_id=$2 AND status='active')))",
+    [contactId],
+  );
+}

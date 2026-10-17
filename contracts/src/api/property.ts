@@ -867,6 +867,7 @@ export const OwnerPortal = z.object({
   billsAwaitingApproval: z.array(Bill),
   workOrdersAwaitingApproval: z.array(WorkOrder),
   payouts: z.array(Payout),
+  documents: z.array(DocumentRecord).default([]),
 });
 export type OwnerPortal = z.infer<typeof OwnerPortal>;
 

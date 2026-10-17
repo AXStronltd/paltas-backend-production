@@ -1,0 +1,1779 @@
+{
+  "schema": [
+    {
+      "table": "organisations",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "users",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "memberships",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "sessions",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "catalogue_modules",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "catalogue_plans",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "subscriptions",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "subscription_addons",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "subscription_disabled",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "subscription_pending",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "billing_invoices",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "payment_events",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "billing_receipts",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "billing_purchases",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "enterprise_enquiries",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "counters",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "audit_log",
+      "migration": "0001_platform.sql"
+    },
+    {
+      "table": "ledger_accounts",
+      "migration": "0002_ledger.sql"
+    },
+    {
+      "table": "ledger_periods",
+      "migration": "0002_ledger.sql"
+    },
+    {
+      "table": "journal_entries",
+      "migration": "0002_ledger.sql"
+    },
+    {
+      "table": "journal_lines",
+      "migration": "0002_ledger.sql"
+    },
+    {
+      "table": "hotel_properties",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_property_staff",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_room_types",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_rooms",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_corporate_accounts",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_channels",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_outlets",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_rate_plans",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_rate_prices",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_rate_seasons",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_restrictions",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_inventory",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_guests",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_folios",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_group_blocks",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_group_block_nights",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_reservations",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_stays",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_stay_nights",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_folio_routing",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_cashier_shifts",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_folio_lines",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_deposits",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_refunds",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_city_ledger",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_ledger_links",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_hk_assignments",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_maintenance",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_lost_found",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_requests",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_night_audits",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_daily_reports",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_income_audits",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_keys",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_room_commands",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_ari_outbox",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "hotel_messages",
+      "migration": "0005_hotel.sql"
+    },
+    {
+      "table": "mig_profiles",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "mig_jobs",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "mig_files",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "mig_upload_chunks",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "mig_tables",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "mig_rows",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "mig_issues",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "mig_batches",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "mig_documents",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_projects",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_phases",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_buildings",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_floors",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_units",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_contacts",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_reservations",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_contracts",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_contract_amendments",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_instalments",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_payments",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_payment_allocations",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_suppliers",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_opening_balances",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_purchase_orders",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_work_orders",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_milestones",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_handovers",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_defects",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_disputes",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_correspondence",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "dev_documents",
+      "migration": "0006_migration.sql"
+    },
+    {
+      "table": "contacts",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "contact_activities",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "contact_messages",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_settings",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_charge_types",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_properties",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_buildings",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_units",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_owner_profiles",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_agreements",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_leases",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_rent_steps",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_lease_charges",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_meter_readings",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_billing_runs",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_invoices",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_invoice_lines",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_payments",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_credit_notes",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_deposit_refunds",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_allocations",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_payment_claims",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_opening_deposits",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_source_accounts",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_trial_balance_lines",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_maintenance_requests",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_work_orders",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_wo_quotes",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_inspections",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_bills",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_payouts",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_ledger_links",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_bank_lines",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_reconciliations",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_leads",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_viewings",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_applications",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_notices",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "pm_documents",
+      "migration": "0007_property.sql"
+    },
+    {
+      "table": "dev_settings",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_approval_limits",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_cost_codes",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_price_lists",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_price_list_items",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_offers",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_payment_reports",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_tasks",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_legal_items",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_bank_changes",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_budget_lines",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_budget_changes",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_requisitions",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_po_lines",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_rfqs",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_rfq_bids",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_deliveries",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_delivery_lines",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_supplier_invoices",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_invoice_lines",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_credit_notes",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_payment_runs",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_payment_run_items",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "dev_supplier_payments",
+      "migration": "0008_development.sql"
+    },
+    {
+      "table": "sec_settings",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_pay_rates",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_statutory_rules",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_income_tax_bands",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_clients",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_client_users",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_sites",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_posts",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_contracts",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_opportunities",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_guards",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_guard_training",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_post_order_acks",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_equipment",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_equipment_issues",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_shifts",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_checkpoints",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_patrols",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_patrol_scans",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_alarms",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_incidents",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_occurrences",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_visitors",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_watchlist",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_watchlist_hits",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_doors",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_access_groups",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_credentials",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_access_decisions",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_invoices",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_invoice_lines",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_receipts",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_receipt_allocations",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_tax_certificates",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_client_notes",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_bank_lines",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_payroll_runs",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_payroll_lines",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_payroll_site_costs",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_costs",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_remittances",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_ledger_links",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "sec_messages",
+      "migration": "0009_security.sql"
+    },
+    {
+      "table": "agency_agreements",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_listings",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_listing_media",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_listing_views",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_enquiries",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_leads",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_lead_events",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_viewings",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_offers",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_deals",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_commissions",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_commission_receipts",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_stays",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_stay_rates",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_stay_payments",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_payouts",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "agency_reviews",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "mkt_business_requests",
+      "migration": "0010_agency.sql"
+    },
+    {
+      "table": "hotel_promo_codes",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_upsells",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_attribute_prices",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_reservation_upsells",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_loyalty_programmes",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_loyalty_members",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_loyalty_entries",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_feedback",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_message_templates",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_fx_rates",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_fx_payments",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_invoices",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_collection_actions",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_bank_imports",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_bank_lines",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_bank_matches",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_menu_items",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_pos_orders",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_pos_order_lines",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_kitchen_tickets",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_tips",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_table_bookings",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_stock_items",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_stock_moves",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_recipe_lines",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_purchase_orders",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_po_lines",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_goods_receipts",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_supplier_bills",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_services",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_providers",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_resources",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_service_bookings",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_venues",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_events",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_event_items",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_event_deposits",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_staff_pay",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_pay_runs",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_pay_run_lines",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_distributions",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_distribution_lines",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_labour_standards",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_staff_shifts",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_budgets",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_fixed_assets",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_depreciation",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_ffe_contributions",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_rate_suggestions",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_rfps",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_hk_cleans",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_maintenance_plans",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "hotel_meter_readings",
+      "migration": "0011_hotel_extensions.sql"
+    },
+    {
+      "table": "org_suspensions",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "catalogue_price_changes",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "sched_jobs",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "sched_runs",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "notification_senders",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "notification_templates",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "notification_consents",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "notifications",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "notification_events",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "payment_references",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "provider_callbacks",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "bank_statements",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "bank_statement_lines",
+      "migration": "0012_platform_ops.sql"
+    },
+    {
+      "table": "trial_policy",
+      "migration": "0013_self_service.sql"
+    },
+    {
+      "table": "trial_policy_history",
+      "migration": "0013_self_service.sql"
+    },
+    {
+      "table": "email_verifications",
+      "migration": "0013_self_service.sql"
+    },
+    {
+      "table": "trial_registry",
+      "migration": "0013_self_service.sql"
+    },
+    {
+      "table": "org_signups",
+      "migration": "0013_self_service.sql"
+    },
+    {
+      "table": "subscription_upgrades",
+      "migration": "0013_self_service.sql"
+    },
+    {
+      "table": "pm_document_files",
+      "migration": "0014_property_document_files.sql"
+    },
+    {
+      "table": "password_resets",
+      "migration": "0017_password_reset.sql"
+    }
+  ],
+  "roles": {
+    "org_admin": {
+      "label": "Organisation administrator",
+      "products": ["property", "developer", "agency", "hotel", "security"],
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "members.manage",
+        "subscription.manage",
+        "subscription.own",
+        "audit.read",
+        "ledger.read",
+        "migration.read",
+        "migration.run",
+        "migration.approve",
+        "developer.read",
+        "developer.settings",
+        "developer.projects",
+        "developer.pricing",
+        "developer.buyers.read",
+        "developer.buyers.all",
+        "developer.sales",
+        "developer.sales.manage",
+        "developer.executive",
+        "developer.collections",
+        "developer.procurement",
+        "developer.approve",
+        "developer.payables",
+        "developer.treasury",
+        "developer.suppliers.verify",
+        "developer.budget",
+        "developer.delivery",
+        "developer.reports",
+        "developer.work",
+        "hotel.read",
+        "hotel.setup",
+        "hotel.rates.manage",
+        "hotel.group.read",
+        "agency.read",
+        "agency.listings.manage",
+        "agency.reports.read",
+        "marketplace.inbox",
+        "marketplace.publish",
+        "security.read",
+        "security.setup",
+        "security.guards.manage",
+        "security.roster.manage",
+        "security.visitors",
+        "security.control",
+        "security.access.manage",
+        "security.reports.read",
+        "notifications.read",
+        "notifications.manage",
+        "contacts.read",
+        "contacts.manage",
+        "contacts.merge",
+        "property.read",
+        "property.setup",
+        "property.leases.manage",
+        "property.maintenance.request",
+        "property.maintenance.manage",
+        "property.maintenance.approve",
+        "property.crm",
+        "property.crm.approve",
+        "property.notices",
+        "property.reports.read",
+        "property.billing",
+        "property.payments.record",
+        "property.bills.submit"
+      ]
+    },
+    "finance_director": {
+      "label": "Finance director",
+      "products": ["property", "developer", "agency", "hotel", "security"],
+      "frontendKey": "fd",
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "subscription.manage",
+        "audit.read",
+        "ledger.read",
+        "ledger.prepare",
+        "ledger.approve",
+        "ledger.accounts.manage",
+        "ledger.periods.close",
+        "migration.read",
+        "migration.run",
+        "migration.approve",
+        "developer.read",
+        "developer.work",
+        "developer.settings",
+        "developer.buyers.read",
+        "developer.buyers.all",
+        "developer.collections",
+        "developer.procurement",
+        "developer.approve",
+        "developer.payables",
+        "developer.suppliers.verify",
+        "developer.budget",
+        "developer.reports",
+        "agency.read",
+        "agency.payments.record",
+        "agency.finance.approve",
+        "agency.reports.read",
+        "security.read",
+        "security.billing",
+        "security.payroll.prepare",
+        "security.payroll.approve",
+        "security.reports.read",
+        "notifications.read",
+        "payments.reconcile",
+        "contacts.read",
+        "contacts.manage",
+        "contacts.merge",
+        "property.read",
+        "property.billing",
+        "property.payments.record",
+        "property.deposits.request",
+        "property.deposits.approve",
+        "property.bills.submit",
+        "property.bills.approve",
+        "property.bills.pay",
+        "property.payouts.prepare",
+        "property.payouts.approve",
+        "property.bank.reconcile",
+        "property.reports.read",
+        "property.setup",
+        "property.leases.manage",
+        "property.maintenance.request",
+        "property.maintenance.manage",
+        "property.maintenance.approve",
+        "property.crm",
+        "property.crm.approve",
+        "property.notices"
+      ]
+    },
+    "accountant": {
+      "label": "Accountant",
+      "products": ["property", "developer", "agency", "hotel", "security"],
+      "frontendKey": "acct",
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "ledger.read",
+        "ledger.prepare",
+        "ledger.approve",
+        "migration.read",
+        "payments.reconcile",
+        "hotel.read",
+        "hotel.reports.read",
+        "hotel.cityledger",
+        "hotel.costs.post",
+        "hotel.reconcile",
+        "hotel.payables",
+        "hotel.assets.manage",
+        "developer.read",
+        "developer.work",
+        "developer.buyers.read",
+        "developer.buyers.all",
+        "developer.collections",
+        "developer.payables",
+        "developer.reports",
+        "agency.read",
+        "agency.payments.record",
+        "agency.finance.approve",
+        "agency.reports.read",
+        "security.read",
+        "security.billing",
+        "security.payroll.prepare",
+        "security.reports.read",
+        "contacts.read",
+        "contacts.manage",
+        "property.read",
+        "property.billing",
+        "property.payments.record",
+        "property.deposits.request",
+        "property.deposits.approve",
+        "property.bills.submit",
+        "property.bills.approve",
+        "property.bills.pay",
+        "property.payouts.prepare",
+        "property.payouts.approve",
+        "property.bank.reconcile",
+        "property.reports.read"
+      ]
+    },
+    "property_manager": {
+      "label": "Property manager",
+      "products": ["property", "agency"],
+      "frontendKey": "pm",
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "agency.read",
+        "agency.listings.manage",
+        "agency.leads.manage",
+        "agency.leads.assign",
+        "agency.deals.manage",
+        "agency.stays.manage",
+        "agency.reports.read",
+        "marketplace.inbox",
+        "marketplace.publish",
+        "contacts.read",
+        "contacts.manage",
+        "contacts.merge",
+        "property.read",
+        "property.setup",
+        "property.leases.manage",
+        "property.maintenance.request",
+        "property.maintenance.manage",
+        "property.maintenance.approve",
+        "property.crm",
+        "property.crm.approve",
+        "property.notices",
+        "property.reports.read",
+        "property.billing",
+        "property.payments.record",
+        "property.deposits.request",
+        "property.bills.submit",
+        "property.bills.approve"
+      ]
+    },
+    "leasing_agent": {
+      "label": "Leasing agent",
+      "products": ["property", "agency"],
+      "frontendKey": "agent",
+      "capabilities": [
+        "org.read",
+        "agency.read",
+        "agency.listings.manage",
+        "agency.leads.manage",
+        "agency.stays.manage",
+        "marketplace.inbox",
+        "contacts.read",
+        "contacts.manage",
+        "property.read",
+        "property.crm",
+        "property.maintenance.request"
+      ]
+    },
+    "front_desk": {
+      "label": "Front desk",
+      "products": ["property", "hotel"],
+      "capabilities": ["org.read", "contacts.read", "property.maintenance.request"]
+    },
+    "technician": {
+      "label": "Technician",
+      "products": ["property", "hotel"],
+      "capabilities": ["org.read", "hotel.read", "hotel.maintenance", "property.maintenance.work"]
+    },
+    "sales_manager": {
+      "label": "Sales manager",
+      "products": ["developer"],
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "developer.read",
+        "developer.work",
+        "developer.pricing",
+        "developer.buyers.read",
+        "developer.buyers.all",
+        "developer.sales",
+        "developer.sales.manage",
+        "developer.delivery",
+        "developer.reports"
+      ]
+    },
+    "sales_agent": {
+      "label": "Sales agent",
+      "products": ["developer"],
+      "capabilities": ["org.read", "developer.read", "developer.work", "developer.buyers.read", "developer.sales"]
+    },
+    "project_manager": {
+      "label": "Project manager",
+      "products": ["developer"],
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "developer.read",
+        "developer.work",
+        "developer.projects",
+        "developer.procurement",
+        "developer.approve",
+        "developer.budget",
+        "developer.delivery",
+        "developer.reports"
+      ]
+    },
+    "operations_manager": {
+      "label": "Operations manager",
+      "products": ["security"],
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "audit.read",
+        "security.read",
+        "security.setup",
+        "security.guards.manage",
+        "security.roster.manage",
+        "security.timesheets.approve",
+        "security.occurrences.write",
+        "security.control",
+        "security.incidents.manage",
+        "security.visitors",
+        "security.access.manage",
+        "security.reports.read"
+      ]
+    },
+    "supervisor": {
+      "label": "Supervisor",
+      "products": ["security"],
+      "capabilities": [
+        "org.read",
+        "security.read",
+        "security.roster.manage",
+        "security.field",
+        "security.occurrences.write",
+        "security.control",
+        "security.incidents.manage",
+        "security.visitors"
+      ]
+    },
+    "auditor": {
+      "label": "Auditor (read-only)",
+      "products": ["property", "developer", "agency", "hotel", "security"],
+      "frontendKey": "aud",
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "audit.read",
+        "ledger.read",
+        "migration.read",
+        "hotel.read",
+        "hotel.reports.read",
+        "developer.read",
+        "developer.reports",
+        "agency.read",
+        "agency.reports.read",
+        "notifications.read",
+        "security.read",
+        "security.reports.read",
+        "contacts.read",
+        "property.read",
+        "property.reports.read"
+      ]
+    },
+    "viewer": {
+      "label": "Viewer (read-only)",
+      "products": ["property", "developer", "agency", "hotel", "security"],
+      "capabilities": ["org.read"]
+    },
+    "general_manager": {
+      "label": "General manager",
+      "products": ["hotel"],
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "audit.read",
+        "ledger.read",
+        "hotel.read",
+        "hotel.setup",
+        "hotel.rates.manage",
+        "hotel.reservations.manage",
+        "hotel.frontdesk",
+        "hotel.folio.manage",
+        "hotel.folio.approve",
+        "hotel.cashier",
+        "hotel.outlet.post",
+        "hotel.housekeeping",
+        "hotel.housekeeping.inspect",
+        "hotel.maintenance",
+        "hotel.nightaudit.run",
+        "hotel.reports.read",
+        "hotel.cityledger",
+        "hotel.group.read",
+        "hotel.fx.manage",
+        "hotel.stock.manage",
+        "hotel.purchasing.approve",
+        "hotel.bookings.manage",
+        "hotel.events.manage",
+        "hotel.payroll.approve",
+        "hotel.budget.manage",
+        "hotel.labour.manage"
+      ]
+    },
+    "front_office_manager": {
+      "label": "Front office manager",
+      "products": ["hotel"],
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "hotel.read",
+        "hotel.rates.manage",
+        "hotel.reservations.manage",
+        "hotel.frontdesk",
+        "hotel.folio.manage",
+        "hotel.folio.approve",
+        "hotel.cashier",
+        "hotel.outlet.post",
+        "hotel.nightaudit.run",
+        "hotel.reports.read",
+        "hotel.fx.manage",
+        "hotel.bookings.manage",
+        "hotel.events.manage",
+        "hotel.labour.manage"
+      ]
+    },
+    "receptionist": {
+      "label": "Receptionist",
+      "products": ["hotel"],
+      "capabilities": [
+        "org.read",
+        "hotel.read",
+        "hotel.reservations.manage",
+        "hotel.frontdesk",
+        "hotel.folio.manage",
+        "hotel.cashier",
+        "hotel.outlet.post",
+        "hotel.bookings.manage"
+      ]
+    },
+    "revenue_manager": {
+      "label": "Revenue manager",
+      "products": ["hotel"],
+      "capabilities": [
+        "org.read",
+        "hotel.read",
+        "hotel.rates.manage",
+        "hotel.reservations.manage",
+        "hotel.reports.read"
+      ]
+    },
+    "housekeeping_supervisor": {
+      "label": "Housekeeping supervisor",
+      "products": ["hotel"],
+      "capabilities": [
+        "org.read",
+        "hotel.read",
+        "hotel.housekeeping",
+        "hotel.housekeeping.inspect",
+        "hotel.maintenance",
+        "hotel.stock.manage",
+        "hotel.labour.manage"
+      ]
+    },
+    "housekeeping_attendant": {
+      "label": "Housekeeping attendant",
+      "products": ["hotel"],
+      "capabilities": ["org.read", "hotel.read", "hotel.housekeeping"]
+    },
+    "outlet_staff": {
+      "label": "Outlet staff",
+      "products": ["hotel"],
+      "capabilities": ["org.read", "hotel.read", "hotel.outlet.post", "hotel.cashier", "hotel.bookings.manage"]
+    },
+    "financial_controller": {
+      "label": "Financial controller",
+      "products": ["hotel"],
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "audit.read",
+        "ledger.read",
+        "ledger.prepare",
+        "ledger.approve",
+        "ledger.accounts.manage",
+        "ledger.periods.close",
+        "payments.reconcile",
+        "hotel.read",
+        "hotel.folio.approve",
+        "hotel.incomeaudit.signoff",
+        "hotel.reports.read",
+        "hotel.cityledger",
+        "hotel.costs.post",
+        "hotel.group.read",
+        "hotel.fx.manage",
+        "hotel.reconcile",
+        "hotel.purchasing.approve",
+        "hotel.payables",
+        "hotel.payroll.approve",
+        "hotel.budget.manage",
+        "hotel.assets.manage"
+      ]
+    },
+    "income_auditor": {
+      "label": "Income auditor",
+      "products": ["hotel"],
+      "capabilities": ["org.read", "ledger.read", "hotel.read", "hotel.reports.read", "hotel.incomeaudit.signoff"]
+    },
+    "credit_controller": {
+      "label": "Credit controller",
+      "products": ["hotel"],
+      "capabilities": [
+        "org.read",
+        "ledger.read",
+        "hotel.read",
+        "hotel.reports.read",
+        "hotel.cityledger",
+        "hotel.folio.approve"
+      ]
+    },
+    "ap_clerk": {
+      "label": "Accounts payable clerk",
+      "products": ["hotel", "developer"],
+      "capabilities": [
+        "org.read",
+        "ledger.read",
+        "ledger.prepare",
+        "hotel.read",
+        "hotel.costs.post",
+        "hotel.payables",
+        "developer.read",
+        "developer.work",
+        "developer.payables"
+      ]
+    },
+    "cost_controller": {
+      "label": "Cost controller",
+      "products": ["hotel"],
+      "capabilities": [
+        "org.read",
+        "ledger.read",
+        "hotel.read",
+        "hotel.reports.read",
+        "hotel.costs.post",
+        "hotel.stock.manage"
+      ]
+    },
+    "payroll_officer": {
+      "label": "Payroll officer",
+      "products": ["hotel"],
+      "capabilities": ["org.read", "hotel.read", "hotel.payroll"]
+    },
+    "group_owner": {
+      "label": "Group / owner (read-only reports)",
+      "products": ["hotel"],
+      "capabilities": [
+        "org.read",
+        "members.read",
+        "subscription.read",
+        "ledger.read",
+        "hotel.read",
+        "hotel.reports.read",
+        "hotel.group.read"
+      ]
+    },
+    "procurement_officer": {
+      "label": "Procurement officer",
+      "products": ["developer"],
+      "capabilities": ["org.read", "developer.read", "developer.work", "developer.procurement", "developer.approve"]
+    },
+    "treasury_officer": {
+      "label": "Treasury officer",
+      "products": ["developer"],
+      "capabilities": [
+        "org.read",
+        "ledger.read",
+        "developer.read",
+        "developer.work",
+        "developer.buyers.read",
+        "developer.buyers.all",
+        "developer.collections",
+        "developer.treasury"
+      ]
+    },
+    "control_room_operator": {
+      "label": "Control room operator",
+      "products": ["security"],
+      "capabilities": ["org.read", "security.read", "security.control", "security.occurrences.write"]
+    },
+    "guard": {
+      "label": "Guard",
+      "products": ["security"],
+      "capabilities": ["org.read", "security.field", "security.occurrences.write"]
+    },
+    "gate_officer": {
+      "label": "Gate / reception officer",
+      "products": ["security"],
+      "capabilities": ["org.read", "security.visitors", "security.occurrences.write"]
+    },
+    "access_administrator": {
+      "label": "Access control administrator",
+      "products": ["security"],
+      "capabilities": ["org.read", "security.read", "security.access.manage"]
+    },
+    "security_client": {
+      "label": "Security client (portal)",
+      "products": ["security"],
+      "capabilities": ["org.read", "security.portal"]
+    },
+    "maintenance_manager": {
+      "label": "Maintenance manager",
+      "products": ["property"],
+      "frontendKey": "mm",
+      "capabilities": [
+        "org.read",
+        "contacts.read",
+        "property.maintenance.request",
+        "property.maintenance.manage",
+        "property.maintenance.approve",
+        "property.maintenance.work"
+      ]
+    },
+    "tenant": {
+      "label": "Tenant (portal)",
+      "products": ["property"],
+      "frontendKey": "tenant",
+      "capabilities": ["property.portal.tenant"]
+    },
+    "owner": {
+      "label": "Owner (portal)",
+      "products": ["property"],
+      "frontendKey": "owner",
+      "capabilities": ["property.portal.owner"]
+    }
+  }
+}

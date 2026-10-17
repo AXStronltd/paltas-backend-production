@@ -160214,6 +160214,86 @@
                         ],
                         "additionalProperties": false
                       }
+                    },
+                    "documents": {
+                      "default": [],
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "docType": {
+                            "type": "string"
+                          },
+                          "fileStored": {
+                            "default": false,
+                            "type": "boolean"
+                          },
+                          "linkEntity": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "linkId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "filename": {
+                            "type": "string"
+                          },
+                          "sizeBytes": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "sha256": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "visibility": {
+                            "type": "string",
+                            "enum": [
+                              "staff",
+                              "tenant",
+                              "owner"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "docType",
+                          "fileStored",
+                          "linkEntity",
+                          "linkId",
+                          "filename",
+                          "sizeBytes",
+                          "sha256",
+                          "visibility",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
                     }
                   },
                   "required": [
@@ -160222,7 +160302,8 @@
                     "statement",
                     "billsAwaitingApproval",
                     "workOrdersAwaitingApproval",
-                    "payouts"
+                    "payouts",
+                    "documents"
                   ],
                   "additionalProperties": false
                 }
