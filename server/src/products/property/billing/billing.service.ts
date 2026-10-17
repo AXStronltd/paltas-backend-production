@@ -30,6 +30,35 @@ import { formatMoney } from "../../../lib/money.js";
 /** Who runs billing: a member (their scope) or the PALTAS scheduler (no user). */
 export type BillingOp = Pick<OrgScope, "orgId" | "actor" | "today"> & { userId: string | null };
 
+/** Rent for a month: the rent in force at the start of the lease's month, prorated by day in the first month. */
+export async function rentLine(t: Db, l: R.LeaseRow, period: string): Promise<{ line: NewInvoiceLine; note: string }> {
+  const first = `${period}-01`;
+  const last = lastDay(period);
+  const from = l.start_date > first ? l.start_date : first;
+  const rent = await R.rentOn(t, l, from);
+  let amount = rent;
+  let note = "";
+  if (l.start_date > first) {
+    const days = daysBetween(l.start_date, last) + 1;
+    const dim = daysBetween(first, last) + 1;
+    amount = Math.round((rent * days) / dim);
+    note = `Prorated ${days} of ${dim} days`;
+  }
+  return {
+    line: {
+      code: "RENT",
+      description: `Rent ${period}${note ? ` (${note})` : ""}`,
+      quantity: 1,
+      rateMinor: amount,
+      amountMinor: amount,
+      payee: "owner",
+      feeApplies: true,
+      vatApplies: false,
+    },
+    note,
+  };
+}
+
 export function billingService(d: PmDeps) {
   const { core } = d;
   const db = core.db;
@@ -38,35 +67,6 @@ export function billingService(d: PmDeps) {
     const [v] = await R.invoiceViews(db, [await R.invoiceRow(db, orgId, id)], today);
     return v as P.Invoice;
   };
-
-  /** Rent for a month: the rent in force at the start of the lease's month, prorated by day in the first month. */
-  async function rentLine(t: Db, l: R.LeaseRow, period: string): Promise<{ line: NewInvoiceLine; note: string }> {
-    const first = `${period}-01`;
-    const last = lastDay(period);
-    const from = l.start_date > first ? l.start_date : first;
-    const rent = await R.rentOn(t, l, from);
-    let amount = rent;
-    let note = "";
-    if (l.start_date > first) {
-      const days = daysBetween(l.start_date, last) + 1;
-      const dim = daysBetween(first, last) + 1;
-      amount = Math.round((rent * days) / dim);
-      note = `Prorated ${days} of ${dim} days`;
-    }
-    return {
-      line: {
-        code: "RENT",
-        description: `Rent ${period}${note ? ` (${note})` : ""}`,
-        quantity: 1,
-        rateMinor: amount,
-        amountMinor: amount,
-        payee: "owner",
-        feeApplies: true,
-        vatApplies: false,
-      },
-      note,
-    };
-  }
 
   return {
     view,
