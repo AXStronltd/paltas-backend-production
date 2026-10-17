@@ -64,6 +64,37 @@ describe("agency rules", () => {
     expect((await b.listLeads({ params: { orgId: B.orgId }, query: {} })).leads).toEqual([]);
   });
 
+  it("concurrent staff approvals publish once and refuse the stale decision", async () => {
+    const l = await A.manager.api.agency.createListing({ params: PA(), body: SALE });
+    await A.manager.api.agency.addMedia({
+      params: { ...PA(), listingId: l.id },
+      body: {
+        kind: "photo",
+        fileName: "review.jpg",
+        contentType: "image/jpeg",
+        sizeBytes: 100,
+        sha256: sha("concurrent-review"),
+      },
+    });
+    await A.manager.api.agency.submitListing({ params: { ...PA(), listingId: l.id } });
+    const staff = await S.staff();
+    const outcomes = await Promise.allSettled(
+      [1, 2].map(() =>
+        staff.api.marketplace.approveListing({
+          params: { listingId: l.id },
+          body: { note: "Reviewed for publication" },
+        }),
+      ),
+    );
+    expect(outcomes.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(outcomes.filter((r) => r.status === "rejected")).toHaveLength(1);
+    expect((await A.manager.api.agency.getListing({ params: { ...PA(), listingId: l.id } })).status).toBe("published");
+    await staff.api.marketplace.rejectListing({
+      params: { listingId: l.id },
+      body: { reason: "Concurrency test finished" },
+    });
+  });
+
   it("PALTAS staff can take a published listing down, with the reason the organisation sees", async () => {
     const l = await publishedListing(S, A.orgId, A.manager, { ...SALE, title: "Take-down flat in Nyali" });
     expect((await S.api.marketplace.getListing({ params: { listingId: l.id } })).id).toBe(l.id);
