@@ -18,7 +18,10 @@ export function commsRoutes(access: PmAccess, N: CommsService) {
   return [
     upload,
     route(api.downloadDocumentFile, async (req) =>
-      N.downloadFile(await g.org(req, "property.read"), req.params.documentId),
+      N.downloadFile(
+        await g.org(req, ["property.read", "property.portal.tenant", "property.portal.owner"]),
+        req.params.documentId,
+      ),
     ),
     route(api.publishNotice, async (req) => N.publishNotice(await g.org(req, "property.notices", WRITE), req.body)),
     route(api.listNotices, async (req) => N.listNotices(await g.org(req, "property.read"), req.query.propertyId)),

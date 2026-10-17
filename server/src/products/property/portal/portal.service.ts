@@ -11,7 +11,7 @@ import { fail } from "../../../http/errors.js";
 import { newId } from "../../../lib/ids.js";
 import type { BillsService, BillRow } from "../bills/bills.service.js";
 import { BILL_SQL, toBill } from "../bills/bills.service.js";
-import { documents, toDocument } from "../comms/comms.service.js";
+import { portalDocuments, toDocument } from "../comms/comms.service.js";
 import type { PmDeps } from "../deps.js";
 import type { MaintenanceService } from "../maintenance/maintenance.service.js";
 import { ownerStatement, type OwnersService } from "../owners/owners.service.js";
@@ -42,12 +42,7 @@ export function portalService(
         `${deps.maintenance.REQUEST_SQL} WHERE r.org_id = $1 AND r.reporter_id = $2 ORDER BY r.opened_at DESC`,
         [s.orgId, me],
       );
-      const docs = await documents(
-        db,
-        s.orgId,
-        "visibility = 'tenant' AND ((link_entity = 'lease' AND link_id = ANY($2)) OR (link_entity = 'contact' AND link_id = $3))",
-        [leases.map((l) => l.id), me],
-      );
+      const docs = await portalDocuments(db, s.orgId, me, "tenant");
       return {
         contact: toContact(s.contact),
         leases: await R.leaseViews(db, s.orgId, leases, s.today),
@@ -153,6 +148,7 @@ export function portalService(
         billsAwaitingApproval: bills.map(toBill),
         workOrdersAwaitingApproval: await deps.maintenance.woViews(wos, s.today),
         payouts: payouts.map(deps.owners.toPayout),
+        documents: (await portalDocuments(db, s.orgId, me, "owner")).map(toDocument),
       };
     },
 
