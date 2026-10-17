@@ -27,6 +27,7 @@ export interface PmPosting {
   ref: string;
   link: PostingLink;
   lines: NewLine[];
+  reverses?: string;
 }
 
 export const SOURCE = "system:property" as const;
@@ -38,6 +39,7 @@ export async function post(t: Db, core: CoreServices, p: PmPosting): Promise<str
     memo: p.memo,
     source: SOURCE,
     sourceRef: p.ref,
+    ...(p.reverses ? { reverses: p.reverses } : {}),
     lines: p.lines.filter((l) => l.debitMinor > 0 || l.creditMinor > 0),
   });
   await t.run(

@@ -139719,6 +139719,10 @@
                   "signedOn": {
                     "type": "string",
                     "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "billFirstRent": {
+                    "default": false,
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -139980,6 +139984,262 @@
                       "additionalProperties": false
                     },
                     "depositInvoice": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "number": {
+                              "type": "string"
+                            },
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "rent",
+                                "deposit",
+                                "charge",
+                                "late_fee",
+                                "opening"
+                              ]
+                            },
+                            "leaseId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "tenantId": {
+                              "type": "string"
+                            },
+                            "tenantName": {
+                              "type": "string"
+                            },
+                            "unitId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "unitNo": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "propertyId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "ownerId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "period": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "issueDate": {
+                              "type": "string",
+                              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                            },
+                            "dueDate": {
+                              "type": "string",
+                              "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                            },
+                            "amountMinor": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "paidMinor": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "creditedMinor": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "balanceMinor": {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "status": {
+                              "type": "string",
+                              "enum": [
+                                "open",
+                                "part_paid",
+                                "paid"
+                              ]
+                            },
+                            "overdueDays": {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            "note": {
+                              "type": "string"
+                            },
+                            "sourceInvoiceId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "migrated": {
+                              "type": "boolean"
+                            },
+                            "lines": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "lineNo": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "code": {
+                                    "type": "string"
+                                  },
+                                  "description": {
+                                    "type": "string"
+                                  },
+                                  "quantity": {
+                                    "type": "number"
+                                  },
+                                  "rateMinor": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "amountMinor": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "payee": {
+                                    "type": "string",
+                                    "enum": [
+                                      "owner",
+                                      "agency",
+                                      "deposit"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "lineNo",
+                                  "code",
+                                  "description",
+                                  "quantity",
+                                  "rateMinor",
+                                  "amountMinor",
+                                  "payee"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "allocations": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "invoiceId": {
+                                    "type": "string"
+                                  },
+                                  "invoiceNumber": {
+                                    "type": "string"
+                                  },
+                                  "amountMinor": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "source": {
+                                    "type": "string",
+                                    "enum": [
+                                      "payment",
+                                      "credit",
+                                      "deposit",
+                                      "credit_note"
+                                    ]
+                                  },
+                                  "sourceId": {
+                                    "type": "string"
+                                  },
+                                  "date": {
+                                    "type": "string",
+                                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                  }
+                                },
+                                "required": [
+                                  "invoiceId",
+                                  "invoiceNumber",
+                                  "amountMinor",
+                                  "source",
+                                  "sourceId",
+                                  "date"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "journalId": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "number",
+                            "kind",
+                            "leaseId",
+                            "tenantId",
+                            "tenantName",
+                            "unitId",
+                            "unitNo",
+                            "propertyId",
+                            "ownerId",
+                            "period",
+                            "issueDate",
+                            "dueDate",
+                            "amountMinor",
+                            "paidMinor",
+                            "creditedMinor",
+                            "balanceMinor",
+                            "status",
+                            "overdueDays",
+                            "note",
+                            "sourceInvoiceId",
+                            "migrated",
+                            "lines",
+                            "allocations",
+                            "journalId"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "firstRentInvoice": {
                       "anyOf": [
                         {
                           "type": "object",
@@ -144719,6 +144979,54 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "reversal": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "reason": {
+                              "type": "string"
+                            },
+                            "requestedBy": {
+                              "type": "string"
+                            },
+                            "approvedBy": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "rejectedReason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "date": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "reason",
+                            "requestedBy",
+                            "approvedBy",
+                            "date"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -144782,6 +145090,28 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 80
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
             }
           }
         ],
@@ -144905,6 +145235,54 @@
                               "string",
                               "null"
                             ]
+                          },
+                          "reversal": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "reason": {
+                                    "type": "string"
+                                  },
+                                  "requestedBy": {
+                                    "type": "string"
+                                  },
+                                  "approvedBy": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "rejectedReason": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "date": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "reason",
+                                  "requestedBy",
+                                  "approvedBy",
+                                  "date"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -144927,10 +145305,751 @@
                         ],
                         "additionalProperties": false
                       }
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
                     }
                   },
                   "required": [
                     "payments"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/payments/{paymentId}/reversal": {
+      "post": {
+        "operationId": "property.payments.reversal.request",
+        "summary": "Request correction of an incorrectly recorded receipt; another authorised person must approve. No money is transferred.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "paymentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "number": {
+                      "type": "string"
+                    },
+                    "receiptNumber": {
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "tenantName": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "amountMinor": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "method": {
+                      "type": "string",
+                      "enum": [
+                        "bank_transfer",
+                        "mobile_money",
+                        "cash",
+                        "cheque",
+                        "card",
+                        "other"
+                      ]
+                    },
+                    "reference": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "allocatedMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "unallocatedMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "allocations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "invoiceId": {
+                            "type": "string"
+                          },
+                          "invoiceNumber": {
+                            "type": "string"
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "payment",
+                              "credit",
+                              "deposit",
+                              "credit_note"
+                            ]
+                          },
+                          "sourceId": {
+                            "type": "string"
+                          },
+                          "date": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          }
+                        },
+                        "required": [
+                          "invoiceId",
+                          "invoiceNumber",
+                          "amountMinor",
+                          "source",
+                          "sourceId",
+                          "date"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "bankMatched": {
+                      "type": "boolean"
+                    },
+                    "recordedBy": {
+                      "type": "string"
+                    },
+                    "journalId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reversal": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "reason": {
+                              "type": "string"
+                            },
+                            "requestedBy": {
+                              "type": "string"
+                            },
+                            "approvedBy": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "rejectedReason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "date": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "reason",
+                            "requestedBy",
+                            "approvedBy",
+                            "date"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "number",
+                    "receiptNumber",
+                    "tenantId",
+                    "tenantName",
+                    "date",
+                    "amountMinor",
+                    "method",
+                    "reference",
+                    "note",
+                    "allocatedMinor",
+                    "unallocatedMinor",
+                    "allocations",
+                    "bankMatched",
+                    "recordedBy",
+                    "journalId"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/payments/{paymentId}/reversal/approve": {
+      "post": {
+        "operationId": "property.payments.reversal.approve",
+        "summary": "Approve a receipt correction, reversing original postings without deleting history. Refuses matched or spent funds.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "paymentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "number": {
+                      "type": "string"
+                    },
+                    "receiptNumber": {
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "tenantName": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "amountMinor": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "method": {
+                      "type": "string",
+                      "enum": [
+                        "bank_transfer",
+                        "mobile_money",
+                        "cash",
+                        "cheque",
+                        "card",
+                        "other"
+                      ]
+                    },
+                    "reference": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "allocatedMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "unallocatedMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "allocations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "invoiceId": {
+                            "type": "string"
+                          },
+                          "invoiceNumber": {
+                            "type": "string"
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "payment",
+                              "credit",
+                              "deposit",
+                              "credit_note"
+                            ]
+                          },
+                          "sourceId": {
+                            "type": "string"
+                          },
+                          "date": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          }
+                        },
+                        "required": [
+                          "invoiceId",
+                          "invoiceNumber",
+                          "amountMinor",
+                          "source",
+                          "sourceId",
+                          "date"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "bankMatched": {
+                      "type": "boolean"
+                    },
+                    "recordedBy": {
+                      "type": "string"
+                    },
+                    "journalId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reversal": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "reason": {
+                              "type": "string"
+                            },
+                            "requestedBy": {
+                              "type": "string"
+                            },
+                            "approvedBy": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "rejectedReason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "date": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "reason",
+                            "requestedBy",
+                            "approvedBy",
+                            "date"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "number",
+                    "receiptNumber",
+                    "tenantId",
+                    "tenantName",
+                    "date",
+                    "amountMinor",
+                    "method",
+                    "reference",
+                    "note",
+                    "allocatedMinor",
+                    "unallocatedMinor",
+                    "allocations",
+                    "bankMatched",
+                    "recordedBy",
+                    "journalId"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/payments/{paymentId}/reversal/reject": {
+      "post": {
+        "operationId": "property.payments.reversal.reject",
+        "summary": "Reject a pending receipt correction; retain the reason in the audit history",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "paymentId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "number": {
+                      "type": "string"
+                    },
+                    "receiptNumber": {
+                      "type": "string"
+                    },
+                    "tenantId": {
+                      "type": "string"
+                    },
+                    "tenantName": {
+                      "type": "string"
+                    },
+                    "date": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "amountMinor": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "method": {
+                      "type": "string",
+                      "enum": [
+                        "bank_transfer",
+                        "mobile_money",
+                        "cash",
+                        "cheque",
+                        "card",
+                        "other"
+                      ]
+                    },
+                    "reference": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "allocatedMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "unallocatedMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "allocations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "invoiceId": {
+                            "type": "string"
+                          },
+                          "invoiceNumber": {
+                            "type": "string"
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "payment",
+                              "credit",
+                              "deposit",
+                              "credit_note"
+                            ]
+                          },
+                          "sourceId": {
+                            "type": "string"
+                          },
+                          "date": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          }
+                        },
+                        "required": [
+                          "invoiceId",
+                          "invoiceNumber",
+                          "amountMinor",
+                          "source",
+                          "sourceId",
+                          "date"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "bankMatched": {
+                      "type": "boolean"
+                    },
+                    "recordedBy": {
+                      "type": "string"
+                    },
+                    "journalId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "reversal": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "reason": {
+                              "type": "string"
+                            },
+                            "requestedBy": {
+                              "type": "string"
+                            },
+                            "approvedBy": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "rejectedReason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "date": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "reason",
+                            "requestedBy",
+                            "approvedBy",
+                            "date"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "number",
+                    "receiptNumber",
+                    "tenantId",
+                    "tenantName",
+                    "date",
+                    "amountMinor",
+                    "method",
+                    "reference",
+                    "note",
+                    "allocatedMinor",
+                    "unallocatedMinor",
+                    "allocations",
+                    "bankMatched",
+                    "recordedBy",
+                    "journalId"
                   ],
                   "additionalProperties": false
                 }
@@ -145091,6 +146210,54 @@
                       "type": [
                         "string",
                         "null"
+                      ]
+                    },
+                    "reversal": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "reason": {
+                              "type": "string"
+                            },
+                            "requestedBy": {
+                              "type": "string"
+                            },
+                            "approvedBy": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "rejectedReason": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "date": {
+                              "anyOf": [
+                                {
+                                  "type": "string",
+                                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            }
+                          },
+                          "required": [
+                            "reason",
+                            "requestedBy",
+                            "approvedBy",
+                            "date"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     }
                   },
@@ -145642,6 +146809,54 @@
                             "type": [
                               "string",
                               "null"
+                            ]
+                          },
+                          "reversal": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "reason": {
+                                    "type": "string"
+                                  },
+                                  "requestedBy": {
+                                    "type": "string"
+                                  },
+                                  "approvedBy": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "rejectedReason": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "date": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "reason",
+                                  "requestedBy",
+                                  "approvedBy",
+                                  "date"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
                             ]
                           }
                         },
@@ -157103,7 +158318,7 @@
                     },
                     "collectedMinor": {
                       "type": "integer",
-                      "minimum": 0,
+                      "minimum": -9007199254740991,
                       "maximum": 9007199254740991
                     },
                     "collectionRatePct": {
@@ -158592,6 +159807,54 @@
                             "type": [
                               "string",
                               "null"
+                            ]
+                          },
+                          "reversal": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "reason": {
+                                    "type": "string"
+                                  },
+                                  "requestedBy": {
+                                    "type": "string"
+                                  },
+                                  "approvedBy": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "rejectedReason": {
+                                    "type": [
+                                      "string",
+                                      "null"
+                                    ]
+                                  },
+                                  "date": {
+                                    "anyOf": [
+                                      {
+                                        "type": "string",
+                                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "reason",
+                                  "requestedBy",
+                                  "approvedBy",
+                                  "date"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
                             ]
                           }
                         },

@@ -1,3 +1,4 @@
+import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Leases: draft → active (signed; unit free for the dates; covered by a management agreement; escalation steps
  * written; deposit invoiced) → renewed / rent reviewed → notice → ended at move-out. A draft can be cancelled.
@@ -169,12 +170,12 @@ export function leasesService(d: PmDeps) {
     },
 
     async create(s: OrgScope, b: LeaseTerms & { unitId: string; tenantId: string }) {
-      const id = await db.tx((t) => createDraft(t, s, b));
+      const id = await financeTransaction(db, s.orgId, (t) => createDraft(t, s, b));
       return one(s, id);
     },
 
     async update(s: OrgScope, id: string, b: Partial<LeaseTerms>) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, id, true);
         if (l.status !== "draft")
           throw fail.conflict("Only a draft lease can be changed — renew or review the rent instead");
@@ -216,7 +217,7 @@ export function leasesService(d: PmDeps) {
     },
 
     async activate(s: OrgScope, id: string, b: { signedOn: string; billFirstRent?: boolean }) {
-      const invoiceIds = await db.tx(async (t) => {
+      const invoiceIds = await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, id, true);
         if (l.status !== "draft") throw fail.conflict(`This lease is already ${l.status}`);
         if (b.signedOn > s.today) throw fail.invalid("The signing date is in the future");
@@ -330,7 +331,7 @@ export function leasesService(d: PmDeps) {
     },
 
     async renew(s: OrgScope, id: string, b: { endDate: string | null; rentMinor: number; effectiveFrom: string }) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, id, true);
         if (l.status !== "active") throw fail.conflict("Only an active lease can be renewed");
         if (b.effectiveFrom < l.start_date) throw fail.invalid("The new rent cannot start before the lease");
@@ -368,7 +369,7 @@ export function leasesService(d: PmDeps) {
     },
 
     async reviewRent(s: OrgScope, id: string, b: { rentMinor: number; effectiveFrom: string; reason: string }) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, id, true);
         if (l.status !== "active") throw fail.conflict("Only an active lease's rent can be reviewed");
         if (b.effectiveFrom < l.start_date || (l.end_date && b.effectiveFrom > l.end_date))
@@ -397,7 +398,7 @@ export function leasesService(d: PmDeps) {
     },
 
     async notice(s: OrgScope, id: string, b: { noticeDate: string; moveOutDate: string }) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, id, true);
         if (l.status !== "active") throw fail.conflict("Notice is given on an active lease");
         if (b.moveOutDate < b.noticeDate) throw fail.invalid("The move-out date is before the notice date");
@@ -419,7 +420,7 @@ export function leasesService(d: PmDeps) {
     },
 
     async terminate(s: OrgScope, id: string, b: { moveOutDate: string; reason: string }) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, id, true);
         if (l.status !== "active") throw fail.conflict("Only an active lease can be ended");
         if (b.moveOutDate < l.start_date) throw fail.invalid("The move-out date is before the lease started");
@@ -449,7 +450,7 @@ export function leasesService(d: PmDeps) {
     },
 
     async cancel(s: OrgScope, id: string, b: { reason: string }) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, id, true);
         if (l.status !== "draft")
           throw fail.conflict("Only a draft lease can be cancelled — end an active lease instead");
@@ -466,7 +467,7 @@ export function leasesService(d: PmDeps) {
     },
 
     async setCharges(s: OrgScope, id: string, charges: LeaseTerms["charges"]) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, id, true);
         if (l.status !== "draft" && l.status !== "active") throw fail.conflict("This lease has ended");
         await writeCharges(t, s.orgId, id, charges);
@@ -485,7 +486,7 @@ export function leasesService(d: PmDeps) {
       s: OrgScope,
       b: { period: string; readings: { unitId: string; chargeTypeId: string; previous: number; current: number }[] },
     ) {
-      const ids = await db.tx(async (t) => {
+      const ids = await financeTransaction(db, s.orgId, async (t) => {
         const out: string[] = [];
         for (const r of b.readings) {
           await R.unitRow(t, s.orgId, r.unitId);

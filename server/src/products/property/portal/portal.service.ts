@@ -1,3 +1,4 @@
+import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * The tenant and owner portals. A portal user is a member with the tenant or owner role whose sign-in is linked to a
  * contact; every query is scoped to that contact, so a tenant sees only their own leases, invoices, payments, requests
@@ -66,7 +67,7 @@ export function portalService(
       );
       if (!l || l.tenant_id !== s.contact.id) throw fail.notFound("Lease not found");
       if (l.status !== "active") throw fail.conflict("Requests are made on an active lease");
-      const id = await db.tx(async (t) => {
+      const id = await financeTransaction(db, s.orgId, async (t) => {
         const id = await deps.maintenance.openRequest(t, s, {
           propertyId: l.property_id,
           unitId: l.unit_id,
@@ -93,7 +94,7 @@ export function portalService(
       b: { amountMinor: number; date: string; method: P.PaymentMethod; reference: string; note: string },
     ) {
       if (b.date > s.today) throw fail.invalid("A payment cannot be dated in the future");
-      return db.tx(async (t) => {
+      return financeTransaction(db, s.orgId, async (t) => {
         const r = await t.row<Parameters<typeof toClaim>[0]>(
           `INSERT INTO pm_payment_claims (id, org_id, tenant_id, amount_minor, date, method, reference, note, status,
              submitted_by)
@@ -168,7 +169,7 @@ export function portalService(
           [s.orgId, w.property_id, s.contact.id, w.unit_id],
         ));
       if (!mine) throw fail.notFound("Work order not found");
-      await db.tx((t) =>
+      await financeTransaction(db, s.orgId, (t) =>
         deps.maintenance.approvePo(t, s.orgId, workOrderId, { userId: s.userId, role: "owner" }, s.actor),
       );
       return deps.maintenance.woView(s.orgId, workOrderId, s.today);

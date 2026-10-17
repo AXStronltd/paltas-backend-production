@@ -1,3 +1,4 @@
+import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Bank reconciliation of the client account (1040) against what was RECORDED in PALTAS: no bank is connected, the
  * statement lines are imported by hand. Lines are matched by reference and exact amount to recorded receipts (money in)
@@ -79,7 +80,7 @@ type Kind = NonNullable<P.BankLine["matchedKind"]>;
 const CANDIDATES: Record<Kind, { sql: string; sign: 1 | -1 }> = {
   payment: {
     sign: 1,
-    sql: `SELECT id, reference AS ref, amount_minor AS amount, date, bank_line_id AS line FROM pm_payments
+    sql: `SELECT id, reference AS ref, amount_minor AS amount, date, bank_line_id AS line FROM pm_effective_payments
           WHERE org_id = $1`,
   },
   payout: {
@@ -149,7 +150,7 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
       s: OrgScope,
       b: { statement: string; lines: { date: string; amountMinor: number; reference: string; description: string }[] },
     ) {
-      return db.tx(async (t) => {
+      return financeTransaction(db, s.orgId, async (t) => {
         let imported = 0;
         let duplicates = 0;
         let matched = 0;
@@ -211,7 +212,7 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
       lineId: string,
       b: { to: Kind; id: string } | { to: "new_payment"; tenantId: string; method: P.PaymentMethod },
     ) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const line = await lineRow(t, s.orgId, lineId, true);
         if (line.status !== "unmatched") throw fail.conflict(`This line is already ${line.status}`);
         if (b.to === "new_payment") {
@@ -242,7 +243,7 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
           );
         await link(t, s, line, b.to, b.id);
       });
-      await db.tx((t) =>
+      await financeTransaction(db, s.orgId, (t) =>
         recordAudit(t, {
           actor: s.actor,
           orgId: s.orgId,
@@ -255,7 +256,7 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
     },
 
     async ignore(s: OrgScope, lineId: string, reason: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const line = await lineRow(t, s.orgId, lineId, true);
         if (line.status !== "unmatched") throw fail.conflict(`This line is already ${line.status}`);
         await t.run(
@@ -280,8 +281,8 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
       // recorded but not on the statement by D (not matched, or matched to a later line)
       const uncleared = async (kind: Kind) => {
         const r = await db.row<{ n: number }>(
-          `SELECT COALESCE(sum(x.amount), 0)::bigint AS n FROM (${CANDIDATES[kind].sql}) x
-           WHERE x.date <= $2 AND NOT EXISTS (SELECT 1 FROM pm_bank_lines b
+          `SELECT COALESCE(sum(x.amount), 0)::bigint AS n FROM (${kind === "payment" ? CANDIDATES[kind].sql.replace("pm_effective_payments", "pm_payments") : CANDIDATES[kind].sql}) x
+           WHERE x.date <= $2 ${kind === "payment" ? "AND NOT EXISTS (SELECT 1 FROM pm_payment_reversals r WHERE r.payment_id=x.id AND r.approved_by IS NOT NULL AND r.date <= $2)" : ""} AND NOT EXISTS (SELECT 1 FROM pm_bank_lines b
              WHERE b.matched_kind = $3 AND b.matched_id = x.id AND b.date <= $2)`,
           [s.orgId, D, kind],
         );
@@ -297,7 +298,7 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
       const unmatchedLines = unmatched?.n ?? 0;
       const difference = b.statementBalanceMinor + unclearedIn - unclearedOut - unmatchedLines - ledger;
       const id = newId("prc");
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         await t.run(
           `INSERT INTO pm_reconciliations (id, org_id, account_code, statement_date, statement_balance_minor,
              ledger_balance_minor, uncleared_in_minor, uncleared_out_minor, unmatched_lines_minor, difference_minor, status,
@@ -337,7 +338,7 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
     },
 
     async approve(s: OrgScope, id: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const r = await t.row<RecRow>("SELECT * FROM pm_reconciliations WHERE org_id = $1 AND id = $2 FOR UPDATE", [
           s.orgId,
           id,
@@ -349,6 +350,10 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
         if (r.difference_minor !== 0)
           throw fail.conflict(
             `The reconciliation has a difference of ${formatMoney(r.difference_minor, s.entitlement.org.currency)} — resolve it first`,
+          );
+        if ((await pmBalance(t, s.orgId, ACC.clientBank, r.statement_date)) !== r.ledger_balance_minor)
+          throw fail.conflict(
+            "The ledger changed after this reconciliation was prepared. Prepare a fresh reconciliation before approval.",
           );
         await t.run(
           "UPDATE pm_reconciliations SET status = 'approved', approved_by = $2, approved_at = now() WHERE id = $1",

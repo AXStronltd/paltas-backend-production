@@ -1,3 +1,4 @@
+import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Supplier bills: entered by one person, approved by another, paid (recorded) by a third.
  *
@@ -157,7 +158,7 @@ export function billsService(d: PmDeps) {
       const issues: string[] = [];
       const st = await settingsOf(db, s.orgId);
       const id = newId("pbi");
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const supplier = await core.contacts.live(t, s.orgId, b.supplierId);
         if (b.workOrderId) {
           const wo = await t.row<{
@@ -266,7 +267,7 @@ export function billsService(d: PmDeps) {
     },
 
     async approve(s: OrgScope, id: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const b = await billRow(t, s.orgId, id, true);
         if (b.status === "held") throw fail.conflict(`Held: ${b.match_issues.join("; ")} — clear the hold first`);
         if (b.status !== "submitted") throw fail.conflict(`This bill is ${b.status.replace("_", " ")}`);
@@ -290,7 +291,7 @@ export function billsService(d: PmDeps) {
     },
 
     async clearHold(s: OrgScope, id: string, reason: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const b = await billRow(t, s.orgId, id, true);
         if (b.status !== "held") throw fail.conflict("This bill is not held");
         if (b.submitted_by === s.userId)
@@ -311,7 +312,7 @@ export function billsService(d: PmDeps) {
     },
 
     async reject(s: OrgScope, id: string, reason: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const b = await billRow(t, s.orgId, id, true);
         if (b.status === "paid" || b.status === "rejected")
           throw fail.conflict(`A ${b.status} bill cannot be rejected`);
@@ -343,7 +344,7 @@ export function billsService(d: PmDeps) {
     },
 
     async pay(s: OrgScope, id: string, p: { paidDate: string; reference: string }) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const b = await billRow(t, s.orgId, id, true);
         if (b.status !== "approved") throw fail.conflict(`Only an approved bill can be paid (this one is ${b.status})`);
         if (b.approved_by === s.userId)
@@ -388,7 +389,7 @@ export function billsService(d: PmDeps) {
 
     /** The owner (portal) approves a bill above the authority on their own property. */
     async ownerApprove(orgId: string, ownerId: string, userId: string, actor: Actor, today: string, id: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, orgId, async (t) => {
         const b = await billRow(t, orgId, id, true);
         if (b.owner_id !== ownerId) throw fail.notFound("Bill not found");
         if (b.status !== "awaiting_owner") throw fail.conflict(`This bill is ${b.status.replace("_", " ")}`);
