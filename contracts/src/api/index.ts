@@ -719,6 +719,8 @@ export const PROPERTY_API = {
   updateProperty: property.updateProperty,
   setAutomation: property.setAutomation,
   createBuilding: property.createBuilding,
+  updateBuilding: property.updateBuilding,
+  deleteBuilding: property.deleteBuilding,
   createUnits: property.createUnits,
   updateUnit: property.updateUnit,
   listAgreements: property.listAgreements,

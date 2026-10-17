@@ -172,8 +172,8 @@ export function reportsService(d: PmDeps) {
 
     async rentRoll(s: OrgScope, propertyId?: string) {
       if (propertyId) await R.propertyRow(db, s.orgId, propertyId);
-      const units = await db.rows<R.UnitRow>(
-        "SELECT * FROM pm_units WHERE org_id = $1 AND ($2::text IS NULL OR property_id = $2) ORDER BY property_id, upper(unit_no)",
+      const units = await db.rows<R.UnitRow & { block_name: string | null; block_archived: boolean }>(
+        "SELECT u.*, b.name AS block_name, COALESCE(b.is_archived,false) AS block_archived FROM pm_units u LEFT JOIN pm_buildings b ON b.id=u.building_id WHERE u.org_id = $1 AND ($2::text IS NULL OR u.property_id = $2) ORDER BY u.property_id, upper(u.unit_no)",
         [s.orgId, propertyId ?? null],
       );
       const leases = await R.leaseRows(
@@ -190,7 +190,12 @@ export function reportsService(d: PmDeps) {
           unitId: u.id,
           unitNo: u.unit_no,
           propertyId: u.property_id,
-          status: (u.status === "off_market" ? "off_market" : l ? "let" : "vacant") as "let" | "vacant" | "off_market",
+          buildingId: u.building_id,
+          blockName: u.block_name,
+          floor: u.floor,
+          blockArchived: u.block_archived,
+          status: (u.block_archived || u.status === "off_market" ? "off_market" : l ? "let" : "vacant") as
+            "let" | "vacant" | "off_market",
           leaseId: l?.id ?? null,
           tenantId: l?.tenant_id ?? null,
           tenantName: l?.tenant_name ?? null,

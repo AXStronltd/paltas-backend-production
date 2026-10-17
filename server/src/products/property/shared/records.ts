@@ -35,6 +35,7 @@ export interface UnitRow {
   floor: string | null;
   unit_type: string | null;
   bedrooms: number | null;
+  toilets: number | null;
   area_sqm: number | null;
   market_rent_minor: number | null;
   status: "available" | "off_market";

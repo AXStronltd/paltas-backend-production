@@ -49,6 +49,8 @@ export function fromDatabaseError(e: unknown): ApiError | null {
   const err = e as PgError;
   if (!err || typeof err.code !== "string") return null;
   switch (err.code) {
+    case "PB001":
+      return fail.invalid(err.message ?? "This block cannot be changed");
     case "PA001":
       return fail.periodClosed(err.message ?? "That month is closed");
     case "PA002":

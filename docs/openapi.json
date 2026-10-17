@@ -1037,6 +1037,104 @@
                     "legalName": {
                       "type": "string"
                     },
+                    "registrationProfile": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "version": {
+                              "type": "string",
+                              "const": "2026-10"
+                            },
+                            "companyType": {
+                              "type": "string",
+                              "enum": [
+                                "limited_company",
+                                "sole_trader",
+                                "partnership",
+                                "non_profit",
+                                "other"
+                              ]
+                            },
+                            "registrationNumber": {
+                              "type": "string",
+                              "maxLength": 80
+                            },
+                            "tradingName": {
+                              "type": "string",
+                              "maxLength": 160
+                            },
+                            "addressLine1": {
+                              "type": "string",
+                              "minLength": 3,
+                              "maxLength": 200
+                            },
+                            "addressLine2": {
+                              "type": "string",
+                              "maxLength": 200
+                            },
+                            "city": {
+                              "type": "string",
+                              "minLength": 2,
+                              "maxLength": 100
+                            },
+                            "region": {
+                              "type": "string",
+                              "maxLength": 100
+                            },
+                            "postalCode": {
+                              "type": "string",
+                              "maxLength": 30
+                            },
+                            "companyEmail": {
+                              "type": "string",
+                              "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+                            },
+                            "website": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "format": "uri"
+                            },
+                            "administratorPhone": {
+                              "type": "string",
+                              "pattern": "^\\+[1-9][\\d\\s()-]{7,24}$"
+                            },
+                            "administratorTitle": {
+                              "type": "string",
+                              "maxLength": 120
+                            },
+                            "authorityAccepted": {
+                              "type": "boolean",
+                              "const": true
+                            },
+                            "requestedTier": {
+                              "type": "string",
+                              "enum": [
+                                "Standard",
+                                "Pro",
+                                "Enterprise"
+                              ]
+                            },
+                            "enterpriseRequirements": {
+                              "type": "string",
+                              "maxLength": 1000
+                            }
+                          },
+                          "required": [
+                            "version",
+                            "companyType",
+                            "addressLine1",
+                            "city",
+                            "authorityAccepted",
+                            "requestedTier"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "country": {
                       "type": "string"
                     },
@@ -8193,6 +8291,104 @@
                           "legalName": {
                             "type": "string"
                           },
+                          "registrationProfile": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "version": {
+                                    "type": "string",
+                                    "const": "2026-10"
+                                  },
+                                  "companyType": {
+                                    "type": "string",
+                                    "enum": [
+                                      "limited_company",
+                                      "sole_trader",
+                                      "partnership",
+                                      "non_profit",
+                                      "other"
+                                    ]
+                                  },
+                                  "registrationNumber": {
+                                    "type": "string",
+                                    "maxLength": 80
+                                  },
+                                  "tradingName": {
+                                    "type": "string",
+                                    "maxLength": 160
+                                  },
+                                  "addressLine1": {
+                                    "type": "string",
+                                    "minLength": 3,
+                                    "maxLength": 200
+                                  },
+                                  "addressLine2": {
+                                    "type": "string",
+                                    "maxLength": 200
+                                  },
+                                  "city": {
+                                    "type": "string",
+                                    "minLength": 2,
+                                    "maxLength": 100
+                                  },
+                                  "region": {
+                                    "type": "string",
+                                    "maxLength": 100
+                                  },
+                                  "postalCode": {
+                                    "type": "string",
+                                    "maxLength": 30
+                                  },
+                                  "companyEmail": {
+                                    "type": "string",
+                                    "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+                                  },
+                                  "website": {
+                                    "type": "string",
+                                    "maxLength": 300,
+                                    "format": "uri"
+                                  },
+                                  "administratorPhone": {
+                                    "type": "string",
+                                    "pattern": "^\\+[1-9][\\d\\s()-]{7,24}$"
+                                  },
+                                  "administratorTitle": {
+                                    "type": "string",
+                                    "maxLength": 120
+                                  },
+                                  "authorityAccepted": {
+                                    "type": "boolean",
+                                    "const": true
+                                  },
+                                  "requestedTier": {
+                                    "type": "string",
+                                    "enum": [
+                                      "Standard",
+                                      "Pro",
+                                      "Enterprise"
+                                    ]
+                                  },
+                                  "enterpriseRequirements": {
+                                    "type": "string",
+                                    "maxLength": 1000
+                                  }
+                                },
+                                "required": [
+                                  "version",
+                                  "companyType",
+                                  "addressLine1",
+                                  "city",
+                                  "authorityAccepted",
+                                  "requestedTier"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "country": {
                             "type": "string"
                           },
@@ -10339,6 +10535,104 @@
                     },
                     "legalName": {
                       "type": "string"
+                    },
+                    "registrationProfile": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "version": {
+                              "type": "string",
+                              "const": "2026-10"
+                            },
+                            "companyType": {
+                              "type": "string",
+                              "enum": [
+                                "limited_company",
+                                "sole_trader",
+                                "partnership",
+                                "non_profit",
+                                "other"
+                              ]
+                            },
+                            "registrationNumber": {
+                              "type": "string",
+                              "maxLength": 80
+                            },
+                            "tradingName": {
+                              "type": "string",
+                              "maxLength": 160
+                            },
+                            "addressLine1": {
+                              "type": "string",
+                              "minLength": 3,
+                              "maxLength": 200
+                            },
+                            "addressLine2": {
+                              "type": "string",
+                              "maxLength": 200
+                            },
+                            "city": {
+                              "type": "string",
+                              "minLength": 2,
+                              "maxLength": 100
+                            },
+                            "region": {
+                              "type": "string",
+                              "maxLength": 100
+                            },
+                            "postalCode": {
+                              "type": "string",
+                              "maxLength": 30
+                            },
+                            "companyEmail": {
+                              "type": "string",
+                              "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+                            },
+                            "website": {
+                              "type": "string",
+                              "maxLength": 300,
+                              "format": "uri"
+                            },
+                            "administratorPhone": {
+                              "type": "string",
+                              "pattern": "^\\+[1-9][\\d\\s()-]{7,24}$"
+                            },
+                            "administratorTitle": {
+                              "type": "string",
+                              "maxLength": 120
+                            },
+                            "authorityAccepted": {
+                              "type": "boolean",
+                              "const": true
+                            },
+                            "requestedTier": {
+                              "type": "string",
+                              "enum": [
+                                "Standard",
+                                "Pro",
+                                "Enterprise"
+                              ]
+                            },
+                            "enterpriseRequirements": {
+                              "type": "string",
+                              "maxLength": 1000
+                            }
+                          },
+                          "required": [
+                            "version",
+                            "companyType",
+                            "addressLine1",
+                            "city",
+                            "authorityAccepted",
+                            "requestedTier"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     },
                     "country": {
                       "type": "string"
@@ -134445,12 +134739,28 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "isArchived": {
+                                  "type": "boolean"
+                                },
+                                "unitCount": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "activeLeaseCount": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
                                 }
                               },
                               "required": [
                                 "id",
                                 "name",
-                                "floors"
+                                "floors",
+                                "isArchived",
+                                "unitCount",
+                                "activeLeaseCount"
                               ],
                               "additionalProperties": false
                             }
@@ -134717,12 +135027,28 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "isArchived": {
+                            "type": "boolean"
+                          },
+                          "unitCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "activeLeaseCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
                           "id",
                           "name",
-                          "floors"
+                          "floors",
+                          "isArchived",
+                          "unitCount",
+                          "activeLeaseCount"
                         ],
                         "additionalProperties": false
                       }
@@ -134916,12 +135242,28 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "isArchived": {
+                                "type": "boolean"
+                              },
+                              "unitCount": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              "activeLeaseCount": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
                               }
                             },
                             "required": [
                               "id",
                               "name",
-                              "floors"
+                              "floors",
+                              "isArchived",
+                              "unitCount",
+                              "activeLeaseCount"
                             ],
                             "additionalProperties": false
                           }
@@ -135005,6 +135347,18 @@
                               }
                             ]
                           },
+                          "toilets": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "areaSqm": {
                             "type": [
                               "number",
@@ -135058,6 +135412,7 @@
                           "floor",
                           "unitType",
                           "bedrooms",
+                          "toilets",
                           "areaSqm",
                           "marketRentMinor",
                           "status",
@@ -135380,12 +135735,28 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "isArchived": {
+                            "type": "boolean"
+                          },
+                          "unitCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "activeLeaseCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
                           "id",
                           "name",
-                          "floors"
+                          "floors",
+                          "isArchived",
+                          "unitCount",
+                          "activeLeaseCount"
                         ],
                         "additionalProperties": false
                       }
@@ -135605,12 +135976,28 @@
                                 "type": "null"
                               }
                             ]
+                          },
+                          "isArchived": {
+                            "type": "boolean"
+                          },
+                          "unitCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "activeLeaseCount": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           }
                         },
                         "required": [
                           "id",
                           "name",
-                          "floors"
+                          "floors",
+                          "isArchived",
+                          "unitCount",
+                          "activeLeaseCount"
                         ],
                         "additionalProperties": false
                       }
@@ -135745,12 +136132,212 @@
                           "type": "null"
                         }
                       ]
+                    },
+                    "isArchived": {
+                      "type": "boolean"
+                    },
+                    "unitCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "activeLeaseCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
                     }
                   },
                   "required": [
                     "id",
                     "name",
-                    "floors"
+                    "floors",
+                    "isArchived",
+                    "unitCount",
+                    "activeLeaseCount"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/buildings/{buildingId}": {
+      "put": {
+        "operationId": "property.buildings.update",
+        "summary": "Rename a block without changing its units or financial history",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "buildingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 160
+                  }
+                },
+                "required": [
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "floors": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "isArchived": {
+                      "type": "boolean"
+                    },
+                    "unitCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "activeLeaseCount": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name",
+                    "floors",
+                    "isArchived",
+                    "unitCount",
+                    "activeLeaseCount"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "property.buildings.delete",
+        "summary": "Delete an empty block or archive a block with units; refuses any active leases",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "buildingId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "action": {
+                      "type": "string",
+                      "enum": [
+                        "deleted",
+                        "archived"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "action"
                   ],
                   "additionalProperties": false
                 }
@@ -135831,6 +136418,11 @@
                           "maxLength": 60
                         },
                         "bedrooms": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 50
+                        },
+                        "toilets": {
                           "type": "integer",
                           "minimum": 0,
                           "maximum": 50
@@ -135920,6 +136512,18 @@
                               }
                             ]
                           },
+                          "toilets": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "areaSqm": {
                             "type": [
                               "number",
@@ -135973,6 +136577,7 @@
                           "floor",
                           "unitType",
                           "bedrooms",
+                          "toilets",
                           "areaSqm",
                           "marketRentMinor",
                           "status",
@@ -136063,6 +136668,11 @@
                     "minimum": 0,
                     "maximum": 50
                   },
+                  "toilets": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 50
+                  },
                   "areaSqm": {
                     "type": "number",
                     "minimum": 0,
@@ -136074,7 +136684,6 @@
                     "maximum": 9007199254740991
                   },
                   "status": {
-                    "default": "available",
                     "type": "string",
                     "enum": [
                       "available",
@@ -136123,6 +136732,18 @@
                       ]
                     },
                     "bedrooms": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "toilets": {
                       "anyOf": [
                         {
                           "type": "integer",
@@ -136187,6 +136808,7 @@
                     "floor",
                     "unitType",
                     "bedrooms",
+                    "toilets",
                     "areaSqm",
                     "marketRentMinor",
                     "status",
@@ -137507,6 +138129,15 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 80
+                  },
+                  "buildingId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "floor": {
+                    "type": "string",
+                    "maxLength": 20
                   }
                 },
                 "required": [
@@ -156695,6 +157326,27 @@
                           "propertyId": {
                             "type": "string"
                           },
+                          "buildingId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "blockName": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "floor": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "blockArchived": {
+                            "type": "boolean"
+                          },
                           "status": {
                             "type": "string",
                             "enum": [
@@ -156759,6 +157411,10 @@
                           "unitId",
                           "unitNo",
                           "propertyId",
+                          "buildingId",
+                          "blockName",
+                          "floor",
+                          "blockArchived",
                           "status",
                           "leaseId",
                           "tenantId",
@@ -158678,12 +159334,28 @@
                                       "type": "null"
                                     }
                                   ]
+                                },
+                                "isArchived": {
+                                  "type": "boolean"
+                                },
+                                "unitCount": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "activeLeaseCount": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
                                 }
                               },
                               "required": [
                                 "id",
                                 "name",
-                                "floors"
+                                "floors",
+                                "isArchived",
+                                "unitCount",
+                                "activeLeaseCount"
                               ],
                               "additionalProperties": false
                             }
@@ -159969,6 +160641,10 @@
                       "minimum": -9007199254740991,
                       "maximum": 9007199254740991
                     },
+                    "profileRequired": {
+                      "default": false,
+                      "type": "boolean"
+                    },
                     "plans": {
                       "type": "array",
                       "items": {
@@ -160067,6 +160743,7 @@
                     "termsVersion",
                     "termsUrl",
                     "trialDays",
+                    "profileRequired",
                     "plans"
                   ],
                   "additionalProperties": false
@@ -160105,6 +160782,96 @@
                     "type": "string",
                     "minLength": 2,
                     "maxLength": 160
+                  },
+                  "companyProfile": {
+                    "type": "object",
+                    "properties": {
+                      "version": {
+                        "type": "string",
+                        "const": "2026-10"
+                      },
+                      "companyType": {
+                        "type": "string",
+                        "enum": [
+                          "limited_company",
+                          "sole_trader",
+                          "partnership",
+                          "non_profit",
+                          "other"
+                        ]
+                      },
+                      "registrationNumber": {
+                        "type": "string",
+                        "maxLength": 80
+                      },
+                      "tradingName": {
+                        "type": "string",
+                        "maxLength": 160
+                      },
+                      "addressLine1": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 200
+                      },
+                      "addressLine2": {
+                        "type": "string",
+                        "maxLength": 200
+                      },
+                      "city": {
+                        "type": "string",
+                        "minLength": 2,
+                        "maxLength": 100
+                      },
+                      "region": {
+                        "type": "string",
+                        "maxLength": 100
+                      },
+                      "postalCode": {
+                        "type": "string",
+                        "maxLength": 30
+                      },
+                      "companyEmail": {
+                        "type": "string",
+                        "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+                      },
+                      "website": {
+                        "type": "string",
+                        "maxLength": 300,
+                        "format": "uri"
+                      },
+                      "administratorPhone": {
+                        "type": "string",
+                        "pattern": "^\\+[1-9][\\d\\s()-]{7,24}$"
+                      },
+                      "administratorTitle": {
+                        "type": "string",
+                        "maxLength": 120
+                      },
+                      "authorityAccepted": {
+                        "type": "boolean",
+                        "const": true
+                      },
+                      "requestedTier": {
+                        "type": "string",
+                        "enum": [
+                          "Standard",
+                          "Pro",
+                          "Enterprise"
+                        ]
+                      },
+                      "enterpriseRequirements": {
+                        "type": "string",
+                        "maxLength": 1000
+                      }
+                    },
+                    "required": [
+                      "version",
+                      "companyType",
+                      "addressLine1",
+                      "city",
+                      "authorityAccepted",
+                      "requestedTier"
+                    ]
                   },
                   "country": {
                     "type": "string",
