@@ -11,10 +11,11 @@ import type { Db } from "../../../db/database.js";
 import { fail } from "../../../http/errors.js";
 import { newId } from "../../../lib/ids.js";
 import type { PmDeps } from "../deps.js";
+import { rentLine } from "../billing/billing.service.js";
 import { chargeTypeRow } from "../setup/setup.service.js";
 import { issueInvoice, numberScope } from "../shared/money.js";
 import * as R from "../shared/records.js";
-import { addDays, addMonths, applyBp, toBp } from "../shared/util.js";
+import { addDays, addMonths, applyBp, dueDateIn, toBp } from "../shared/util.js";
 
 export interface LeaseTerms {
   startDate: string;
@@ -214,8 +215,8 @@ export function leasesService(d: PmDeps) {
       return one(s, id);
     },
 
-    async activate(s: OrgScope, id: string, b: { signedOn: string }) {
-      const depositInvoiceId = await db.tx(async (t) => {
+    async activate(s: OrgScope, id: string, b: { signedOn: string; billFirstRent?: boolean }) {
+      const invoiceIds = await db.tx(async (t) => {
         const l = await R.leaseRow(t, s.orgId, id, true);
         if (l.status !== "draft") throw fail.conflict(`This lease is already ${l.status}`);
         if (b.signedOn > s.today) throw fail.invalid("The signing date is in the future");
@@ -266,6 +267,26 @@ export function leasesService(d: PmDeps) {
             ],
           });
         }
+        let firstRentInvoiceId: string | null = null;
+        if (b.billFirstRent) {
+          const period = l.start_date.slice(0, 7);
+          if (period > addMonths(s.today, 1).slice(0, 7))
+            throw fail.invalid(
+              "The lease starts more than one month ahead. Activate without billing rent now; bill closer to the start date.",
+            );
+          const rent = await rentLine(t, l, period);
+          firstRentInvoiceId = await issueInvoice(t, core, {
+            orgId: s.orgId,
+            kind: "rent",
+            lease: l,
+            period,
+            issueDate: l.start_date,
+            dueDate: l.start_date > `${period}-01` ? l.start_date : dueDateIn(period, l.due_day),
+            note: rent.note,
+            createdBy: s.userId,
+            lines: [rent.line],
+          });
+        }
         // a lease from a rental application wins its lead
         if (l.application_id) {
           const app = await t.row<{ lead_id: string }>("SELECT lead_id FROM pm_applications WHERE id = $1", [
@@ -292,15 +313,20 @@ export function leasesService(d: PmDeps) {
           target: l.number,
           detail: `${l.unit_no} · ${l.tenant_name} · ${l.start_date} → ${l.end_date ?? "periodic"}`,
         });
-        return invoiceId;
+        return { deposit: invoiceId, rent: firstRentInvoiceId };
       });
       const lease = await one(s, id);
       let depositInvoice: P.Invoice | null = null;
-      if (depositInvoiceId) {
-        const [v] = await R.invoiceViews(db, [await R.invoiceRow(db, s.orgId, depositInvoiceId)], s.today);
+      if (invoiceIds.deposit) {
+        const [v] = await R.invoiceViews(db, [await R.invoiceRow(db, s.orgId, invoiceIds.deposit)], s.today);
         depositInvoice = v ?? null;
       }
-      return { lease, depositInvoice };
+      let firstRentInvoice: P.Invoice | null = null;
+      if (invoiceIds.rent) {
+        const [v] = await R.invoiceViews(db, [await R.invoiceRow(db, s.orgId, invoiceIds.rent)], s.today);
+        firstRentInvoice = v ?? null;
+      }
+      return { lease, depositInvoice, ...(b.billFirstRent ? { firstRentInvoice } : {}) };
     },
 
     async renew(s: OrgScope, id: string, b: { endDate: string | null; rentMinor: number; effectiveFrom: string }) {

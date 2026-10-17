@@ -1202,8 +1202,12 @@ export const activateLease = endpoint({
   summary:
     "Activate a signed lease: the unit must be free for its dates and covered by a management agreement; rent steps are written for escalations and the deposit is invoiced",
   params: LeaseParams,
-  body: z.object({ signedOn: IsoDate }),
-  response: z.object({ lease: Lease, depositInvoice: Invoice.nullable() }),
+  body: z.object({ signedOn: IsoDate, billFirstRent: z.boolean().default(false) }),
+  response: z.object({
+    lease: Lease,
+    depositInvoice: Invoice.nullable(),
+    firstRentInvoice: Invoice.nullable().optional(),
+  }),
 });
 
 export const renewLease = endpoint({
