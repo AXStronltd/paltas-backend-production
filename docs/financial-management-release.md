@@ -18,7 +18,7 @@ Existing server workflows cover rent/charges/deposits, partial allocations and c
 - Original and correction entries both remain in tenant statements and audit history.
 - Product journals cannot be reversed through the generic manual-journal endpoint; source records must stay consistent with accounting.
 
-Migration `0020_payment_corrections.sql` adds the correction table, effective read views, updated allocation-limit trigger and payment page index. It does not delete existing records. Test and stage before production; preserve the prior backend and database backup before release. A code rollback after corrections must retain the new effective read semantics; do not revert to software that counts reversed receipts as effective money.
+Migration `0022_payment_corrections.sql` adds the correction table, effective read views, updated allocation-limit trigger and payment page index. It does not delete existing records. Test and stage before production; preserve the prior backend and database backup before release. A code rollback after corrections must retain the new effective read semantics; do not revert to software that counts reversed receipts as effective money.
 
 ## Payment paging
 
