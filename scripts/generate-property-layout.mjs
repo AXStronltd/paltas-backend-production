@@ -14,6 +14,7 @@ const api=async(method,path,body)=>{const r=await fetch(origin+path,{method,head
 const existing=await api('GET',path);const blockIds=new Set(existing.property.buildings.map(b=>b.id));
 const units=plan.blocks.flatMap(block=>{if(block.buildingId&&!blockIds.has(block.buildingId))throw Error('A block is not part of the selected property');return generateLayout(block)});
 if(units.length>500)throw Error('Limit the plan to 500 units per transaction');
+for(const unit of units)if(existing.units.some(u=>(u.buildingId||'')===(unit.buildingId||'')&&u.floor!=null&&u.floor!==''&&Number(u.floor)===Number(unit.floor)))throw Error('A selected floor already has units in this block. Correct existing records rather than generating duplicates.');
 const names=new Set(existing.units.map(u=>u.unitNo.toUpperCase()));for(const unit of units){const name=unit.unitNo.toUpperCase();if(names.has(name))throw Error('A generated name already exists or repeats. Existing units were kept.');names.add(name)}
 const fingerprint=createHash('sha256').update(JSON.stringify({origin,orgId:plan.orgId,propertyId:plan.propertyId,units})).digest('hex');
 console.log(JSON.stringify({mode:process.argv.includes('--apply')?'apply':'dry-run',origin,propertyId:plan.propertyId,existingUnits:existing.units.length,newUnits:units.length,confirmation:fingerprint}));
