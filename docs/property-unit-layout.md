@@ -13,7 +13,21 @@ Set `PALTAS_API_ORIGIN` explicitly to the staging or production PALTAS API and p
 Example plan (replace the organisation, property and block IDs):
 
 ```json
-{"orgId":"ORG-ID","propertyId":"PROPERTY-ID","blocks":[{"buildingId":"WEST-ID","initial":"W","floors":[{"floor":1,"doors":4},{"floor":2,"doors":3}]},{"buildingId":"EAST-ID","initial":"E","floors":[{"floor":1,"doors":2}]}]}
+{
+  "orgId": "ORG-ID",
+  "propertyId": "PROPERTY-ID",
+  "blocks": [
+    {
+      "buildingId": "WEST-ID",
+      "initial": "W",
+      "floors": [
+        { "floor": 1, "doors": 4 },
+        { "floor": 2, "doors": 3 }
+      ]
+    },
+    { "buildingId": "EAST-ID", "initial": "E", "floors": [{ "floor": 1, "doors": 2 }] }
+  ]
+}
 ```
 
 Dry-run checks property access, block membership and duplicate names. It prints only counts and a plan fingerprint. To add the reviewed units, pass `--apply --confirm=<fingerprint>`. A repeated run stops on duplicates. The server continues to enforce permissions, org isolation, entitlements and field validation.
