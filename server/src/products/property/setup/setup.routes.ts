@@ -27,6 +27,12 @@ export function setupRoutes(access: PmAccess, S: SetupService) {
     route(api.createBuilding, async (req) =>
       S.createBuilding(await g.org(req, "property.setup", WRITE), req.params.propertyId, req.body),
     ),
+    route(api.updateBuilding, async (req) =>
+      S.updateBuilding(await g.org(req, "property.setup", WRITE), req.params.buildingId, req.body),
+    ),
+    route(api.deleteBuilding, async (req) =>
+      S.deleteBuilding(await g.org(req, "property.setup", WRITE), req.params.buildingId),
+    ),
     route(api.createUnits, async (req) =>
       S.createUnits(await g.org(req, "property.setup", WRITE), req.params.propertyId, req.body.units),
     ),

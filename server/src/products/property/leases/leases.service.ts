@@ -88,10 +88,19 @@ export function leasesService(d: PmDeps) {
   async function createDraft(
     t: Db,
     s: OrgScope,
-    b: LeaseTerms & { unitId: string; tenantId: string; applicationId?: string | null },
+    b: LeaseTerms & {
+      unitId: string;
+      tenantId: string;
+      buildingId?: string;
+      floor?: string;
+      applicationId?: string | null;
+    },
   ): Promise<string> {
     checkTerms(b);
     const unit = await R.unitRow(t, s.orgId, b.unitId);
+    if (b.buildingId !== undefined && b.buildingId !== unit.building_id)
+      throw fail.invalid("The unit is not in the selected block");
+    if (b.floor !== undefined && b.floor !== unit.floor) throw fail.invalid("The unit is not on the selected floor");
     if (unit.status === "off_market") throw fail.conflict(`Unit ${unit.unit_no} is off the market`);
     await core.contacts.live(t, s.orgId, b.tenantId);
     await core.contacts.addTypes(t, s.orgId, b.tenantId, ["tenant"] as C.ContactType[]);

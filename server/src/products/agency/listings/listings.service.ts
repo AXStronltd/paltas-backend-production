@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+import { normalizedPhoto } from "../integrations/photos.js";
 /*
  * Listings: drafted by the organisation, submitted to PALTAS, published only by PALTAS staff (moderation), taken down
  * by the organisation at any time. A listing that is public or waiting for review cannot be changed: take it down,
@@ -157,7 +159,7 @@ export function listingsService(d: AgencyDeps) {
         if (!EDITABLE.includes(l.status))
           throw fail.conflict(`A ${l.status.replace("_", " ")} listing cannot be submitted`);
         const photos = await t.row<{ n: number }>(
-          "SELECT count(*)::int AS n FROM agency_listing_media WHERE listing_id = $1 AND kind = 'photo'",
+          "SELECT count(*)::int AS n FROM agency_listing_media m JOIN agency_photo_files f ON f.media_id = m.id WHERE m.listing_id = $1 AND m.kind = 'photo'",
           [l.id],
         );
         if (!photos?.n) throw fail.invalid("Add at least one photo before submitting the listing");
@@ -183,6 +185,42 @@ export function listingsService(d: AgencyDeps) {
         )) as ListingRow;
         await audit(t, s, "Listing taken off the marketplace", out);
         return view(t, out);
+      });
+    },
+
+    async uploadPhoto(s: OrgScope, id: string, b: { fileName: string; caption: string; contentBase64: string }) {
+      await findListing(db, s.orgId, id);
+      const content = await normalizedPhoto(b.contentBase64);
+      const sha = createHash("sha256").update(content).digest("hex");
+      return db.tx(async (t) => {
+        await t.run("SELECT pg_advisory_xact_lock(hashtext('agency-photo'), hashtext($1))", [s.orgId]);
+        const l = await findListing(t, s.orgId, id, true);
+        if (!EDITABLE.includes(l.status))
+          throw fail.conflict("Take the listing off the marketplace before changing it");
+        const usage = await t.row<{ bytes: number; photos: number }>(
+          `SELECT coalesce(sum(octet_length(f.content)),0)::bigint AS bytes,
+           count(*) FILTER (WHERE m.listing_id = $2)::int AS photos FROM agency_photo_files f
+           JOIN agency_listing_media m ON m.id = f.media_id WHERE m.org_id = $1`,
+          [s.orgId, id],
+        );
+        if ((usage?.photos ?? 0) >= 20)
+          throw fail.invalid("This listing already has 20 photos. Remove a photo before adding another.");
+        if ((usage?.bytes ?? 0) + content.length > 100 * 1024 * 1024)
+          throw fail.invalid("Your company has reached its photo storage limit. Remove unused listing photos first.");
+        const mediaId = newId("med");
+        const m = await unique(
+          t.row<MediaRow>(
+            `INSERT INTO agency_listing_media (id, listing_id, org_id, kind, file_name, content_type, size_bytes, sha256,
+           caption, position, storage, storage_key, created_by)
+           VALUES ($1,$2,$3,'photo',$4,'image/jpeg',$5,$6,$7,$8,'postgres-image',$1,$9) RETURNING *`,
+            [mediaId, id, s.orgId, b.fileName, content.length, sha, b.caption, usage?.photos ?? 0, s.userId],
+          ),
+          "This photo is already on the listing",
+        );
+        if (!m) throw new Error("Photo insert did not return a record");
+        await t.run("INSERT INTO agency_photo_files (media_id, content) VALUES ($1,$2)", [mediaId, content]);
+        await audit(t, s, "Listing photo uploaded", l, b.fileName);
+        return { media: toOrgMedia(m, storage), stored: true as const };
       });
     },
 

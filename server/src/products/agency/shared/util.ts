@@ -29,7 +29,12 @@ export async function exclusive<T>(p: Promise<T>, message: string): Promise<T> {
   try {
     return await p;
   } catch (e) {
-    if ((e as { code?: string }).code === "23P01") throw fail.conflict(message);
+    const code = (e as { code?: string }).code;
+    if (code === "23P01") throw fail.conflict(message);
+    // Competing exclusion checks can deadlock. PostgreSQL rolls back a victim; never report a server crash
+    // or automatically retry a customer action. The client can refresh the calendar and choose again.
+    if (code === "40P01" || code === "40001")
+      throw fail.conflict("The booking calendar changed while you were saving. Refresh and try again.");
     throw e;
   }
 }

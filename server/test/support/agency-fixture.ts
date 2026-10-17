@@ -1,3 +1,4 @@
+import sharp from "sharp";
 /*
  * A test agency: an Agent / Host organisation (AGENCY-PRO, active) with a manager, two leasing agents, an
  * accountant, a finance director, an auditor and a viewer, plus helpers to draft a listing with a photo and get it
@@ -93,6 +94,13 @@ export const STAY: ListingBody = {
   minNights: 2,
 };
 
+export async function photoBody() {
+  const content = await sharp({ create: { width: 4, height: 4, channels: 3, background: "#118866" } })
+    .png()
+    .toBuffer();
+  return { fileName: "front.png", contentBase64: content.toString("base64") };
+}
+
 /** Draft a listing with one photo, submit it, and have PALTAS staff publish it. */
 export async function publishedListing(
   S: TestServer,
@@ -102,16 +110,7 @@ export async function publishedListing(
 ): Promise<agency.Listing> {
   const api = manager.api.agency;
   const l = await api.createListing({ params: { orgId }, body });
-  await api.addMedia({
-    params: { orgId, listingId: l.id },
-    body: {
-      kind: "photo",
-      fileName: "front.jpg",
-      contentType: "image/jpeg",
-      sizeBytes: 250_000,
-      sha256: sha(l.id + "front"),
-    },
-  });
+  await api.uploadPhoto({ params: { orgId, listingId: l.id }, body: await photoBody() });
   await api.submitListing({ params: { orgId, listingId: l.id } });
   const staff = await S.staff();
   await staff.api.marketplace.approveListing({ params: { listingId: l.id }, body: { note: "Checked" } });

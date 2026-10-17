@@ -100,7 +100,14 @@ export const LateFeePolicy = z.object({
 });
 export type LateFeePolicy = z.infer<typeof LateFeePolicy>;
 
-export const Building = z.object({ id: z.string(), name: z.string(), floors: z.number().int().nullable() });
+export const Building = z.object({
+  id: z.string(),
+  name: z.string(),
+  floors: z.number().int().nullable(),
+  isArchived: z.boolean(),
+  unitCount: z.number().int().nonnegative(),
+  activeLeaseCount: z.number().int().nonnegative(),
+});
 
 export const Unit = z.object({
   id: z.string(),
@@ -110,6 +117,7 @@ export const Unit = z.object({
   floor: z.string().nullable(),
   unitType: z.string().nullable(),
   bedrooms: z.number().int().nullable(),
+  toilets: z.number().int().nullable(),
   areaSqm: z.number().nullable(),
   marketRentMinor: MinorUnits.nullable(),
   status: z.enum(["available", "off_market"]),
@@ -159,6 +167,7 @@ const UnitFields = z.object({
   floor: z.string().trim().max(20).optional(),
   unitType: z.string().trim().max(60).optional(),
   bedrooms: z.number().int().min(0).max(50).optional(),
+  toilets: z.number().int().min(0).max(50).optional(),
   areaSqm: z.number().min(0).max(1_000_000).optional(),
   marketRentMinor: NonNegativeMinor.optional(),
   status: z.enum(["available", "off_market"]).default("available"),
@@ -781,6 +790,10 @@ export const RentRoll = z.object({
       unitId: z.string(),
       unitNo: z.string(),
       propertyId: z.string(),
+      buildingId: z.string().nullable(),
+      blockName: z.string().nullable(),
+      floor: z.string().nullable(),
+      blockArchived: z.boolean(),
       status: z.enum(["let", "vacant", "off_market"]),
       leaseId: z.string().nullable(),
       tenantId: z.string().nullable(),
@@ -854,6 +867,7 @@ export const OwnerPortal = z.object({
   billsAwaitingApproval: z.array(Bill),
   workOrdersAwaitingApproval: z.array(WorkOrder),
   payouts: z.array(Payout),
+  documents: z.array(DocumentRecord).default([]),
 });
 export type OwnerPortal = z.infer<typeof OwnerPortal>;
 
@@ -1012,6 +1026,27 @@ export const createBuilding = endpoint({
   status: 201,
 });
 
+const BuildingParams = OrgParams.extend({ buildingId: Id });
+export const updateBuilding = endpoint({
+  id: "property.buildings.update",
+  method: "PUT",
+  path: `${Base}/buildings/:buildingId`,
+  auth: "user",
+  summary: "Rename a block without changing its units or financial history",
+  params: BuildingParams,
+  body: z.object({ name: z.string().trim().min(1).max(160) }),
+  response: Building,
+});
+export const deleteBuilding = endpoint({
+  id: "property.buildings.delete",
+  method: "DELETE",
+  path: `${Base}/buildings/:buildingId`,
+  auth: "user",
+  summary: "Delete an empty block or archive a block with units; refuses any active leases",
+  params: BuildingParams,
+  response: z.object({ id: Id, action: z.enum(["deleted", "archived"]) }),
+});
+
 export const createUnits = endpoint({
   id: "property.units.create",
   method: "POST",
@@ -1031,7 +1066,9 @@ export const updateUnit = endpoint({
   auth: "user",
   summary: "Change a unit's details or take it off the market",
   params: OrgParams.extend({ unitId: Id }),
-  body: UnitFields.partial(),
+  body: UnitFields.omit({ status: true })
+    .partial()
+    .extend({ status: z.enum(["available", "off_market"]).optional() }),
   response: Unit,
 });
 
@@ -1126,7 +1163,12 @@ export const createLease = endpoint({
   auth: "user",
   summary: "Draft a lease for a unit and a tenant (a contact; it becomes type tenant)",
   params: OrgParams,
-  body: LeaseTerms.extend({ unitId: Id, tenantId: Id }),
+  body: LeaseTerms.extend({
+    unitId: Id,
+    tenantId: Id,
+    buildingId: Id.optional(),
+    floor: z.string().trim().max(20).optional(),
+  }),
   response: Lease,
   status: 201,
 });

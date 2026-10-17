@@ -62,7 +62,7 @@ describe("agency acceptance: listing → enquiry → lead → offer → deal →
     expect(found.listings.map((x) => x.id)).toEqual([l.id]);
     expect(found.listings[0]!.listedBy).toBe("Prime Realty");
     expect(found.listings[0]!.media).toHaveLength(1);
-    expect(found.listings[0]!.media[0]!.url).toBeNull(); // no storage provider connected
+    expect(found.listings[0]!.media[0]!.url).toMatch(/\/media\/.*\/content$/); // real persisted photo
 
     // two people open the listing (views are counted, nothing about them is kept)
     for (let i = 0; i < 2; i++) await S.api.marketplace.getListing({ params: { listingId: l.id } });
