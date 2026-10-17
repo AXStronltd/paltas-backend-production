@@ -24,14 +24,14 @@ async function recordTotals(db: Db, orgId: string) {
   const r = await db.row<{ receivables: number; deposits: number; credits: number }>(
     `SELECT
        (SELECT COALESCE(sum(i.amount_minor), 0) FROM pm_invoices i WHERE i.org_id = $1)
-       - (SELECT COALESCE(sum(a.amount_minor), 0) FROM pm_allocations a WHERE a.org_id = $1) AS receivables,
+       - (SELECT COALESCE(sum(a.amount_minor), 0) FROM pm_effective_allocations a WHERE a.org_id = $1) AS receivables,
        (SELECT COALESCE(sum(o.amount_minor), 0) FROM pm_opening_deposits o WHERE o.org_id = $1)
-       + (SELECT COALESCE(sum(a.amount_minor), 0) FROM pm_allocations a JOIN pm_invoices i ON i.id = a.invoice_id
+       + (SELECT COALESCE(sum(a.amount_minor), 0) FROM pm_effective_allocations a JOIN pm_invoices i ON i.id = a.invoice_id
           WHERE a.org_id = $1 AND i.kind = 'deposit' AND a.source <> 'credit_note')
        - (SELECT COALESCE(sum(r.held_minor), 0) FROM pm_deposit_refunds r WHERE r.org_id = $1 AND r.status = 'approved')
          AS deposits,
-       (SELECT COALESCE(sum(p.amount_minor), 0) FROM pm_payments p WHERE p.org_id = $1)
-       - (SELECT COALESCE(sum(a.amount_minor), 0) FROM pm_allocations a WHERE a.org_id = $1 AND a.source IN ('payment', 'credit'))
+       (SELECT COALESCE(sum(p.amount_minor), 0) FROM pm_effective_payments p WHERE p.org_id = $1)
+       - (SELECT COALESCE(sum(a.amount_minor), 0) FROM pm_effective_allocations a WHERE a.org_id = $1 AND a.source IN ('payment', 'credit'))
          AS credits`,
     [orgId],
   );
@@ -82,9 +82,13 @@ export function reportsService(d: PmDeps) {
         [s.orgId, from, to, pid],
       );
       const collected = await db.row<{ n: number }>(
-        `SELECT COALESCE(sum(a.amount_minor), 0)::bigint AS n FROM pm_allocations a JOIN pm_invoices i ON i.id = a.invoice_id
-         WHERE a.org_id = $1 AND a.source <> 'credit_note' AND i.kind <> 'deposit' AND a.date BETWEEN $2 AND $3
-           AND ($4::text IS NULL OR i.property_id = $4)`,
+        `SELECT COALESCE(sum(x.n),0)::bigint AS n FROM (
+          SELECT a.amount_minor AS n FROM pm_allocations a JOIN pm_invoices i ON i.id=a.invoice_id
+          WHERE a.org_id=$1 AND a.source<>'credit_note' AND i.kind<>'deposit' AND a.date BETWEEN $2 AND $3 AND ($4::text IS NULL OR i.property_id=$4)
+          UNION ALL
+          SELECT -a.amount_minor AS n FROM pm_allocations a JOIN pm_invoices i ON i.id=a.invoice_id JOIN pm_payment_reversals r ON r.payment_id=a.payment_id
+          WHERE a.org_id=$1 AND r.approved_by IS NOT NULL AND i.kind<>'deposit' AND r.date BETWEEN $2 AND $3 AND ($4::text IS NULL OR i.property_id=$4)
+         ) x`,
         [s.orgId, from, to, pid],
       );
       const open = (await R.invoiceRows(db, s.orgId, "($2::text IS NULL OR i.property_id = $2)", [pid])).filter(
