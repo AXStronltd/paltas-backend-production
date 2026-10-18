@@ -217,6 +217,7 @@ export const Buyer = z.object({
   status: z.enum(["active", "lost", "merged"]),
   mergedInto: z.string().nullable(),
   stage: z.string(),
+  pipelineVersion: z.number().int().nonnegative(),
   nextFollowUp: IsoDate.nullable(),
   migrated: z.boolean(),
 });
@@ -2073,4 +2074,130 @@ export const approvals = endpoint({
   summary: "Everything waiting for a decision that you may take (limits and separation of duties applied)",
   params: OrgParams,
   response: z.object({ items: z.array(ApprovalItem) }),
+});
+
+/** Unified overview: all-time verified allocations, all unpaid scheduled instalments and posted costs. */
+export const commandCenter = endpoint({
+  id: "developer.commandCenter",
+  method: "GET",
+  path: `${Base}/command-center`,
+  auth: "user",
+  summary: "Unified developer portfolio, verified collections, outstanding instalments and recent sales activity",
+  params: OrgParams,
+  response: z.object({
+    portfolioValueMinor: MinorUnits,
+    collectedMinor: MinorUnits,
+    outstandingMinor: NonNegativeMinor,
+    expensesMinor: MinorUnits,
+    projects: z.array(
+      z.object({
+        id: Id,
+        name: Name,
+        location: z.string().nullable(),
+        status: z.string().nullable(),
+        constructionPct: z.number().min(0).max(100),
+        salesPct: z.number().min(0).max(100),
+        units: z.number().int(),
+        sold: z.number().int(),
+        valueMinor: MinorUnits,
+      }),
+    ),
+    activity: z.array(
+      z.object({
+        id: Id,
+        kind: z.enum(["payment", "refund", "contract"]),
+        date: IsoDate,
+        buyerName: z.string(),
+        projectName: z.string(),
+        reference: z.string(),
+        amountMinor: MinorUnits,
+      }),
+    ),
+  }),
+});
+
+export const moveBuyerStage = endpoint({
+  id: "developer.buyers.moveStage",
+  method: "PUT",
+  path: `${Base}/buyers/:buyerId/stage`,
+  auth: "user",
+  summary: "Move an enquiry through early CRM stages; reservations and signed contracts use their real sales workflows",
+  params: p("buyerId"),
+  body: z.object({ stage: z.enum(["enquiry", "contacted", "site_visit"]), version: z.number().int().nonnegative() }),
+  response: Buyer,
+});
+
+export const SetupAlert = z.object({
+  id: Id,
+  step: z.enum(["project", "leads", "budget"]),
+  title: z.string(),
+  message: z.string(),
+  actionRoute: z.enum(["projects", "devmigrate", "cost"]),
+  createdAt: IsoDateTime,
+  readAt: IsoDateTime.nullable(),
+});
+export const listSetupAlerts = endpoint({
+  id: "developer.alerts.list",
+  method: "GET",
+  path: `${Base}/setup-alerts`,
+  auth: "user",
+  summary: "Your actionable setup reminders, excluding completed or dismissed tasks",
+  params: OrgParams,
+  response: z.object({ alerts: z.array(SetupAlert), unread: z.number().int().nonnegative() }),
+});
+export const updateSetupAlert = endpoint({
+  id: "developer.alerts.update",
+  method: "PUT",
+  path: `${Base}/setup-alerts/:alertId`,
+  auth: "user",
+  summary: "Read or dismiss your own reminder",
+  params: p("alertId"),
+  body: z.object({ dismiss: z.boolean().default(false) }),
+  response: z.object({ updated: z.literal(true) }),
+});
+
+export const ProjectPublication = z.object({ slug: Id, published: z.boolean() });
+export const getProjectPublication = endpoint({
+  id: "developer.projects.publication",
+  method: "GET",
+  path: `${Base}/projects/:projectId/publication`,
+  auth: "user",
+  summary: "Get the company's project page publishing state",
+  params: ProjectParams,
+  response: ProjectPublication.nullable(),
+});
+export const publishProject = endpoint({
+  id: "developer.projects.publish",
+  method: "PUT",
+  path: `${Base}/projects/:projectId/publication`,
+  auth: "user",
+  summary: "Explicitly publish or unpublish a basic project enquiry page",
+  params: ProjectParams,
+  body: z.object({ published: z.boolean() }),
+  response: ProjectPublication,
+});
+export const publicProject = endpoint({
+  id: "developer.publicProject",
+  method: "GET",
+  path: "/api/v1/public/development-projects/:slug",
+  auth: "public",
+  summary: "Read only the explicitly published project name, location and construction progress",
+  params: z.object({ slug: Id }),
+  response: z.object({ name: Name, location: z.string().nullable(), constructionPct: z.number().min(0).max(100) }),
+});
+export const enquireProject = endpoint({
+  id: "developer.projectEnquiry",
+  method: "POST",
+  path: "/api/v1/public/development-projects/:slug/enquiries",
+  auth: "public",
+  summary: "Send a consented enquiry to the project's sales pipeline; reply never discloses existing buyers",
+  params: z.object({ slug: Id }),
+  body: z.object({
+    name: Name,
+    email: Email,
+    message: Text,
+    contactConsent: z.literal(true),
+    website: z.string().max(0).default(""),
+  }),
+  response: z.object({ received: z.literal(true) }),
 });

@@ -38,6 +38,7 @@ const NEW = [
   "0020",
   "0021",
   "0022",
+  "0023",
 ];
 const KEY = randomBytes(32).toString("base64");
 
@@ -416,7 +417,17 @@ describe("live database at main (0001–0013) with real rows, then 0014–0020 a
 
   it("applies only 0014–0020, additively: every existing row and every changed price is kept", async () => {
     const applied = await migrate(db);
-    expect(applied.map((v) => v.slice(0, 4))).toEqual(["0014", "0015", "0016", "0017", "0019", "0020", "0021", "0022"]);
+    expect(applied.map((v) => v.slice(0, 4))).toEqual([
+      "0014",
+      "0015",
+      "0016",
+      "0017",
+      "0019",
+      "0020",
+      "0021",
+      "0022",
+      "0023",
+    ]);
     expect(await migrate(db)).toEqual([]); // checksums of 0001–0013 unchanged
     for (const [k, q] of Object.entries(SNAPSHOT)) {
       const after = await db.rows(q);

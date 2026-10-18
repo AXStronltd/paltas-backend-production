@@ -99,6 +99,8 @@ export interface BuyerRow {
   next_follow_up: string | null;
   source_system: string | null;
   stage: string;
+  pipeline_stage: string | null;
+  pipeline_version: number;
 }
 
 /** Where a buyer is in the journey, from enquiry to after-sales (the workspace's pipeline stages). */
@@ -113,6 +115,7 @@ export const STAGE_SQL = `CASE
   WHEN EXISTS (SELECT 1 FROM dev_offers o WHERE o.buyer_id = c.id AND o.status = 'accepted') THEN 'offer_accepted'
   WHEN EXISTS (SELECT 1 FROM dev_offers o WHERE o.buyer_id = c.id
                AND o.status IN ('draft', 'awaiting_approval', 'submitted', 'counteroffer')) THEN 'negotiating'
+  WHEN c.pipeline_stage IS NOT NULL THEN c.pipeline_stage
   WHEN EXISTS (SELECT 1 FROM dev_correspondence x WHERE x.buyer_id = c.id) THEN 'contacted'
   ELSE 'enquiry' END`;
 
@@ -147,6 +150,7 @@ export const toBuyer = (b: BuyerRow): Out<typeof development.Buyer> => ({
   status: b.status,
   mergedInto: b.merged_into,
   stage: b.stage,
+  pipelineVersion: b.pipeline_version,
   nextFollowUp: b.next_follow_up,
   migrated: b.source_system !== null,
 });

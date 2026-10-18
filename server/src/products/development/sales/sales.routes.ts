@@ -6,6 +6,9 @@ import type { SalesService } from "./sales.service.js";
 
 export function salesRoutes(g: DevGate, S: SalesService) {
   return [
+    route(api.moveBuyerStage, async (req) =>
+      S.moveBuyerStage(await g(req, "developer.sales", SALES), req.params.buyerId, req.body),
+    ),
     route(api.listBuyers, async (req) => S.listBuyers(await g(req, "developer.buyers.read"), req.query.q)),
     route(api.createBuyer, async (req) => S.createBuyer(await g(req, "developer.sales", SALES), req.body)),
     route(api.getBuyer, async (req) => S.getBuyer(await g(req, "developer.buyers.read"), req.params.buyerId)),

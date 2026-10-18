@@ -50,6 +50,8 @@ export function personOrAddress(req: FastifyRequest): string {
 
 export function rateLimitFor(e: Pick<EndpointDefinition, "id" | "auth" | "method">, limits: RateLimits) {
   const minute = "1 minute";
+  if (e.id === "developer.publicProject") return { max: limits.publicRead, timeWindow: minute };
+  if (e.id === "developer.projectEnquiry") return { max: 5, timeWindow: minute };
   if (e.id === "agency.listings.uploadPhoto") return { max: 10, timeWindow: minute, keyGenerator: personOrAddress };
   if (e.id === "marketplace.mediaContent") return { max: limits.publicRead, timeWindow: minute };
   if (e.id === "property.documents.upload") return { max: 10, timeWindow: minute, keyGenerator: personOrAddress };

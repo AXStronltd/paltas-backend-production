@@ -13,6 +13,10 @@
  *   reports/       dashboard tied to the ledger, approvals inbox
  *   shared/        access gate, ledger posting, rules and approvals, record loaders
  */
+import { development as api } from "@paltas/contracts";
+import { route } from "../../http/route.js";
+import { publicProjects } from "./command/public-projects.service.js";
+import { setupNotifications } from "./command/notifications.service.js";
 import type { ProductModule } from "../registry.js";
 import { DEV_ACCOUNTS } from "./accounts.js";
 import { collectionsRoutes } from "./collections/collections.routes.js";
@@ -34,9 +38,27 @@ import { workService } from "./work/work.service.js";
 
 export const development: ProductModule = {
   product: "developer",
-  routes(_ctx, core) {
+  routes(ctx, core) {
+    const alerts = setupNotifications(ctx, core);
+    const pub = publicProjects(ctx, core);
     const g = devGate(core);
     return [
+      route(api.getProjectPublication, async (req) =>
+        pub.publication(await g(req, "developer.read"), req.params.projectId),
+      ),
+      route(api.publishProject, async (req) =>
+        pub.publish(
+          await g(req, "developer.projects", { write: true, module: "crm" }),
+          req.params.projectId,
+          req.body.published,
+        ),
+      ),
+      route(api.publicProject, async (req) => pub.get(req.params.slug)),
+      route(api.enquireProject, async (req) => pub.enquire(req.params.slug, req.body)),
+      route(api.listSetupAlerts, async (req) => alerts.list(await g(req, "developer.read"))),
+      route(api.updateSetupAlert, async (req) =>
+        alerts.update(await g(req, "developer.read"), req.params.alertId, req.body.dismiss),
+      ),
       ...setupRoutes(g, setupService(core)),
       ...salesRoutes(g, salesService(core)),
       ...collectionsRoutes(g, collectionsService(core)),
@@ -44,6 +66,17 @@ export const development: ProductModule = {
       ...payablesRoutes(g, payablesService(core)),
       ...workRoutes(g, workService(core)),
       ...reportsRoutes(g, reportsService(core)),
+    ];
+  },
+  scheduledJobs(ctx, core) {
+    return [
+      {
+        key: "developer.setup.reminders",
+        label: "Developer setup reminders",
+        scope: "platform",
+        defaultCron: "*/15 * * * *",
+        run: () => setupNotifications(ctx, core).sendDue(),
+      },
     ];
   },
   // the plan's allowance counts projects

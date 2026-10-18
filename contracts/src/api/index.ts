@@ -602,6 +602,14 @@ export const SECURITY_API = {
 } as const;
 
 export const DEVELOPMENT_API = {
+  commandCenter: development.commandCenter,
+  getProjectPublication: development.getProjectPublication,
+  publishProject: development.publishProject,
+  publicProject: development.publicProject,
+  enquireProject: development.enquireProject,
+  listSetupAlerts: development.listSetupAlerts,
+  updateSetupAlert: development.updateSetupAlert,
+  moveBuyerStage: development.moveBuyerStage,
   getSettings: development.getSettings,
   updateSettings: development.updateSettings,
   listProjects: development.listProjects,
