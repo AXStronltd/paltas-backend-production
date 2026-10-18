@@ -328,7 +328,78 @@ export function reportsService(core: CoreServices) {
     return { items };
   }
 
-  return { dashboard, approvals };
+  async function commandCenter(s: OrgScope): Promise<Out<typeof development.commandCenter.response>> {
+    // Independent grouped subqueries avoid multiplying values when projects have many units/contracts/payments.
+    const projects = await db.rows<{
+      id: string;
+      name: string;
+      location: string | null;
+      status: string | null;
+      constructionPct: number;
+      salesPct: number;
+      units: number;
+      sold: number;
+      valueMinor: number;
+    }>(
+      `SELECT p.id,p.name,p.location,p.status,p.progress_pct AS "constructionPct",
+        COALESCE(u.n,0)::int AS units,COALESCE(u.sold,0)::int AS sold,
+        CASE WHEN COALESCE(u.n,0)=0 THEN 0 ELSE round(100.0*u.sold/u.n)::int END AS "salesPct",
+        COALESCE(u.value,0)::bigint AS "valueMinor"
+       FROM dev_projects p LEFT JOIN (
+         SELECT project_id,count(*) AS n,count(*) FILTER(WHERE status IN ('sold','handed_over')) AS sold,
+           sum(COALESCE(list_price_minor,0)) AS value FROM dev_units WHERE org_id=$1 GROUP BY project_id
+       ) u ON u.project_id=p.id WHERE p.org_id=$1 ORDER BY p.created_at DESC,p.id`,
+      [s.orgId],
+    );
+    const amounts = await db.row<{ collected: number; outstanding: number }>(
+      `SELECT COALESCE(sum(a.paid),0)::bigint AS collected,
+        COALESCE(sum(GREATEST(0,i.amount_minor-COALESCE(a.paid,0))),0)::bigint AS outstanding
+       FROM dev_instalments i JOIN dev_contracts k ON k.id=i.contract_id AND k.org_id=i.org_id
+       LEFT JOIN (SELECT instalment_id,sum(amount_minor) AS paid FROM dev_payment_allocations WHERE org_id=$1 GROUP BY instalment_id) a ON a.instalment_id=i.id
+       WHERE i.org_id=$1 AND k.status IS DISTINCT FROM 'cancelled'`,
+      [s.orgId],
+    );
+    const costs = await db.row<{ n: number }>(
+      "SELECT COALESCE(sum(net_minor-credit_minor),0)::bigint AS n FROM dev_supplier_invoices WHERE org_id=$1 AND kind='invoice' AND status=ANY($2)",
+      [s.orgId, POSTED],
+    );
+    const activity = can(s, "developer.buyers.read")
+      ? await db.rows<{
+          id: string;
+          kind: "payment" | "refund" | "contract";
+          date: string;
+          buyerName: string;
+          projectName: string;
+          reference: string;
+          amountMinor: number;
+        }>(
+          `SELECT id,kind,date,"buyerName","projectName",reference,"amountMinor" FROM (
+         SELECT p.id,CASE WHEN p.kind='refund' THEN 'refund' ELSE 'payment' END AS kind,p.date,
+           c.name AS "buyerName",j.name AS "projectName",COALESCE(p.reference,'Recorded receipt') AS reference,
+           CASE WHEN p.kind='refund' THEN -p.amount_minor ELSE p.amount_minor END AS "amountMinor",p.created_at
+         FROM dev_payments p JOIN dev_contracts k ON k.id=p.contract_id AND k.org_id=p.org_id
+         JOIN dev_contacts c ON c.id=k.buyer_id AND c.org_id=p.org_id JOIN dev_units u ON u.id=k.unit_id
+         JOIN dev_projects j ON j.id=u.project_id WHERE p.org_id=$1 AND ($2::text IS NULL OR c.agent_user_id=$2)
+         UNION ALL
+         SELECT k.id,'contract',k.date,c.name,j.name,COALESCE(k.number,'Sale agreement'),k.price_minor,k.created_at
+         FROM dev_contracts k JOIN dev_contacts c ON c.id=k.buyer_id AND c.org_id=k.org_id
+         JOIN dev_units u ON u.id=k.unit_id JOIN dev_projects j ON j.id=u.project_id
+         WHERE k.org_id=$1 AND k.status IS DISTINCT FROM 'cancelled' AND ($2::text IS NULL OR c.agent_user_id=$2)
+       ) a ORDER BY created_at DESC,id DESC LIMIT 20`,
+          [s.orgId, can(s, "developer.buyers.all") ? null : s.userId],
+        )
+      : [];
+    return {
+      portfolioValueMinor: projects.reduce((n, p) => n + p.valueMinor, 0),
+      collectedMinor: amounts?.collected ?? 0,
+      outstandingMinor: amounts?.outstanding ?? 0,
+      expensesMinor: costs?.n ?? 0,
+      projects,
+      activity,
+    };
+  }
+
+  return { dashboard, approvals, commandCenter };
 }
 
 export type ReportsService = ReturnType<typeof reportsService>;

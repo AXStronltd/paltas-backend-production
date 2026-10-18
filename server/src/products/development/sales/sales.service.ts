@@ -306,6 +306,29 @@ export function salesService(core: CoreServices) {
     return toBuyer(await findBuyer(t, s, id));
   }
 
+  async function moveBuyerStage(s: OrgScope, id: string, b: Body<typeof development.moveBuyerStage>) {
+    return db.tx(async (t) => {
+      const before = await findBuyer(t, s, id, true);
+      if (before.pipeline_version !== b.version)
+        throw fail.conflict("This lead changed. Refresh the board and try again.");
+      if (!["enquiry", "contacted", "site_visit"].includes(before.stage))
+        throw fail.conflict("This buyer has an offer, reservation or contract. Use the sales workflow to change it.");
+      await t.run(
+        "UPDATE dev_contacts SET pipeline_stage=$3,pipeline_version=pipeline_version+1 WHERE org_id=$1 AND id=$2",
+        [s.orgId, id, b.stage],
+      );
+      await recordAudit(t, {
+        actor: s.actor,
+        orgId: s.orgId,
+        action: "Developer lead stage changed",
+        target: id,
+        before: { stage: before.stage, version: b.version },
+        after: { stage: b.stage, version: b.version + 1 },
+      });
+      return toBuyer(await findBuyer(t, s, id));
+    });
+  }
+
   async function listBuyers(s: OrgScope, q?: string) {
     const rows = await db.rows<BuyerRow>(
       `${BUYER_SELECT} WHERE c.org_id = $1 AND c.kind = 'buyer' AND c.status <> 'merged'
@@ -1138,6 +1161,7 @@ export function salesService(core: CoreServices) {
   return {
     expire: (s: OrgScope) => db.tx((t) => expireDue(t, s.orgId, s.today)),
     listBuyers,
+    moveBuyerStage,
     createBuyer,
     getBuyer,
     updateBuyer,
