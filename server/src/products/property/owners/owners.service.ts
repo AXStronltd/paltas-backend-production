@@ -238,10 +238,16 @@ export function ownersService(d: PmDeps) {
           throw fail.conflict(`Only an approved payout can be released (this one is ${p.status})`);
         if (p.approved_by === s.userId)
           throw fail.separationOfDuties("You approved this payout — someone else releases it");
+        const profile = await t.row<{ bank_verified_at: string | null; reserve_minor: number }>(
+          "SELECT bank_verified_at, reserve_minor FROM pm_owner_profiles WHERE org_id=$1 AND owner_id=$2",
+          [s.orgId, p.owner_id],
+        );
+        if (!profile?.bank_verified_at)
+          throw fail.conflict("The owner's payout account needs to be checked again before release");
         const funds = (await ownerFunds(t, s.orgId, s.today, p.owner_id)).get(p.owner_id) ?? 0;
-        if (funds < p.amount_minor)
+        if (funds - profile.reserve_minor < p.amount_minor)
           throw fail.conflict(
-            `The owner's funds are now ${formatMoney(funds, s.entitlement.org.currency)}, less than the payout ${formatMoney(p.amount_minor, s.entitlement.org.currency)} — cancel it`,
+            `The owner's funds are now ${formatMoney(funds, s.entitlement.org.currency)}, insufficient for the payout ${formatMoney(p.amount_minor, s.entitlement.org.currency)} after keeping the owner’s reserve — cancel it`,
           );
         const journalId = await post(t, core, {
           orgId: s.orgId,

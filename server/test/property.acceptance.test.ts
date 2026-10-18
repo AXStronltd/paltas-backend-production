@@ -415,8 +415,30 @@ describe("Property Management acceptance: from onboarding to an owner statement 
     expect(po).toMatchObject({ amountMinor: 11_955_000, status: "prepared" });
     await refused(acct.api.property.approvePayout({ params: { orgId, payoutId: po.id } }), 403, "SEPARATION_OF_DUTIES");
     await refused(acct.api.property.preparePayout({ params: O(), body: { ownerId: B.ownerId } }), 409); // one at a time
+    await refused(
+      fd.api.property.updateOwnerProfile({
+        params: { orgId, ownerId: B.ownerId },
+        body: { bankAccountMasked: "New bank ••1234" },
+      }),
+      409,
+    );
+    await refused(
+      fd.api.property.updateOwnerProfile({ params: { orgId, ownerId: B.ownerId }, body: { reserveMinor: 1000 } }),
+      409,
+    );
     await fd.api.property.approvePayout({ params: { orgId, payoutId: po.id } });
     await refused(fd.api.property.releasePayout({ params: { orgId, payoutId: po.id } }), 403, "SEPARATION_OF_DUTIES");
+    await S.sql("UPDATE pm_owner_profiles SET bank_verified_at=NULL WHERE org_id=$1 AND owner_id=$2", [
+      orgId,
+      B.ownerId,
+    ]);
+    await refused(acct.api.property.releasePayout({ params: { orgId, payoutId: po.id } }), 409);
+    await S.sql(
+      "UPDATE pm_owner_profiles SET bank_verified_at=now(), reserve_minor=1 WHERE org_id=$1 AND owner_id=$2",
+      [orgId, B.ownerId],
+    );
+    await refused(acct.api.property.releasePayout({ params: { orgId, payoutId: po.id } }), 409);
+    await S.sql("UPDATE pm_owner_profiles SET reserve_minor=0 WHERE org_id=$1 AND owner_id=$2", [orgId, B.ownerId]);
     const rel = await acct.api.property.releasePayout({ params: { orgId, payoutId: po.id } });
     expect(rel.status).toBe("released");
     expect(await tbBalance(acct, orgId, "2250")).toBe(0);
