@@ -11,6 +11,7 @@ import { fail } from "../../../http/errors.js";
 import { newId } from "../../../lib/ids.js";
 import type { PmDeps } from "../deps.js";
 import { LATE_FEES_JOB, MONTHLY_BILLING_JOB } from "../shared/jobs.js";
+import { financeTransaction } from "../shared/finance-transaction.js";
 import { ownerFunds } from "../shared/owner-funds.js";
 import * as R from "../shared/records.js";
 import { toBp, toPct } from "../shared/util.js";
@@ -728,7 +729,7 @@ export function setupService(d: PmDeps) {
         reserveMinor?: number | undefined;
       },
     ) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const owner = await core.contacts.live(t, s.orgId, ownerId);
         if (!owner.types.includes("owner")) throw fail.invalid("This contact is not an owner");
         const before = await t.row<{ bank_account_masked: string; reserve_minor: number }>(
@@ -736,6 +737,17 @@ export function setupService(d: PmDeps) {
           [ownerId],
         );
         const changedBank = b.bankAccountMasked !== undefined && b.bankAccountMasked !== before?.bank_account_masked;
+        const changedReserve = b.reserveMinor !== undefined && b.reserveMinor !== (before?.reserve_minor ?? 0);
+        if (
+          (changedBank || changedReserve) &&
+          (await t.row(
+            "SELECT 1 FROM pm_payouts WHERE org_id=$1 AND owner_id=$2 AND status IN ('prepared','approved') LIMIT 1",
+            [s.orgId, ownerId],
+          ))
+        )
+          throw fail.conflict(
+            "Cancel the owner's pending payout before changing the payout account or reserve, then prepare it again",
+          );
         await t.run(
           `INSERT INTO pm_owner_profiles (owner_id, org_id, bank_account_masked, reserve_minor) VALUES ($1, $2, $3, $4)
            ON CONFLICT (owner_id) DO UPDATE SET bank_account_masked = EXCLUDED.bank_account_masked,
