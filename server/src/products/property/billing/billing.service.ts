@@ -1,3 +1,4 @@
+import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Invoicing: the monthly billing run (rent, or recurring and metered charges), one-off charge invoices, late fees per
  * each property's policy, and credit notes. Every invoice posts to the ledger as it is issued; runs are idempotent.
@@ -30,6 +31,35 @@ import { formatMoney } from "../../../lib/money.js";
 /** Who runs billing: a member (their scope) or the PALTAS scheduler (no user). */
 export type BillingOp = Pick<OrgScope, "orgId" | "actor" | "today"> & { userId: string | null };
 
+/** Rent for a month: the rent in force at the start of the lease's month, prorated by day in the first month. */
+export async function rentLine(t: Db, l: R.LeaseRow, period: string): Promise<{ line: NewInvoiceLine; note: string }> {
+  const first = `${period}-01`;
+  const last = lastDay(period);
+  const from = l.start_date > first ? l.start_date : first;
+  const rent = await R.rentOn(t, l, from);
+  let amount = rent;
+  let note = "";
+  if (l.start_date > first) {
+    const days = daysBetween(l.start_date, last) + 1;
+    const dim = daysBetween(first, last) + 1;
+    amount = Math.round((rent * days) / dim);
+    note = `Prorated ${days} of ${dim} days`;
+  }
+  return {
+    line: {
+      code: "RENT",
+      description: `Rent ${period}${note ? ` (${note})` : ""}`,
+      quantity: 1,
+      rateMinor: amount,
+      amountMinor: amount,
+      payee: "owner",
+      feeApplies: true,
+      vatApplies: false,
+    },
+    note,
+  };
+}
+
 export function billingService(d: PmDeps) {
   const { core } = d;
   const db = core.db;
@@ -38,35 +68,6 @@ export function billingService(d: PmDeps) {
     const [v] = await R.invoiceViews(db, [await R.invoiceRow(db, orgId, id)], today);
     return v as P.Invoice;
   };
-
-  /** Rent for a month: the rent in force at the start of the lease's month, prorated by day in the first month. */
-  async function rentLine(t: Db, l: R.LeaseRow, period: string): Promise<{ line: NewInvoiceLine; note: string }> {
-    const first = `${period}-01`;
-    const last = lastDay(period);
-    const from = l.start_date > first ? l.start_date : first;
-    const rent = await R.rentOn(t, l, from);
-    let amount = rent;
-    let note = "";
-    if (l.start_date > first) {
-      const days = daysBetween(l.start_date, last) + 1;
-      const dim = daysBetween(first, last) + 1;
-      amount = Math.round((rent * days) / dim);
-      note = `Prorated ${days} of ${dim} days`;
-    }
-    return {
-      line: {
-        code: "RENT",
-        description: `Rent ${period}${note ? ` (${note})` : ""}`,
-        quantity: 1,
-        rateMinor: amount,
-        amountMinor: amount,
-        payee: "owner",
-        feeApplies: true,
-        vatApplies: false,
-      },
-      note,
-    };
-  }
 
   return {
     view,
@@ -103,7 +104,7 @@ export function billingService(d: PmDeps) {
           );
       }
       const runId = newId("prn");
-      const created = await db.tx(async (t) => {
+      const created = await financeTransaction(db, s.orgId, async (t) => {
         const ids: string[] = [];
         await t.run(
           "INSERT INTO pm_billing_runs (id, org_id, property_id, period, kind, created, skipped, run_by) VALUES ($1, $2, $3, $4, $5, 0, 0, $6)",
@@ -263,7 +264,7 @@ export function billingService(d: PmDeps) {
       }
       const dueDate = b.dueDate ?? addDays(s.today, 7);
       if (dueDate < s.today) throw fail.invalid("The due date is in the past");
-      const id = await db.tx(async (t) => {
+      const id = await financeTransaction(db, s.orgId, async (t) => {
         const id = await issueInvoice(t, core, {
           orgId: s.orgId,
           kind: "charge",
@@ -297,7 +298,7 @@ export function billingService(d: PmDeps) {
         [b.propertyId ?? null],
       );
       let skipped = 0;
-      const ids = await db.tx(async (t) => {
+      const ids = await financeTransaction(db, s.orgId, async (t) => {
         const out: string[] = [];
         for (const i of candidates) {
           const balance = R.balanceOf(i);
@@ -353,7 +354,7 @@ export function billingService(d: PmDeps) {
 
     /** Reduce an invoice's unpaid part: Dr the billed accounts (in proportion) / Cr 1120. */
     async creditNote(s: OrgScope, invoiceId: string, b: { amountMinor: number; reason: string }) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         await t.run("SELECT 1 FROM pm_invoices WHERE org_id = $1 AND id = $2 FOR UPDATE", [s.orgId, invoiceId]);
         const inv = await R.invoiceRow(t, s.orgId, invoiceId);
         if (b.amountMinor > R.balanceOf(inv))

@@ -6,6 +6,12 @@ import type { ListingsService } from "./listings.service.js";
 
 export function listingsRoutes(g: AgencyGate, S: ListingsService) {
   return [
+    {
+      ...route(agency.uploadPhoto, async (req) =>
+        S.uploadPhoto(await g.listings(req, "agency.listings.manage", WRITE), req.params.listingId, req.body),
+      ),
+      bodyLimit: 3 * 1024 * 1024,
+    },
     route(agency.listListings, async (req) => S.list(await g.listings(req, "agency.read"), req.query)),
     route(agency.createListing, async (req) =>
       S.create(await g.listings(req, "agency.listings.manage", WRITE), req.body),

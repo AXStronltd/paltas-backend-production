@@ -1,3 +1,4 @@
+import { Readable } from "node:stream";
 /*
  * The public marketplace (no sign-in). Every read shows only listings PALTAS staff approved, from organisations
  * whose subscription for the listing's product is usable today (mkt_org_usable), and maps rows through
@@ -118,6 +119,22 @@ export function publicService(d: AgencyDeps) {
 
   return {
     // ---------------------------------------------------------------- reading
+    async mediaContent(ip: string, listingId: string, mediaId: string) {
+      d.limiter.read(ip);
+      await publicListing(db, listingId);
+      const photo = await db.row<{ content: Buffer }>(
+        `SELECT f.content FROM agency_photo_files f JOIN agency_listing_media m ON m.id = f.media_id
+         WHERE m.listing_id = $1 AND m.id = $2 AND m.kind = 'photo' AND m.storage = 'postgres-image'`,
+        [listingId, mediaId],
+      );
+      if (!photo) throw fail.notFound("Photo not found");
+      return {
+        body: Readable.from([photo.content]),
+        filename: "listing-photo.jpg",
+        contentType: "image/jpeg" as const,
+      };
+    },
+
     async search(
       ip: string,
       q: {

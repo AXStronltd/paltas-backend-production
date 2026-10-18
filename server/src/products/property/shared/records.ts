@@ -35,6 +35,7 @@ export interface UnitRow {
   floor: string | null;
   unit_type: string | null;
   bedrooms: number | null;
+  toilets: number | null;
   area_sqm: number | null;
   market_rent_minor: number | null;
   status: "available" | "off_market";
@@ -148,6 +149,7 @@ export interface PaymentRow {
   bank_line_id: string | null;
   journal_id: string | null;
   recorded_by: string;
+  reversal: P.Payment["reversal"];
 }
 
 // ------------------------------------------------------------------ mappers
@@ -247,7 +249,7 @@ export async function depositsHeld(db: Db, orgId: string, leaseIds: string[]): P
   if (!leaseIds.length) return new Map();
   const rows = await db.rows<{ id: string; held: number }>(
     `SELECT l.id,
-       COALESCE((SELECT sum(a.amount_minor) FROM pm_allocations a JOIN pm_invoices i ON i.id = a.invoice_id
+       COALESCE((SELECT sum(a.amount_minor) FROM pm_effective_allocations a JOIN pm_invoices i ON i.id = a.invoice_id
                  WHERE i.lease_id = l.id AND i.kind = 'deposit' AND a.source <> 'credit_note'), 0)
      + CASE WHEN l.migrated AND l.id = (SELECT x.id FROM pm_leases x WHERE x.tenant_id = l.tenant_id AND x.migrated
                                         ORDER BY x.start_date, x.id LIMIT 1)
@@ -321,8 +323,8 @@ export async function leaseViews(db: Db, orgId: string, rows: LeaseRow[], today:
 }
 
 const INVOICE_SQL = `SELECT i.*, c.name AS tenant_name, u.unit_no,
-    COALESCE((SELECT sum(a.amount_minor) FROM pm_allocations a WHERE a.invoice_id = i.id AND a.source <> 'credit_note'), 0)::bigint AS paid_minor,
-    COALESCE((SELECT sum(a.amount_minor) FROM pm_allocations a WHERE a.invoice_id = i.id AND a.source = 'credit_note'), 0)::bigint AS credited_minor
+    COALESCE((SELECT sum(a.amount_minor) FROM pm_effective_allocations a WHERE a.invoice_id = i.id AND a.source <> 'credit_note'), 0)::bigint AS paid_minor,
+    COALESCE((SELECT sum(a.amount_minor) FROM pm_effective_allocations a WHERE a.invoice_id = i.id AND a.source = 'credit_note'), 0)::bigint AS credited_minor
   FROM pm_invoices i JOIN contacts c ON c.id = i.tenant_id LEFT JOIN pm_units u ON u.id = i.unit_id`;
 
 export const invoiceRows = (db: Db, orgId: string, where = "TRUE", params: unknown[] = []) =>
@@ -348,7 +350,7 @@ export async function invoiceViews(db: Db, rows: InvoiceRow[], today: string): P
     [ids],
   );
   const allocs = await db.rows<AllocationRow>(
-    `SELECT a.*, i.number AS invoice_number FROM pm_allocations a JOIN pm_invoices i ON i.id = a.invoice_id
+    `SELECT a.*, i.number AS invoice_number FROM pm_effective_allocations a JOIN pm_invoices i ON i.id = a.invoice_id
      WHERE a.invoice_id = ANY($1) ORDER BY a.date, a.created_at, a.id`,
     [ids],
   );
@@ -394,7 +396,7 @@ export async function invoiceViews(db: Db, rows: InvoiceRow[], today: string): P
   });
 }
 
-const PAYMENT_SQL = `SELECT p.*, c.name AS tenant_name FROM pm_payments p JOIN contacts c ON c.id = p.tenant_id`;
+export const PAYMENT_SQL = `SELECT p.*, c.name AS tenant_name, (SELECT json_build_object('reason',r.reason,'requestedBy',r.requested_by,'approvedBy',r.approved_by,'rejectedReason',r.rejected_reason,'date',r.date::text) FROM pm_payment_reversals r WHERE r.payment_id=p.id) AS reversal FROM pm_payments p JOIN contacts c ON c.id = p.tenant_id`;
 
 export const paymentRows = (db: Db, orgId: string, where = "TRUE", params: unknown[] = []) =>
   db.rows<PaymentRow>(`${PAYMENT_SQL} WHERE p.org_id = $1 AND ${where} ORDER BY p.date, p.number`, [orgId, ...params]);
@@ -406,8 +408,16 @@ export async function paymentViews(db: Db, rows: PaymentRow[]): Promise<P.Paymen
      WHERE a.payment_id = ANY($1) ORDER BY a.created_at, a.id`,
     [rows.map((r) => r.id)],
   );
+  const byPayment = new Map<string, AllocationRow[]>();
+  for (const a of allocs) {
+    const id = a.payment_id;
+    if (!id) continue;
+    const list = byPayment.get(id) || [];
+    list.push(a);
+    byPayment.set(id, list);
+  }
   return rows.map((p) => {
-    const own = allocs.filter((a) => a.payment_id === p.id);
+    const own = byPayment.get(p.id) || [];
     const allocated = sum(own, (a) => a.amount_minor);
     return {
       id: p.id,
@@ -421,7 +431,8 @@ export async function paymentViews(db: Db, rows: PaymentRow[]): Promise<P.Paymen
       reference: p.reference,
       note: p.note,
       allocatedMinor: allocated,
-      unallocatedMinor: p.amount_minor - allocated,
+      unallocatedMinor: p.reversal?.approvedBy ? 0 : p.amount_minor - allocated,
+      reversal: p.reversal ?? null,
       allocations: own.map(allocationOut),
       bankMatched: !!p.bank_line_id,
       recordedBy: p.recorded_by,
@@ -433,8 +444,8 @@ export async function paymentViews(db: Db, rows: PaymentRow[]): Promise<P.Paymen
 /** A tenant's unapplied credit: payments not allocated, less credit already applied. */
 export async function tenantCredit(db: Db, orgId: string, tenantId: string): Promise<number> {
   const r = await db.row<{ n: number }>(
-    `SELECT (COALESCE((SELECT sum(amount_minor) FROM pm_payments WHERE org_id = $1 AND tenant_id = $2), 0)
-           - COALESCE((SELECT sum(a.amount_minor) FROM pm_allocations a JOIN pm_invoices i ON i.id = a.invoice_id
+    `SELECT (COALESCE((SELECT sum(amount_minor) FROM pm_effective_payments WHERE org_id = $1 AND tenant_id = $2), 0)
+           - COALESCE((SELECT sum(a.amount_minor) FROM pm_effective_allocations a JOIN pm_invoices i ON i.id = a.invoice_id
                        WHERE a.org_id = $1 AND i.tenant_id = $2 AND a.source IN ('payment', 'credit')), 0))::bigint AS n`,
     [orgId, tenantId],
   );

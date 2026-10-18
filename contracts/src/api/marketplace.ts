@@ -162,6 +162,16 @@ export const getListing = endpoint({
   response: PublicListing.extend({ reviews: z.array(PublicReview) }),
 });
 
+export const mediaContent = endpoint({
+  id: "marketplace.mediaContent",
+  method: "GET",
+  path: "/api/v1/public/listings/:listingId/media/:mediaId/content",
+  auth: "public",
+  summary: "JPEG bytes for a photo of an approved listing with a usable subscription; unpublished images return 404",
+  params: ListingParams.extend({ mediaId: z.string().min(1).max(80) }),
+  response: z.string().describe("Binary JPEG image"),
+});
+
 export const listingAvailability = endpoint({
   id: "marketplace.availability",
   method: "GET",

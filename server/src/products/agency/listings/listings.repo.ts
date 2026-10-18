@@ -54,6 +54,7 @@ export interface MediaRow {
   caption: string;
   position: number;
   storage_key: string;
+  storage: string;
 }
 
 /** A listing of this organisation, or 404. */
@@ -82,7 +83,10 @@ export const toPublicMedia = (m: MediaRow, storage: MediaStorage): marketplace.P
   kind: m.kind,
   caption: m.caption,
   position: m.position,
-  url: storage.publicUrl(m.storage_key),
+  url:
+    m.storage === "postgres-image"
+      ? `/api/v1/public/listings/${encodeURIComponent(m.listing_id)}/media/${encodeURIComponent(m.id)}/content`
+      : storage.publicUrl(m.storage_key),
 });
 
 export function toOrgMedia(m: MediaRow, storage: MediaStorage) {

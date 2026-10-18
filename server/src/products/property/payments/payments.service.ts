@@ -1,3 +1,4 @@
+import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Tenant money: recorded payments (never processed) with allocation and receipt numbers, the tenant's credit, the
  * tenant statement, payments tenants report from the portal, and deposit settlements at move-out (second person).
@@ -20,6 +21,7 @@ import { allocate, numberScope, oldestFirst, openInvoicesForUpdate } from "../sh
 import { cr, dr, post } from "../shared/posting.js";
 import * as R from "../shared/records.js";
 import { sum } from "../shared/util.js";
+import { ownerFunds } from "../shared/owner-funds.js";
 import { formatMoney } from "../../../lib/money.js";
 
 interface ClaimRow {
@@ -229,17 +231,216 @@ export function paymentsService(d: PmDeps) {
     paymentView,
 
     async record(s: OrgScope, b: Parameters<typeof recordIn>[2]) {
-      const id = await db.tx((t) => recordIn(t, s, b));
+      const id = await financeTransaction(db, s.orgId, (t) => recordIn(t, s, b));
       return paymentView(s.orgId, id);
     },
 
-    async list(s: OrgScope, f: { tenantId?: string | undefined }) {
-      const rows = await R.paymentRows(db, s.orgId, "($2::text IS NULL OR p.tenant_id = $2)", [f.tenantId ?? null]);
-      return { payments: await R.paymentViews(db, rows) };
+    async requestReversal(s: OrgScope, id: string, reason: string) {
+      await financeTransaction(db, s.orgId, async (t) => {
+        const p = await t.row<R.PaymentRow>("SELECT * FROM pm_payments WHERE org_id=$1 AND id=$2 FOR UPDATE", [
+          s.orgId,
+          id,
+        ]);
+        if (!p) throw fail.notFound("Payment not found");
+        if (p.bank_line_id)
+          throw fail.conflict(
+            "This receipt is matched to the bank. Resolve the bank reconciliation before requesting a correction.",
+          );
+        const prior = await t.row<{ rejected_by: string | null }>(
+          "SELECT rejected_by FROM pm_payment_reversals WHERE payment_id=$1",
+          [id],
+        );
+        if (prior && !prior.rejected_by)
+          throw fail.conflict("A correction has already been requested for this receipt");
+        await t.run(
+          "INSERT INTO pm_payment_reversals(payment_id,org_id,reason,requested_by) VALUES($1,$2,$3,$4) ON CONFLICT(payment_id) DO UPDATE SET reason=EXCLUDED.reason,requested_by=EXCLUDED.requested_by,requested_at=now(),rejected_by=NULL,rejected_reason=NULL,rejected_at=NULL",
+          [id, s.orgId, reason, s.userId],
+        );
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Receipt correction requested",
+          target: p.receipt_number,
+          detail: reason,
+        });
+      });
+      return paymentView(s.orgId, id);
+    },
+    async rejectReversal(s: OrgScope, id: string, reason: string) {
+      await financeTransaction(db, s.orgId, async (t) => {
+        const r = await t.row<{ requested_by: string; approved_by: string | null; rejected_by: string | null }>(
+          "SELECT * FROM pm_payment_reversals WHERE org_id=$1 AND payment_id=$2 FOR UPDATE",
+          [s.orgId, id],
+        );
+        if (!r) throw fail.notFound("Receipt correction not found");
+        if (r.approved_by || r.rejected_by) throw fail.conflict("This correction has already been decided");
+        if (r.requested_by === s.userId)
+          throw fail.separationOfDuties("Another authorised person must review your correction");
+        await t.run(
+          "UPDATE pm_payment_reversals SET rejected_by=$2,rejected_reason=$3,rejected_at=now() WHERE payment_id=$1",
+          [id, s.userId, reason],
+        );
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Receipt correction rejected",
+          target: id,
+          detail: reason,
+        });
+      });
+      return paymentView(s.orgId, id);
+    },
+    async approveReversal(s: OrgScope, id: string) {
+      await financeTransaction(db, s.orgId, async (t) => {
+        // The organisation-scoped financial transaction locks before checking dependencies.
+        // No source receipt, allocation or journal is deleted or overwritten.
+        const p = await t.row<R.PaymentRow>("SELECT * FROM pm_payments WHERE org_id=$1 AND id=$2", [s.orgId, id]);
+        if (!p) throw fail.notFound("Payment not found");
+        const r = await t.row<{
+          requested_by: string;
+          approved_by: string | null;
+          rejected_by: string | null;
+          reason: string;
+        }>("SELECT * FROM pm_payment_reversals WHERE org_id=$1 AND payment_id=$2", [s.orgId, id]);
+        if (!r) throw fail.notFound("Receipt correction not found");
+        if (r.approved_by) throw fail.conflict("This receipt has already been reversed");
+        if (r.rejected_by) throw fail.conflict("This correction was rejected. Request a new review before approval.");
+        if (r.requested_by === s.userId)
+          throw fail.separationOfDuties("Another authorised person must approve your correction");
+        if (
+          p.bank_line_id ||
+          (await t.row("SELECT 1 FROM pm_bank_lines WHERE org_id=$1 AND matched_kind='payment' AND matched_id=$2", [
+            s.orgId,
+            id,
+          ]))
+        )
+          throw fail.conflict("The receipt is matched to a bank statement and cannot be reversed here");
+        if (!p.journal_id || p.date > s.today)
+          throw fail.conflict("This receipt needs an accountant to review its original posting");
+        const allocs = await t.rows<{
+          amount_minor: number;
+          journal_id: string | null;
+          invoice_id: string;
+          owner_id: string | null;
+          lease_id: string | null;
+        }>(
+          "SELECT a.*,i.owner_id,i.lease_id FROM pm_allocations a JOIN pm_invoices i ON i.id=a.invoice_id WHERE a.org_id=$1 AND a.payment_id=$2",
+          [s.orgId, id],
+        );
+        const unused = p.amount_minor - sum(allocs, (a) => a.amount_minor);
+        if ((await R.tenantCredit(t, s.orgId, p.tenant_id)) < unused)
+          throw fail.conflict("The receipt's credit has been used. Correct the dependent transactions first.");
+        const journalIds = [p.journal_id, ...allocs.map((a) => a.journal_id).filter((x): x is string => !!x)];
+        const journals = await t.rows<{
+          id: string;
+          owner_id: string | null;
+          property_id: string | null;
+          lease_id: string | null;
+          kind: "receipt" | "collection";
+          reversed_by: string | null;
+          date: string;
+        }>(
+          "SELECT e.id,e.date,e.reversed_by,k.owner_id,k.property_id,k.lease_id,k.kind FROM journal_entries e JOIN pm_ledger_links k ON k.journal_id=e.id WHERE e.org_id=$1 AND e.id=ANY($2)",
+          [s.orgId, journalIds],
+        );
+        if (journals.length !== journalIds.length || journals.some((j) => j.reversed_by))
+          throw fail.conflict("The original postings have already been changed or need an accountant's review");
+        const ownerIds = [...new Set(allocs.map((a) => a.owner_id).filter((x): x is string => !!x))];
+        for (const ownerId of ownerIds) {
+          if (
+            await t.row(
+              "SELECT 1 FROM pm_payouts WHERE org_id=$1 AND owner_id=$2 AND status IN ('prepared','approved')",
+              [s.orgId, ownerId],
+            )
+          )
+            throw fail.conflict("Cancel the owner's pending payout before correcting this receipt");
+          const delta = await t.row<{ n: number }>(
+            "SELECT COALESCE(sum(l.credit_minor-l.debit_minor),0)::bigint AS n FROM journal_lines l JOIN pm_ledger_links k ON k.journal_id=l.entry_id WHERE l.org_id=$1 AND k.owner_id=$2 AND l.account_code=$3 AND l.entry_id=ANY($4)",
+            [s.orgId, ownerId, ACC.ownerFunds, journalIds],
+          );
+          if (((await ownerFunds(t, s.orgId, s.today, ownerId)).get(ownerId) ?? 0) < (delta?.n ?? 0))
+            throw fail.conflict("The owner's funds have been used. Correct the dependent transactions first.");
+        }
+        const leaseIds = [...new Set(allocs.map((a) => a.lease_id).filter((x): x is string => !!x))];
+        if (
+          leaseIds.length &&
+          (await t.row(
+            "SELECT 1 FROM pm_deposit_refunds WHERE org_id=$1 AND lease_id=ANY($2) AND status IN ('requested','approved')",
+            [s.orgId, leaseIds],
+          ))
+        )
+          throw fail.conflict("A deposit settlement depends on this lease. Resolve it before correcting the receipt.");
+        for (const j of journals) {
+          const lines = await t.rows<{ account_code: string; debit_minor: number; credit_minor: number }>(
+            "SELECT account_code,debit_minor,credit_minor FROM journal_lines WHERE org_id=$1 AND entry_id=$2 ORDER BY line_no",
+            [s.orgId, j.id],
+          );
+          const reverseId = await post(t, core, {
+            orgId: s.orgId,
+            date: s.today,
+            kind: j.kind,
+            memo: `Correction of ${p.receipt_number}: ${r.reason}`,
+            ref: `receipt-reversal:${id}:${j.id}`,
+            reverses: j.id,
+            link: { tenantId: p.tenant_id, ownerId: j.owner_id, propertyId: j.property_id, leaseId: j.lease_id },
+            lines: lines.map((l) => ({
+              account: l.account_code,
+              debitMinor: l.credit_minor,
+              creditMinor: l.debit_minor,
+            })),
+          });
+          await t.run("UPDATE journal_entries SET reversed_by=$2 WHERE id=$1", [j.id, reverseId]);
+        }
+        await t.run("UPDATE pm_payment_reversals SET approved_by=$2,approved_at=now(),date=$3 WHERE payment_id=$1", [
+          id,
+          s.userId,
+          s.today,
+        ]);
+        await core.contacts.activity(t, {
+          orgId: s.orgId,
+          contactId: p.tenant_id,
+          kind: "payment",
+          text: `Receipt ${p.receipt_number} reversed: ${r.reason}`,
+          by: s.userId,
+        });
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Receipt correction approved",
+          target: p.receipt_number,
+          detail: r.reason,
+        });
+      });
+      return paymentView(s.orgId, id);
+    },
+
+    async list(
+      s: OrgScope,
+      f: { tenantId?: string | undefined; limit?: number | undefined; offset?: number | undefined },
+    ) {
+      // Existing callers can still request their complete tenant statement; table views explicitly paginate.
+      if (f.limit === undefined && f.offset === undefined) {
+        const rows = await R.paymentRows(db, s.orgId, "($2::text IS NULL OR p.tenant_id = $2)", [f.tenantId ?? null]);
+        return { payments: await R.paymentViews(db, rows) };
+      }
+      const limit = f.limit ?? 50,
+        offset = f.offset ?? 0;
+      return db.tx(async (t) => {
+        await t.run("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        const total = await t.row<{ n: number }>(
+          "SELECT count(*)::int AS n FROM pm_payments WHERE org_id=$1 AND ($2::text IS NULL OR tenant_id=$2)",
+          [s.orgId, f.tenantId ?? null],
+        );
+        const rows = await t.rows<R.PaymentRow>(
+          `${R.PAYMENT_SQL} WHERE p.org_id=$1 AND ($2::text IS NULL OR p.tenant_id=$2) ORDER BY p.date DESC,p.number DESC,p.id DESC LIMIT $3 OFFSET $4`,
+          [s.orgId, f.tenantId ?? null, limit, offset],
+        );
+        return { payments: await R.paymentViews(t, rows), total: total?.n ?? 0, limit, offset };
+      });
     },
 
     async applyCredit(s: OrgScope, tenantId: string) {
-      const ids = await db.tx(async (t) => {
+      const ids = await financeTransaction(db, s.orgId, async (t) => {
         await core.contacts.live(t, s.orgId, tenantId, true);
         const credit = await R.tenantCredit(t, s.orgId, tenantId);
         if (credit <= 0) throw fail.conflict("This tenant has no credit to apply");
@@ -328,6 +529,15 @@ export function paymentsService(d: PmDeps) {
           debit: 0,
           credit: p.amountMinor,
         });
+      for (const p of payments)
+        if (p.reversal?.approvedBy && p.reversal.date)
+          events.push({
+            date: p.reversal.date,
+            kind: "receipt reversal",
+            ref: p.receiptNumber,
+            debit: p.amountMinor,
+            credit: 0,
+          });
       for (const i of invoices)
         for (const a of i.allocations.filter((x) => x.source === "credit_note" || x.source === "deposit"))
           events.push({
@@ -375,7 +585,7 @@ export function paymentsService(d: PmDeps) {
     },
 
     async rejectClaim(s: OrgScope, id: string, reason: string) {
-      return db.tx(async (t) => {
+      return financeTransaction(db, s.orgId, async (t) => {
         const c = await t.row<ClaimRow>("SELECT * FROM pm_payment_claims WHERE org_id = $1 AND id = $2 FOR UPDATE", [
           s.orgId,
           id,
@@ -403,7 +613,7 @@ export function paymentsService(d: PmDeps) {
       leaseId: string,
       b: { applyToArrears: boolean; deductions: { amountMinor: number; reason: string }[]; refundReference: string },
     ) {
-      const id = await db.tx(async (t) => {
+      const id = await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, leaseId, true);
         if (l.status !== "ended")
           throw fail.conflict("Settle the deposit once the lease has ended (move-out recorded)");
@@ -467,7 +677,7 @@ export function paymentsService(d: PmDeps) {
     },
 
     async approveRefund(s: OrgScope, id: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const r = await refundRow(t, s.orgId, id, true);
         if (r.status !== "requested") throw fail.conflict(`This settlement is already ${r.status}`);
         if (r.requested_by === s.userId)
@@ -525,7 +735,7 @@ export function paymentsService(d: PmDeps) {
     },
 
     async rejectRefund(s: OrgScope, id: string, reason: string) {
-      await db.tx(async (t) => {
+      await financeTransaction(db, s.orgId, async (t) => {
         const r = await refundRow(t, s.orgId, id, true);
         if (r.status !== "requested") throw fail.conflict(`This settlement is already ${r.status}`);
         if (r.requested_by === s.userId)

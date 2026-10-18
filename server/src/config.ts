@@ -64,6 +64,7 @@ const EnvSchema = z.object({
   /** Public self-service sign-up (core/signup). Off unless switched on. */
   SIGNUP_ENABLED: Bool.default(false),
   SIGNUP_REQUIRE_PROFILE: Bool.default(false),
+  PM_DOCUMENT_FILE_UPLOADS_ENABLED: Bool.default(true),
   SIGNUP_PRODUCTS: z
     .string()
     .default("property")
@@ -126,6 +127,7 @@ const MB = 1024 * 1024;
 const DEVELOPMENT_SECRETS_KEY = Buffer.alloc(32, 7).toString("base64");
 
 export interface Config {
+  pmDocumentFileUploadsEnabled?: boolean;
   env: "development" | "test" | "production";
   host: string;
   port: number;
@@ -320,6 +322,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     webhookRateLimitPerMinute: e.WEBHOOK_RATE_LIMIT_PER_MINUTE,
     cataloguePriceApproval: e.CATALOGUE_PRICE_APPROVAL ?? production,
     shutdownTimeoutMs: e.SHUTDOWN_TIMEOUT_MS,
+    pmDocumentFileUploadsEnabled: e.PM_DOCUMENT_FILE_UPLOADS_ENABLED,
     signup: {
       enabled: e.SIGNUP_ENABLED,
       requireProfile: e.SIGNUP_REQUIRE_PROFILE,

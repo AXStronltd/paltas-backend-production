@@ -1,3 +1,4 @@
+import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * The tenant and owner portals. A portal user is a member with the tenant or owner role whose sign-in is linked to a
  * contact; every query is scoped to that contact, so a tenant sees only their own leases, invoices, payments, requests
@@ -11,7 +12,7 @@ import { fail } from "../../../http/errors.js";
 import { newId } from "../../../lib/ids.js";
 import type { BillsService, BillRow } from "../bills/bills.service.js";
 import { BILL_SQL, toBill } from "../bills/bills.service.js";
-import { documents, toDocument } from "../comms/comms.service.js";
+import { portalDocuments, toDocument } from "../comms/comms.service.js";
 import type { PmDeps } from "../deps.js";
 import type { MaintenanceService } from "../maintenance/maintenance.service.js";
 import { ownerStatement, type OwnersService } from "../owners/owners.service.js";
@@ -42,12 +43,7 @@ export function portalService(
         `${deps.maintenance.REQUEST_SQL} WHERE r.org_id = $1 AND r.reporter_id = $2 ORDER BY r.opened_at DESC`,
         [s.orgId, me],
       );
-      const docs = await documents(
-        db,
-        s.orgId,
-        "visibility = 'tenant' AND ((link_entity = 'lease' AND link_id = ANY($2)) OR (link_entity = 'contact' AND link_id = $3))",
-        [leases.map((l) => l.id), me],
-      );
+      const docs = await portalDocuments(db, s.orgId, me, "tenant");
       return {
         contact: toContact(s.contact),
         leases: await R.leaseViews(db, s.orgId, leases, s.today),
@@ -71,7 +67,7 @@ export function portalService(
       );
       if (!l || l.tenant_id !== s.contact.id) throw fail.notFound("Lease not found");
       if (l.status !== "active") throw fail.conflict("Requests are made on an active lease");
-      const id = await db.tx(async (t) => {
+      const id = await financeTransaction(db, s.orgId, async (t) => {
         const id = await deps.maintenance.openRequest(t, s, {
           propertyId: l.property_id,
           unitId: l.unit_id,
@@ -98,7 +94,7 @@ export function portalService(
       b: { amountMinor: number; date: string; method: P.PaymentMethod; reference: string; note: string },
     ) {
       if (b.date > s.today) throw fail.invalid("A payment cannot be dated in the future");
-      return db.tx(async (t) => {
+      return financeTransaction(db, s.orgId, async (t) => {
         const r = await t.row<Parameters<typeof toClaim>[0]>(
           `INSERT INTO pm_payment_claims (id, org_id, tenant_id, amount_minor, date, method, reference, note, status,
              submitted_by)
@@ -153,6 +149,7 @@ export function portalService(
         billsAwaitingApproval: bills.map(toBill),
         workOrdersAwaitingApproval: await deps.maintenance.woViews(wos, s.today),
         payouts: payouts.map(deps.owners.toPayout),
+        documents: (await portalDocuments(db, s.orgId, me, "owner")).map(toDocument),
       };
     },
 
@@ -172,7 +169,7 @@ export function portalService(
           [s.orgId, w.property_id, s.contact.id, w.unit_id],
         ));
       if (!mine) throw fail.notFound("Work order not found");
-      await db.tx((t) =>
+      await financeTransaction(db, s.orgId, (t) =>
         deps.maintenance.approvePo(t, s.orgId, workOrderId, { userId: s.userId, role: "owner" }, s.actor),
       );
       return deps.maintenance.woView(s.orgId, workOrderId, s.today);

@@ -72,8 +72,11 @@ export function setupService(d: PmDeps) {
   const db = core.db;
 
   async function propertyView(orgId: string, p: R.PropertyRow, today: string): Promise<P.PropertyRecord> {
-    const buildings = await db.rows<{ id: string; name: string; floors: number | null }>(
-      "SELECT id, name, floors FROM pm_buildings WHERE property_id = $1 ORDER BY name",
+    const buildings = await db.rows<P.Building>(
+      `SELECT b.id, b.name, b.floors, b.is_archived AS "isArchived",
+       (SELECT count(*)::int FROM pm_units u WHERE u.building_id=b.id) AS "unitCount",
+       (SELECT count(*)::int FROM pm_leases l JOIN pm_units u ON u.id=l.unit_id WHERE u.building_id=b.id AND l.status='active') AS "activeLeaseCount"
+       FROM pm_buildings b WHERE b.property_id = $1 ORDER BY b.is_archived, b.name`,
       [p.id],
     );
     const counts = await db.row<{ units: number; let: number }>(
@@ -122,6 +125,7 @@ export function setupService(d: PmDeps) {
         floor: u.floor,
         unitType: u.unit_type,
         bedrooms: u.bedrooms,
+        toilets: u.toilets,
         areaSqm: u.area_sqm === null ? null : Number(u.area_sqm),
         marketRentMinor: u.market_rent_minor,
         status: u.status,
@@ -410,7 +414,66 @@ export function setupService(d: PmDeps) {
           b.floors ?? null,
         ]);
         await recordAudit(t, { actor: s.actor, orgId: s.orgId, action: "Building added", target: id, detail: b.name });
-        return { id, name: b.name, floors: b.floors ?? null };
+        return { id, name: b.name, floors: b.floors ?? null, isArchived: false, unitCount: 0, activeLeaseCount: 0 };
+      });
+    },
+
+    async updateBuilding(s: OrgScope, id: string, b: { name: string }) {
+      const propertyId = await db.tx(async (t) => {
+        const before = await t.row<{ name: string; property_id: string }>(
+          "SELECT * FROM pm_buildings WHERE org_id=$1 AND id=$2 FOR UPDATE",
+          [s.orgId, id],
+        );
+        if (!before) throw fail.notFound("Block not found");
+        await t.run("UPDATE pm_buildings SET name=$3 WHERE org_id=$1 AND id=$2", [s.orgId, id, b.name]);
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Block renamed",
+          target: id,
+          before: { name: before.name },
+          after: { name: b.name },
+        });
+        return before.property_id;
+      });
+      const p = await propertyView(s.orgId, await R.propertyRow(db, s.orgId, propertyId), s.today);
+      const building = p.buildings.find((b) => b.id === id);
+      if (!building) throw fail.notFound("Block not found");
+      return building;
+    },
+
+    async deleteBuilding(s: OrgScope, id: string): Promise<{ id: string; action: "deleted" | "archived" }> {
+      return db.tx(async (t) => {
+        const before = await t.row<{ name: string; is_archived: boolean }>(
+          "SELECT * FROM pm_buildings WHERE org_id=$1 AND id=$2 FOR UPDATE",
+          [s.orgId, id],
+        );
+        if (!before) throw fail.notFound("Block not found");
+        const active = await t.row<{ n: number }>(
+          "SELECT count(*)::int n FROM pm_leases l JOIN pm_units u ON u.id=l.unit_id WHERE u.building_id=$1 AND l.status='active'",
+          [id],
+        );
+        if (!active) throw new Error("Could not read block lease count");
+        if (active.n > 0)
+          throw fail.invalid(
+            `Cannot delete this block. It currently has ${active.n} active leases. Please terminate all leases first.`,
+          );
+        const units = await t.row<{ n: number }>("SELECT count(*)::int n FROM pm_units WHERE building_id=$1", [id]);
+        if (!units) throw new Error("Could not read block unit count");
+        const action = units.n > 0 ? ("archived" as const) : ("deleted" as const);
+        if (action === "archived")
+          await t.run("UPDATE pm_buildings SET is_archived=true WHERE org_id=$1 AND id=$2", [s.orgId, id]);
+        else await t.run("DELETE FROM pm_buildings WHERE org_id=$1 AND id=$2", [s.orgId, id]);
+        if (!before.is_archived || action === "deleted")
+          await recordAudit(t, {
+            actor: s.actor,
+            orgId: s.orgId,
+            action: action === "archived" ? "Block archived" : "Empty block deleted",
+            target: id,
+            before: { name: before.name },
+            after: { action },
+          });
+        return { id, action };
       });
     },
 
@@ -423,6 +486,7 @@ export function setupService(d: PmDeps) {
         floor?: string | undefined;
         unitType?: string | undefined;
         bedrooms?: number | undefined;
+        toilets?: number | undefined;
         areaSqm?: number | undefined;
         marketRentMinor?: number | undefined;
         status: "available" | "off_market";
@@ -453,8 +517,8 @@ export function setupService(d: PmDeps) {
           const id = newId("pun");
           await t.run(
             `INSERT INTO pm_units (id, org_id, property_id, building_id, unit_no, floor, unit_type, bedrooms, area_sqm,
-               market_rent_minor, status)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+               market_rent_minor, status, toilets)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
             [
               id,
               s.orgId,
@@ -467,6 +531,7 @@ export function setupService(d: PmDeps) {
               u.areaSqm ?? null,
               u.marketRentMinor ?? null,
               u.status,
+              u.toilets ?? null,
             ],
           );
           out.push(id);
@@ -496,6 +561,7 @@ export function setupService(d: PmDeps) {
         floor: string;
         unitType: string;
         bedrooms: number;
+        toilets: number;
         areaSqm: number;
         marketRentMinor: number;
         status: "available" | "off_market";
@@ -524,7 +590,7 @@ export function setupService(d: PmDeps) {
           throw fail.invalid("That building is not in this property");
         await t.run(
           `UPDATE pm_units SET unit_no = $3, building_id = $4, floor = $5, unit_type = $6, bedrooms = $7, area_sqm = $8,
-             market_rent_minor = $9, status = $10 WHERE org_id = $1 AND id = $2`,
+             market_rent_minor = $9, status = $10, toilets = $11 WHERE org_id = $1 AND id = $2`,
           [
             s.orgId,
             id,
@@ -536,6 +602,7 @@ export function setupService(d: PmDeps) {
             b.areaSqm ?? u.area_sqm,
             b.marketRentMinor ?? u.market_rent_minor,
             b.status ?? u.status,
+            b.toilets ?? u.toilets,
           ],
         );
         await recordAudit(t, {
