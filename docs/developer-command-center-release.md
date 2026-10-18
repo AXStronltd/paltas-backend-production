@@ -43,4 +43,4 @@ Settings → Import Data opens the existing server migration pipeline. CSV colum
 3. Run permission/isolation/reminder tests, all regression tests and Chromium journeys.
 4. Back up production, deploy backend, verify readiness, then merge/deploy frontend under the user's existing approval.
 
-New customer route: /developer-dashboard. Published enquiry pages use /development-projects/:slug. Marketplace design is unchanged. No existing customer business records are deleted.
+New customer route: /developer-dashboard. Reminder emails retain /dev.html# links so they work during a coordinated backend-first rollout. Published enquiry pages use /development-projects/:slug. Marketplace design is unchanged. No existing customer business records are deleted.

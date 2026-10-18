@@ -113,11 +113,7 @@ export function setupNotifications(ctx: AppContext, core: CoreServices) {
             category: "transactional",
             subject: a.title,
             body:
-              a.message +
-              "\n\nOpen your workspace: " +
-              ctx.config.signup.appBaseUrl +
-              "/developer-dashboard#" +
-              a.action_route,
+              a.message + "\n\nOpen your workspace: " + ctx.config.signup.appBaseUrl + "/dev.html#" + a.action_route,
             source: "platform",
             sourceRef: "developer.setup:" + p.user_id + ":" + a.step,
           }),
