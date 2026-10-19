@@ -14,8 +14,33 @@ describe("Stripe subscription checkout safety", () => {
   const secret = "whsec_fixture_only";
   let providerAccount = "acct_fixture";
   let providerApplication = "paltas";
+  let portalCreates = 0;
+  let portalUpdatesEnabled = false;
+  let scheduledCancellation = false;
+  let portalRedirect = "https://billing.stripe.com/p/session_fixture";
+  let lastPortalBody: Record<string, any> = {};
   const fake = {
     accounts: { retrieve: async () => ({ id: providerAccount }) },
+    billingPortal: {
+      configurations: {
+        retrieve: async () => ({
+          active: true,
+          livemode: false,
+          metadata: { paltasAccountId: "acct_fixture", paltasApplication: "paltas" },
+          features: {
+            subscription_update: { enabled: portalUpdatesEnabled },
+            subscription_cancel: { enabled: true, mode: "at_period_end" },
+          },
+        }),
+      },
+      sessions: {
+        create: async (body: Record<string, any>) => {
+          portalCreates++;
+          lastPortalBody = body;
+          return { url: portalRedirect };
+        },
+      },
+    },
     prices: {
       retrieve: async () => ({
         id: "price_fixture",
@@ -71,6 +96,10 @@ describe("Stripe subscription checkout safety", () => {
     subscriptions: {
       retrieve: async () => ({
         id: "sub_fixture",
+        livemode: false,
+        cancel_at_period_end: scheduledCancellation,
+        cancel_at: 1794355200,
+        items: { data: [{ current_period_end: 1794355200 }] },
         customer: "cus_fixture",
         status: subStatus,
         metadata: {
@@ -97,6 +126,7 @@ describe("Stripe subscription checkout safety", () => {
         stripe: {
           enabled: true,
           accountId: "acct_fixture",
+          portalConfigurationId: "bpc_fixture",
           secretKey: "rk_test_fixture",
           webhookSecret: secret,
           prices: [{ planId: "PM-STARTER", currency: "KES", priceId: "price_fixture" }],
@@ -221,6 +251,63 @@ describe("Stripe subscription checkout safety", () => {
         body: { product: "property", reason: "Customer requested cancellation" },
       }),
     ).rejects.toMatchObject({ status: 409 });
+    expect(await S.sql("SELECT 1 FROM subscription_pending WHERE org_id=$1 AND type='cancel'", [a.orgId])).toEqual([]);
+  });
+  it("requires authentication, product membership and verified email for billing management", async () => {
+    const path = `/api/v1/orgs/${a.orgId}/subscription/stripe-portal`;
+    expect((await S.raw("POST", path, { product: "property", action: "manage" })).status).toBe(401);
+    const other = await signUpAndIn(S, "property");
+    expect((await S.raw("POST", path, { product: "property", action: "manage" }, other.token)).status).toBe(404);
+    expect(
+      (
+        await S.raw(
+          "POST",
+          `/api/v1/orgs/${other.orgId}/subscription/stripe-portal`,
+          { product: "property", action: "manage" },
+          other.token,
+        )
+      ).status,
+    ).toBe(403);
+    expect((await S.raw("POST", path, { product: "hotel", action: "manage" }, a.token)).status).toBe(404);
+  });
+  it("opens only the owning workspace's billing customer with fixed return URLs", async () => {
+    expect(await service.portal(a.orgId, "property")).toEqual({ url: portalRedirect, testMode: true });
+    expect(lastPortalBody.customer).toBe("cus_fixture");
+    expect(lastPortalBody.configuration).toBe("bpc_fixture");
+    expect(lastPortalBody.return_url).toContain(S.app.ctx.config.signup.appBaseUrl + "/account.html?org=" + a.orgId);
+    const before = portalCreates;
+    await expect(service.portal("other-org", "property")).rejects.toMatchObject({ status: 404 });
+    expect(portalCreates).toBe(before);
+  });
+  it("refuses unsafe portal configuration and redirects", async () => {
+    portalUpdatesEnabled = true;
+    const before = portalCreates;
+    await expect(service.portal(a.orgId, "property")).rejects.toMatchObject({ status: 409 });
+    expect(portalCreates).toBe(before);
+    portalUpdatesEnabled = false;
+    portalRedirect = "https://unrelated.test/collect";
+    await expect(service.portal(a.orgId, "property")).rejects.toMatchObject({ status: 409 });
+    portalRedirect = "https://billing.stripe.com/p/session_fixture";
+  });
+  it("opens Stripe's cancellation confirmation without executing cancellation", async () => {
+    await service.portal(a.orgId, "property", "cancel");
+    expect(lastPortalBody.flow_data).toMatchObject({
+      type: "subscription_cancel",
+      subscription_cancel: { subscription: "sub_fixture" },
+    });
+    expect(await S.sql("SELECT 1 FROM subscription_pending WHERE org_id=$1 AND type='cancel'", [a.orgId])).toEqual([]);
+  });
+  it("reflects signed period-end cancellation once and cannot withdraw it only locally", async () => {
+    scheduledCancellation = true;
+    await send("customer.subscription.updated", "evt_schedule_cancel");
+    await send("customer.subscription.updated", "evt_schedule_cancel_again");
+    const rows = await S.sql("SELECT id FROM subscription_pending WHERE org_id=$1 AND type='cancel'", [a.orgId]);
+    expect(rows).toHaveLength(1);
+    await expect(
+      a.api.subscriptions.withdrawPending({ params: { orgId: a.orgId, pendingId: rows[0].id } }),
+    ).rejects.toMatchObject({ status: 409 });
+    scheduledCancellation = false;
+    await send("customer.subscription.updated", "evt_cancel_reversed");
     expect(await S.sql("SELECT 1 FROM subscription_pending WHERE org_id=$1 AND type='cancel'", [a.orgId])).toEqual([]);
   });
   it("handles renewal failure, recovery and repeated invoice events without duplicate receipts", async () => {

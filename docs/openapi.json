@@ -4744,6 +4744,9 @@
                           "items": {
                             "type": "string"
                           }
+                        },
+                        "portalAvailable": {
+                          "type": "boolean"
                         }
                       },
                       "required": [
@@ -5332,6 +5335,98 @@
                   "required": [
                     "url",
                     "sessionId",
+                    "testMode"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/subscription/stripe-portal": {
+      "post": {
+        "operationId": "subscription.stripePortal",
+        "summary": "Open the owning organisation's dedicated Stripe billing portal; no payment or cancellation is executed by this request",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "product": {
+                    "type": "string",
+                    "enum": [
+                      "property",
+                      "developer",
+                      "agency",
+                      "hotel",
+                      "security"
+                    ]
+                  },
+                  "action": {
+                    "default": "manage",
+                    "type": "string",
+                    "enum": [
+                      "manage",
+                      "cancel"
+                    ]
+                  }
+                },
+                "required": [
+                  "product"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "testMode": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "url",
                     "testMode"
                   ],
                   "additionalProperties": false

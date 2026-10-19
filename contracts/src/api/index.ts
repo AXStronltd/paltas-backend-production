@@ -181,6 +181,7 @@ export const SUBSCRIPTIONS_API = {
   upgrade: subscriptions.upgrade,
   exportData: subscriptions.exportData,
   stripeCheckout: subscriptions.stripeCheckout,
+  stripePortal: subscriptions.stripePortal,
   stripeWebhook: subscriptions.stripeWebhook,
 } as const;
 
