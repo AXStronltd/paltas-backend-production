@@ -57,6 +57,7 @@ describe("Stripe subscription checkout safety", () => {
         create: async (body: any) => {
           sessionCreates++;
           expect(body.mode).toBe("subscription");
+          expect(body.ui_mode).toBeUndefined(); // Stripe chooses its version-compatible hosted-page default.
           expect(body.metadata).toMatchObject({
             paltasApplication: "paltas",
             paltasAccountId: "acct_fixture",
