@@ -6,8 +6,8 @@
  *             it, and how to pay. An invoice is issued through the existing billing service (an order of kind
  *             "plan" that ALWAYS waits for payment, even in BILLING_MODE=simulated). The subscription becomes
  *             active only when that invoice is paid:
- *               - provider: a signed provider event (card / M-Pesa adapters) quoting the invoice number. Only test
- *                 and hosted Stripe collection is offered only when its dedicated configuration is enabled;
+ *               - provider: a signed provider event quoting the invoice number. Hosted Stripe collection
+ *                 is offered only when its dedicated configuration is enabled;
  *               - bank_transfer: PALTAS staff confirm the bank reference (admin receipts, or a confirmed bank
  *                 statement line imported by one person and confirmed by another).
  *             Nothing becomes active because a form was submitted. Records are never touched, so an expired
