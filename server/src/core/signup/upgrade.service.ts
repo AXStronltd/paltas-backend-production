@@ -79,6 +79,15 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
         plans: plansFor(s).map(({ plan: _p, ...rest }) => rest),
         cardCheckout: {
           available: !!ctx.config.stripe?.enabled,
+          portalAvailable: !!(
+            verified &&
+            ctx.config.stripe?.enabled &&
+            ctx.config.stripe.portalConfigurationId &&
+            (await db.row(
+              "SELECT 1 FROM stripe_checkouts WHERE org_id=$1 AND product=$2 AND stripe_customer_id IS NOT NULL AND stripe_subscription_id IS NOT NULL",
+              [s.orgId, s.product],
+            ))
+          ),
           testMode: /^(sk|rk)_test_/.test(ctx.config.stripe?.secretKey ?? ""),
           planIds: ctx.config.stripe?.enabled
             ? plansFor(s)

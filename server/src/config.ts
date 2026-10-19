@@ -17,6 +17,11 @@ const EnvSchema = z.object({
   STRIPE_ENABLED: Bool.default(false),
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
+  STRIPE_PORTAL_CONFIGURATION_ID: z
+    .string()
+    .regex(/^bpc_[A-Za-z0-9]+$/)
+    .or(z.literal(""))
+    .default(""),
   /** Dedicated account identity; verified through Stripe before collection. */
   STRIPE_ACCOUNT_ID: z
     .string()
@@ -157,6 +162,7 @@ export interface Config {
   stripe?: {
     enabled: boolean;
     accountId?: string;
+    portalConfigurationId?: string;
     secretKey: string;
     webhookSecret: string;
     prices: { planId: string; currency: string; priceId: string }[];
@@ -343,6 +349,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     stripe: {
       enabled: e.STRIPE_ENABLED,
       accountId: e.STRIPE_ACCOUNT_ID,
+      portalConfigurationId: e.STRIPE_PORTAL_CONFIGURATION_ID,
       secretKey: e.STRIPE_SECRET_KEY,
       webhookSecret: e.STRIPE_WEBHOOK_SECRET,
       prices: stripePrices,

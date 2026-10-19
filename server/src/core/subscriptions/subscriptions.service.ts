@@ -28,7 +28,7 @@ export function subscriptionsService(ctx: AppContext) {
     );
     if (managed)
       throw fail.conflict(
-        "This subscription is billed through Stripe. Contact PALTAS to change or cancel it; no billing change has been made.",
+        "This subscription is billed through Stripe. Open Manage card billing in your PALTAS account to review cancellation, or contact PALTAS to change plans. No billing change has been made.",
       );
   }
 
@@ -365,6 +365,11 @@ export function subscriptionsService(ctx: AppContext) {
     },
 
     async withdrawPending(s: OrgScope, pendingId: string) {
+      const pending = await db.row<{ product: Product }>(
+        "SELECT product FROM subscription_pending WHERE id=$1 AND org_id=$2",
+        [pendingId, s.orgId],
+      );
+      if (pending) await requireUnmanagedStripe(s.orgId, pending.product);
       await db.tx(async (t) => {
         const n = await t.run("DELETE FROM subscription_pending WHERE id = $1 AND org_id = $2 AND effective > $3", [
           pendingId,

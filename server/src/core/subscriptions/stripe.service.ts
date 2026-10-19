@@ -154,6 +154,67 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
 
       return { url: session.url, sessionId: session.id, testMode: !session.livemode };
     },
+    async portal(orgId: string, product: Product, action: "manage" | "cancel" = "manage") {
+      const stripe = client();
+      await verifyAccount(stripe);
+      if (!settings.portalConfigurationId)
+        throw fail.conflict("Online billing management is not connected yet. Contact PALTAS.");
+      const row = await ctx.db.row<Checkout>(
+        "SELECT * FROM stripe_checkouts WHERE org_id=$1 AND product=$2 AND stripe_customer_id IS NOT NULL AND stripe_subscription_id IS NOT NULL ORDER BY created_at DESC LIMIT 1",
+        [orgId, product],
+      );
+      if (!row?.stripe_customer_id || !row.stripe_subscription_id)
+        throw fail.notFound("No card subscription found for this workspace");
+      if (
+        await ctx.db.row("SELECT 1 FROM stripe_checkouts WHERE stripe_customer_id=$1 AND org_id<>$2", [
+          row.stripe_customer_id,
+          orgId,
+        ])
+      )
+        throw fail.conflict("Billing customer verification failed. Contact PALTAS.");
+      const sub = await stripe.subscriptions.retrieve(row.stripe_subscription_id);
+      if (
+        sub.livemode !== /^(sk|rk)_live_/.test(settings.secretKey) ||
+        sub.id !== row.stripe_subscription_id ||
+        idOf(sub.customer) !== row.stripe_customer_id ||
+        sub.metadata.paltasCheckoutId !== row.id ||
+        sub.metadata.paltasApplication !== "paltas" ||
+        sub.metadata.paltasAccountId !== settings.accountId ||
+        sub.metadata.paltasMode !== (/^(sk|rk)_live_/.test(settings.secretKey) ? "live" : "test")
+      )
+        throw fail.conflict("Billing subscription verification failed. Contact PALTAS.");
+      const config = await stripe.billingPortal.configurations.retrieve(settings.portalConfigurationId);
+      if (
+        !config.active ||
+        config.livemode !== /^(sk|rk)_live_/.test(settings.secretKey) ||
+        config.metadata?.paltasAccountId !== settings.accountId ||
+        config.metadata?.paltasApplication !== "paltas" ||
+        config.features.subscription_update.enabled ||
+        !config.features.subscription_cancel.enabled ||
+        config.features.subscription_cancel.mode !== "at_period_end"
+      )
+        throw fail.conflict("Billing management settings need PALTAS review before you continue.");
+      const base = ctx.config.signup.appBaseUrl;
+      const returnUrl = base + "/account.html?org=" + encodeURIComponent(orgId) + "&product=" + product + "#upgrade";
+      const session = await stripe.billingPortal.sessions.create({
+        customer: row.stripe_customer_id,
+        configuration: settings.portalConfigurationId,
+        return_url: returnUrl,
+        ...(action === "cancel"
+          ? {
+              flow_data: {
+                type: "subscription_cancel" as const,
+                subscription_cancel: { subscription: row.stripe_subscription_id },
+                after_completion: { type: "redirect" as const, redirect: { return_url: returnUrl } },
+              },
+            }
+          : {}),
+      });
+      const url = new URL(session.url);
+      if (url.protocol !== "https:" || url.hostname !== "billing.stripe.com" || url.username || url.password)
+        throw fail.conflict("We could not open secure billing management. Contact PALTAS.");
+      return { url: session.url, testMode: !/^(sk|rk)_live_/.test(settings.secretKey) };
+    },
     async webhook(raw: Buffer, signature: string | undefined) {
       const stripe = client();
       let event: Stripe.Event;
@@ -334,6 +395,30 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
             "UPDATE stripe_checkouts SET stripe_subscription_id=$2,stripe_customer_id=$3,status=$4 WHERE id=$1",
             [row.id, sub.id, idOf(sub.customer), sub.status],
           );
+          const superseded = await t.row(
+            "SELECT 1 FROM stripe_checkouts WHERE org_id=$1 AND product=$2 AND id<>$3 AND status NOT IN ('canceled','incomplete_expired','expired')",
+            [row.org_id, row.product, row.id],
+          );
+          if (!superseded) {
+            const reason = "Stripe: cancellation at period end";
+            if (sub.cancel_at_period_end && ["active", "trialing", "past_due"].includes(sub.status)) {
+              const end = sub.cancel_at ?? sub.items.data[0]?.current_period_end;
+              if (!end) throw fail.conflict("Stripe cancellation date needs reconciliation");
+              await t.run(
+                "UPDATE subscription_pending SET effective=$4 WHERE org_id=$1 AND product=$2 AND type='cancel' AND reason=$3",
+                [row.org_id, row.product, reason, date(end)],
+              );
+              await t.run(
+                "INSERT INTO subscription_pending(id,org_id,product,type,effective,reason) SELECT $1,$2,$3,'cancel',$4,$5 WHERE NOT EXISTS(SELECT 1 FROM subscription_pending WHERE org_id=$2 AND product=$3 AND type='cancel' AND reason=$5)",
+                [newId("pen"), row.org_id, row.product, date(end), reason],
+              );
+            } else {
+              await t.run(
+                "DELETE FROM subscription_pending WHERE org_id=$1 AND product=$2 AND type='cancel' AND reason=$3",
+                [row.org_id, row.product, reason],
+              );
+            }
+          }
           if (["canceled", "unpaid", "incomplete_expired", "paused"].includes(sub.status))
             await t.run(
               "UPDATE subscriptions SET status='expired' WHERE org_id=$1 AND product=$2 AND NOT EXISTS(SELECT 1 FROM stripe_checkouts WHERE org_id=$1 AND product=$2 AND id<>$3 AND status IN ('active','trialing'))",

@@ -362,7 +362,14 @@ export const getUpgradeOptions = endpoint({
         current: z.boolean(),
       }),
     ),
-    cardCheckout: z.object({ available: z.boolean(), testMode: z.boolean(), planIds: z.array(z.string()) }).optional(),
+    cardCheckout: z
+      .object({
+        available: z.boolean(),
+        testMode: z.boolean(),
+        planIds: z.array(z.string()),
+        portalAvailable: z.boolean().optional(),
+      })
+      .optional(),
     paymentMethods: z.array(z.object({ method: PaymentMethod, available: z.boolean(), note: z.string() })),
   }),
 });
@@ -420,4 +427,16 @@ export const stripeWebhook = endpoint({
   summary: "Receive Stripe snapshot events; raw-body Stripe signature required, replay-safe processing",
   body: z.unknown(),
   response: z.object({ received: z.literal(true), result: z.string() }),
+});
+
+export const stripePortal = endpoint({
+  id: "subscription.stripePortal",
+  method: "POST",
+  path: "/api/v1/orgs/:orgId/subscription/stripe-portal",
+  auth: "user",
+  summary:
+    "Open the owning organisation's dedicated Stripe billing portal; no payment or cancellation is executed by this request",
+  params: OrgParams,
+  body: z.object({ product: Product, action: z.enum(["manage", "cancel"]).default("manage") }),
+  response: z.object({ url: z.url(), testMode: z.boolean() }),
 });
