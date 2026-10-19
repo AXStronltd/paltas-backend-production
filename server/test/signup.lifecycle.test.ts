@@ -218,7 +218,19 @@ describe("existing trial promises survive policy changes", () => {
   it("keeps a granted grace period while new trials expire without extra grace", async () => {
     const staff = await S.staff();
     const current = await staff.api.admin.trialPolicy();
-    const { version: _v, updatedAt: _u, atExpiry: _a, keepRecords: _k, ...settings } = current.policy;
+    const p = current.policy;
+    const settings = {
+      trialDays: p.trialDays,
+      graceDays: p.graceDays,
+      reminderDays: p.reminderDays,
+      verifyWithinDays: p.verifyWithinDays,
+      verifyLinkHours: p.verifyLinkHours,
+      repeatWindowDays: p.repeatWindowDays,
+      repeatMatch: p.repeatMatch,
+      secondProduct: p.secondProduct,
+      exportAllowed: p.exportAllowed,
+      suspendUnverifiedRequiresDelivery: p.suspendUnverifiedRequiresDelivery,
+    };
     await staff.api.admin.updateTrialPolicy({
       body: { ...settings, graceDays: 7, reason: "Legacy trial terms for regression" },
     });
