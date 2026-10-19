@@ -40,6 +40,7 @@ const NEW = [
   "0022",
   "0023",
   "0024",
+  "0025",
 ];
 const KEY = randomBytes(32).toString("base64");
 
@@ -357,7 +358,7 @@ describe("live database at main (0001–0013) with real rows, then 0014–0020 a
     modules: "SELECT key, name, price_minor FROM catalogue_modules ORDER BY key",
     policy: "SELECT version, trial_days, grace_days, verify_within_days FROM trial_policy",
     users: "SELECT id, email, password_hash FROM users ORDER BY id",
-    subscriptions: "SELECT org_id, product, plan_id, status FROM subscriptions ORDER BY org_id, product",
+    subscriptions: "SELECT org_id, product, plan_id, status, grace_days FROM subscriptions ORDER BY org_id, product",
     journals: "SELECT id, status FROM journal_entries ORDER BY id",
   };
 
@@ -429,6 +430,7 @@ describe("live database at main (0001–0013) with real rows, then 0014–0020 a
       "0022",
       "0023",
       "0024",
+      "0025",
     ]);
     expect(await migrate(db)).toEqual([]); // checksums of 0001–0013 unchanged
     for (const [k, q] of Object.entries(SNAPSHOT)) {
@@ -437,7 +439,16 @@ describe("live database at main (0001–0013) with real rows, then 0014–0020 a
         // the catalogue only gains rows; nothing that existed changes
         for (const row of before[k]!) expect(after).toContainEqual(row);
       } else if (k === "policy") {
-        expect(after).toEqual(before[k]);
+        expect(after).toEqual(
+          before[k]!.map((row) => ({
+            ...(row as Record<string, unknown>),
+            version: 2,
+            grace_days: 0,
+          })),
+        );
+        expect(await db.row("SELECT change_source FROM trial_policy_history WHERE version=2")).toEqual({
+          change_source: "release",
+        });
         expect(await db.row("SELECT suspend_unverified_requires_delivery AS s FROM trial_policy")).toEqual({
           s: true,
         });
