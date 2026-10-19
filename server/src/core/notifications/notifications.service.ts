@@ -1,3 +1,4 @@
+import { securityMessage } from "./security-messages.js";
 /*
  * The notifications outbox, used by every product (core.notifications.record(...)).
  *
@@ -133,10 +134,10 @@ const toMessage = (r: NotificationRow): N.Notification => ({
   to: r.to_address,
   category: r.category,
   templateKey: r.template_key,
-  subject: r.subject,
-  body: r.body,
+  subject: securityMessage(r.template_key)?.subject ?? r.subject,
+  body: securityMessage(r.template_key)?.body ?? r.body,
   status: r.status,
-  statusNote: r.status_note,
+  statusNote: securityMessage(r.template_key)?.note ?? r.status_note,
   provider: r.provider,
   providerMessageId: r.provider_message_id,
   source: r.source,
@@ -462,7 +463,7 @@ export function notificationsService(ctx: AppContext, transport: EmailTransport 
           provider: e.provider,
           providerEventId: e.provider_event_id,
           status: e.status,
-          detail: e.detail,
+          detail: securityMessage(r.template_key)?.note ?? e.detail,
           receivedAt: e.received_at,
         })),
       };
