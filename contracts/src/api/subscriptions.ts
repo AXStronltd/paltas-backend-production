@@ -399,3 +399,24 @@ export const exportData = endpoint({
   query: z.object({ reason: Reason }),
   response: exportOrg.response,
 });
+
+// Hosted Stripe checkout is optional; prices and invoice ownership are checked on the server.
+export const stripeCheckout = endpoint({
+  id: "subscription.stripeCheckout",
+  method: "POST",
+  path: "/api/v1/orgs/:orgId/subscription/stripe-checkout",
+  auth: "user",
+  summary: "Create or resume a Stripe-hosted recurring subscription checkout for an unpaid PALTAS plan invoice",
+  params: OrgParams,
+  body: z.object({ invoiceId: z.string().min(1).max(100) }),
+  response: z.object({ url: z.url(), sessionId: z.string(), testMode: z.boolean() }),
+});
+export const stripeWebhook = endpoint({
+  id: "webhooks.stripe",
+  method: "POST",
+  path: "/api/v1/webhooks/stripe",
+  auth: "public",
+  summary: "Receive Stripe snapshot events; raw-body Stripe signature required, replay-safe processing",
+  body: z.unknown(),
+  response: z.object({ received: z.literal(true), result: z.string() }),
+});

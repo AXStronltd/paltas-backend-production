@@ -14,6 +14,11 @@ const EnvSchema = z.object({
   DATABASE_POOL_SIZE: z.coerce.number().int().min(1).max(100).default(10),
   /** "provider": purchases wait for a signed payment event (always in production). "simulated": local demo only. */
   BILLING_MODE: z.enum(["provider", "simulated"]).default("provider"),
+  STRIPE_ENABLED: Bool.default(false),
+  STRIPE_SECRET_KEY: z.string().default(""),
+  STRIPE_WEBHOOK_SECRET: z.string().default(""),
+  /** JSON array of {planId,currency,priceId}; server-owned, approved regional catalogue prices only. */
+  STRIPE_PRICE_MAP: z.string().default("[]"),
   SESSION_MINUTES: z.coerce
     .number()
     .int()
@@ -134,6 +139,12 @@ export interface Config {
   databaseUrl: string;
   databasePoolSize: number;
   billingMode: "provider" | "simulated";
+  stripe?: {
+    enabled: boolean;
+    secretKey: string;
+    webhookSecret: string;
+    prices: { planId: string; currency: string; priceId: string }[];
+  };
   sessionMinutes: number;
   corsOrigins: string[];
   secretsKey: string;
@@ -282,7 +293,29 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
       .map(([k, v]) => [k.slice("WEBHOOK_SECRET_".length).toLowerCase(), v as string]),
   );
 
+  const stripePrices = z
+    .array(
+      z.object({
+        planId: z.string().min(1),
+        currency: z.string().regex(/^[A-Z]{3}$/),
+        priceId: z.string().regex(/^price_[A-Za-z0-9]+$/),
+      }),
+    )
+    .parse(JSON.parse(e.STRIPE_PRICE_MAP));
+  if (
+    e.STRIPE_ENABLED &&
+    (!/^sk_(test|live)_/.test(e.STRIPE_SECRET_KEY) ||
+      !e.STRIPE_WEBHOOK_SECRET.startsWith("whsec_") ||
+      !stripePrices.length)
+  )
+    throw new Error("Stripe requires a secret key, webhook secret and approved price mappings");
   return {
+    stripe: {
+      enabled: e.STRIPE_ENABLED,
+      secretKey: e.STRIPE_SECRET_KEY,
+      webhookSecret: e.STRIPE_WEBHOOK_SECRET,
+      prices: stripePrices,
+    },
     env: e.NODE_ENV,
     host: e.HOST,
     port: e.PORT,

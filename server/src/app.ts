@@ -22,6 +22,7 @@ import { verifySignature } from "./core/payments/signature.js";
 import { paymentsRoutes } from "./core/payments/payments.routes.js";
 import { providersRoutes } from "./core/payments/providers.routes.js";
 import { signupRoutes } from "./core/signup/signup.routes.js";
+import { stripeRoutes } from "./core/subscriptions/stripe.routes.js";
 import { subscriptionsRoutes } from "./core/subscriptions/subscriptions.routes.js";
 import { connect, type Database } from "./db/database.js";
 import { migrate } from "./db/migrate.js";
@@ -146,6 +147,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     ...identityRoutes(ctx, core.identity, core.passwordReset),
     ...organisationsRoutes(core),
     ...subscriptionsRoutes(core),
+    ...stripeRoutes(ctx, core),
     ...paymentsRoutes(core.payments),
     ...ledgerRoutes(core),
     ...adminRoutes(core),
