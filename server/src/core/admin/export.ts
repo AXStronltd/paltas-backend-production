@@ -1,3 +1,4 @@
+import { redactSecurityNotification, SECURITY_TEMPLATE_KEYS } from "../notifications/security-messages.js";
 /*
  * Data export of ONE organisation (subject access requests, offboarding): every row of every table that carries its
  * org_id, plus rows of tables that only point at such a row (one foreign key away), as a single JSON document.
@@ -122,11 +123,24 @@ export async function exportOrganisationAs(
       const tables = await exportPlan(t);
       for (const [i, p] of tables.entries()) {
         await write(`${i ? "," : ""}${JSON.stringify(p.table)}:[`);
-        const select = `SELECT ${p.columns.map(q).join(", ")} FROM ${q(p.table)} WHERE ${p.where} ORDER BY ctid`;
+        const eventDetails = p.table === "notification_events";
+        const projection = p.columns
+          .map((column) =>
+            eventDetails && column === "detail"
+              ? `CASE WHEN notification_id IN (SELECT id FROM notifications WHERE org_id=$1 AND template_key=ANY($2::text[])) THEN 'Security email delivery status' ELSE detail END AS detail`
+              : q(column),
+          )
+          .join(", ");
+        const select = `SELECT ${projection} FROM ${q(p.table)} WHERE ${p.where} ORDER BY ctid`;
         for (let offset = 0, first = true; ; offset += BATCH) {
-          const rows = await t.rows<Record<string, unknown>>(`${select} LIMIT ${BATCH} OFFSET ${offset}`, [orgId]);
+          const rows = await t.rows<Record<string, unknown>>(
+            `${select} LIMIT ${BATCH} OFFSET ${offset}`,
+            eventDetails ? [orgId, SECURITY_TEMPLATE_KEYS] : [orgId],
+          );
           for (const r of rows) {
-            await write((first ? "" : ",") + JSON.stringify(r));
+            await write(
+              (first ? "" : ",") + JSON.stringify(p.table === "notifications" ? redactSecurityNotification(r) : r),
+            );
             first = false;
           }
           if (rows.length < BATCH) break;
