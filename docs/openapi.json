@@ -4730,6 +4730,29 @@
                         "additionalProperties": false
                       }
                     },
+                    "cardCheckout": {
+                      "type": "object",
+                      "properties": {
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "testMode": {
+                          "type": "boolean"
+                        },
+                        "planIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "available",
+                        "testMode",
+                        "planIds"
+                      ],
+                      "additionalProperties": false
+                    },
                     "paymentMethods": {
                       "type": "array",
                       "items": {
@@ -5227,6 +5250,134 @@
                     "organisation",
                     "members",
                     "tables"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/subscription/stripe-checkout": {
+      "post": {
+        "operationId": "subscription.stripeCheckout",
+        "summary": "Create or resume a Stripe-hosted recurring subscription checkout for an unpaid PALTAS plan invoice",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "invoiceId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "invoiceId"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "sessionId": {
+                      "type": "string"
+                    },
+                    "testMode": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "url",
+                    "sessionId",
+                    "testMode"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/webhooks/stripe": {
+      "post": {
+        "operationId": "webhooks.stripe",
+        "summary": "Receive Stripe snapshot events; raw-body Stripe signature required, replay-safe processing",
+        "security": [],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "received": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "result": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "received",
+                    "result"
                   ],
                   "additionalProperties": false
                 }

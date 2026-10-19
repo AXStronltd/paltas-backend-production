@@ -17,12 +17,17 @@ const SECRET_FIELDS = [
   "mfa_pending_sealed",
   "password_hash",
   "token_hash",
+  "secretKey",
+  "webhookSecret",
+  "client_secret",
+  "checkout_url",
 ];
 
 export const LOG_REDACT = {
   paths: [
     "req.headers.authorization",
     "req.headers.cookie",
+    'req.headers["stripe-signature"]',
     'req.headers["x-paltas-signature"]',
     ...SECRET_FIELDS.flatMap((f) => [f, `*.${f}`, `*.*.${f}`]),
   ],

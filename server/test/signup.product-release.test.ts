@@ -45,4 +45,17 @@ describe("self-service product release allowlist", () => {
       await closed.close();
     }
   });
+  it("restricts new catalogue offers without rewriting existing subscriptions", async () => {
+    const limited = await signupServer({ allowedPlanIds: ["PM-STARTER"] });
+    try {
+      const r = await limited.raw("GET", "/api/v1/public/signup-options");
+      expect(r.body.plans.map((p: { id: string }) => p.id)).toEqual(["PM-STARTER"]);
+      const blocked = signupBody("property", { plan: "PM-PRO" });
+      expect((await postSignup(limited, blocked)).status).toBe(400);
+      expect(await limited.sql("SELECT 1 FROM users WHERE email=lower($1)", [blocked.email])).toEqual([]);
+      expect((await postSignup(limited, signupBody("property"))).status).toBe(201);
+    } finally {
+      await limited.close();
+    }
+  });
 });

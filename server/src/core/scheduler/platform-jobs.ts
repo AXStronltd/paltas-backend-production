@@ -59,7 +59,7 @@ export function platformJobs(
         }>(
           `SELECT s.org_id, s.product, s.status, s.trial_ends, s.grace_days FROM subscriptions s
            JOIN organisations o ON o.id = s.org_id AND o.suspended_at IS NULL
-           WHERE s.status IN ('trial', 'active') ORDER BY s.org_id, s.product`,
+           WHERE s.status IN ('trial', 'active') AND (s.status='trial' OR NOT EXISTS (SELECT 1 FROM stripe_checkouts sc WHERE sc.org_id=s.org_id AND sc.product=s.product AND sc.status NOT IN ('canceled','incomplete_expired','expired'))) ORDER BY s.org_id, s.product`,
         );
         let expired = 0;
         let issued = 0;

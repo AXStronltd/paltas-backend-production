@@ -14,6 +14,11 @@ const EnvSchema = z.object({
   DATABASE_POOL_SIZE: z.coerce.number().int().min(1).max(100).default(10),
   /** "provider": purchases wait for a signed payment event (always in production). "simulated": local demo only. */
   BILLING_MODE: z.enum(["provider", "simulated"]).default("provider"),
+  STRIPE_ENABLED: Bool.default(false),
+  STRIPE_SECRET_KEY: z.string().default(""),
+  STRIPE_WEBHOOK_SECRET: z.string().default(""),
+  /** JSON array of {planId,currency,priceId}; server-owned, approved regional catalogue prices only. */
+  STRIPE_PRICE_MAP: z.string().default("[]"),
   SESSION_MINUTES: z.coerce
     .number()
     .int()
@@ -64,6 +69,15 @@ const EnvSchema = z.object({
   /** Public self-service sign-up (core/signup). Off unless switched on. */
   SIGNUP_ENABLED: Bool.default(false),
   SIGNUP_REQUIRE_PROFILE: Bool.default(false),
+  SIGNUP_PLAN_IDS: z
+    .string()
+    .default("")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean),
+    ),
   PM_DOCUMENT_FILE_UPLOADS_ENABLED: Bool.default(true),
   SIGNUP_PRODUCTS: z
     .string()
@@ -134,6 +148,12 @@ export interface Config {
   databaseUrl: string;
   databasePoolSize: number;
   billingMode: "provider" | "simulated";
+  stripe?: {
+    enabled: boolean;
+    secretKey: string;
+    webhookSecret: string;
+    prices: { planId: string; currency: string; priceId: string }[];
+  };
   sessionMinutes: number;
   corsOrigins: string[];
   secretsKey: string;
@@ -183,6 +203,7 @@ export function parseMailbox(raw: string): { name: string; address: string } | n
 export interface SignupSettings {
   enabled: boolean;
   requireProfile?: boolean;
+  allowedPlanIds?: string[];
   allowedProducts: z.infer<typeof Product>[];
   perIpPerHour: number;
   perEmailPerDay: number;
@@ -282,7 +303,35 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
       .map(([k, v]) => [k.slice("WEBHOOK_SECRET_".length).toLowerCase(), v as string]),
   );
 
+  if (
+    e.STRIPE_ENABLED &&
+    e.STRIPE_SECRET_KEY.startsWith("sk_live_") &&
+    new URL(e.APP_BASE_URL).hostname !== "paltas.io"
+  )
+    throw new Error("Stripe live keys are refused outside the production PALTAS origin");
+  const stripePrices = z
+    .array(
+      z.object({
+        planId: z.string().min(1),
+        currency: z.string().regex(/^[A-Z]{3}$/),
+        priceId: z.string().regex(/^price_[A-Za-z0-9]+$/),
+      }),
+    )
+    .parse(JSON.parse(e.STRIPE_PRICE_MAP));
+  if (
+    e.STRIPE_ENABLED &&
+    (!/^sk_(test|live)_/.test(e.STRIPE_SECRET_KEY) ||
+      !e.STRIPE_WEBHOOK_SECRET.startsWith("whsec_") ||
+      !stripePrices.length)
+  )
+    throw new Error("Stripe requires a secret key, webhook secret and approved price mappings");
   return {
+    stripe: {
+      enabled: e.STRIPE_ENABLED,
+      secretKey: e.STRIPE_SECRET_KEY,
+      webhookSecret: e.STRIPE_WEBHOOK_SECRET,
+      prices: stripePrices,
+    },
     env: e.NODE_ENV,
     host: e.HOST,
     port: e.PORT,
@@ -326,6 +375,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     signup: {
       enabled: e.SIGNUP_ENABLED,
       requireProfile: e.SIGNUP_REQUIRE_PROFILE,
+      allowedPlanIds: e.SIGNUP_PLAN_IDS,
       allowedProducts: [...new Set(e.SIGNUP_PRODUCTS)],
       perIpPerHour: e.SIGNUP_PER_IP_PER_HOUR,
       perEmailPerDay: e.SIGNUP_PER_EMAIL_PER_DAY,

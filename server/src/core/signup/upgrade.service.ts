@@ -43,7 +43,14 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
   function plansFor(s: OrgScope) {
     const { catalogue, org, ent } = s.entitlement;
     return catalogue.plans
-      .filter((p) => p.products[0] === s.product && p.tier)
+      .filter(
+        (p) =>
+          p.products[0] === s.product &&
+          p.tier &&
+          (!ctx.config.signup.allowedPlanIds?.length ||
+            ctx.config.signup.allowedPlanIds.includes(p.id) ||
+            p.id === s.entitlement.ent.planId),
+      )
       .map((p) => {
         const price = entitlements.priceIn(p.base, org.currency);
         return {
@@ -70,6 +77,21 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
         trial: entitlements.trialState(s.entitlement.view.ent, s.today),
         emailVerified: verified,
         plans: plansFor(s).map(({ plan: _p, ...rest }) => rest),
+        cardCheckout: {
+          available: !!ctx.config.stripe?.enabled,
+          testMode: ctx.config.stripe?.secretKey.startsWith("sk_test_") ?? false,
+          planIds: ctx.config.stripe?.enabled
+            ? plansFor(s)
+                .filter(
+                  (p) =>
+                    p.price &&
+                    !p.plan.taxPct &&
+                    !s.entitlement.ent.terms.discountPct &&
+                    ctx.config.stripe?.prices.some((x) => x.planId === p.id && x.currency === p.price?.currency),
+                )
+                .map((p) => p.id)
+            : [],
+        },
         paymentMethods: [
           { method: "provider" as const, available: true, note: PROVIDER_NOTE },
           { method: "bank_transfer" as const, available: true, note: BANK_NOTE },

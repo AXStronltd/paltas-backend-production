@@ -180,6 +180,8 @@ export const SUBSCRIPTIONS_API = {
   upgradeOptions: subscriptions.getUpgradeOptions,
   upgrade: subscriptions.upgrade,
   exportData: subscriptions.exportData,
+  stripeCheckout: subscriptions.stripeCheckout,
+  stripeWebhook: subscriptions.stripeWebhook,
 } as const;
 
 export const PAYMENTS_API = {
