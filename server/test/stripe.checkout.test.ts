@@ -385,6 +385,8 @@ describe("Stripe subscription checkout safety", () => {
     expect((await S.sql("SELECT count(*)::int AS n FROM billing_receipts WHERE invoice_id=$1", [invoiceId]))[0].n).toBe(
       1,
     );
+    await service.portal(a.orgId, "property", "cancel");
+    expect(lastPortalBody.flow_data).toBeUndefined(); // Ended subscriptions open billing history, not an invalid cancellation flow.
   });
   it("holds late events from an old subscription without changing its replacement", async () => {
     const renewal = (await S.sql("SELECT invoice_id FROM stripe_invoice_links WHERE stripe_invoice_id='in_renewal'"))[0]
