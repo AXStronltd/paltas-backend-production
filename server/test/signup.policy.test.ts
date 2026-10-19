@@ -55,17 +55,25 @@ describe("the platform trial policy", () => {
     const D = entitlements.DEFAULT_TRIAL_POLICY;
     const pub = await S.api.signup.policy();
     // the public view leaves out how repeats are detected
-    expect({ ...pub, repeatWindowDays: D.repeatWindowDays, repeatMatch: D.repeatMatch }).toEqual({ ...D, version: 1 });
+    expect({ ...pub, repeatWindowDays: D.repeatWindowDays, repeatMatch: D.repeatMatch }).toEqual({ ...D, version: 2 });
     expect(pub).not.toHaveProperty("repeatMatch");
     const { policy, history } = await sa.api.admin.trialPolicy();
     expect(policy).toEqual({
       ...D,
-      version: 1,
+      version: 2,
       suspendUnverifiedRequiresDelivery: true,
       updatedAt: expect.any(String),
     });
+    await expect(
+      S.sql(
+        "INSERT INTO trial_policy_history(version,policy,reason) VALUES(99,'{}','Missing administrator attribution')",
+      ),
+    ).rejects.toThrow();
     expect(browserRules.DEFAULT_TRIAL_POLICY).toEqual(entitlements.DEFAULT_TRIAL_POLICY);
-    expect(history.map((h) => [h.version, h.changedBy])).toEqual([[1, null]]);
+    expect(history.map((h) => [h.version, h.changedBy])).toEqual([
+      [2, null],
+      [1, null],
+    ]);
     // every plan in the catalogue shows the policy's trial length, whatever its own (unused) column says
     await S.sql("UPDATE catalogue_plans SET trial_days = 5 WHERE id = 'HOTEL-STD'");
     const cat = await sa.api.admin.catalogue();
@@ -81,33 +89,34 @@ describe("the platform trial policy", () => {
     await refused(sa.api.admin.updateTrialPolicy({ body: policyBody({ trialDays: 5, reminderDays: [7] }) }), 400);
     await refused(sa.api.admin.updateTrialPolicy({ body: policyBody({ trialDays: 0 }) }), 400);
     await refused(sa.api.admin.updateTrialPolicy({ body: policyBody({ reason: "x" }) }), 400);
-    expect((await S.api.signup.policy()).version).toBe(1);
+    expect((await S.api.signup.policy()).version).toBe(2);
   });
 
   it("a change reaches new trials of every product through every path, identically", async () => {
-    const before = await signUpAndIn(S, "hotel"); // started under version 1: keeps 30 + 7
+    const before = await signUpAndIn(S, "hotel"); // started under release version 2: keeps 30 + 0
     const changed = await sa.api.admin.updateTrialPolicy({
       body: policyBody({ trialDays: 14, graceDays: 2, reminderDays: [5, 1], reason: "Shorter trial for Q4" }),
     });
-    expect([changed.version, changed.trialDays, changed.graceDays, changed.reminderDays]).toEqual([2, 14, 2, [5, 1]]);
+    expect([changed.version, changed.trialDays, changed.graceDays, changed.reminderDays]).toEqual([3, 14, 2, [5, 1]]);
     const audit = await sa.api.admin.audit({ query: { limit: 20 } });
     const entry = audit.entries.find((e) => e.action === "Platform trial policy changed")!;
-    expect([entry.target, entry.detail]).toEqual(["v2", "Shorter trial for Q4"]);
+    expect([entry.target, entry.detail]).toEqual(["v3", "Shorter trial for Q4"]);
     const hist = (await sa.api.admin.trialPolicy()).history;
     expect(hist.map((h) => [h.version, h.reason, (h.policy as { trialDays: number }).trialDays])).toEqual([
-      [2, "Shorter trial for Q4", 14],
+      [3, "Shorter trial for Q4", 14],
+      [2, "Release 0025: 10-day reminder and read-only after the 30-day trial; existing terms preserved", 30],
       [1, "Initial platform trial policy (migration 0013)", 30],
     ]);
     await expect(S.sql("UPDATE trial_policy_history SET reason = 'rewritten' WHERE version = 1")).rejects.toThrow(
       /cannot be changed/,
     );
 
-    const want = { status: "trial", trial_ends: plus(TODAY, 14), grace_days: 2, trial_policy_version: 2 };
+    const want = { status: "trial", trial_ends: plus(TODAY, 14), grace_days: 2, trial_policy_version: 3 };
     expect(await trialOf(before.orgId, "hotel")).toEqual({
       ...want,
       trial_ends: plus(TODAY, 30),
-      grace_days: 7,
-      trial_policy_version: 1,
+      grace_days: 0,
+      trial_policy_version: 2,
     });
     for (const p of ALL_PRODUCTS) {
       // 1. self-service sign-up

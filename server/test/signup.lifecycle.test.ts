@@ -1,5 +1,5 @@
 // The same self-service journey for EACH of the five products, on one timeline, with the platform jobs run day by
-// day: sign up → trial → write allowed → reminders (T-7, T-3, T-1) → grace → expiry → write refused (records kept,
+// day: sign up → trial → write allowed → reminders (T-10, T-7, T-3, T-1) → expiry → write refused (records kept,
 // export allowed) → upgrade → PALTAS staff confirm the bank transfer → active → write allowed. Every product must
 // show exactly the same days, reminders and expiry.
 import type { Product } from "@paltas/contracts";
@@ -63,9 +63,9 @@ describe("one trial journey, identical for every product", () => {
     expect(seen.property.day0).toEqual({
       phase: "trial",
       trialEnds: "2026-11-10",
-      graceEnds: "2026-11-17",
+      graceEnds: "2026-11-10",
       daysLeft: 30,
-      graceDaysLeft: 7,
+      graceDaysLeft: 0,
     });
   });
 
@@ -86,7 +86,7 @@ describe("one trial journey, identical for every product", () => {
     }
   });
 
-  it("time passes: reminders at T-7, T-3 and T-1 (once a day), grace keeps it working, then read-only", async () => {
+  it("time passes: reminders at T-10, T-7, T-3 and T-1, then read-only without extra grace", async () => {
     const reminders = async (a: Account) =>
       (
         await S.sql<{ source_ref: string }>(
@@ -102,9 +102,14 @@ describe("one trial journey, identical for every product", () => {
         (seen[p].timeline ??= []) as unknown[];
         (seen[p].timeline as unknown[]).push([day, e.status, e.usable, e.trial?.phase, e.trial?.daysLeft]);
         if (day === "2026-11-12") {
-          // in grace: still a trial and still writable
-          expect([e.status, e.usable, e.trial?.phase, e.trial?.graceDaysLeft]).toEqual(["trial", true, "grace", 5]);
-          await contactWrite(acc[p], 2);
+          // trial has ended: changes are refused immediately, with records retained
+          expect([e.status, e.usable, e.trial?.phase, e.trial?.graceDaysLeft]).toEqual([
+            "expired",
+            false,
+            "expired",
+            0,
+          ]);
+          await refused(contactWrite(acc[p], 2), 402, "SUBSCRIPTION_INACTIVE");
         }
       }
     }
@@ -121,11 +126,11 @@ describe("one trial journey, identical for every product", () => {
       // recorded in the outbox, never "sent" (no e-mail provider is connected)
       expect(statuses.every((s) => s.status === "recorded")).toBe(true);
     }
-    expect(seen.property.reminders).toEqual(["2026-11-03", "2026-11-07", "2026-11-09"]);
+    expect(seen.property.reminders).toEqual(["2026-10-31", "2026-11-03", "2026-11-07", "2026-11-09"]);
     expect(seen.property.ended).toBe(1);
     const tl = seen.property.timeline as [string, string, boolean, string, number][];
     expect(tl.find((x) => x[0] === "2026-11-10")).toEqual(["2026-11-10", "trial", true, "trial", 0]);
-    expect(tl.find((x) => x[0] === "2026-11-17")).toEqual(["2026-11-17", "trial", true, "grace", 0]);
+    expect(tl.find((x) => x[0] === "2026-11-17")).toEqual(["2026-11-17", "expired", false, "expired", 0]);
     expect(tl.find((x) => x[0] === "2026-11-18")).toEqual(["2026-11-18", "expired", false, "expired", 0]);
   });
 
@@ -137,7 +142,7 @@ describe("one trial journey, identical for every product", () => {
       await refused(productWrite(a, 2), 402, "SUBSCRIPTION_INACTIVE");
       await refused(contactWrite(a, 3), 402, "SUBSCRIPTION_INACTIVE");
       expect(await productRecords(a)).toBe(1);
-      expect((await a.api.contacts.listContacts({ params: { orgId: a.orgId }, query: {} })).contacts.length).toBe(2);
+      expect((await a.api.contacts.listContacts({ params: { orgId: a.orgId }, query: {} })).contacts.length).toBe(1);
       const x = await S.raw(
         "GET",
         `/api/v1/orgs/${a.orgId}/export?reason=${encodeURIComponent("Keep a copy after the trial")}`,
@@ -146,7 +151,7 @@ describe("one trial journey, identical for every product", () => {
       );
       expect(x.status).toBe(200);
       expect(x.body.organisation.id).toBe(a.orgId);
-      expect(x.body.tables.contacts.length).toBe(2);
+      expect(x.body.tables.contacts.length).toBe(1);
     }
   });
 
@@ -192,7 +197,7 @@ describe("one trial journey, identical for every product", () => {
       seen[p].after = [e.status, e.usable, e.trial, e.plan];
       await contactWrite(a, 5);
       expect(await productRecords(a)).toBe(1);
-      expect((await a.api.contacts.listContacts({ params: { orgId: a.orgId }, query: {} })).contacts.length).toBe(3);
+      expect((await a.api.contacts.listContacts({ params: { orgId: a.orgId }, query: {} })).contacts.length).toBe(2);
     }
     expect(seen.property.after).toEqual(["active", true, null, "PM-STARTER"]);
   });
@@ -201,5 +206,47 @@ describe("one trial journey, identical for every product", () => {
     const strip = (x: Record<string, unknown>) => ({ ...x, after: (x.after as unknown[]).slice(0, 3) });
     for (const p of ALL_PRODUCTS) expect(strip(seen[p])).toEqual(strip(seen.property));
     expect(TODAY).toBe("2026-10-11");
+  });
+});
+
+describe("existing trial promises survive policy changes", () => {
+  let S: TestServer;
+  beforeAll(async () => {
+    S = await signupServer();
+  });
+  afterAll(() => S.close());
+  it("keeps a granted grace period while new trials expire without extra grace", async () => {
+    const staff = await S.staff();
+    const current = await staff.api.admin.trialPolicy();
+    const p = current.policy;
+    const settings = {
+      trialDays: p.trialDays,
+      graceDays: p.graceDays,
+      reminderDays: p.reminderDays,
+      verifyWithinDays: p.verifyWithinDays,
+      verifyLinkHours: p.verifyLinkHours,
+      repeatWindowDays: p.repeatWindowDays,
+      repeatMatch: p.repeatMatch,
+      secondProduct: p.secondProduct,
+      exportAllowed: p.exportAllowed,
+      suspendUnverifiedRequiresDelivery: p.suspendUnverifiedRequiresDelivery,
+    };
+    await staff.api.admin.updateTrialPolicy({
+      body: { ...settings, graceDays: 7, reason: "Legacy trial terms for regression" },
+    });
+    const legacy = await signUpAndIn(S, "property");
+    await S.api.signup.verify({ body: { token: await verificationToken(S, legacy.email) } });
+    await staff.api.admin.updateTrialPolicy({
+      body: { ...settings, graceDays: 0, reason: "New trials end after thirty days" },
+    });
+    const fresh = await signUpAndIn(S, "hotel");
+    await S.api.signup.verify({ body: { token: await verificationToken(S, fresh.email) } });
+    await dailyJobs(S, "2026-11-11");
+    const old = await legacy.api.subscriptions.entitlements({ params: { orgId: legacy.orgId }, query: {} });
+    const next = await fresh.api.subscriptions.entitlements({ params: { orgId: fresh.orgId }, query: {} });
+    expect([old.usable, old.trial?.phase]).toEqual([true, "grace"]);
+    expect([next.usable, next.trial?.phase]).toEqual([false, "expired"]);
+    await contactWrite(legacy, 1);
+    await refused(contactWrite(fresh, 1), 402, "SUBSCRIPTION_INACTIVE");
   });
 });

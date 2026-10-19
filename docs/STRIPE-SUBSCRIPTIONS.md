@@ -56,3 +56,9 @@ source code, issue descriptions or chat.
 Local cancellation and plan changes now refuse Stripe-managed subscriptions with an explicit assisted-billing message, instead of claiming an action that does not update Stripe. A customer portal, provider-side cancellation and coordinated plan changes remain release blockers for unattended billing. Do not enable collection merely because these isolation tests pass. Keep Stripe off until business verification, approved price mappings and actual sandbox lifecycle checks pass.
 
 The designated PALTAS payout bank is entered and authorised by its owner in the existing PALTAS dashboard. It must never be inherited from another product or written into source/configuration. Appra and other Axstron accounts are outside this integration's scope.
+
+## Trial reminders and non-card renewal
+
+Release 0025 updates only the untouched initial platform policy: a 30-day trial, reminders at 10/7/3/1 days remaining, and no additional grace for new trials. Existing subscription grace terms and administrator-customised policies are preserved. The append-only policy history records the release source and reason; subsequent administrator changes still require a real staff actor.
+
+Reminders explain the bank-transfer option and link to the existing account upgrade flow. A transfer claim is not payment confirmation: workspace editing resumes only through the existing verified receipt workflow. Record viewing, export, renewal and sign-out remain available after expiry; data-changing APIs remain server-enforced read-only. No card, automatic debit, new charge or Stripe activation is introduced by this trial change. Outbox creation is not proof of email delivery.

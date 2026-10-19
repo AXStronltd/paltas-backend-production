@@ -66,14 +66,14 @@ export const FLOOR: Record<string, string[]> = {
 export const TIER_RANK: Record<Tier, number> = { Standard: 1, Pro: 2, Enterprise: 3 };
 
 /**
- * The first version of the ONE platform trial policy, identical for every product. The server keeps the live policy
+ * The current defaults of the ONE platform trial policy, identical for every product. The server keeps the live policy
  * in its database (seeded with these values, changed only by a Super Admin); pages connected to the API show the
  * server's numbers, and these are what the browser shows before then.
  */
 export const DEFAULT_TRIAL_POLICY: TrialPolicy = {
   trialDays: 30,
-  graceDays: 7,
-  reminderDays: [7, 3, 1],
+  graceDays: 0,
+  reminderDays: [10, 7, 3, 1],
   verifyWithinDays: 7,
   verifyLinkHours: 48,
   repeatWindowDays: 365,

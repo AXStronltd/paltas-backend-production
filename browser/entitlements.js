@@ -74,8 +74,8 @@ var __paltasBundle = (() => {
   var TIER_RANK = { Standard: 1, Pro: 2, Enterprise: 3 };
   var DEFAULT_TRIAL_POLICY = {
     trialDays: 30,
-    graceDays: 7,
-    reminderDays: [7, 3, 1],
+    graceDays: 0,
+    reminderDays: [10, 7, 3, 1],
     verifyWithinDays: 7,
     verifyLinkHours: 48,
     repeatWindowDays: 365,
