@@ -79,7 +79,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
         plans: plansFor(s).map(({ plan: _p, ...rest }) => rest),
         cardCheckout: {
           available: !!ctx.config.stripe?.enabled,
-          testMode: ctx.config.stripe?.secretKey.startsWith("sk_test_") ?? false,
+          testMode: /^(sk|rk)_test_/.test(ctx.config.stripe?.secretKey ?? ""),
           planIds: ctx.config.stripe?.enabled
             ? plansFor(s)
                 .filter(
