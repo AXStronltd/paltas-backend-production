@@ -48,3 +48,11 @@ origin. Staging must use `sk_test_` or `rk_test_` keys. Restricted `rk_live_` ke
 browser keys and cannot be used as `STRIPE_SECRET_KEY`. The hosted integration does
 not need a publishable key. Keep keys in Render environment settings, never in
 source code, issue descriptions or chat.
+
+## Dedicated PALTAS account isolation
+
+`STRIPE_ACCOUNT_ID` is required when billing is enabled. Production is intended only for the existing PALTAS account `acct_1US4fBIaWEYyCbix`; staging must use the verified PALTAS sandbox account and a test key. A production origin cannot offer test-mode collection. Every checkout verifies the authenticated key account through `/v1/account` before accessing payment objects. Signed webhook requests verify the same identity before changing records; requests with a connected-account context are rejected. Invalid signatures are rejected before making an external identity request. Checkout and subscription metadata carry the PALTAS application, account and mode and are checked on retrieved webhook objects. Accounts Read is required on the dedicated restricted key. No Connect routing, transfers or payout mutations are implemented.
+
+Local cancellation and plan changes now refuse Stripe-managed subscriptions with an explicit assisted-billing message, instead of claiming an action that does not update Stripe. A customer portal, provider-side cancellation and coordinated plan changes remain release blockers for unattended billing. Do not enable collection merely because these isolation tests pass. Keep Stripe off until business verification, approved price mappings and actual sandbox lifecycle checks pass.
+
+The designated PALTAS payout bank is entered and authorised by its owner in the existing PALTAS dashboard. It must never be inherited from another product or written into source/configuration. Appra and other Axstron accounts are outside this integration's scope.

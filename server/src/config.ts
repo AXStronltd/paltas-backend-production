@@ -17,6 +17,12 @@ const EnvSchema = z.object({
   STRIPE_ENABLED: Bool.default(false),
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
+  /** Dedicated account identity; verified through Stripe before collection. */
+  STRIPE_ACCOUNT_ID: z
+    .string()
+    .regex(/^acct_[A-Za-z0-9]+$/)
+    .or(z.literal(""))
+    .default(""),
   /** JSON array of {planId,currency,priceId}; server-owned, approved regional catalogue prices only. */
   STRIPE_PRICE_MAP: z.string().default("[]"),
   SESSION_MINUTES: z.coerce
@@ -150,6 +156,7 @@ export interface Config {
   billingMode: "provider" | "simulated";
   stripe?: {
     enabled: boolean;
+    accountId?: string;
     secretKey: string;
     webhookSecret: string;
     prices: { planId: string; currency: string; priceId: string }[];
@@ -309,6 +316,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     new URL(e.APP_BASE_URL).hostname !== "paltas.io"
   )
     throw new Error("Stripe live keys are refused outside the production PALTAS origin");
+  if (
+    e.STRIPE_ENABLED &&
+    new URL(e.APP_BASE_URL).hostname === "paltas.io" &&
+    !/^(sk|rk)_live_/.test(e.STRIPE_SECRET_KEY)
+  )
+    throw new Error("Production Stripe collection requires a live key");
   const stripePrices = z
     .array(
       z.object({
@@ -321,13 +334,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   if (
     e.STRIPE_ENABLED &&
     (!/^(sk|rk)_(test|live)_/.test(e.STRIPE_SECRET_KEY) ||
+      !e.STRIPE_ACCOUNT_ID ||
       !e.STRIPE_WEBHOOK_SECRET.startsWith("whsec_") ||
       !stripePrices.length)
   )
-    throw new Error("Stripe requires a secret key, webhook secret and approved price mappings");
+    throw new Error("Stripe requires an account ID, secret key, webhook secret and approved price mappings");
   return {
     stripe: {
       enabled: e.STRIPE_ENABLED,
+      accountId: e.STRIPE_ACCOUNT_ID,
       secretKey: e.STRIPE_SECRET_KEY,
       webhookSecret: e.STRIPE_WEBHOOK_SECRET,
       prices: stripePrices,

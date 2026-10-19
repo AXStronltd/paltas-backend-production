@@ -12,7 +12,10 @@ describe("Stripe subscription checkout safety", () => {
     invoice: Record<string, unknown> = {},
     sessionCreates = 0;
   const secret = "whsec_fixture_only";
+  let providerAccount = "acct_fixture";
+  let providerApplication = "paltas";
   const fake = {
+    accounts: { retrieve: async () => ({ id: providerAccount }) },
     prices: {
       retrieve: async () => ({
         id: "price_fixture",
@@ -29,12 +32,28 @@ describe("Stripe subscription checkout safety", () => {
         create: async (body: any) => {
           sessionCreates++;
           expect(body.mode).toBe("subscription");
+          expect(body.metadata).toMatchObject({
+            paltasApplication: "paltas",
+            paltasAccountId: "acct_fixture",
+            paltasMode: "test",
+          });
+          expect(body.subscription_data.metadata).toEqual(body.metadata);
           expect(body.subscription_data.trial_period_days).toBeUndefined();
           return { id: "cs_fixture", url: "https://checkout.stripe.com/c/pay/cs_fixture", livemode: false };
         },
         retrieve: async () => ({
           id: "cs_fixture",
           status: "open",
+          mode: "subscription",
+          client_reference_id: checkoutId,
+          subscription: "sub_fixture",
+          customer: "cus_fixture",
+          metadata: {
+            paltasCheckoutId: checkoutId,
+            paltasApplication: "paltas",
+            paltasAccountId: "acct_fixture",
+            paltasMode: "test",
+          },
           url: "https://checkout.stripe.com/c/pay/cs_fixture",
           livemode: false,
         }),
@@ -54,7 +73,12 @@ describe("Stripe subscription checkout safety", () => {
         id: "sub_fixture",
         customer: "cus_fixture",
         status: subStatus,
-        metadata: { paltasCheckoutId: checkoutId },
+        metadata: {
+          paltasCheckoutId: checkoutId,
+          paltasApplication: providerApplication,
+          paltasAccountId: "acct_fixture",
+          paltasMode: "test",
+        },
       }),
     },
     webhooks: new Stripe("sk_test_fixture").webhooks,
@@ -72,6 +96,7 @@ describe("Stripe subscription checkout safety", () => {
       {
         stripe: {
           enabled: true,
+          accountId: "acct_fixture",
           secretKey: "rk_test_fixture",
           webhookSecret: secret,
           prices: [{ planId: "PM-STARTER", currency: "KES", priceId: "price_fixture" }],
@@ -93,6 +118,28 @@ describe("Stripe subscription checkout safety", () => {
     service = stripeService(S.app.ctx, S.app.core.payments, fake);
   });
   afterAll(async () => S?.close());
+  it("refuses a wrong-account key before creating a session or records", async () => {
+    providerAccount = "acct_unrelatedfixture";
+    try {
+      await expect(service.checkout(a.orgId, "property", invoiceId)).rejects.toMatchObject({ status: 409 });
+      expect(sessionCreates).toBe(0);
+      expect(await S.sql("SELECT 1 FROM stripe_checkouts")).toEqual([]);
+    } finally {
+      providerAccount = "acct_fixture";
+    }
+  });
+  it("rejects connected-account events before recording them", async () => {
+    const payload = JSON.stringify({
+      id: "evt_foreign_account",
+      type: "invoice.paid",
+      account: "acct_unrelatedfixture",
+      livemode: false,
+      data: { object: { id: "in_foreign" } },
+    });
+    const header = new Stripe("sk_test_fixture").webhooks.generateTestHeaderString({ payload, secret });
+    await expect(service.webhook(Buffer.from(payload), header)).rejects.toMatchObject({ status: 400 });
+    expect(await S.sql("SELECT 1 FROM stripe_events WHERE id='evt_foreign_account'")).toEqual([]);
+  });
   it("rejects foreign invoices and mismatched catalogue prices", async () => {
     await expect(service.checkout("another-org", "property", invoiceId)).rejects.toMatchObject({ status: 404 });
     priceAmount = amount + 1;
@@ -112,6 +159,11 @@ describe("Stripe subscription checkout safety", () => {
       before.trial,
     );
     expect((await S.sql("SELECT status FROM billing_invoices WHERE id=$1", [invoiceId]))[0].status).toBe("Open");
+  });
+  it("records matching checkout metadata without treating checkout as payment", async () => {
+    expect((await send("checkout.session.completed", "evt_checkout")).result).toMatch(/awaiting verified invoice/);
+    expect((await S.sql("SELECT status FROM billing_invoices WHERE id=$1", [invoiceId]))[0].status).toBe("Open");
+    expect(await S.sql("SELECT 1 FROM billing_receipts WHERE invoice_id=$1", [invoiceId])).toEqual([]);
   });
   it("requires a fresh authentic raw-body signature", async () => {
     await expect(service.webhook(Buffer.from("{}"), "t=1,v1=00")).rejects.toMatchObject({ status: 400 });
@@ -147,6 +199,29 @@ describe("Stripe subscription checkout safety", () => {
     expect((await S.sql("SELECT count(*)::int AS n FROM billing_receipts WHERE invoice_id=$1", [invoiceId]))[0].n).toBe(
       1,
     );
+  });
+  it("rejects a foreign application without recording its event or receipt", async () => {
+    providerApplication = "unrelated-fixture";
+    try {
+      await expect(send("invoice.paid", "evt_foreign_application")).rejects.toMatchObject({ status: 400 });
+      expect(await S.sql("SELECT 1 FROM stripe_events WHERE id='evt_foreign_application'")).toEqual([]);
+    } finally {
+      providerApplication = "paltas";
+    }
+  });
+  it("does not change a Stripe-managed plan only in the local catalogue", async () => {
+    await expect(
+      a.api.subscriptions.changePlan({ params: { orgId: a.orgId }, body: { plan: "PM-GROWTH", confirm: "CONFIRM" } }),
+    ).rejects.toMatchObject({ status: 409 });
+  });
+  it("does not pretend a local cancellation stops Stripe collection", async () => {
+    await expect(
+      a.api.subscriptions.cancel({
+        params: { orgId: a.orgId },
+        body: { product: "property", reason: "Customer requested cancellation" },
+      }),
+    ).rejects.toMatchObject({ status: 409 });
+    expect(await S.sql("SELECT 1 FROM subscription_pending WHERE org_id=$1 AND type='cancel'", [a.orgId])).toEqual([]);
   });
   it("handles renewal failure, recovery and repeated invoice events without duplicate receipts", async () => {
     invoice = {

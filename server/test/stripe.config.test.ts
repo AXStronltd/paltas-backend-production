@@ -14,6 +14,7 @@ describe("Stripe environment safeguards", () => {
   it("refuses enabled live billing on staging even with complete settings", () => {
     const complete = {
       ...env,
+      STRIPE_ACCOUNT_ID: "acct_fixture",
       STRIPE_ENABLED: "true",
       STRIPE_SECRET_KEY: "sk_live_fixture",
       STRIPE_WEBHOOK_SECRET: "whsec_fixture",
@@ -27,6 +28,7 @@ describe("Stripe environment safeguards", () => {
     for (const prefix of ["sk", "rk"]) {
       const complete = {
         ...env,
+        STRIPE_ACCOUNT_ID: "acct_fixture",
         STRIPE_ENABLED: "true",
         STRIPE_SECRET_KEY: prefix + "_test_fixture",
         STRIPE_WEBHOOK_SECRET: "whsec_fixture",
@@ -41,5 +43,17 @@ describe("Stripe environment safeguards", () => {
           .stripe?.enabled,
       ).toBe(true);
     }
+  });
+  it("requires an account pin and refuses test collection at the production origin", () => {
+    const complete = {
+      ...env,
+      STRIPE_ACCOUNT_ID: "acct_fixture",
+      STRIPE_ENABLED: "true",
+      STRIPE_SECRET_KEY: "rk_test_fixture",
+      STRIPE_WEBHOOK_SECRET: "whsec_fixture",
+      STRIPE_PRICE_MAP: JSON.stringify([{ planId: "PM-STARTER", currency: "KES", priceId: "price_fixture" }]),
+    };
+    expect(() => loadConfig({ ...complete, STRIPE_ACCOUNT_ID: "" })).toThrow(/account ID/);
+    expect(() => loadConfig({ ...complete, APP_BASE_URL: "https://paltas.io" })).toThrow(/live key/);
   });
 });
