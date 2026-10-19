@@ -2,6 +2,7 @@
  * A browser redirect never activates access. Stripe prices must exactly match an approved PALTAS invoice.
  */
 import Stripe from "stripe";
+import { STRIPE_CANCELLATION_REASON } from "./stripe.constants.js";
 import type { Product } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import { fail } from "../../http/errors.js";
@@ -399,8 +400,11 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
             [row.org_id, row.product, row.id],
           );
           if (!superseded) {
-            const reason = "Stripe: cancellation at period end";
-            if (sub.cancel_at_period_end && ["active", "trialing", "past_due"].includes(sub.status)) {
+            const reason = STRIPE_CANCELLATION_REASON;
+            if (
+              (sub.cancel_at_period_end || sub.cancel_at != null) &&
+              ["active", "trialing", "past_due"].includes(sub.status)
+            ) {
               const end = sub.cancel_at ?? sub.items.data[0]?.current_period_end;
               if (!end) throw fail.conflict("Stripe cancellation date needs reconciliation");
               await t.run(
