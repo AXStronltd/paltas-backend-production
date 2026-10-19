@@ -200,4 +200,25 @@ describe("Stripe subscription checkout safety", () => {
       1,
     );
   });
+  it("holds late events from an old subscription without changing its replacement", async () => {
+    const renewal = (await S.sql("SELECT invoice_id FROM stripe_invoice_links WHERE stripe_invoice_id='in_renewal'"))[0]
+      .invoice_id;
+    await S.sql(
+      "INSERT INTO stripe_checkouts(id,org_id,product,plan_id,invoice_id,price_id,amount_minor,currency,frequency,status) SELECT 'sc_replacement',org_id,product,plan_id,$2,price_id,amount_minor,currency,frequency,'active' FROM stripe_checkouts WHERE id=$1",
+      [checkoutId, renewal],
+    );
+    await S.sql("UPDATE subscriptions SET status='active' WHERE org_id=$1 AND product='property'", [a.orgId]);
+    invoice = {
+      ...invoice,
+      id: "in_fixture",
+      amount_due: amount,
+      billing_reason: "subscription_create",
+      status: "paid",
+      amount_paid: amount,
+    };
+    await expect(send("invoice.paid", "evt_late_superseded")).rejects.toMatchObject({ status: 409 });
+    expect(
+      (await S.sql("SELECT status FROM subscriptions WHERE org_id=$1 AND product='property'", [a.orgId]))[0].status,
+    ).toBe("active");
+  });
 });

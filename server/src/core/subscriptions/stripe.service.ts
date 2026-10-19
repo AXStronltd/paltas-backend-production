@@ -189,6 +189,14 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
           ]);
           if (!row) return save("Ignored — not a PALTAS subscription");
           if (
+            await t.row(
+              "SELECT 1 FROM stripe_checkouts WHERE org_id=$1 AND product=$2 AND id<>$3 AND status NOT IN ('canceled','incomplete_expired','expired')",
+              [row.org_id, row.product, row.id],
+            )
+          )
+            throw fail.conflict("Payment targets a superseded subscription — reconcile before applying");
+
+          if (
             idOf(invoice.customer) !== idOf(subscription.customer) ||
             (row.stripe_subscription_id && row.stripe_subscription_id !== subId)
           )
