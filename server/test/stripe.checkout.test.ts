@@ -72,7 +72,7 @@ describe("Stripe subscription checkout safety", () => {
       {
         stripe: {
           enabled: true,
-          secretKey: "sk_test_fixture",
+          secretKey: "rk_test_fixture",
           webhookSecret: secret,
           prices: [{ planId: "PM-STARTER", currency: "KES", priceId: "price_fixture" }],
         },

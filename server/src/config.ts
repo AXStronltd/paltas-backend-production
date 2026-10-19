@@ -305,7 +305,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
 
   if (
     e.STRIPE_ENABLED &&
-    e.STRIPE_SECRET_KEY.startsWith("sk_live_") &&
+    /^(sk|rk)_live_/.test(e.STRIPE_SECRET_KEY) &&
     new URL(e.APP_BASE_URL).hostname !== "paltas.io"
   )
     throw new Error("Stripe live keys are refused outside the production PALTAS origin");
@@ -320,7 +320,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     .parse(JSON.parse(e.STRIPE_PRICE_MAP));
   if (
     e.STRIPE_ENABLED &&
-    (!/^sk_(test|live)_/.test(e.STRIPE_SECRET_KEY) ||
+    (!/^(sk|rk)_(test|live)_/.test(e.STRIPE_SECRET_KEY) ||
       !e.STRIPE_WEBHOOK_SECRET.startsWith("whsec_") ||
       !stripePrices.length)
   )

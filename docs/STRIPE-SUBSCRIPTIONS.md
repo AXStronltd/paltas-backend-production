@@ -44,7 +44,7 @@ a success return URL is never evidence of payment. Checkout is hidden for adjust
 invoices and administrators retain bank-transfer billing.
 
 Enabled live keys are rejected unless `APP_BASE_URL` is the production PALTAS
-origin. Staging must use `sk_test_` keys. `pk_live_` and `pk_test_` are publishable
+origin. Staging must use `sk_test_` or `rk_test_` keys. Restricted `rk_live_` keys are supported on production with the API permissions needed for Checkout, Prices, Customers, Subscriptions, Invoices and PaymentIntents. Missing permission must fail closed; never silently substitute a more privileged key. `pk_live_` and `pk_test_` are publishable
 browser keys and cannot be used as `STRIPE_SECRET_KEY`. The hosted integration does
 not need a publishable key. Keep keys in Render environment settings, never in
 source code, issue descriptions or chat.

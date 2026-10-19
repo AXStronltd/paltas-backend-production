@@ -23,4 +23,23 @@ describe("Stripe environment safeguards", () => {
     expect(loadConfig({ ...complete, APP_BASE_URL: "https://paltas.io" }).stripe?.enabled).toBe(true);
     expect(loadConfig({ ...complete, STRIPE_SECRET_KEY: "sk_test_fixture" }).stripe?.enabled).toBe(true);
   });
+  it("accepts restricted server keys but preserves live environment isolation", () => {
+    for (const prefix of ["sk", "rk"]) {
+      const complete = {
+        ...env,
+        STRIPE_ENABLED: "true",
+        STRIPE_SECRET_KEY: prefix + "_test_fixture",
+        STRIPE_WEBHOOK_SECRET: "whsec_fixture",
+        STRIPE_PRICE_MAP: JSON.stringify([{ planId: "PM-STARTER", currency: "KES", priceId: "price_fixture" }]),
+      };
+      expect(loadConfig(complete).stripe?.enabled).toBe(true);
+      expect(() => loadConfig({ ...complete, STRIPE_SECRET_KEY: prefix + "_live_fixture" })).toThrow(
+        /live keys are refused/,
+      );
+      expect(
+        loadConfig({ ...complete, STRIPE_SECRET_KEY: prefix + "_live_fixture", APP_BASE_URL: "https://paltas.io" })
+          .stripe?.enabled,
+      ).toBe(true);
+    }
+  });
 });

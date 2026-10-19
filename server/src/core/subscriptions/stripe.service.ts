@@ -66,7 +66,7 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
       const interval = invoice.frequency === "yearly" ? "year" : "month",
         count = invoice.frequency === "quarterly" ? 3 : 1;
       if (
-        price.livemode !== settings.secretKey.startsWith("sk_live_") ||
+        price.livemode !== /^(sk|rk)_live_/.test(settings.secretKey) ||
         !price.active ||
         price.currency.toUpperCase() !== invoice.currency ||
         price.unit_amount !== invoice.total_minor ||
@@ -149,7 +149,7 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
       } catch {
         throw fail.invalid("Invalid Stripe signature");
       }
-      if (event.livemode !== settings.secretKey.startsWith("sk_live_"))
+      if (event.livemode !== /^(sk|rk)_live_/.test(settings.secretKey))
         throw fail.invalid("Stripe event mode does not match this environment");
       return ctx.db.tx(async (t) => {
         await t.run("SELECT pg_advisory_xact_lock(hashtext($1))", ["stripe-event:" + event.id]);
