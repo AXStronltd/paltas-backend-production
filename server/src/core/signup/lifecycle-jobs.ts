@@ -2,7 +2,7 @@
  * The trial lifecycle, one platform job (daily), the same for every product:
  *
  *   platform.trials.lifecycle
- *     - reminders: a trial policy.reminderDays before its end (T-7, T-3, T-1 by default) gets a reminder for each
+ *     - reminders: a trial policy.reminderDays before its end (T-10, T-7, T-3, T-1 by default) gets a reminder for each
  *       organisation administrator, RECORDED in the notifications outbox (never claimed as sent) — at most once per
  *       organisation, product, administrator and day (the outbox's source reference);
  *     - trial ended: once a trial has run out of its grace days (the renewals job marks it expired), each
@@ -89,6 +89,10 @@ export function trialJobs(
                   trialEnds: st.trialEnds,
                   daysLeft: String(st.daysLeft),
                   graceDays: String(s.grace_days),
+                  expiryMessage:
+                    s.grace_days > 0
+                      ? `Your existing ${s.grace_days}-day grace period stays in place. After that, changes are switched off until your plan is active.`
+                      : "When your trial ends, changes are switched off until your plan is active.",
                   daysLeftText: st.daysLeft === 1 ? "1 day" : `${st.daysLeft} days`,
                   link: `${ctx.config.signup.appBaseUrl}/account.html#upgrade`,
                 },

@@ -48,6 +48,7 @@ describe("migrations", () => {
         "0022_payment_corrections",
         "0023_developer_command_center",
         "0024_stripe_subscriptions",
+        "0025_trial_reminders",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything
