@@ -1,3 +1,4 @@
+import { STRIPE_CANCELLATION_REASON } from "./stripe.constants.js";
 /*
  * Builds an organisation's subscriptions from the database in the shape the shared entitlement rules expect, and
  * resolves what one product subscription is entitled to today. This is the only place that reads subscription
@@ -137,7 +138,25 @@ export async function resolveEntitlement(
   const p = (product ?? org.type) as Product;
   const view = entitlements.viewOf(catalogue, org, p, today);
   if (!view) return null;
-  const ent = entitlements.resolve(catalogue, view, today) as Entitlement;
+  // Provider cancellations carry an exact timestamp; the shared date-only rules must not end access at midnight.
+  // Only a verified terminal Stripe lifecycle event expires a provider-managed subscription.
+  const providerPending = (view.ent.pending ?? []).filter(
+    (change) => change.type === "cancel" && change.reason === STRIPE_CANCELLATION_REASON,
+  );
+  const providerManaged =
+    providerPending.length > 0 &&
+    !!(await db.row(
+      "SELECT 1 FROM stripe_checkouts WHERE org_id=$1 AND product=$2 AND status NOT IN ('canceled','incomplete_expired','expired')",
+      [orgId, p],
+    ));
+  const calculationView = providerManaged
+    ? {
+        ...view,
+        ent: { ...view.ent, pending: (view.ent.pending ?? []).filter((change) => !providerPending.includes(change)) },
+      }
+    : view;
+  const ent = entitlements.resolve(catalogue, calculationView, today) as Entitlement;
+  if (providerManaged) ent.pending = [...ent.pending, ...providerPending];
   return { catalogue, org, product: p, view, ent, products: entitlements.productsOf(org) as Product[] };
 }
 

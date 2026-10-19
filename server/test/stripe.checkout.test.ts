@@ -17,6 +17,7 @@ describe("Stripe subscription checkout safety", () => {
   let portalCreates = 0;
   let portalUpdatesEnabled = false;
   let scheduledCancellation = false;
+  let explicitCancellation = false;
   let portalRedirect = "https://billing.stripe.com/p/session_fixture";
   let lastPortalBody: Record<string, any> = {};
   const fake = {
@@ -99,7 +100,7 @@ describe("Stripe subscription checkout safety", () => {
         id: "sub_fixture",
         livemode: false,
         cancel_at_period_end: scheduledCancellation,
-        cancel_at: 1794355200,
+        cancel_at: scheduledCancellation || explicitCancellation ? 1794355200 : null,
         items: { data: [{ current_period_end: 1794355200 }] },
         customer: "cus_fixture",
         status: subStatus,
@@ -309,6 +310,27 @@ describe("Stripe subscription checkout safety", () => {
     ).rejects.toMatchObject({ status: 409 });
     scheduledCancellation = false;
     await send("customer.subscription.updated", "evt_cancel_reversed");
+    expect(await S.sql("SELECT 1 FROM subscription_pending WHERE org_id=$1 AND type='cancel'", [a.orgId])).toEqual([]);
+  });
+  it("reconciles an explicit cancellation timestamp and retains paid access on its calendar day", async () => {
+    explicitCancellation = true;
+    const previousDay = S.app.clock.today();
+    try {
+      await send("customer.subscription.updated", "evt_explicit_cancel");
+      expect(
+        await S.sql("SELECT 1 FROM subscription_pending WHERE org_id=$1 AND type='cancel'", [a.orgId]),
+      ).toHaveLength(1);
+      S.setToday(new Date(1794355200 * 1000).toISOString().slice(0, 10));
+      const access = await a.api.subscriptions.entitlements({
+        params: { orgId: a.orgId },
+        query: { product: "property" },
+      });
+      expect(access).toMatchObject({ status: "active", usable: true });
+    } finally {
+      S.setToday(previousDay);
+      explicitCancellation = false;
+      await send("customer.subscription.updated", "evt_explicit_cancel_reversed");
+    }
     expect(await S.sql("SELECT 1 FROM subscription_pending WHERE org_id=$1 AND type='cancel'", [a.orgId])).toEqual([]);
   });
   it("handles renewal failure, recovery and repeated invoice events without duplicate receipts", async () => {
