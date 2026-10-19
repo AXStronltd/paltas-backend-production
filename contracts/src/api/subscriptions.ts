@@ -362,6 +362,7 @@ export const getUpgradeOptions = endpoint({
         current: z.boolean(),
       }),
     ),
+    cardCheckout: z.object({ available: z.boolean(), testMode: z.boolean(), planIds: z.array(z.string()) }).optional(),
     paymentMethods: z.array(z.object({ method: PaymentMethod, available: z.boolean(), note: z.string() })),
   }),
 });

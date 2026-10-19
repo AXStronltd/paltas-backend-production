@@ -69,6 +69,15 @@ const EnvSchema = z.object({
   /** Public self-service sign-up (core/signup). Off unless switched on. */
   SIGNUP_ENABLED: Bool.default(false),
   SIGNUP_REQUIRE_PROFILE: Bool.default(false),
+  SIGNUP_PLAN_IDS: z
+    .string()
+    .default("")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean),
+    ),
   PM_DOCUMENT_FILE_UPLOADS_ENABLED: Bool.default(true),
   SIGNUP_PRODUCTS: z
     .string()
@@ -194,6 +203,7 @@ export function parseMailbox(raw: string): { name: string; address: string } | n
 export interface SignupSettings {
   enabled: boolean;
   requireProfile?: boolean;
+  allowedPlanIds?: string[];
   allowedProducts: z.infer<typeof Product>[];
   perIpPerHour: number;
   perEmailPerDay: number;
@@ -293,6 +303,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
       .map(([k, v]) => [k.slice("WEBHOOK_SECRET_".length).toLowerCase(), v as string]),
   );
 
+  if (
+    e.STRIPE_ENABLED &&
+    e.STRIPE_SECRET_KEY.startsWith("sk_live_") &&
+    new URL(e.APP_BASE_URL).hostname !== "paltas.io"
+  )
+    throw new Error("Stripe live keys are refused outside the production PALTAS origin");
   const stripePrices = z
     .array(
       z.object({
@@ -359,6 +375,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     signup: {
       enabled: e.SIGNUP_ENABLED,
       requireProfile: e.SIGNUP_REQUIRE_PROFILE,
+      allowedPlanIds: e.SIGNUP_PLAN_IDS,
       allowedProducts: [...new Set(e.SIGNUP_PRODUCTS)],
       perIpPerHour: e.SIGNUP_PER_IP_PER_HOUR,
       perEmailPerDay: e.SIGNUP_PER_EMAIL_PER_DAY,

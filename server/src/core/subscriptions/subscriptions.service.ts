@@ -105,7 +105,12 @@ export function subscriptionsService(ctx: AppContext) {
             offer: e
               ? null
               : cat.plans
-                  .filter((p) => p.products[0] === k && p.tier)
+                  .filter(
+                    (p) =>
+                      p.products[0] === k &&
+                      p.tier &&
+                      (!config.signup.allowedPlanIds?.length || config.signup.allowedPlanIds.includes(p.id)),
+                  )
                   .map((p) => {
                     const price = entitlements.priceIn(p.base, org.currency);
                     return {
@@ -133,7 +138,12 @@ export function subscriptionsService(ctx: AppContext) {
         throw fail.conflict(`Your organisation already has ${entitlements.PRODUCT_NAME[product]}`);
       const cat = s.entitlement.catalogue;
       const pl = cat.plans.find((p) => p.id === planId);
-      if (!pl || pl.products[0] !== product) throw fail.invalid(`Pick a ${entitlements.PRODUCT_NAME[product]} plan`);
+      if (
+        !pl ||
+        pl.products[0] !== product ||
+        (config.signup.allowedPlanIds?.length && !config.signup.allowedPlanIds.includes(pl.id))
+      )
+        throw fail.invalid(`Pick a ${entitlements.PRODUCT_NAME[product]} plan`);
       const price = entitlements.priceIn(pl.base, s.entitlement.org.currency);
       if (pl.tier === "Enterprise" || !price)
         throw fail.invalid("This plan is agreed with PALTAS — send an Enterprise enquiry", { contactSales: true });
@@ -249,6 +259,12 @@ export function subscriptionsService(ctx: AppContext) {
     },
 
     async changePlan(s: OrgScope, planId: string) {
+      if (
+        config.signup.allowedPlanIds?.length &&
+        !config.signup.allowedPlanIds.includes(planId) &&
+        planId !== s.entitlement.ent.planId
+      )
+        throw fail.invalid("Choose a currently offered plan or contact PALTAS");
       const q = entitlements.canChangePlan(s.entitlement.catalogue, s.entitlement.view, planId, clock.today());
       if (!q.ok) throw fail.invalid(q.why, { contactSales: !!q.contactSales });
       if (!q.upgrade) {

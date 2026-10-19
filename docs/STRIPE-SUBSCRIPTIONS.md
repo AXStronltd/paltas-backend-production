@@ -29,3 +29,22 @@ The platform renewal scheduler skips Stripe-managed subscriptions to prevent dup
 ## Production gate
 
 Require passing full CI plus real Stripe test-mode evidence and approved prices. Configure production keys/webhook separately only after explicit release approval. Never charge customers from fixtures or change existing trial/signup policy as a side effect.
+
+## Environment and catalogue safeguards
+
+`SIGNUP_PLAN_IDS` optionally limits the plan IDs offered for new registrations,
+product additions and plan changes. Existing customer plans remain readable and
+current customer terms are not rewritten. An empty setting preserves the existing
+catalogue behaviour. Use versioned plan IDs for new pricing rather than updating
+contracted plans in place.
+
+The upgrade-options response includes `cardCheckout` only as server-derived
+capability information. Browsers must still call the authenticated checkout route;
+a success return URL is never evidence of payment. Checkout is hidden for adjusted
+invoices and administrators retain bank-transfer billing.
+
+Enabled live keys are rejected unless `APP_BASE_URL` is the production PALTAS
+origin. Staging must use `sk_test_` keys. `pk_live_` and `pk_test_` are publishable
+browser keys and cannot be used as `STRIPE_SECRET_KEY`. The hosted integration does
+not need a publishable key. Keep keys in Render environment settings, never in
+source code, issue descriptions or chat.

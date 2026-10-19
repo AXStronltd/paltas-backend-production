@@ -305,6 +305,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
             const base = p.base;
             const product = (p.products[0] === "agents" ? "agency" : p.products[0]) as Product;
             if (!settings.allowedProducts.includes(product)) return [];
+            if (settings.allowedPlanIds?.length && !settings.allowedPlanIds.includes(p.id)) return [];
             if (p.tier === "Enterprise" || base?.amount == null || !base.ccy) return [];
             return [
               {
@@ -357,7 +358,11 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         throw fail.tooManyAttempts("Too many sign-ups for this e-mail address today — try again tomorrow");
       // the plan comes from the catalogue (never from code); its currency becomes the organisation's
       const plan = await findPlan(db, b.plan);
-      if (!plan || plan.product !== b.product)
+      if (
+        !plan ||
+        plan.product !== b.product ||
+        (settings.allowedPlanIds?.length && !settings.allowedPlanIds.includes(plan.id))
+      )
         throw fail.invalid(`Pick a ${entitlements.PRODUCT_NAME[b.product]} plan from the PALTAS catalogue`);
       if (plan.tier === "Enterprise" || plan.base_minor == null || !plan.currency)
         throw fail.invalid("This plan is agreed with PALTAS — send an Enterprise enquiry instead", {

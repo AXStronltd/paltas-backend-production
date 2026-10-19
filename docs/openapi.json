@@ -4730,6 +4730,29 @@
                         "additionalProperties": false
                       }
                     },
+                    "cardCheckout": {
+                      "type": "object",
+                      "properties": {
+                        "available": {
+                          "type": "boolean"
+                        },
+                        "testMode": {
+                          "type": "boolean"
+                        },
+                        "planIds": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "available",
+                        "testMode",
+                        "planIds"
+                      ],
+                      "additionalProperties": false
+                    },
                     "paymentMethods": {
                       "type": "array",
                       "items": {
