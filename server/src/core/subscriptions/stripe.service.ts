@@ -133,7 +133,6 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
       const session = await stripe.checkout.sessions.create(
         {
           mode: "subscription",
-          ui_mode: "hosted",
           line_items: [{ price: row.price_id, quantity: 1 }],
           client_reference_id: row.id,
           metadata,
