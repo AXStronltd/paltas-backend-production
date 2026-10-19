@@ -33,11 +33,18 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
   const client = () => {
     if (!settings?.enabled)
       throw fail.conflict("Card subscriptions are not connected yet. Use bank transfer or contact PALTAS.");
+    if (!settings.accountId) throw fail.conflict("PALTAS billing account is not configured. Contact PALTAS.");
     return supplied ?? new Stripe(settings.secretKey, { timeout: 15000, maxNetworkRetries: 2 });
+  };
+  const verifyAccount = async (stripe: Stripe) => {
+    const account = await stripe.accounts.retrieve(null);
+    if (account.id !== settings.accountId)
+      throw fail.conflict("PALTAS billing account verification failed. Contact PALTAS.");
   };
   return {
     async checkout(orgId: string, product: Product, invoiceId: string) {
       const stripe = client();
+      await verifyAccount(stripe);
       const invoice = await ctx.db.row<{
         id: string;
         plan_id: string;
@@ -117,14 +124,20 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
         return { url: session.url, sessionId: session.id, testMode: !session.livemode };
       }
       const base = ctx.config.signup.appBaseUrl;
+      const metadata = {
+        paltasCheckoutId: row.id,
+        paltasApplication: "paltas",
+        paltasAccountId: settings.accountId ?? "",
+        paltasMode: /^(sk|rk)_live_/.test(settings.secretKey) ? "live" : "test",
+      };
       const session = await stripe.checkout.sessions.create(
         {
           mode: "subscription",
           ui_mode: "hosted",
           line_items: [{ price: row.price_id, quantity: 1 }],
           client_reference_id: row.id,
-          metadata: { paltasCheckoutId: row.id },
-          subscription_data: { metadata: { paltasCheckoutId: row.id } },
+          metadata,
+          subscription_data: { metadata },
           success_url: base + "/account.html?billing=processing#account",
           cancel_url: base + "/account.html?billing=cancelled#account",
           billing_address_collection: "required",
@@ -149,8 +162,18 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
       } catch {
         throw fail.invalid("Invalid Stripe signature");
       }
+      if (event.account) throw fail.invalid("Connected-account events are not accepted by PALTAS billing");
       if (event.livemode !== /^(sk|rk)_live_/.test(settings.secretKey))
         throw fail.invalid("Stripe event mode does not match this environment");
+      const assertMetadata = (metadata: Stripe.Metadata | null) => {
+        if (
+          metadata?.paltasApplication !== "paltas" ||
+          metadata.paltasAccountId !== settings.accountId ||
+          metadata.paltasMode !== (event.livemode ? "live" : "test")
+        )
+          throw fail.invalid("Stripe object does not belong to this PALTAS billing environment");
+      };
+      await verifyAccount(stripe);
       return ctx.db.tx(async (t) => {
         await t.run("SELECT pg_advisory_xact_lock(hashtext($1))", ["stripe-event:" + event.id]);
         const seen = await t.row<{ result: string }>("SELECT result FROM stripe_events WHERE id=$1", [event.id]);
@@ -161,6 +184,7 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
         };
         if (event.type === "checkout.session.completed") {
           const session = await stripe.checkout.sessions.retrieve(event.data.object.id);
+          assertMetadata(session.metadata);
           const key = session.metadata?.paltasCheckoutId;
           const row = await t.row<Checkout>("SELECT * FROM stripe_checkouts WHERE id=$1 FOR UPDATE", [key ?? ""]);
           if (
@@ -184,6 +208,7 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
           const subId = idOf(invoice.parent?.subscription_details?.subscription);
           if (!subId) return save("Ignored — not a subscription invoice");
           const subscription = await stripe.subscriptions.retrieve(subId);
+          assertMetadata(subscription.metadata);
           const row = await t.row<Checkout>("SELECT * FROM stripe_checkouts WHERE id=$1 FOR UPDATE", [
             subscription.metadata.paltasCheckoutId ?? "",
           ]);
@@ -197,6 +222,7 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
             throw fail.conflict("Payment targets a superseded subscription — reconcile before applying");
 
           if (
+            (row.stripe_customer_id && row.stripe_customer_id !== idOf(subscription.customer)) ||
             idOf(invoice.customer) !== idOf(subscription.customer) ||
             (row.stripe_subscription_id && row.stripe_subscription_id !== subId)
           )
@@ -297,6 +323,7 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
           event.type === "customer.subscription.deleted"
         ) {
           const sub = await stripe.subscriptions.retrieve(event.data.object.id);
+          assertMetadata(sub.metadata);
           const row = await t.row<Checkout>("SELECT * FROM stripe_checkouts WHERE id=$1 FOR UPDATE", [
             sub.metadata.paltasCheckoutId ?? "",
           ]);

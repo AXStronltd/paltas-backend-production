@@ -21,6 +21,17 @@ export function subscriptionsService(ctx: AppContext) {
   const billing = billingService(ctx);
   const scopeShape = (s: OrgScope) => ({ orgId: s.orgId, product: s.product, actor: s.actor, en: s.entitlement });
 
+  async function requireUnmanagedStripe(orgId: string, product: Product) {
+    const managed = await db.row(
+      "SELECT 1 FROM stripe_checkouts WHERE org_id=$1 AND product=$2 AND status NOT IN ('canceled','incomplete_expired','expired')",
+      [orgId, product],
+    );
+    if (managed)
+      throw fail.conflict(
+        "This subscription is billed through Stripe. Contact PALTAS to change or cancel it; no billing change has been made.",
+      );
+  }
+
   return {
     entitlements(s: OrgScope) {
       return toEntitlementsView(s.entitlement, s.today);
@@ -259,6 +270,7 @@ export function subscriptionsService(ctx: AppContext) {
     },
 
     async changePlan(s: OrgScope, planId: string) {
+      await requireUnmanagedStripe(s.orgId, s.product);
       if (
         config.signup.allowedPlanIds?.length &&
         !config.signup.allowedPlanIds.includes(planId) &&
@@ -332,6 +344,7 @@ export function subscriptionsService(ctx: AppContext) {
     },
 
     async cancel(s: OrgScope, reason: string) {
+      await requireUnmanagedStripe(s.orgId, s.product);
       const e = s.entitlement.ent;
       if (e.pending.some((p) => p.type === "cancel")) throw fail.conflict("Already cancelled");
       const effective = e.status === "trial" ? (e.trialEnds ?? clock.today()) : (e.nextBilling ?? clock.today());
