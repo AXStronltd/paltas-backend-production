@@ -39,6 +39,12 @@ const BANK_NOTE =
 
 export function upgradeService(ctx: AppContext, deps: { billing: BillingService; signup: SignupService }) {
   const { db } = ctx;
+  const providerNote = () =>
+    !ctx.config.stripe?.enabled
+      ? PROVIDER_NOTE
+      : /^(sk|rk)_test_/.test(ctx.config.stripe.secretKey)
+        ? "Stripe sandbox only: use test payment details. Your plan starts only after the server verifies a successful test payment."
+        : "Pay securely through Stripe Checkout. Your plan starts only after the server verifies the payment; a return-page visit is not payment confirmation.";
 
   function plansFor(s: OrgScope) {
     const { catalogue, org, ent } = s.entitlement;
@@ -111,7 +117,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
             : [],
         },
         paymentMethods: [
-          { method: "provider" as const, available: true, note: PROVIDER_NOTE },
+          { method: "provider" as const, available: true, note: providerNote() },
           { method: "bank_transfer" as const, available: true, note: BANK_NOTE },
         ],
       };
@@ -182,7 +188,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
             method: b.payment,
             reference: invoice.id,
             status: "Awaiting payment — the subscription starts when the payment is confirmed",
-            instructions: b.payment === "provider" ? PROVIDER_NOTE : BANK_NOTE,
+            instructions: b.payment === "provider" ? providerNote() : BANK_NOTE,
           },
         };
       });

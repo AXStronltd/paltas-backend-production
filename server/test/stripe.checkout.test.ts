@@ -141,6 +141,7 @@ describe("Stripe subscription checkout safety", () => {
       params: { orgId: a.orgId },
       body: { plan: "PM-STARTER", frequency: "monthly", payment: "provider", confirm: "CONFIRM" },
     });
+    expect(up.payment.instructions).toMatch(/Stripe sandbox/);
     invoiceId = up.invoice!.id;
     amount = up.invoice!.netMinor;
     currency = up.invoice!.currency;
