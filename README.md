@@ -92,7 +92,7 @@ npm run dev                             # http://127.0.0.1:8787/api/v1/health
 npm run bootstrap -- you@example.com ./paltas-superadmin.txt   # schema, catalogue, the FIRST Super Admin (only if none exists)
 ```
 
-The password and authenticator secret go to that file (owner-only), never to the screen or the hosting logs. Add the
+The credentials-file argument is required. The password and authenticator secret go to that new file (owner-only), never to the screen or the hosting logs. Add the
 authenticator secret to your app, keep the file somewhere safe, then delete it. The catalogue's KES prices are demo
 configuration: confirm them in the Super Admin portal before billing anyone.
 

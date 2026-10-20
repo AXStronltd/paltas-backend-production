@@ -1,9 +1,9 @@
-// The first PALTAS Super Admin in production: the command works only while no staff account exists, prints a
-// temporary password and an authenticator secret once, is audited, and is refused on every later run. Staff and
+// The first PALTAS Super Admin in production: the command works only while no staff account exists, writes a
+// temporary password and authenticator secret to an owner-only file, never logs them, is audited, and is refused on every later run. Staff and
 // client accounts never mix (also enforced by the database).
 import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import { mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, stat, writeFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,7 +22,15 @@ const OWNER_SCRIPT = fileURLToPath(new URL("../dist/scripts/bootstrap.js", impor
 const KEY = Buffer.alloc(32, 7).toString("base64");
 
 async function bootstrap(databaseUrl: string, email: string) {
-  return runScript(databaseUrl, [SCRIPT, "--email", email, "--name", "PALTAS Operations"]);
+  const dir = await mkdtemp(join(tmpdir(), "paltas-bootstrap-test-"));
+  const file = join(dir, "staff.txt");
+  try {
+    const r = await runScript(databaseUrl, [SCRIPT, "--email", email, "--name", "PALTAS Operations", "--file", file]);
+    const credentials = await readFile(file, "utf8").catch(() => "");
+    return { ...r, credentials };
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 }
 
 async function runScript(databaseUrl: string, argv: string[]) {
@@ -46,10 +54,13 @@ describe("first Super Admin (production command)", () => {
     const email = `ops+${randomBytes(3).toString("hex")}@paltashub.test`;
     const first = await bootstrap(S.app.ctx.config.databaseUrl, email);
     expect([first.code, first.stderr]).toEqual([0, ""]);
-    expect(first.stdout).toMatch(/First PALTAS Super Admin created \(production\)/);
-    const temporary = /temporary password:\s+(\S+)/.exec(first.stdout)?.[1] as string;
-    const secret = /authenticator secret:\s+(\S+)/.exec(first.stdout)?.[1] as string;
+    expect(first.stdout).toContain(`First PALTAS Super Admin ${email} created (production)`);
+    const temporary = /temporary password:\s+(\S+)/.exec(first.credentials)?.[1] as string;
+    const secret = /authenticator secret:\s+(\S+)/.exec(first.credentials)?.[1] as string;
     expect(temporary.length).toBeGreaterThanOrEqual(12);
+    expect(first.stdout.includes(temporary) || first.stderr.includes(temporary)).toBe(false);
+    expect(first.stdout.includes(secret) || first.stderr.includes(secret)).toBe(false);
+    expect(first.stdout).not.toMatch(/otpauth:\/\//);
     // only hashes and the sealed secret are stored
     const [u] = await S.sql<{
       password_hash: string;
@@ -82,6 +93,13 @@ describe("first Super Admin (production command)", () => {
       ["First Super Admin bootstrap refused", "someone-else@paltashub.test", "system"],
       ["First Super Admin created", email, "system"],
     ]);
+  });
+
+  it("requires a credentials file before touching a new database", async () => {
+    const r = await runScript("postgres://unused@127.0.0.1:1/not-accessed", [SCRIPT, "--email", "owner@paltas.test"]);
+    expect(r.code).toBe(2);
+    expect(r.stderr).toMatch(/Usage/);
+    expect(r.stdout).toBe("");
   });
 
   it("refuses without an e-mail address", async () => {
@@ -201,7 +219,7 @@ describe("first Super Admin — a live database the first `npm run bootstrap` al
     for (const argv of [
       [OWNER_SCRIPT, "owner-admin@paltashub.test", file],
       [OWNER_SCRIPT, "another@paltashub.test", file],
-      [SCRIPT, "--email", "another@paltashub.test"],
+      [SCRIPT, "--email", "another@paltashub.test", "--file", join(dir, "third.txt")],
     ]) {
       const r = await runScript(S.app.ctx.config.databaseUrl, argv);
       expect(r.code).toBe(1);

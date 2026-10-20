@@ -67,7 +67,10 @@ export type PaltasClient = { [G in keyof typeof API]: GroupMethods<(typeof API)[
 export function createClient(options: ClientOptions): PaltasClient {
   let token = options.token ?? null;
   const doFetch = options.fetch ?? globalThis.fetch.bind(globalThis);
-  const base = options.baseUrl.replace(/\/+$/, "");
+  // A backwards scan is linear even for a long slash run followed by a non-slash.
+  let end = options.baseUrl.length;
+  while (end > 0 && options.baseUrl.charCodeAt(end - 1) === 47) end--;
+  const base = options.baseUrl.slice(0, end);
 
   async function call<E extends EndpointDefinition>(endpoint: E, input?: CallInput<E>): Promise<ResponseOf<E>> {
     const i = (input ?? {}) as { params?: Record<string, string>; query?: Record<string, unknown>; body?: unknown };
