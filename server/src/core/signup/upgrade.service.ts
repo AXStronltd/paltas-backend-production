@@ -6,8 +6,8 @@
  *             it, and how to pay. An invoice is issued through the existing billing service (an order of kind
  *             "plan" that ALWAYS waits for payment, even in BILLING_MODE=simulated). The subscription becomes
  *             active only when that invoice is paid:
- *               - provider: a signed provider event (card / M-Pesa adapters) quoting the invoice number. Only test
- *                 adapters exist: live collection is BLOCKED (credentials, contracts);
+ *               - provider: a signed provider event quoting the invoice number. Hosted Stripe collection
+ *                 is offered only when its dedicated configuration is enabled;
  *               - bank_transfer: PALTAS staff confirm the bank reference (admin receipts, or a confirmed bank
  *                 statement line imported by one person and confirmed by another).
  *             Nothing becomes active because a form was submitted. Records are never touched, so an expired
@@ -39,6 +39,12 @@ const BANK_NOTE =
 
 export function upgradeService(ctx: AppContext, deps: { billing: BillingService; signup: SignupService }) {
   const { db } = ctx;
+  const providerNote = () =>
+    !ctx.config.stripe?.enabled
+      ? PROVIDER_NOTE
+      : /^(sk|rk)_test_/.test(ctx.config.stripe.secretKey)
+        ? "Stripe sandbox only: use test payment details. Your plan starts only after the server verifies a successful test payment."
+        : "Pay securely through Stripe Checkout. Your plan starts only after the server verifies the payment; a return-page visit is not payment confirmation.";
 
   function plansFor(s: OrgScope) {
     const { catalogue, org, ent } = s.entitlement;
@@ -53,6 +59,13 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
       )
       .map((p) => {
         const price = entitlements.priceIn(p.base, org.currency);
+        const isolatedTest =
+          new URL(ctx.config.signup.appBaseUrl).hostname !== "paltas.io" &&
+          /^(sk|rk)_test_/.test(ctx.config.stripe?.secretKey ?? "");
+        const taxReview =
+          ctx.config.env === "production" &&
+          !isolatedTest &&
+          /demo|example|placeholder|synthetic/i.test(p.taxNote ?? "");
         return {
           plan: p,
           id: p.id,
@@ -61,7 +74,8 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
           // the billing period is part of the plan in the catalogue (one plan row per period PALTAS sells)
           frequencies: [p.frequency] as Frequency[],
           price: price ? { amountMinor: toMinor(price.amount, price.ccy), currency: price.ccy, per: price.per } : null,
-          contactSales: p.tier === "Enterprise" || !price,
+          taxReview,
+          contactSales: p.tier === "Enterprise" || !price || taxReview,
           current: p.id === ent.planId,
         };
       });
@@ -76,7 +90,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
         status: ent.status,
         trial: entitlements.trialState(s.entitlement.view.ent, s.today),
         emailVerified: verified,
-        plans: plansFor(s).map(({ plan: _p, ...rest }) => rest),
+        plans: plansFor(s).map(({ plan: _p, taxReview: _review, ...rest }) => rest),
         cardCheckout: {
           available: !!ctx.config.stripe?.enabled,
           portalAvailable: !!(
@@ -94,6 +108,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
                 .filter(
                   (p) =>
                     p.price &&
+                    !p.taxReview &&
                     !p.plan.taxPct &&
                     !s.entitlement.ent.terms.discountPct &&
                     ctx.config.stripe?.prices.some((x) => x.planId === p.id && x.currency === p.price?.currency),
@@ -102,7 +117,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
             : [],
         },
         paymentMethods: [
-          { method: "provider" as const, available: true, note: PROVIDER_NOTE },
+          { method: "provider" as const, available: true, note: providerNote() },
           { method: "bank_transfer" as const, available: true, note: BANK_NOTE },
         ],
       };
@@ -117,6 +132,10 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
       const choice = plansFor(s).find((p) => p.id === b.plan);
       if (!choice)
         throw fail.invalid(`Pick a ${entitlements.PRODUCT_NAME[s.product] ?? s.product} plan from the catalogue`);
+      if (choice.taxReview)
+        throw fail.conflict(
+          "This plan needs a billing review before an invoice can be issued. Contact PALTAS for a confirmed quote; your trial and records are unchanged.",
+        );
       if (choice.contactSales || !choice.price)
         throw fail.invalid("This plan is agreed with PALTAS — send an Enterprise enquiry", { contactSales: true });
       if (!choice.frequencies.includes(b.frequency))
@@ -169,7 +188,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
             method: b.payment,
             reference: invoice.id,
             status: "Awaiting payment — the subscription starts when the payment is confirmed",
-            instructions: b.payment === "provider" ? PROVIDER_NOTE : BANK_NOTE,
+            instructions: b.payment === "provider" ? providerNote() : BANK_NOTE,
           },
         };
       });

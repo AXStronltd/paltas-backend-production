@@ -200,7 +200,10 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
         customer: row.stripe_customer_id,
         configuration: settings.portalConfigurationId,
         return_url: returnUrl,
-        ...(action === "cancel"
+        ...(action === "cancel" &&
+        ["active", "trialing", "past_due"].includes(sub.status) &&
+        !sub.cancel_at_period_end &&
+        sub.cancel_at == null
           ? {
               flow_data: {
                 type: "subscription_cancel" as const,
