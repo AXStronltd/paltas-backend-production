@@ -6,7 +6,7 @@ import { Readable } from "node:stream";
  * counts against the caller address's budget, and is capped per person and listing in the database.
  * Buyers and guests follow an offer or booking with its reference and the private token returned once.
  */
-import type { marketplace } from "@paltas/contracts";
+import { rentalRules, type marketplace } from "@paltas/contracts";
 import { recordAudit } from "../../../core/audit/audit.service.js";
 import { nextNumber } from "../../../db/counters.js";
 import type { Db } from "../../../db/database.js";
@@ -16,7 +16,7 @@ import { newId } from "../../../lib/ids.js";
 import type { AgencyDeps } from "../deps.js";
 import { leadEvent } from "../leads/leads.repo.js";
 import { advanceLead, openLeadFor } from "../leads/leads.service.js";
-import { mediaOf, toPublicListing, type ListingRow } from "../listings/listings.repo.js";
+import { mediaOf, rulesInput, toPublicListing, type ListingRow } from "../listings/listings.repo.js";
 import { linkContact, noteOnContact } from "../shared/contacts.js";
 import { HOLDING, nightlyPrices, quote } from "../shared/quote.js";
 import { daysBetween, hashToken, newToken, unique, VISITOR } from "../shared/util.js";
@@ -456,6 +456,12 @@ export function publicService(d: AgencyDeps) {
       return db.tx(async (t) => {
         const l = await publicListing(t, id);
         if (l.purpose !== "stay") throw fail.invalid("Only stays are booked");
+        // New York City stays under 30 nights: only with a registration PALTAS staff checked, and within local rules
+        if (
+          rentalRules.isNycShortTermRental(rulesInput(l)) &&
+          (!l.str_verified_at || rentalRules.rentalRuleIssues(rulesInput(l)).length)
+        )
+          throw fail.conflict("This New York City stay is not taking requests right now. Please choose another stay.");
         const c = await linkContact(d.core, t, {
           orgId: l.org_id,
           person: b,

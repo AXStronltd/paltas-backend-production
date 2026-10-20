@@ -18,4 +18,5 @@ export * from "./api/ledger.js";
 export * from "./api/admin.js";
 export * from "./api/migration.js";
 export * as entitlements from "./entitlements/rules.js";
+export * as rentalRules from "./rental-rules.js";
 export type * from "./entitlements/types.js";

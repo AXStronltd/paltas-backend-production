@@ -26,7 +26,9 @@ export function marketplaceRoutes(P: PublicService, S: ModerationService) {
     route(M.requestBusiness, async (req) => S.submitRequest(req.ip, req.body)),
     // ---- PALTAS staff
     route(M.moderationQueue, async (req) => S.queue(req.user, req.query.status)),
-    route(M.approveListing, async (req) => S.approve(req.user, req.params.listingId, req.body.note)),
+    route(M.approveListing, async (req) =>
+      S.approve(req.user, req.params.listingId, req.body.note, req.body.registrationChecked),
+    ),
     route(M.rejectListing, async (req) => S.reject(req.user, req.params.listingId, req.body.reason)),
     route(M.reviewQueue, async (req) => S.reviews(req.user, req.query.status)),
     route(M.moderateReview, async (req) => S.moderateReview(req.user, req.params.reviewId, req.body)),

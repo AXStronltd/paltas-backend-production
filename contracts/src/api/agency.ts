@@ -14,6 +14,7 @@ import { z } from "zod";
 import { IsoDate, IsoDateTime, MinorUnits, PositiveMinorUnits, Reason, Currency, Email } from "../common.js";
 import { endpoint } from "../endpoint.js";
 import {
+  Jurisdiction,
   ListingPurpose,
   ListingStatus,
   MediaKind,
@@ -22,6 +23,7 @@ import {
   Phone,
   PublicMedia,
   StayStatus,
+  TenantFee,
 } from "./marketplace.js";
 import { OrgParams } from "./organisations.js";
 
@@ -131,6 +133,11 @@ export const ListingInput = z.object({
   ownerContactId: Id.optional(),
   agreementId: Id.optional(),
   agentUserId: Id.optional(),
+  /** Local rental rules (contracts/src/rental-rules.ts): New York City short-term rental registration and FARE Act. */
+  strRegistrationNumber: z.string().trim().toUpperCase().max(40).default(""),
+  hostPresent: z.boolean().default(false),
+  tenantFees: z.array(TenantFee).max(20).default([]),
+  noTenantBrokerFee: z.boolean().default(false),
 });
 export type ListingInput = z.infer<typeof ListingInput>;
 
@@ -148,6 +155,12 @@ export const Listing = ListingInput.extend({
   submittedAt: IsoDateTime.nullable(),
   reviewedAt: IsoDateTime.nullable(),
   publishedAt: IsoDateTime.nullable(),
+  compliance: z.object({
+    jurisdiction: Jurisdiction,
+    strVerifiedAt: IsoDateTime.nullable(),
+    /** What stops this listing being submitted or published under local rules, in plain words. */
+    issues: z.array(z.string()),
+  }),
   media: z.array(
     PublicMedia.extend({
       fileName: z.string(),

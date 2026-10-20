@@ -52,6 +52,26 @@ export const PublicMedia = z.object({
 export type PublicMedia = z.infer<typeof PublicMedia>;
 
 /** What anyone may see about a published listing. No personal data, no private address, no organisation id. */
+// ------------------------------------------------------------------ local rental rules (contracts/src/rental-rules.ts)
+export const Jurisdiction = z.enum(["us-nyc", "us"]).nullable();
+export const TENANT_FEE_TIMING = ["once", "monthly", "yearly"] as const;
+export const TenantFee = z.object({
+  name: z.string().trim().min(2).max(80),
+  amountMinor: MinorUnits.min(0),
+  when: z.enum(TENANT_FEE_TIMING),
+});
+export type TenantFee = z.infer<typeof TenantFee>;
+/** What a guest or tenant must be told about local rules for this listing. */
+export const PublicCompliance = z.object({
+  jurisdiction: Jurisdiction,
+  /** New York City stays under 30 nights: the host's OSE registration number, checked by PALTAS staff. */
+  strRegistrationNumber: z.string().nullable(),
+  /** New York City rentals (FARE Act): every fee the tenant pays, and that no broker fee is charged to the tenant. */
+  tenantFees: z.array(TenantFee).nullable(),
+  noTenantBrokerFee: z.boolean().nullable(),
+});
+export type PublicCompliance = z.infer<typeof PublicCompliance>;
+
 export const PublicListing = z.object({
   id: z.string(),
   number: z.string(),
@@ -80,6 +100,7 @@ export const PublicListing = z.object({
   listedBy: z.string(),
   media: z.array(PublicMedia),
   rating: z.object({ average: z.number().nullable(), count: z.number().int() }),
+  compliance: PublicCompliance,
   publishedAt: IsoDateTime,
 });
 export type PublicListing = z.infer<typeof PublicListing>;
@@ -405,6 +426,17 @@ export const ModerationListing = z.object({
   submittedAt: IsoDateTime.nullable(),
   reviewedAt: IsoDateTime.nullable(),
   reviewNote: z.string(),
+  country: z.string(),
+  minNights: z.number().int(),
+  maxGuests: z.number().int().nullable(),
+  /** The local rules that apply, what the host declared, and what still blocks publication. */
+  compliance: PublicCompliance.extend({
+    hostPresent: z.boolean(),
+    /** Staff must confirm the OSE registration before a New York City short-term rental is published. */
+    needsRegistrationCheck: z.boolean(),
+    strVerifiedAt: IsoDateTime.nullable(),
+    issues: z.array(z.string()),
+  }),
 });
 export type ModerationListing = z.infer<typeof ModerationListing>;
 
@@ -427,7 +459,11 @@ export const approveListing = endpoint({
   auth: "staff",
   summary: "Approve a submitted listing: it is published on the marketplace",
   params: ListingIdParams,
-  body: z.object({ note: z.string().trim().max(500).default("") }),
+  body: z.object({
+    note: z.string().trim().max(500).default(""),
+    /** Required for a New York City stay under 30 nights: staff checked the OSE registration number. */
+    registrationChecked: z.boolean().default(false),
+  }),
   response: ModerationListing,
 });
 
