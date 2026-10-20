@@ -2,7 +2,7 @@
  * The FIRST PALTAS Super Admin of an installation (production included) — one command, two spellings:
  *
  *   npm run bootstrap -- <email> <credentials-file>                 (the owner's documented form)
- *   npm run bootstrap:admin -- --email <email> [--name "<full name>"] [--file <credentials-file>]
+ *   node server/dist/scripts/bootstrap-admin.js --email <email> --file <credentials-file> [--name "<full name>"]
  *   node server/dist/scripts/bootstrap.js …   (or bootstrap-admin.js, the same command) on the server after a build
  *
  * Every run applies the pending migrations and loads the starting catalogue (existing rows are never overwritten).
@@ -11,8 +11,8 @@
  * every sign-in), audited. Once any staff account exists every run is refused, audited and exits 1: it never creates
  * a second Super Admin and never resets a password or a secret.
  *
- * With a credentials file the password and secret are written to that NEW file (owner-only; it must not exist yet)
- * and never printed, so they stay out of terminals and hosting logs. Without one they are printed ONCE.
+ * A credentials file is REQUIRED: the password and secret are written to that NEW file (owner-only; it must not
+ * exist yet) and are never printed to terminals or hosting logs. Missing arguments fail before database access.
  * Run it with the server's own DATABASE_URL and SECRETS_KEY: the server cannot read a secret sealed with another key.
  */
 import { writeFile } from "node:fs/promises";
@@ -27,7 +27,7 @@ import { secretBox } from "../lib/secret-box.js";
 
 const USAGE = [
   "Usage: npm run bootstrap -- <super-admin-email> <credentials-file>",
-  '   or: npm run bootstrap:admin -- --email <address> [--name "<full name>"] [--file <credentials-file>]',
+  '   or: node server/dist/scripts/bootstrap-admin.js --email <address> --file <credentials-file> [--name "<full name>"]',
 ].join("\n");
 
 function usage(): never {
@@ -54,7 +54,7 @@ function readArgs() {
 const args = readArgs();
 const email = args.values.email ?? args.positionals[0];
 const file = args.values.file ?? (args.values.email ? undefined : args.positionals[1]);
-if (!email || args.positionals.length > (args.values.email ? 0 : 2)) usage();
+if (!email || !file || args.positionals.length > (args.values.email ? 0 : 2)) usage();
 
 /** Written before the account is committed: if the file cannot be created (e.g. it exists), nothing is created. */
 async function toFile(path: string, r: BootstrapResult) {
@@ -83,24 +83,11 @@ try {
     db,
     secretBox(config.secretsKey),
     { email, name: args.values.name, host: hostname() },
-    file ? (res) => toFile(file, res) : undefined,
+    (res) => toFile(file, res),
   );
-  if (file) {
-    console.log(
-      `First PALTAS Super Admin ${r.email} created (${config.env}). Credentials written to ${file} (owner-only).`,
-    );
-  } else {
-    console.log(
-      [
-        `First PALTAS Super Admin created (${config.env}). Shown ONCE — not stored anywhere in clear:`,
-        `  e-mail:               ${r.email}`,
-        `  temporary password:   ${r.temporaryPassword}   (must be changed at first sign-in)`,
-        `  authenticator secret: ${r.authenticatorSecret}`,
-        `  authenticator link:   ${r.otpauthUrl}`,
-        "Add the secret to an authenticator app; every sign-in needs its 6-digit code.",
-      ].join("\n"),
-    );
-  }
+  console.log(
+    `First PALTAS Super Admin ${r.email} created (${config.env}). Credentials written to ${file} (owner-only).`,
+  );
 } catch (e) {
   if (!(e instanceof BootstrapRefused)) throw e;
   console.error(`Refused: ${e.message}`);

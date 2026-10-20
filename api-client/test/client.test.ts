@@ -29,6 +29,20 @@ describe("API client", () => {
     expect(calls[1]!.init.body).toBeUndefined();
   });
 
+  it("normalises trailing slashes in linear time without changing other path characters", async () => {
+    const huge = "/".repeat(150_000);
+    for (const [baseUrl, expected] of [
+      ["", ""],
+      ["http://api.test///", "http://api.test"],
+      [huge, ""],
+      ["http://api.test/" + huge + "x", "http://api.test/" + huge + "x"],
+    ]) {
+      const { f, calls } = fakeFetch({ status: 200, body: { ok: true } });
+      await createClient({ baseUrl: baseUrl!, fetch: f }).identity.health();
+      expect(calls[0]!.url === expected + "/api/v1/health").toBe(true);
+    }
+  });
+
   it("turns error answers into PaltasApiError with the stable code", async () => {
     const { f } = fakeFetch({
       status: 403,
