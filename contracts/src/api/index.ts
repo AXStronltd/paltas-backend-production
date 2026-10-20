@@ -207,6 +207,10 @@ export const LEDGER_API = {
 } as const;
 
 export const ADMIN_API = {
+  marketingOverview: admin.marketingOverview,
+  createCampaign: admin.createCampaign,
+  updateCampaign: admin.updateCampaign,
+  campaignAction: admin.campaignAction,
   catalogue: admin.getCatalogue,
   savePlan: admin.savePlan,
   saveModule: admin.saveModule,

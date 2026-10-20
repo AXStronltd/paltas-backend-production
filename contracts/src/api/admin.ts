@@ -414,3 +414,5 @@ export const voidInvoice = endpoint({
   body: z.object({ reason: Reason }),
   response: z.object({ ok: z.literal(true) }),
 });
+
+export { marketingOverview, createCampaign, updateCampaign, campaignAction } from "./marketing.js";

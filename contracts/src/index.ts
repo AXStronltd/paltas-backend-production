@@ -20,3 +20,5 @@ export * from "./api/migration.js";
 export * as entitlements from "./entitlements/rules.js";
 export * as rentalRules from "./rental-rules.js";
 export type * from "./entitlements/types.js";
+
+export { Campaign, CampaignInput, SocialChannel } from "./api/marketing.js";
