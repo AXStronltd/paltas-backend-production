@@ -22,6 +22,7 @@ const PUBLIC_KEYS = [
   "bedrooms",
   "city",
   "cleaningFeeMinor",
+  "compliance",
   "country",
   "currency",
   "depositMinor",

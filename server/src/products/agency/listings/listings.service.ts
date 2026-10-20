@@ -5,7 +5,7 @@ import { normalizedPhoto } from "../integrations/photos.js";
  * by the organisation at any time. A listing that is public or waiting for review cannot be changed: take it down,
  * change it, submit it again. Media are metadata; the storage adapter keeps the bytes.
  */
-import type { agency } from "@paltas/contracts";
+import { rentalRules, type agency } from "@paltas/contracts";
 import type { OrgScope } from "../../../core/access/org-access.js";
 import { recordAudit } from "../../../core/audit/audit.service.js";
 import { nextNumber } from "../../../db/counters.js";
@@ -18,7 +18,15 @@ import { findContact } from "../shared/contacts.js";
 import { requireMember } from "../shared/members.js";
 import { HOLDING, nightlyPrices } from "../shared/quote.js";
 import { daysBetween, toBp, unique } from "../shared/util.js";
-import { findListing, mediaOf, toListing, toOrgMedia, type ListingRow, type MediaRow } from "./listings.repo.js";
+import {
+  findListing,
+  mediaOf,
+  rulesInput,
+  toListing,
+  toOrgMedia,
+  type ListingRow,
+  type MediaRow,
+} from "./listings.repo.js";
 
 type Input = agency.ListingInput;
 
@@ -78,6 +86,10 @@ export function listingsService(d: AgencyDeps) {
     b.ownerContactId ?? null,
     b.agreementId ?? null,
     b.agentUserId ?? null,
+    b.strRegistrationNumber,
+    b.hostPresent,
+    JSON.stringify(b.tenantFees),
+    b.noTenantBrokerFee,
   ];
 
   async function audit(t: Db, s: OrgScope, action: string, l: ListingRow, detail = "") {
@@ -110,8 +122,10 @@ export function listingsService(d: AgencyDeps) {
           `INSERT INTO agency_listings (id, org_id, product, number, currency, created_by, purpose, property_type, title,
              description, country, city, area, address_private, bedrooms, bathrooms, size_m2, max_guests, amenities,
              price_minor, deposit_minor, cleaning_fee_minor, service_fee_bp, tax_bp, min_nights, instant_book,
-             owner_contact_id, agreement_id, agent_user)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29)
+             owner_contact_id, agreement_id, agent_user, str_registration_number, host_present, tenant_fees,
+             no_tenant_broker_fee)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,
+             $30,$31,$32::jsonb,$33)
            RETURNING *`,
           [
             newId("lst"),
@@ -144,7 +158,10 @@ export function listingsService(d: AgencyDeps) {
              city = $8, area = $9, address_private = $10, bedrooms = $11, bathrooms = $12, size_m2 = $13,
              max_guests = $14, amenities = $15, price_minor = $16, deposit_minor = $17, cleaning_fee_minor = $18,
              service_fee_bp = $19, tax_bp = $20, min_nights = $21, instant_book = $22, owner_contact_id = $23,
-             agreement_id = $24, agent_user = $25, updated_at = now()
+             agreement_id = $24, agent_user = $25, str_registration_number = $26, host_present = $27,
+             tenant_fees = $28::jsonb, no_tenant_broker_fee = $29,
+             str_verified_by = CASE WHEN str_registration_number = $26 THEN str_verified_by END,
+             str_verified_at = CASE WHEN str_registration_number = $26 THEN str_verified_at END, updated_at = now()
            WHERE org_id = $1 AND id = $2 RETURNING *`,
           [s.orgId, id, ...values(b)],
         )) as ListingRow;
@@ -164,6 +181,8 @@ export function listingsService(d: AgencyDeps) {
         );
         if (!photos?.n) throw fail.invalid("Add at least one photo before submitting the listing");
         if (l.description.trim().length < 20) throw fail.invalid("Describe the property (20 characters or more)");
+        const issues = rentalRules.rentalRuleIssues(rulesInput(l));
+        if (issues.length) throw fail.invalid(issues.join(" "));
         const out = (await t.row<ListingRow>(
           `UPDATE agency_listings SET status = 'pending_review', submitted_by = $2, submitted_at = now(),
              review_note = '', updated_at = now() WHERE id = $1 RETURNING *`,

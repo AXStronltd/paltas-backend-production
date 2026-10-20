@@ -1,5 +1,5 @@
 // SQL only: listing rows, their media, and the shapes the organisation and the public see.
-import type { agency, marketplace } from "@paltas/contracts";
+import { rentalRules, type agency, type marketplace } from "@paltas/contracts";
 import type { Db } from "../../../db/database.js";
 import { fail } from "../../../http/errors.js";
 import type { MediaStorage } from "../integrations/storage.js";
@@ -41,6 +41,12 @@ export interface ListingRow {
   review_note: string;
   published_at: string | null;
   updated_at: string;
+  str_registration_number: string;
+  host_present: boolean;
+  tenant_fees: marketplace.TenantFee[];
+  no_tenant_broker_fee: boolean;
+  str_verified_by: string | null;
+  str_verified_at: string | null;
 }
 
 export interface MediaRow {
@@ -55,6 +61,32 @@ export interface MediaRow {
   position: number;
   storage_key: string;
   storage: string;
+}
+
+/** The listing as the local rental rules see it (contracts/src/rental-rules.ts). */
+export const rulesInput = (l: ListingRow): rentalRules.RentalRulesInput => ({
+  purpose: l.purpose,
+  country: l.country,
+  city: l.city,
+  minNights: l.min_nights,
+  maxGuests: l.max_guests,
+  instantBook: l.instant_book,
+  strRegistrationNumber: l.str_registration_number,
+  hostPresent: l.host_present,
+  tenantFees: l.tenant_fees,
+  noTenantBrokerFee: l.no_tenant_broker_fee,
+});
+
+/** What a guest or tenant is shown about local rules: only the facts that apply to this listing. */
+export function publicCompliance(l: ListingRow): marketplace.PublicCompliance {
+  const jurisdiction = rentalRules.jurisdictionOf(l.country, l.city);
+  const nycRent = jurisdiction === "us-nyc" && l.purpose === "rent";
+  return {
+    jurisdiction,
+    strRegistrationNumber: rentalRules.isNycShortTermRental(rulesInput(l)) ? l.str_registration_number : null,
+    tenantFees: nycRent ? l.tenant_fees : null,
+    noTenantBrokerFee: nycRent ? l.no_tenant_broker_fee : null,
+  };
 }
 
 /** A listing of this organisation, or 404. */
@@ -132,6 +164,15 @@ export function toListing(l: ListingRow, media: MediaRow[], storage: MediaStorag
     submittedAt: l.submitted_at,
     reviewedAt: l.reviewed_at,
     publishedAt: l.published_at,
+    strRegistrationNumber: l.str_registration_number,
+    hostPresent: l.host_present,
+    tenantFees: l.tenant_fees,
+    noTenantBrokerFee: l.no_tenant_broker_fee,
+    compliance: {
+      jurisdiction: rentalRules.jurisdictionOf(l.country, l.city),
+      strVerifiedAt: l.str_verified_at,
+      issues: rentalRules.rentalRuleIssues(rulesInput(l)),
+    },
     media: media.map((m) => toOrgMedia(m, storage)),
     updatedAt: l.updated_at,
   };
@@ -170,6 +211,7 @@ export function toPublicListing(
     // documents (title deeds, IDs …) are never public
     media: media.filter((m) => m.kind !== "document").map((m) => toPublicMedia(m, storage)),
     rating: { average: l.rating_avg === null ? null : Math.round(l.rating_avg * 10) / 10, count: l.rating_count },
+    compliance: publicCompliance(l),
     publishedAt: l.published_at as string,
   };
 }

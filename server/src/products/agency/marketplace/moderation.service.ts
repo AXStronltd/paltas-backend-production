@@ -3,7 +3,7 @@
  * "For Business" sign-up requests. Approving a request runs the core onboarding (core.admin.createOrganisation:
  * organisation, first product subscription, chart of accounts, administrator) — nothing is duplicated here.
  */
-import type { marketplace, Product } from "@paltas/contracts";
+import { rentalRules, type marketplace, type Product } from "@paltas/contracts";
 import { staffActor } from "../../../core/admin/admin.service.js";
 import { recordAudit } from "../../../core/audit/audit.service.js";
 import type { SessionUser } from "../../../core/identity/identity.service.js";
@@ -12,27 +12,10 @@ import type { Db } from "../../../db/database.js";
 import { fail } from "../../../http/errors.js";
 import { newId } from "../../../lib/ids.js";
 import type { AgencyDeps } from "../deps.js";
+import { publicCompliance, rulesInput, type ListingRow } from "../listings/listings.repo.js";
 import { unique, VISITOR } from "../shared/util.js";
 
-interface ModRow {
-  id: string;
-  number: string;
-  org_id: string;
-  org_name: string;
-  purpose: marketplace.ListingPurpose;
-  property_type: string;
-  title: string;
-  description: string;
-  city: string;
-  area: string;
-  currency: string;
-  price_minor: number;
-  media_count: number;
-  status: marketplace.ModerationListing["status"];
-  submitted_at: string | null;
-  reviewed_at: string | null;
-  review_note: string;
-}
+type ModRow = ListingRow & { org_name: string; media_count: number };
 const MOD_SQL = `SELECT l.*, o.name AS org_name,
     (SELECT count(*)::int FROM agency_listing_media m WHERE m.listing_id = l.id) AS media_count
   FROM agency_listings l JOIN organisations o ON o.id = l.org_id`;
@@ -54,6 +37,17 @@ const toMod = (r: ModRow): marketplace.ModerationListing => ({
   submittedAt: r.submitted_at,
   reviewedAt: r.reviewed_at,
   reviewNote: r.review_note,
+  country: r.country,
+  minNights: r.min_nights,
+  maxGuests: r.max_guests,
+  compliance: {
+    ...publicCompliance(r),
+    strRegistrationNumber: r.str_registration_number || null,
+    hostPresent: r.host_present,
+    needsRegistrationCheck: rentalRules.isNycShortTermRental(rulesInput(r)),
+    strVerifiedAt: r.str_verified_at,
+    issues: rentalRules.rentalRuleIssues(rulesInput(r)),
+  },
 });
 
 interface ReviewRow {
@@ -149,7 +143,7 @@ export function moderationService(d: AgencyDeps) {
       return { listings: rows.map(toMod) };
     },
 
-    async approve(user: SessionUser, id: string, note: string) {
+    async approve(user: SessionUser, id: string, note: string, registrationChecked = false) {
       const actor = staffActor(user);
       return db.tx(async (t) => {
         await t.run("SELECT 1 FROM agency_listings WHERE id = $1 FOR UPDATE", [id]);
@@ -161,17 +155,31 @@ export function moderationService(d: AgencyDeps) {
           [id],
         );
         if (!photo?.n) throw fail.invalid("This listing needs an uploaded photo before it can be published");
+        const issues = rentalRules.rentalRuleIssues(rulesInput(l));
+        if (issues.length) throw fail.invalid(issues.join(" "));
+        // New York City stays under 30 nights: staff confirm the OSE registration before PALTAS lists the home
+        const str = rentalRules.isNycShortTermRental(rulesInput(l));
+        if (str && !registrationChecked && !l.str_verified_at)
+          throw fail.invalid(
+            "Check the host's short-term rental registration number with the NYC Office of Special Enforcement, then confirm the check to publish.",
+          );
         await t.run(
           `UPDATE agency_listings SET status = 'published', reviewed_by = $2, reviewed_at = now(), published_at = now(),
-             review_note = $3, updated_at = now() WHERE id = $1`,
-          [id, user.id, note],
+             review_note = $3, updated_at = now(),
+             str_verified_by = CASE WHEN $4 THEN $2 ELSE str_verified_by END,
+             str_verified_at = CASE WHEN $4 THEN now() ELSE str_verified_at END
+           WHERE id = $1`,
+          [id, user.id, note, str && registrationChecked],
         );
         await recordAudit(t, {
           actor,
           orgId: l.org_id,
           action: "Listing approved and published by PALTAS",
           target: l.number,
-          detail: note,
+          detail:
+            str && registrationChecked
+              ? `OSE registration ${l.str_registration_number} checked by PALTAS staff${note ? ". " + note : ""}`
+              : note,
         });
         return toMod(await listing(t, id));
       });
