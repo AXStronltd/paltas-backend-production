@@ -9,6 +9,7 @@ import { allEndpoints } from "@paltas/contracts";
 import Fastify, { type FastifyError, type FastifyInstance } from "fastify";
 import type { Config } from "./config.js";
 import type { AppContext } from "./context.js";
+import { marketingRoutes } from "./core/admin/marketing.routes.js";
 import { adminRoutes } from "./core/admin/admin.routes.js";
 import { contactsRoutes } from "./core/contacts/contacts.routes.js";
 import { opsRoutes } from "./core/admin/ops.routes.js";
@@ -151,6 +152,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     ...paymentsRoutes(core.payments),
     ...ledgerRoutes(core),
     ...adminRoutes(core),
+    ...marketingRoutes(ctx),
     ...migrationRoutes(core),
     ...opsRoutes(ctx, core),
     ...notificationsRoutes(core, config),

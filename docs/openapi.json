@@ -7882,6 +7882,804 @@
         }
       }
     },
+    "/api/v1/admin/marketing": {
+      "get": {
+        "operationId": "admin.marketing.overview",
+        "summary": "PALTAS-only campaign review and scheduled handoff queue; publishing is not connected",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "campaigns": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "title": {
+                            "type": "string",
+                            "minLength": 3,
+                            "maxLength": 160
+                          },
+                          "goal": {
+                            "type": "string",
+                            "minLength": 3,
+                            "maxLength": 1000
+                          },
+                          "landingUrl": {
+                            "type": "string",
+                            "maxLength": 500,
+                            "format": "uri"
+                          },
+                          "posts": {
+                            "minItems": 1,
+                            "maxItems": 6,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "channel": {
+                                  "type": "string",
+                                  "enum": [
+                                    "facebook",
+                                    "instagram",
+                                    "linkedin",
+                                    "x",
+                                    "tiktok",
+                                    "youtube"
+                                  ]
+                                },
+                                "caption": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 2200
+                                }
+                              },
+                              "required": [
+                                "channel",
+                                "caption"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "id": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "draft",
+                              "in_review",
+                              "approved",
+                              "scheduled",
+                              "cancelled"
+                            ]
+                          },
+                          "createdBy": {
+                            "type": "string"
+                          },
+                          "editedBy": {
+                            "type": "string"
+                          },
+                          "approvedBy": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "scheduledAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "updatedAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "title",
+                          "goal",
+                          "landingUrl",
+                          "posts",
+                          "id",
+                          "version",
+                          "status",
+                          "createdBy",
+                          "editedBy",
+                          "approvedBy",
+                          "scheduledAt",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "publishingEnabled": {
+                      "type": "boolean",
+                      "const": false
+                    },
+                    "channels": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "channel": {
+                            "type": "string",
+                            "enum": [
+                              "facebook",
+                              "instagram",
+                              "linkedin",
+                              "x",
+                              "tiktok",
+                              "youtube"
+                            ]
+                          },
+                          "connected": {
+                            "type": "boolean",
+                            "const": false
+                          }
+                        },
+                        "required": [
+                          "channel",
+                          "connected"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "campaigns",
+                    "publishingEnabled",
+                    "channels"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/marketing/campaigns": {
+      "post": {
+        "operationId": "admin.marketing.create",
+        "summary": "Create a server-saved PALTAS social campaign draft",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 160
+                  },
+                  "goal": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 1000
+                  },
+                  "landingUrl": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "format": "uri"
+                  },
+                  "posts": {
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "channel": {
+                          "type": "string",
+                          "enum": [
+                            "facebook",
+                            "instagram",
+                            "linkedin",
+                            "x",
+                            "tiktok",
+                            "youtube"
+                          ]
+                        },
+                        "caption": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2200
+                        }
+                      },
+                      "required": [
+                        "channel",
+                        "caption"
+                      ]
+                    }
+                  }
+                },
+                "required": [
+                  "title",
+                  "goal",
+                  "landingUrl",
+                  "posts"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 160
+                    },
+                    "goal": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 1000
+                    },
+                    "landingUrl": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    },
+                    "posts": {
+                      "minItems": 1,
+                      "maxItems": 6,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "channel": {
+                            "type": "string",
+                            "enum": [
+                              "facebook",
+                              "instagram",
+                              "linkedin",
+                              "x",
+                              "tiktok",
+                              "youtube"
+                            ]
+                          },
+                          "caption": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2200
+                          }
+                        },
+                        "required": [
+                          "channel",
+                          "caption"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "in_review",
+                        "approved",
+                        "scheduled",
+                        "cancelled"
+                      ]
+                    },
+                    "createdBy": {
+                      "type": "string"
+                    },
+                    "editedBy": {
+                      "type": "string"
+                    },
+                    "approvedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scheduledAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "goal",
+                    "landingUrl",
+                    "posts",
+                    "id",
+                    "version",
+                    "status",
+                    "createdBy",
+                    "editedBy",
+                    "approvedBy",
+                    "scheduledAt",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/marketing/campaigns/{campaignId}": {
+      "put": {
+        "operationId": "admin.marketing.update",
+        "summary": "Edit a campaign with version checking; editing clears previous approval and scheduling",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "title": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 160
+                  },
+                  "goal": {
+                    "type": "string",
+                    "minLength": 3,
+                    "maxLength": 1000
+                  },
+                  "landingUrl": {
+                    "type": "string",
+                    "maxLength": 500,
+                    "format": "uri"
+                  },
+                  "posts": {
+                    "minItems": 1,
+                    "maxItems": 6,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "channel": {
+                          "type": "string",
+                          "enum": [
+                            "facebook",
+                            "instagram",
+                            "linkedin",
+                            "x",
+                            "tiktok",
+                            "youtube"
+                          ]
+                        },
+                        "caption": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 2200
+                        }
+                      },
+                      "required": [
+                        "channel",
+                        "caption"
+                      ]
+                    }
+                  },
+                  "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "title",
+                  "goal",
+                  "landingUrl",
+                  "posts",
+                  "version"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 160
+                    },
+                    "goal": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 1000
+                    },
+                    "landingUrl": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    },
+                    "posts": {
+                      "minItems": 1,
+                      "maxItems": 6,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "channel": {
+                            "type": "string",
+                            "enum": [
+                              "facebook",
+                              "instagram",
+                              "linkedin",
+                              "x",
+                              "tiktok",
+                              "youtube"
+                            ]
+                          },
+                          "caption": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2200
+                          }
+                        },
+                        "required": [
+                          "channel",
+                          "caption"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "in_review",
+                        "approved",
+                        "scheduled",
+                        "cancelled"
+                      ]
+                    },
+                    "createdBy": {
+                      "type": "string"
+                    },
+                    "editedBy": {
+                      "type": "string"
+                    },
+                    "approvedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scheduledAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "goal",
+                    "landingUrl",
+                    "posts",
+                    "id",
+                    "version",
+                    "status",
+                    "createdBy",
+                    "editedBy",
+                    "approvedBy",
+                    "scheduledAt",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/marketing/campaigns/{campaignId}/actions": {
+      "post": {
+        "operationId": "admin.marketing.action",
+        "summary": "Submit, independently approve, schedule a handoff or cancel; never publishes to a provider",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "campaignId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "version": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "submit",
+                      "approve",
+                      "schedule",
+                      "cancel"
+                    ]
+                  },
+                  "scheduledAt": {
+                    "type": "string",
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+                  }
+                },
+                "required": [
+                  "version",
+                  "action"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "title": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 160
+                    },
+                    "goal": {
+                      "type": "string",
+                      "minLength": 3,
+                      "maxLength": 1000
+                    },
+                    "landingUrl": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    },
+                    "posts": {
+                      "minItems": 1,
+                      "maxItems": 6,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "channel": {
+                            "type": "string",
+                            "enum": [
+                              "facebook",
+                              "instagram",
+                              "linkedin",
+                              "x",
+                              "tiktok",
+                              "youtube"
+                            ]
+                          },
+                          "caption": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 2200
+                          }
+                        },
+                        "required": [
+                          "channel",
+                          "caption"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "in_review",
+                        "approved",
+                        "scheduled",
+                        "cancelled"
+                      ]
+                    },
+                    "createdBy": {
+                      "type": "string"
+                    },
+                    "editedBy": {
+                      "type": "string"
+                    },
+                    "approvedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "scheduledAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "updatedAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "title",
+                    "goal",
+                    "landingUrl",
+                    "posts",
+                    "id",
+                    "version",
+                    "status",
+                    "createdBy",
+                    "editedBy",
+                    "approvedBy",
+                    "scheduledAt",
+                    "createdAt",
+                    "updatedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/admin/catalogue": {
       "get": {
         "operationId": "admin.catalogue",
@@ -98290,6 +99088,53 @@
                               "null"
                             ]
                           },
+                          "strRegistrationNumber": {
+                            "default": "",
+                            "type": "string",
+                            "maxLength": 40
+                          },
+                          "hostPresent": {
+                            "default": false,
+                            "type": "boolean"
+                          },
+                          "tenantFees": {
+                            "default": [],
+                            "maxItems": 20,
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "name": {
+                                  "type": "string",
+                                  "minLength": 2,
+                                  "maxLength": 80
+                                },
+                                "amountMinor": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 9007199254740991
+                                },
+                                "when": {
+                                  "type": "string",
+                                  "enum": [
+                                    "once",
+                                    "monthly",
+                                    "yearly"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "name",
+                                "amountMinor",
+                                "when"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "noTenantBrokerFee": {
+                            "default": false,
+                            "type": "boolean"
+                          },
                           "id": {
                             "type": "string"
                           },
@@ -98331,6 +99176,43 @@
                               "string",
                               "null"
                             ]
+                          },
+                          "compliance": {
+                            "type": "object",
+                            "properties": {
+                              "jurisdiction": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "us-nyc",
+                                      "us"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "strVerifiedAt": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "issues": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "jurisdiction",
+                              "strVerifiedAt",
+                              "issues"
+                            ],
+                            "additionalProperties": false
                           },
                           "media": {
                             "type": "array",
@@ -98421,6 +99303,10 @@
                           "ownerContactId",
                           "agreementId",
                           "agentUserId",
+                          "strRegistrationNumber",
+                          "hostPresent",
+                          "tenantFees",
+                          "noTenantBrokerFee",
                           "id",
                           "number",
                           "currency",
@@ -98429,6 +99315,7 @@
                           "submittedAt",
                           "reviewedAt",
                           "publishedAt",
+                          "compliance",
                           "media",
                           "updatedAt"
                         ],
@@ -98610,6 +99497,52 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 80
+                  },
+                  "strRegistrationNumber": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "hostPresent": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "tenantFees": {
+                    "default": [],
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 2,
+                          "maxLength": 80
+                        },
+                        "amountMinor": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "when": {
+                          "type": "string",
+                          "enum": [
+                            "once",
+                            "monthly",
+                            "yearly"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "amountMinor",
+                        "when"
+                      ]
+                    }
+                  },
+                  "noTenantBrokerFee": {
+                    "default": false,
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -98779,6 +99712,53 @@
                         "null"
                       ]
                     },
+                    "strRegistrationNumber": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 40
+                    },
+                    "hostPresent": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "tenantFees": {
+                      "default": [],
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 80
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "when": {
+                            "type": "string",
+                            "enum": [
+                              "once",
+                              "monthly",
+                              "yearly"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "amountMinor",
+                          "when"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "noTenantBrokerFee": {
+                      "default": false,
+                      "type": "boolean"
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -98820,6 +99800,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "compliance": {
+                      "type": "object",
+                      "properties": {
+                        "jurisdiction": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "us-nyc",
+                                "us"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "strVerifiedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "jurisdiction",
+                        "strVerifiedAt",
+                        "issues"
+                      ],
+                      "additionalProperties": false
                     },
                     "media": {
                       "type": "array",
@@ -98910,6 +99927,10 @@
                     "ownerContactId",
                     "agreementId",
                     "agentUserId",
+                    "strRegistrationNumber",
+                    "hostPresent",
+                    "tenantFees",
+                    "noTenantBrokerFee",
                     "id",
                     "number",
                     "currency",
@@ -98918,6 +99939,7 @@
                     "submittedAt",
                     "reviewedAt",
                     "publishedAt",
+                    "compliance",
                     "media",
                     "updatedAt"
                   ],
@@ -99121,6 +100143,53 @@
                         "null"
                       ]
                     },
+                    "strRegistrationNumber": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 40
+                    },
+                    "hostPresent": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "tenantFees": {
+                      "default": [],
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 80
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "when": {
+                            "type": "string",
+                            "enum": [
+                              "once",
+                              "monthly",
+                              "yearly"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "amountMinor",
+                          "when"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "noTenantBrokerFee": {
+                      "default": false,
+                      "type": "boolean"
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -99162,6 +100231,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "compliance": {
+                      "type": "object",
+                      "properties": {
+                        "jurisdiction": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "us-nyc",
+                                "us"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "strVerifiedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "jurisdiction",
+                        "strVerifiedAt",
+                        "issues"
+                      ],
+                      "additionalProperties": false
                     },
                     "media": {
                       "type": "array",
@@ -99252,6 +100358,10 @@
                     "ownerContactId",
                     "agreementId",
                     "agentUserId",
+                    "strRegistrationNumber",
+                    "hostPresent",
+                    "tenantFees",
+                    "noTenantBrokerFee",
                     "id",
                     "number",
                     "currency",
@@ -99260,6 +100370,7 @@
                     "submittedAt",
                     "reviewedAt",
                     "publishedAt",
+                    "compliance",
                     "media",
                     "updatedAt"
                   ],
@@ -99442,6 +100553,52 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 80
+                  },
+                  "strRegistrationNumber": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 40
+                  },
+                  "hostPresent": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "tenantFees": {
+                    "default": [],
+                    "maxItems": 20,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string",
+                          "minLength": 2,
+                          "maxLength": 80
+                        },
+                        "amountMinor": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        "when": {
+                          "type": "string",
+                          "enum": [
+                            "once",
+                            "monthly",
+                            "yearly"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "amountMinor",
+                        "when"
+                      ]
+                    }
+                  },
+                  "noTenantBrokerFee": {
+                    "default": false,
+                    "type": "boolean"
                   }
                 },
                 "required": [
@@ -99611,6 +100768,53 @@
                         "null"
                       ]
                     },
+                    "strRegistrationNumber": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 40
+                    },
+                    "hostPresent": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "tenantFees": {
+                      "default": [],
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 80
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "when": {
+                            "type": "string",
+                            "enum": [
+                              "once",
+                              "monthly",
+                              "yearly"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "amountMinor",
+                          "when"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "noTenantBrokerFee": {
+                      "default": false,
+                      "type": "boolean"
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -99652,6 +100856,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "compliance": {
+                      "type": "object",
+                      "properties": {
+                        "jurisdiction": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "us-nyc",
+                                "us"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "strVerifiedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "jurisdiction",
+                        "strVerifiedAt",
+                        "issues"
+                      ],
+                      "additionalProperties": false
                     },
                     "media": {
                       "type": "array",
@@ -99742,6 +100983,10 @@
                     "ownerContactId",
                     "agreementId",
                     "agentUserId",
+                    "strRegistrationNumber",
+                    "hostPresent",
+                    "tenantFees",
+                    "noTenantBrokerFee",
                     "id",
                     "number",
                     "currency",
@@ -99750,6 +100995,7 @@
                     "submittedAt",
                     "reviewedAt",
                     "publishedAt",
+                    "compliance",
                     "media",
                     "updatedAt"
                   ],
@@ -99953,6 +101199,53 @@
                         "null"
                       ]
                     },
+                    "strRegistrationNumber": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 40
+                    },
+                    "hostPresent": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "tenantFees": {
+                      "default": [],
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 80
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "when": {
+                            "type": "string",
+                            "enum": [
+                              "once",
+                              "monthly",
+                              "yearly"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "amountMinor",
+                          "when"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "noTenantBrokerFee": {
+                      "default": false,
+                      "type": "boolean"
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -99994,6 +101287,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "compliance": {
+                      "type": "object",
+                      "properties": {
+                        "jurisdiction": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "us-nyc",
+                                "us"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "strVerifiedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "jurisdiction",
+                        "strVerifiedAt",
+                        "issues"
+                      ],
+                      "additionalProperties": false
                     },
                     "media": {
                       "type": "array",
@@ -100084,6 +101414,10 @@
                     "ownerContactId",
                     "agreementId",
                     "agentUserId",
+                    "strRegistrationNumber",
+                    "hostPresent",
+                    "tenantFees",
+                    "noTenantBrokerFee",
                     "id",
                     "number",
                     "currency",
@@ -100092,6 +101426,7 @@
                     "submittedAt",
                     "reviewedAt",
                     "publishedAt",
+                    "compliance",
                     "media",
                     "updatedAt"
                   ],
@@ -100295,6 +101630,53 @@
                         "null"
                       ]
                     },
+                    "strRegistrationNumber": {
+                      "default": "",
+                      "type": "string",
+                      "maxLength": 40
+                    },
+                    "hostPresent": {
+                      "default": false,
+                      "type": "boolean"
+                    },
+                    "tenantFees": {
+                      "default": [],
+                      "maxItems": 20,
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 80
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "when": {
+                            "type": "string",
+                            "enum": [
+                              "once",
+                              "monthly",
+                              "yearly"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "amountMinor",
+                          "when"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "noTenantBrokerFee": {
+                      "default": false,
+                      "type": "boolean"
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -100336,6 +101718,43 @@
                         "string",
                         "null"
                       ]
+                    },
+                    "compliance": {
+                      "type": "object",
+                      "properties": {
+                        "jurisdiction": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "us-nyc",
+                                "us"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "strVerifiedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "jurisdiction",
+                        "strVerifiedAt",
+                        "issues"
+                      ],
+                      "additionalProperties": false
                     },
                     "media": {
                       "type": "array",
@@ -100426,6 +101845,10 @@
                     "ownerContactId",
                     "agreementId",
                     "agentUserId",
+                    "strRegistrationNumber",
+                    "hostPresent",
+                    "tenantFees",
+                    "noTenantBrokerFee",
                     "id",
                     "number",
                     "currency",
@@ -100434,6 +101857,7 @@
                     "submittedAt",
                     "reviewedAt",
                     "publishedAt",
+                    "compliance",
                     "media",
                     "updatedAt"
                   ],
@@ -107565,6 +108989,83 @@
                             ],
                             "additionalProperties": false
                           },
+                          "compliance": {
+                            "type": "object",
+                            "properties": {
+                              "jurisdiction": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "us-nyc",
+                                      "us"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "strRegistrationNumber": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "tenantFees": {
+                                "anyOf": [
+                                  {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "minLength": 2,
+                                          "maxLength": 80
+                                        },
+                                        "amountMinor": {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "when": {
+                                          "type": "string",
+                                          "enum": [
+                                            "once",
+                                            "monthly",
+                                            "yearly"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "amountMinor",
+                                        "when"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "noTenantBrokerFee": {
+                                "type": [
+                                  "boolean",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "jurisdiction",
+                              "strRegistrationNumber",
+                              "tenantFees",
+                              "noTenantBrokerFee"
+                            ],
+                            "additionalProperties": false
+                          },
                           "publishedAt": {
                             "type": "string"
                           }
@@ -107595,6 +109096,7 @@
                           "listedBy",
                           "media",
                           "rating",
+                          "compliance",
                           "publishedAt"
                         ],
                         "additionalProperties": false
@@ -107836,6 +109338,83 @@
                       ],
                       "additionalProperties": false
                     },
+                    "compliance": {
+                      "type": "object",
+                      "properties": {
+                        "jurisdiction": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "us-nyc",
+                                "us"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "strRegistrationNumber": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "tenantFees": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 2,
+                                    "maxLength": 80
+                                  },
+                                  "amountMinor": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "when": {
+                                    "type": "string",
+                                    "enum": [
+                                      "once",
+                                      "monthly",
+                                      "yearly"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "amountMinor",
+                                  "when"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "noTenantBrokerFee": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "jurisdiction",
+                        "strRegistrationNumber",
+                        "tenantFees",
+                        "noTenantBrokerFee"
+                      ],
+                      "additionalProperties": false
+                    },
                     "publishedAt": {
                       "type": "string"
                     },
@@ -107895,6 +109474,7 @@
                     "listedBy",
                     "media",
                     "rating",
+                    "compliance",
                     "publishedAt",
                     "reviews"
                   ],
@@ -109590,6 +111170,125 @@
                           },
                           "reviewNote": {
                             "type": "string"
+                          },
+                          "country": {
+                            "type": "string"
+                          },
+                          "minNights": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "maxGuests": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "compliance": {
+                            "type": "object",
+                            "properties": {
+                              "jurisdiction": {
+                                "anyOf": [
+                                  {
+                                    "type": "string",
+                                    "enum": [
+                                      "us-nyc",
+                                      "us"
+                                    ]
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "strRegistrationNumber": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "tenantFees": {
+                                "anyOf": [
+                                  {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "name": {
+                                          "type": "string",
+                                          "minLength": 2,
+                                          "maxLength": 80
+                                        },
+                                        "amountMinor": {
+                                          "type": "integer",
+                                          "minimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "when": {
+                                          "type": "string",
+                                          "enum": [
+                                            "once",
+                                            "monthly",
+                                            "yearly"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "name",
+                                        "amountMinor",
+                                        "when"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
+                              },
+                              "noTenantBrokerFee": {
+                                "type": [
+                                  "boolean",
+                                  "null"
+                                ]
+                              },
+                              "hostPresent": {
+                                "type": "boolean"
+                              },
+                              "needsRegistrationCheck": {
+                                "type": "boolean"
+                              },
+                              "strVerifiedAt": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              },
+                              "issues": {
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              }
+                            },
+                            "required": [
+                              "jurisdiction",
+                              "strRegistrationNumber",
+                              "tenantFees",
+                              "noTenantBrokerFee",
+                              "hostPresent",
+                              "needsRegistrationCheck",
+                              "strVerifiedAt",
+                              "issues"
+                            ],
+                            "additionalProperties": false
                           }
                         },
                         "required": [
@@ -109609,7 +111308,11 @@
                           "status",
                           "submittedAt",
                           "reviewedAt",
-                          "reviewNote"
+                          "reviewNote",
+                          "country",
+                          "minNights",
+                          "maxGuests",
+                          "compliance"
                         ],
                         "additionalProperties": false
                       }
@@ -109667,6 +111370,10 @@
                     "default": "",
                     "type": "string",
                     "maxLength": 500
+                  },
+                  "registrationChecked": {
+                    "default": false,
+                    "type": "boolean"
                   }
                 }
               }
@@ -109756,6 +111463,125 @@
                     },
                     "reviewNote": {
                       "type": "string"
+                    },
+                    "country": {
+                      "type": "string"
+                    },
+                    "minNights": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "maxGuests": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "compliance": {
+                      "type": "object",
+                      "properties": {
+                        "jurisdiction": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "us-nyc",
+                                "us"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "strRegistrationNumber": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "tenantFees": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 2,
+                                    "maxLength": 80
+                                  },
+                                  "amountMinor": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "when": {
+                                    "type": "string",
+                                    "enum": [
+                                      "once",
+                                      "monthly",
+                                      "yearly"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "amountMinor",
+                                  "when"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "noTenantBrokerFee": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "hostPresent": {
+                          "type": "boolean"
+                        },
+                        "needsRegistrationCheck": {
+                          "type": "boolean"
+                        },
+                        "strVerifiedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "jurisdiction",
+                        "strRegistrationNumber",
+                        "tenantFees",
+                        "noTenantBrokerFee",
+                        "hostPresent",
+                        "needsRegistrationCheck",
+                        "strVerifiedAt",
+                        "issues"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -109775,7 +111601,11 @@
                     "status",
                     "submittedAt",
                     "reviewedAt",
-                    "reviewNote"
+                    "reviewNote",
+                    "country",
+                    "minNights",
+                    "maxGuests",
+                    "compliance"
                   ],
                   "additionalProperties": false
                 }
@@ -109918,6 +111748,125 @@
                     },
                     "reviewNote": {
                       "type": "string"
+                    },
+                    "country": {
+                      "type": "string"
+                    },
+                    "minNights": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "maxGuests": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "compliance": {
+                      "type": "object",
+                      "properties": {
+                        "jurisdiction": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "us-nyc",
+                                "us"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "strRegistrationNumber": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "tenantFees": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string",
+                                    "minLength": 2,
+                                    "maxLength": 80
+                                  },
+                                  "amountMinor": {
+                                    "type": "integer",
+                                    "minimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "when": {
+                                    "type": "string",
+                                    "enum": [
+                                      "once",
+                                      "monthly",
+                                      "yearly"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "amountMinor",
+                                  "when"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "noTenantBrokerFee": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ]
+                        },
+                        "hostPresent": {
+                          "type": "boolean"
+                        },
+                        "needsRegistrationCheck": {
+                          "type": "boolean"
+                        },
+                        "strVerifiedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "issues": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "jurisdiction",
+                        "strRegistrationNumber",
+                        "tenantFees",
+                        "noTenantBrokerFee",
+                        "hostPresent",
+                        "needsRegistrationCheck",
+                        "strVerifiedAt",
+                        "issues"
+                      ],
+                      "additionalProperties": false
                     }
                   },
                   "required": [
@@ -109937,7 +111886,11 @@
                     "status",
                     "submittedAt",
                     "reviewedAt",
-                    "reviewNote"
+                    "reviewNote",
+                    "country",
+                    "minNights",
+                    "maxGuests",
+                    "compliance"
                   ],
                   "additionalProperties": false
                 }
