@@ -73,6 +73,12 @@ async function toFile(path: string, r: BootstrapResult) {
 }
 
 const config = loadConfig();
+if (config.env === "production") {
+  console.error(
+    "Production bootstrap now requires verified first-time enrollment. Use staff-enrollment-grant.js --create-first with authenticated operator approval and mailbox verification. No account was changed.",
+  );
+  process.exit(2);
+}
 const db = connect(config.databaseUrl, 2);
 try {
   const applied = await migrate(db);

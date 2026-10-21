@@ -14,7 +14,8 @@ import { fail } from "../../http/errors.js";
 import { newId } from "../../lib/ids.js";
 import { recordAudit } from "../audit/audit.service.js";
 import { decoyHash, hashPassword, temporaryPassword, verifyPassword } from "./passwords.js";
-import { newTotpSecret, otpauthUrl, verifyTotp } from "./totp.js";
+import { backupDigest } from "./staff-enrollment.js";
+import { newTotpSecret, otpauthUrl, verifyTotp, totp } from "./totp.js";
 
 const MAX_FAILURES = 5;
 const LOCK_MINUTES = 15;
@@ -39,6 +40,8 @@ interface UserRow {
   must_change_password: boolean;
   mfa_secret_sealed: string | null;
   mfa_pending_sealed: string | null;
+  mfa_confirmed_at: string | null;
+  mfa_last_step: string | null;
   staff_role: StaffRole | null;
   active: boolean;
   failed_count: number;
@@ -131,14 +134,44 @@ export function identityService(ctx: AppContext) {
         if (okUser && !input.code) throw fail.notSignedIn("Enter the 6-digit code from your authenticator app");
         throw fail.notSignedIn("Email, password or verification code is not correct");
       }
+      // Newly confirmed staff cannot reuse an authenticator step (including the enrollment code).
+      // Legacy accounts retain their behavior until explicitly enrolled; no automatic lockout migration.
+      if (u.staff_role && u.mfa_confirmed_at && u.mfa_secret_sealed && input.code) {
+        const secret = secrets.open(u.mfa_secret_sealed);
+        const now = clock.now().getTime();
+        const counter = [-1, 0, 1]
+          .map((d) => Math.floor(now / 30000) + d)
+          .find((n) => totp(secret, n * 30000) === input.code);
+        const consumed =
+          counter === undefined
+            ? 0
+            : await db.run(
+                "UPDATE users SET mfa_last_step=$2 WHERE id=$1 AND (mfa_last_step IS NULL OR mfa_last_step<$2)",
+                [u.id, counter],
+              );
+        if (!consumed) {
+          await failedAttempt(u, input.email, "Verification code reused");
+          throw fail.notSignedIn("Email, password or verification code is not correct");
+        }
+      }
       await db.run("UPDATE users SET failed_count = 0, locked_until = NULL WHERE id = $1", [u.id]);
       const token = randomBytes(32).toString("base64url");
-      await db.run("INSERT INTO sessions (token_hash, user_id, expires_at, ip) VALUES ($1, $2, $3, $4)", [
-        sha256(token),
-        u.id,
-        new Date(clock.now().getTime() + sessionMs).toISOString(),
-        ip,
-      ]);
+      await db.tx(async (t) => {
+        const current = await t.row<UserRow>("SELECT * FROM users WHERE id=$1 FOR UPDATE", [u.id]);
+        if (
+          !current?.active ||
+          current.password_hash !== u.password_hash ||
+          current.mfa_secret_sealed !== u.mfa_secret_sealed ||
+          current.staff_role !== u.staff_role
+        )
+          throw fail.notSignedIn("Account changed; sign in again");
+        await t.run("INSERT INTO sessions (token_hash, user_id, expires_at, ip) VALUES ($1, $2, $3, $4)", [
+          sha256(token),
+          u.id,
+          new Date(clock.now().getTime() + sessionMs).toISOString(),
+          ip,
+        ]);
+      });
       await recordAudit(db, {
         actor: { userId: u.id, role: u.staff_role ?? "client" },
         orgId: null,
@@ -157,6 +190,65 @@ export function identityService(ctx: AppContext) {
           mustChangePassword: u.must_change_password,
         }),
       };
+    },
+
+    async loginWithBackup(input: { email: string; password: string; backupCode: string }, ip: string) {
+      const u = await db.row<UserRow>("SELECT * FROM users WHERE lower(email)=lower($1)", [input.email]);
+      if (u?.locked_until && new Date(u.locked_until) > clock.now())
+        throw fail.tooManyAttempts("Too many attempts — try again in a few minutes");
+      const passwordOk = await verifyPassword(input.password, u?.password_hash ?? (await decoyHash()));
+      if (!u || !u.active || u.staff_role !== "super_admin" || !u.mfa_confirmed_at || !passwordOk) {
+        await failedAttempt(u, input.email, "Backup login rejected");
+        throw fail.notSignedIn("Email, password or recovery code is not correct");
+      }
+      const result = await db.tx(async (t) => {
+        const current = await t.row<UserRow>("SELECT * FROM users WHERE id=$1 FOR UPDATE", [u.id]);
+        if (
+          !current?.active ||
+          current.staff_role !== "super_admin" ||
+          current.password_hash !== u.password_hash ||
+          !current.mfa_confirmed_at ||
+          (current.locked_until && new Date(current.locked_until) > clock.now())
+        )
+          return null;
+        const consumed = await t.run(
+          "UPDATE staff_backup_codes SET used_at=$3 WHERE user_id=$1 AND code_hash=$2 AND used_at IS NULL",
+          [u.id, backupDigest(input.backupCode), clock.now().toISOString()],
+        );
+        if (!consumed) return null;
+        const token = randomBytes(32).toString("base64url");
+        await t.run("INSERT INTO sessions(token_hash,user_id,expires_at,ip) VALUES($1,$2,$3,$4)", [
+          sha256(token),
+          u.id,
+          new Date(clock.now().getTime() + sessionMs).toISOString(),
+          ip,
+        ]);
+        await t.run("UPDATE users SET failed_count=0,locked_until=NULL WHERE id=$1", [u.id]);
+        await recordAudit(t, {
+          actor: { userId: u.id, role: "super_admin" },
+          orgId: null,
+          action: "Signed in with single-use backup code",
+          target: u.email,
+          detail: "One backup code consumed atomically",
+        });
+        return {
+          token,
+          expiresInMinutes: config.sessionMinutes,
+          user: toSignedInUser({
+            id: u.id,
+            email: u.email,
+            name: u.name,
+            staffRole: u.staff_role,
+            mfaEnabled: true,
+            mustChangePassword: u.must_change_password,
+          }),
+        };
+      });
+      if (!result) {
+        await failedAttempt(u, input.email, "Backup code invalid or used");
+        throw fail.notSignedIn("Email, password or recovery code is not correct");
+      }
+      return result;
     },
 
     /** The person behind a bearer token, or null. Extends the session (sliding expiry). */

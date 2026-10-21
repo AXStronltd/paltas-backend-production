@@ -33,10 +33,15 @@ async function bootstrap(databaseUrl: string, email: string) {
   }
 }
 
-async function runScript(databaseUrl: string, argv: string[]) {
+async function runScript(databaseUrl: string, argv: string[], production = false) {
   try {
     const r = await run(process.execPath, argv, {
-      env: { PATH: process.env.PATH, NODE_ENV: "production", DATABASE_URL: databaseUrl, SECRETS_KEY: KEY },
+      env: {
+        PATH: process.env.PATH,
+        NODE_ENV: production ? "production" : "test",
+        DATABASE_URL: databaseUrl,
+        SECRETS_KEY: KEY,
+      },
     });
     return { code: 0, stdout: r.stdout, stderr: r.stderr };
   } catch (e) {
@@ -45,7 +50,17 @@ async function runScript(databaseUrl: string, argv: string[]) {
   }
 }
 
-describe("first Super Admin (production command)", () => {
+it("refuses legacy production bootstrap before database access", async () => {
+  const r = await runScript(
+    "postgres://unused@127.0.0.1:1/not-accessed",
+    [SCRIPT, "--email", "owner@paltas.test", "--file", "/tmp/unused-staff-file"],
+    true,
+  );
+  expect(r.code).toBe(2);
+  expect(r.stderr).toContain("verified first-time enrollment");
+});
+
+describe("legacy bootstrap (isolated test mode; production uses verified enrollment)", () => {
   let S: TestServer;
   beforeAll(async () => (S = await startServer()));
   afterAll(() => S.close());
@@ -54,7 +69,7 @@ describe("first Super Admin (production command)", () => {
     const email = `ops+${randomBytes(3).toString("hex")}@paltashub.test`;
     const first = await bootstrap(S.app.ctx.config.databaseUrl, email);
     expect([first.code, first.stderr]).toEqual([0, ""]);
-    expect(first.stdout).toContain(`First PALTAS Super Admin ${email} created (production)`);
+    expect(first.stdout).toContain(`First PALTAS Super Admin ${email} created (test)`);
     const temporary = /temporary password:\s+(\S+)/.exec(first.credentials)?.[1] as string;
     const secret = /authenticator secret:\s+(\S+)/.exec(first.credentials)?.[1] as string;
     expect(temporary.length).toBeGreaterThanOrEqual(12);
@@ -106,7 +121,7 @@ describe("first Super Admin (production command)", () => {
     const r = await run(process.execPath, [SCRIPT], {
       env: {
         PATH: process.env.PATH,
-        NODE_ENV: "production",
+        NODE_ENV: "test",
         DATABASE_URL: S.app.ctx.config.databaseUrl,
         SECRETS_KEY: KEY,
       },
@@ -178,7 +193,7 @@ describe("first Super Admin — the owner's command (npm run bootstrap -- <email
     const file = join(dir, "superadmin.txt");
     const r = await runScript(url(), [OWNER_SCRIPT, "First@PaltasHub.test", file]);
     expect([r.code, r.stderr]).toEqual([0, ""]);
-    expect(r.stdout).toMatch(/First PALTAS Super Admin first@paltashub\.test created \(production\)/);
+    expect(r.stdout).toMatch(/First PALTAS Super Admin first@paltashub\.test created \(test\)/);
     expect(r.stdout).toMatch(/Catalogue checked/);
     const text = await readFile(file, "utf8");
     const temporary = /temporary password:\s+(\S+)/.exec(text)?.[1] as string;
