@@ -89,7 +89,7 @@ npm run dev                             # http://127.0.0.1:8787/api/v1/health
 **A new production database** (once, with the server's own `DATABASE_URL` and `SECRETS_KEY`):
 
 ```bash
-npm run bootstrap -- you@example.com ./paltas-superadmin.txt   # schema, catalogue, the FIRST Super Admin (only if none exists)
+npm run bootstrap -- you@example.com ./paltas-superadmin.txt   # isolated local/test fixtures ONLY; refused in production
 ```
 
 The credentials-file argument is required. The password and authenticator secret go to that new file (owner-only), never to the screen or the hosting logs. Add the
@@ -200,3 +200,7 @@ The Smart Hotel product (`hotel`), one `ProductModule`. Endpoints: `contracts/sr
 ### Multi-block and custom naming
 
 Property Management supports custom block names and safe block archiving, with active-lease protection and unit toilet/size details. See [multi-block safety and API usage](docs/MULTI-BLOCK-SAFETY.md). This development change requires its own reviewed migration and release.
+
+### Staff first-time authentication
+
+See [Staff MFA enrollment and approved owner recovery](docs/STAFF-MFA-ENROLLMENT.md). Production legacy bootstrap is replaced by operator approval plus independent mailbox verification, pending QR/manual-key enrollment, first-code confirmation and hashed single-use backup codes. Deployment alone never resets an existing owner.

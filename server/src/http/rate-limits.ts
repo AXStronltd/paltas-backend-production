@@ -58,6 +58,8 @@ export function rateLimitFor(e: Pick<EndpointDefinition, "id" | "auth" | "method
   if (e.id === "marketplace.mediaContent") return { max: limits.publicRead, timeWindow: minute };
   if (e.id === "property.documents.upload") return { max: 10, timeWindow: minute, keyGenerator: personOrAddress };
   if (e.id === "property.documents.download") return { max: 30, timeWindow: minute, keyGenerator: personOrAddress };
+  if (e.id.startsWith("auth.staffEnrollment.") || e.id === "auth.staffBackup.login")
+    return { max: Math.min(limits.login, 5), timeWindow: minute };
   // support chat: a person writes a few messages a minute; each may cost an assistant answer
   if (e.id === "support.start" || e.id === "support.send")
     return { max: 12, timeWindow: minute, keyGenerator: personOrAddress };

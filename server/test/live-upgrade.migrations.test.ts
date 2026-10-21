@@ -45,6 +45,8 @@ const NEW = [
   "0027",
   "0028",
   "0029",
+  "0029",
+  "0030",
   "0030",
 ];
 const KEY = randomBytes(32).toString("base64");
@@ -440,6 +442,8 @@ describe("live database at main (0001–0013) with real rows, then 0014–0020 a
       "0027",
       "0028",
       "0029",
+      "0029",
+      "0030",
       "0030",
     ]);
     expect(await migrate(db)).toEqual([]); // checksums of 0001–0013 unchanged
@@ -475,6 +479,11 @@ describe("live database at main (0001–0013) with real rows, then 0014–0020 a
     await db.run("UPDATE notifications SET status = 'delivered', delivered_at = now() WHERE id = 'ntf_main_3'");
     await expect(db.run("UPDATE notifications SET status = 'delivered' WHERE id = 'ntf_main_2'")).rejects.toThrow();
     expect(await db.rows("SELECT * FROM password_resets")).toEqual([]);
+    expect(await db.rows("SELECT * FROM staff_enrollments")).toEqual([]);
+    expect(await db.rows("SELECT * FROM staff_backup_codes")).toEqual([]);
+    expect(
+      await db.rows("SELECT id FROM users WHERE mfa_confirmed_at IS NOT NULL OR mfa_last_step IS NOT NULL"),
+    ).toEqual([]);
     expect(await db.rows("SELECT document_id FROM pm_document_files")).toEqual([]);
     expect(await db.rows("SELECT id FROM pm_buildings WHERE is_archived")).toEqual([]);
     expect(await db.rows("SELECT id FROM pm_units WHERE toilets IS NOT NULL")).toEqual([]);

@@ -5,6 +5,11 @@
  */
 const SECRET_FIELDS = [
   "password",
+  "emailCode",
+  "backupCode",
+  "backupCodes",
+  "pending_sealed",
+  "email_code_hash",
   "currentPassword",
   "newPassword",
   "temporaryPassword",

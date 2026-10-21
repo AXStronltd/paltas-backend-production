@@ -108,6 +108,10 @@ export function registerRoutes(
       ...(bodyLimit ? { bodyLimit } : {}),
       config: rateLimit ? { rateLimit } : {},
       handler: async (request: FastifyRequest, reply) => {
+        if (endpoint.id.startsWith("auth.staffEnrollment.") || endpoint.id === "auth.staffBackup.login") {
+          reply.header("Cache-Control", "no-store");
+          reply.header("Referrer-Policy", "no-referrer");
+        }
         const user = await caller(endpoint, request, deps);
         const ctx: RequestContext<Def> = {
           params: parse(endpoint.params, request.params ?? {}, "params"),

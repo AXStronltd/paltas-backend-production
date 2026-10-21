@@ -52,7 +52,9 @@ describe("migrations", () => {
         "0026_us_rental_rules",
         "0027_social_campaigns",
         "0028_request_ids",
+        "0029_staff_enrollment",
         "0029_staff_roles",
+        "0030_staff_auth_version",
         "0030_support_chat",
       ]);
       expect(await migrate(db)).toEqual([]);

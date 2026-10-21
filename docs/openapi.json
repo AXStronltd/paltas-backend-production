@@ -53,6 +53,310 @@
     }
   },
   "paths": {
+    "/api/v1/auth/staff-enrollment/begin": {
+      "post": {
+        "operationId": "auth.staffEnrollment.begin",
+        "summary": "Verify the operator-issued grant and mailbox code; display a new pending authenticator only",
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 32,
+                    "maxLength": 200
+                  },
+                  "emailCode": {
+                    "type": "string",
+                    "pattern": "^\\d{8}$"
+                  }
+                },
+                "required": [
+                  "token",
+                  "emailCode"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "secret": {
+                      "type": "string"
+                    },
+                    "otpauthUrl": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "secret",
+                    "otpauthUrl",
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/staff-enrollment/complete": {
+      "post": {
+        "operationId": "auth.staffEnrollment.complete",
+        "summary": "Verify first authenticator code, set password, consume grant and revoke old sessions atomically",
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "minLength": 32,
+                    "maxLength": 200
+                  },
+                  "code": {
+                    "type": "string",
+                    "pattern": "^\\d{6}$"
+                  },
+                  "newPassword": {
+                    "type": "string",
+                    "minLength": 12,
+                    "maxLength": 200
+                  }
+                },
+                "required": [
+                  "token",
+                  "code",
+                  "newPassword"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    },
+                    "backupCodes": {
+                      "minItems": 10,
+                      "maxItems": 10,
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "ok",
+                    "backupCodes"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/auth/staff-backup/login": {
+      "post": {
+        "operationId": "auth.staffBackup.login",
+        "summary": "Staff login with password plus one single-use backup code",
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+                  },
+                  "password": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "backupCode": {
+                    "type": "string",
+                    "minLength": 10,
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "email",
+                  "password",
+                  "backupCode"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "token": {
+                      "type": "string"
+                    },
+                    "expiresInMinutes": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "user": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "staff": {
+                          "type": "boolean"
+                        },
+                        "staffRole": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "super_admin",
+                                "operations",
+                                "finance",
+                                "moderator",
+                                "marketing",
+                                "support"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "staffPermissions": {
+                          "default": [],
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "staff.manage",
+                              "clients.manage",
+                              "billing.manage",
+                              "marketplace.moderate",
+                              "marketing.manage",
+                              "platform.operate",
+                              "support.respond",
+                              "data.export"
+                            ]
+                          }
+                        },
+                        "mfaEnabled": {
+                          "type": "boolean"
+                        },
+                        "mustChangePassword": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "email",
+                        "name",
+                        "staff",
+                        "staffRole",
+                        "staffPermissions",
+                        "mfaEnabled",
+                        "mustChangePassword"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "token",
+                    "expiresInMinutes",
+                    "user"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/health": {
       "get": {
         "operationId": "health",

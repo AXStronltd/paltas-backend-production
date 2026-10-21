@@ -168,3 +168,32 @@ export const completePasswordReset = endpoint({
   body: z.object({ token: z.string().trim().min(20).max(200), newPassword: NewPassword }),
   response: Ok,
 });
+
+/** A hosting-operator grant plus mailbox proof. These endpoints never create an administrative session. */
+export const beginStaffEnrollment = endpoint({
+  id: "auth.staffEnrollment.begin",
+  method: "POST",
+  path: "/api/v1/auth/staff-enrollment/begin",
+  auth: "public",
+  summary: "Verify the operator-issued grant and mailbox code; display a new pending authenticator only",
+  body: z.object({ token: z.string().min(32).max(200), emailCode: z.string().regex(/^\d{8}$/) }),
+  response: z.object({ secret: z.string(), otpauthUrl: z.string(), expiresAt: z.string() }),
+});
+export const completeStaffEnrollment = endpoint({
+  id: "auth.staffEnrollment.complete",
+  method: "POST",
+  path: "/api/v1/auth/staff-enrollment/complete",
+  auth: "public",
+  summary: "Verify first authenticator code, set password, consume grant and revoke old sessions atomically",
+  body: z.object({ token: z.string().min(32).max(200), code: SixDigitCode, newPassword: NewPassword }),
+  response: z.object({ ok: z.literal(true), backupCodes: z.array(z.string()).length(10) }),
+});
+export const loginWithBackup = endpoint({
+  id: "auth.staffBackup.login",
+  method: "POST",
+  path: "/api/v1/auth/staff-backup/login",
+  auth: "public",
+  summary: "Staff login with password plus one single-use backup code",
+  body: z.object({ email: Email, password: z.string().min(1).max(200), backupCode: z.string().min(10).max(100) }),
+  response: login.response,
+});
