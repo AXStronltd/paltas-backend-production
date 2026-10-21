@@ -236,6 +236,13 @@ export const ADMIN_API = {
   setModule: admin.setOrgModule,
   listInvoices: admin.listInvoices,
   voidInvoice: admin.voidInvoice,
+  listStaff: admin.listStaff,
+  inviteStaff: admin.inviteStaff,
+  updateStaff: admin.updateStaff,
+  resetStaffAccess: admin.resetStaffAccess,
+  listClients: admin.listClients,
+  searchPeople: admin.searchPeople,
+  overview: admin.platformOverview,
 } as const;
 
 /** Self-service sign-up, e-mail verification and the public trial policy. */

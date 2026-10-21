@@ -94,7 +94,7 @@ export function opsService(ctx: AppContext) {
     // ---------------------------------------------------------------- suspension
 
     async suspend(user: SessionUser, orgId: string, reason: string) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "clients.manage");
       return db.tx(async (t) => {
         const o = await t.row<{ suspended_at: string | null }>(
           "SELECT suspended_at FROM organisations WHERE id = $1 FOR UPDATE",
@@ -117,7 +117,7 @@ export function opsService(ctx: AppContext) {
     },
 
     async reactivate(user: SessionUser, orgId: string, reason: string) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "clients.manage");
       return db.tx(async (t) => {
         const o = await t.row<{ suspended_at: string | null; suspended_reason: string | null }>(
           "SELECT suspended_at, suspended_reason FROM organisations WHERE id = $1 FOR UPDATE",
@@ -173,7 +173,7 @@ export function opsService(ctx: AppContext) {
     // ---------------------------------------------------------------- price changes
 
     async requestPriceChange(user: SessionUser, b: PriceRequest) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         const { prices } = await currentPrices(t, b.target, b.targetId);
         const proposed =
@@ -222,12 +222,12 @@ export function opsService(ctx: AppContext) {
 
     /** Apply a requested price change; the requester can never approve their own (also a database rule). */
     async approvePriceChange(user: SessionUser, id: string, note?: string) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         const c = await loadChange(t, id);
         if (c.requested_by === user.id)
           throw fail.separationOfDuties(
-            "A price change must be approved by a Super Admin other than the one who asked",
+            "A price change must be approved by a staff member with billing rights other than the one who asked",
           );
         const { plan, prices } = await currentPrices(t, c.target_kind, c.target_id, true);
         if (!samePrices(prices, c.before))
@@ -284,11 +284,13 @@ export function opsService(ctx: AppContext) {
     },
 
     async rejectPriceChange(user: SessionUser, id: string, reason: string) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         const c = await loadChange(t, id);
         if (c.requested_by === user.id)
-          throw fail.separationOfDuties("A price change is decided by a Super Admin other than the one who asked");
+          throw fail.separationOfDuties(
+            "A price change is decided by a staff member with billing rights other than the one who asked",
+          );
         const row = await t.row<ChangeRow>(
           `UPDATE catalogue_price_changes SET status = 'rejected', decided_by = $2, decided_at = now(), decision_note = $3
            WHERE id = $1 RETURNING *`,

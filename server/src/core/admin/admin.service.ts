@@ -4,7 +4,7 @@
  * audited with the record before and after.
  */
 import { randomBytes } from "node:crypto";
-import type { Product } from "@paltas/contracts";
+import { staffCan, type Product, type StaffPermission } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import type { Db } from "../../db/database.js";
 import { fail } from "../../http/errors.js";
@@ -21,8 +21,9 @@ import { toInvoice, type BillingService } from "../subscriptions/billing.service
 import { RENEWAL_NOTE } from "../scheduler/platform-jobs.js";
 import { resolveEntitlement, toEntitlementsView } from "../subscriptions/entitlement.service.js";
 
-export function staffActor(user: SessionUser, need?: "super_admin"): Actor {
-  if (need && user.staffRole !== need) throw fail.staffRoleNotAllowed();
+/** A PALTAS staff member as the actor of a change. With a permission, staff whose role lacks it are refused. */
+export function staffActor(user: SessionUser, need?: StaffPermission): Actor {
+  if (need && !staffCan(user.staffRole, need)) throw fail.staffRoleNotAllowed();
   return { userId: user.id, role: user.staffRole ?? "staff" };
 }
 
@@ -81,11 +82,11 @@ export async function createOrganisationRecords(
 export function adminService(ctx: AppContext, deps: { billing: BillingService; payments: PaymentsService }) {
   const { db, clock } = ctx;
   const PRICE_APPROVAL =
-    "Prices of an existing plan or module change only through a price change request approved by a second Super Admin (POST /api/v1/admin/price-changes)";
+    "Prices of an existing plan or module change only through a price change request approved by a second staff member with billing rights (POST /api/v1/admin/price-changes)";
 
   return {
     async savePlan(user: SessionUser, id: string, input: PlanInput) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         if (ctx.config.cataloguePriceApproval) {
           const cur = await t.row<{
@@ -118,7 +119,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
     },
 
     async saveModule(user: SessionUser, key: string, input: ModuleInput) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         if (ctx.config.cataloguePriceApproval && (input.priceMinor !== undefined || input.currency !== undefined)) {
           const cur = await t.row<{ price_minor: number | null; price_ccy: string | null }>(
@@ -176,7 +177,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
         repeatTrialReason?: string | undefined;
       },
     ) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "clients.manage");
       return db.tx(async (t) => {
         const { id, plan } = await createOrganisationRecords(t, ctx, {
           ...b,
@@ -217,7 +218,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
       orgId: string,
       b: { status: "active" | "trial" | "suspended" | "expired"; reason: string; product?: Product | undefined },
     ) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "clients.manage");
       return db.tx(async (t) => {
         const first = await t.row<{ product: Product }>(
           "SELECT product FROM subscriptions WHERE org_id = $1 ORDER BY created_at, product LIMIT 1",
@@ -248,7 +249,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
     },
 
     async addProduct(user: SessionUser, orgId: string, b: { product: Product; plan: string; trial: boolean }) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "clients.manage");
       return db.tx(async (t) => {
         if (!(await t.row("SELECT 1 FROM organisations WHERE id = $1", [orgId])))
           throw fail.notFound("Organisation not found");
@@ -278,7 +279,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
     },
 
     async issueInvoice(user: SessionUser, orgId: string, product?: Product) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         await t.run("SELECT pg_advisory_xact_lock(hashtext($1))", ["invoice:" + orgId]);
         const en = await resolveEntitlement(t, ctx.products, clock.today(), orgId, product);
@@ -306,7 +307,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
     },
 
     async recordReceipt(user: SessionUser, invoiceId: string, b: { ref: string; reason: string }) {
-      staffActor(user, "super_admin");
+      staffActor(user, "billing.manage");
       if (await db.row("SELECT 1 FROM payment_events WHERE lower(ref) = lower($1)", [b.ref]))
         throw fail.conflict("This reference is already used by another payment");
       const inv = await db.row<{ id: string; total_minor: number; currency: string }>(
@@ -378,7 +379,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
         admin?: { email: string; name?: string | undefined } | undefined;
       },
     ) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "clients.manage");
       return db.tx(async (t) => {
         const before = await t.row<{
           name: string;
@@ -442,7 +443,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
     },
 
     async setPlan(user: SessionUser, orgId: string, b: { plan: string; reason: string }) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         const plan = await findPlan(t, b.plan);
         if (!plan) throw fail.invalid("Pick a plan");
@@ -477,7 +478,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
       orgId: string,
       b: { product?: Product | undefined; trialEnds: string; reason: string },
     ) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "clients.manage");
       return db.tx(async (t) => {
         const sub = await lockSubscription(t, orgId, b.product);
         if (sub.status !== "trial") throw fail.invalid("Only a subscription on trial has a trial end date");
@@ -500,7 +501,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
     },
 
     async setTerms(user: SessionUser, orgId: string, b: { discountPct: number; note: string }) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         const before = await t.row<{ discount_pct: string; terms_note: string }>(
           "SELECT discount_pct, terms_note FROM organisations WHERE id = $1 FOR UPDATE",
@@ -531,7 +532,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
       orgId: string,
       b: { product?: Product | undefined; extra: number; override: number | null; reason: string },
     ) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         const sub = await lockSubscription(t, orgId, b.product);
         await t.run(
@@ -557,7 +558,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
       key: string,
       b: { product?: Product | undefined; on: boolean; reason: string },
     ) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         const sub = await lockSubscription(t, orgId, b.product);
         const en = await resolveEntitlement(t, ctx.products, clock.today(), orgId, sub.product);
@@ -624,7 +625,7 @@ export function adminService(ctx: AppContext, deps: { billing: BillingService; p
     },
 
     async voidInvoice(user: SessionUser, invoiceId: string, b: { reason: string }) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "billing.manage");
       return db.tx(async (t) => {
         const inv = await t.row<{ org_id: string; status: string }>(
           "SELECT org_id, status FROM billing_invoices WHERE id = $1 FOR UPDATE",
