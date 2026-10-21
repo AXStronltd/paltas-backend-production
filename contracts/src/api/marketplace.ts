@@ -218,6 +218,10 @@ export const quoteStay = endpoint({
 });
 
 // ------------------------------------------------------------------ public: submissions (routed to the listing's organisation)
+/** A random id the browser makes when the form opens (22–64 URL-safe characters). Sending the same request again
+ *  (a lost answer, a retry) returns the same booking or offer and the same private code instead of a second one. */
+const RequestId = z.string().regex(/^[A-Za-z0-9_-]{22,64}$/, "Use a random id of 22 to 64 letters, digits, - or _");
+
 const Visitor = {
   name: PersonName,
   email: Email.optional(),
@@ -268,7 +272,13 @@ export const makeOffer = endpoint({
     "Make an offer on a home for sale. Returns a private token, ONCE: keep it to follow the offer. " +
     "No money is taken.",
   params: ListingParams,
-  body: z.object({ ...Visitor, email: Email, amountMinor: PositiveMinorUnits, message: Message.default("") }),
+  body: z.object({
+    ...Visitor,
+    email: Email,
+    amountMinor: PositiveMinorUnits,
+    message: Message.default(""),
+    requestId: RequestId.optional(),
+  }),
   response: PublicOffer.extend({ token: z.string() }),
   status: 201,
 });
@@ -337,6 +347,7 @@ export const requestBooking = endpoint({
     checkOut: IsoDate,
     guests: z.number().int().min(1).max(50),
     message: Message.default(""),
+    requestId: RequestId.optional(),
   }),
   response: PublicBooking.extend({ token: z.string(), quote: StayQuote }),
   status: 201,
