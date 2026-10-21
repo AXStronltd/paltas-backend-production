@@ -28,6 +28,10 @@ export async function migrate(db: Database): Promise<string[]> {
   const files = await migrationFiles();
   const applied: string[] = [];
   await db.tx(async (t) => {
+    // A migration may take long, but must never queue behind a long query while every other query queues behind it:
+    // if a table lock is not granted within 5 s the deploy fails (the running version keeps serving) and is retried.
+    await t.run("SET LOCAL statement_timeout = '10min'");
+    await t.run("SET LOCAL lock_timeout = '5s'");
     await t.run("SELECT pg_advisory_xact_lock($1)", [LOCK_KEY]);
     await t.run(`CREATE TABLE IF NOT EXISTS schema_migrations (
       version text PRIMARY KEY, checksum text NOT NULL, applied_at timestamptz NOT NULL DEFAULT now())`);

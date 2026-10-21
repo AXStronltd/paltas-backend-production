@@ -85,7 +85,7 @@ export async function startServer(
     },
     o.config,
   );
-  const db = connect(config.databaseUrl, 5);
+  const db = connect(config.databaseUrl, 5, config.dbTimeouts); // the same limits as production
   const app = await buildApp(config, {
     db,
     products: o.products ?? [],

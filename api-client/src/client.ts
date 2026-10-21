@@ -43,6 +43,10 @@ export interface ClientOptions {
   fetch?: typeof fetch;
   /** Extra headers on every request. */
   headers?: Record<string, string>;
+  /** Give up when the server has not started answering within this many milliseconds (default 45 000; 0 = never).
+   *  Longer than the server's own limits, so its own error normally arrives first. A download that has started is
+   *  not cut off. */
+  timeoutMs?: number;
 }
 
 type EmptyObject = Record<string, never>;
@@ -84,14 +88,32 @@ export function createClient(options: ClientOptions): PaltasClient {
     if (hasBody) headers["Content-Type"] = "application/json";
 
     let res: Response;
+    const limit = options.timeoutMs ?? 45_000;
+    const abort = limit > 0 && typeof AbortController !== "undefined" ? new AbortController() : null;
+    let timedOut = false;
+    const timer = abort
+      ? setTimeout(() => {
+          timedOut = true;
+          abort.abort();
+        }, limit)
+      : null;
     try {
       res = await doFetch(url, {
         method: endpoint.method,
         headers,
         body: hasBody ? JSON.stringify(i.body) : undefined,
+        ...(abort ? { signal: abort.signal } : {}),
       });
     } catch (e) {
-      throw new PaltasApiError(0, "NETWORK_ERROR", "Could not reach the PALTAS server: " + (e as Error).message);
+      throw new PaltasApiError(
+        0,
+        "NETWORK_ERROR",
+        timedOut
+          ? "The PALTAS server did not answer in time"
+          : "Could not reach the PALTAS server: " + (e as Error).message,
+      );
+    } finally {
+      if (timer) clearTimeout(timer);
     }
     // Image endpoint serves binary JPEG for <img>; typed callers receive a safe data URL.
     if (res.ok && endpoint.id === "marketplace.mediaContent") {

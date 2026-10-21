@@ -60,10 +60,26 @@ function wrap(q: Queryable, tx: Db["tx"]): Db {
   };
 }
 
-export function connect(url: string, poolSize = 10): Database {
+/** Limits for the running server's pool (scripts connect without them). */
+export interface PoolTimeouts {
+  statementMs: number;
+  idleInTransactionMs: number;
+  connectMs: number;
+}
+
+export function connect(url: string, poolSize = 10, timeouts?: PoolTimeouts): Database {
   const pool = new Pool({
     connectionString: url,
     max: poolSize,
+    // A starved pool, a runaway statement or an abandoned transaction must not freeze the server: requests wait at
+    // most connectMs for a connection, statements stop after statementMs, idle transactions end after idleInTransactionMs.
+    ...(timeouts
+      ? {
+          connectionTimeoutMillis: timeouts.connectMs,
+          statement_timeout: timeouts.statementMs,
+          idle_in_transaction_session_timeout: timeouts.idleInTransactionMs,
+        }
+      : {}),
     ssl: /sslmode=(require|verify-full|verify-ca)/.test(url) ? { rejectUnauthorized: true } : undefined,
   });
   // An idle connection the database closes (restart, failover, a dropped test database) is discarded by the pool and
@@ -76,6 +92,14 @@ export function connect(url: string, poolSize = 10): Database {
   async function tx<T>(fn: (t: Db) => Promise<T>): Promise<T> {
     const client = await pool.connect();
     let broken: Error | undefined;
+    // While a transaction holds the connection the pool does not listen for its errors. The database may end the
+    // session (idle-in-transaction timeout, restart, failover): without this listener that 'error' event would be an
+    // uncaught exception that stops the whole server. The transaction then fails and the connection is discarded.
+    const lost = (err: Error) => {
+      broken = err;
+      if (!closing) console.warn(`PostgreSQL ended a connection during a transaction: ${err.message}`);
+    };
+    client.on("error", lost);
     try {
       await client.query("BEGIN");
       const inner: Db = wrap(client, (f) => f(inner));
@@ -89,6 +113,7 @@ export function connect(url: string, poolSize = 10): Database {
       });
       throw e;
     } finally {
+      client.off("error", lost);
       client.release(broken);
     }
   }

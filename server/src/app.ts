@@ -64,9 +64,10 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     },
     trustProxy: config.trustProxy,
     bodyLimit: 256 * 1024,
+    requestTimeout: config.httpRequestTimeoutMs,
     return503OnClosing: true,
   });
-  const db = options.db ?? connect(config.databaseUrl, config.databasePoolSize);
+  const db = options.db ?? connect(config.databaseUrl, config.databasePoolSize, config.dbTimeouts);
   if (options.migrate !== false) await migrate(db);
 
   const clock = systemClock(config.fixedToday);

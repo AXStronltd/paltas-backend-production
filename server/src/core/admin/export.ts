@@ -88,6 +88,9 @@ export async function exportOrganisation(
   return exportOrganisationAs(ctx, staffActor(user, "super_admin"), orgId, reason);
 }
 
+/** Exports in progress on this server: each holds one database connection for as long as the client downloads. */
+const running = new Set<string>();
+
 /** The export itself, for PALTAS staff or the organisation's own administrator (also after a trial expired). */
 export async function exportOrganisationAs(
   ctx: AppContext,
@@ -98,9 +101,20 @@ export async function exportOrganisationAs(
   const { db, log } = ctx;
   if (!(await db.row("SELECT 1 FROM organisations WHERE id = $1", [orgId])))
     throw fail.notFound("Organisation not found");
+  // one export per organisation, and a few per server, so slow downloads can never take every database connection
+  if (running.has(orgId))
+    throw fail.tooManyAttempts(
+      "An export of this organisation is already being prepared. Please wait for it to finish.",
+    );
+  if (running.size >= ctx.config.exportMaxConcurrent)
+    throw fail.tooManyAttempts("PALTAS is preparing other exports right now. Please try again in a minute.");
   await recordAudit(db, { actor, orgId, action: "Organisation data exported", target: orgId, detail: reason });
 
+  running.add(orgId); // released when the export ends, fails or the client goes away (finally below)
   const out = new PassThrough();
+  // a client that stops reading but keeps the connection open must not hold the export (and its connection) forever
+  const deadline = setTimeout(() => out.destroy(new Error("The export took longer than 30 minutes")), 30 * 60_000);
+  deadline.unref();
   const write = async (chunk: string) => {
     if (out.destroyed) throw new Error("The client went away");
     if (!out.write(chunk)) await Promise.race([once(out, "drain"), once(out, "close")]);
@@ -110,6 +124,9 @@ export async function exportOrganisationAs(
   void db
     .tx(async (t) => {
       await t.run("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY");
+      // a large organisation on a slow connection: longer than the server's normal limits, but never unbounded
+      await t.run("SET LOCAL statement_timeout = '5min'");
+      await t.run("SET LOCAL idle_in_transaction_session_timeout = '10min'");
       const org = await t.row<Record<string, unknown>>("SELECT * FROM organisations WHERE id = $1", [orgId]);
       const members = await t.rows<{ userId: string; email: string; name: string; role: string; status: string }>(
         `SELECT u.id AS "userId", u.email, u.name, m.role, m.status FROM memberships m JOIN users u ON u.id = m.user_id
@@ -155,6 +172,10 @@ export async function exportOrganisationAs(
         log.warn({ err, orgId }, "Organisation export stopped");
         out.destroy(err);
       },
-    );
+    )
+    .finally(() => {
+      clearTimeout(deadline);
+      running.delete(orgId);
+    });
   return { body: out, filename: `paltas-export-${orgId}.json` };
 }

@@ -13,6 +13,41 @@ function fakeFetch(answer: { status: number; body: unknown } | Error) {
 }
 
 describe("API client", () => {
+  it("gives up when the server does not start answering in time, but never cuts off an answer already arriving", async () => {
+    // a server that never answers: the request is aborted after timeoutMs and reported as a network problem
+    let aborted = false;
+    const silent = ((_url: string, init: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init.signal?.addEventListener("abort", () => {
+          aborted = true;
+          reject(new DOMException("aborted", "AbortError"));
+        });
+      })) as unknown as typeof fetch;
+    const api = createClient({ baseUrl: "http://api.test", fetch: silent, timeoutMs: 50 });
+    const err = await api.ledger.listJournals({ params: { orgId: "O" } }).catch((e: unknown) => e);
+    expect(aborted).toBe(true);
+    expect(err).toBeInstanceOf(PaltasApiError);
+    expect(err).toMatchObject({
+      status: 0,
+      code: "NETWORK_ERROR",
+      message: "The PALTAS server did not answer in time",
+    });
+    // headers arrive in time; the body is slow: the answer is read in full, not aborted
+    const slowBody = (async () =>
+      new Response(
+        new ReadableStream({
+          async start(c) {
+            await new Promise((r) => setTimeout(r, 120));
+            c.enqueue(new TextEncoder().encode(JSON.stringify({ journals: [] })));
+            c.close();
+          },
+        }),
+        { status: 200 },
+      )) as unknown as typeof fetch;
+    const ok = createClient({ baseUrl: "http://api.test", fetch: slowBody, timeoutMs: 50 });
+    expect(await ok.ledger.listJournals({ params: { orgId: "O" } })).toEqual({ journals: [] });
+  });
+
   it("fills path params (encoded), query and body, and sends the token", async () => {
     const { f, calls } = fakeFetch({ status: 201, body: { id: "x" } });
     const api = createClient({ baseUrl: "http://api.test/", token: "t0k", fetch: f });
