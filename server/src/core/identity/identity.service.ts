@@ -7,7 +7,14 @@
  * - Two-factor: PALTAS staff always need it; anyone else may turn it on. Secrets are encrypted at rest.
  */
 import { createHash, randomBytes } from "node:crypto";
-import { entitlements, type Product, type Role, type SignedInUser, type StaffRole } from "@paltas/contracts";
+import {
+  entitlements,
+  STAFF_ROLE_DEFINITIONS,
+  type Product,
+  type Role,
+  type SignedInUser,
+  type StaffRole,
+} from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import type { Db } from "../../db/database.js";
 import { fail } from "../../http/errors.js";
@@ -59,6 +66,7 @@ export function toSignedInUser(
     name: u.name,
     staff: !!u.staffRole,
     staffRole: u.staffRole,
+    staffPermissions: u.staffRole ? [...STAFF_ROLE_DEFINITIONS[u.staffRole].permissions] : [],
     mfaEnabled: u.mfaEnabled,
     mustChangePassword: u.mustChangePassword,
   };
@@ -154,7 +162,9 @@ export function identityService(ctx: AppContext) {
           throw fail.notSignedIn("Email, password or verification code is not correct");
         }
       }
-      await db.run("UPDATE users SET failed_count = 0, locked_until = NULL WHERE id = $1", [u.id]);
+      await db.run("UPDATE users SET failed_count = 0, locked_until = NULL, last_sign_in_at = now() WHERE id = $1", [
+        u.id,
+      ]);
       const token = randomBytes(32).toString("base64url");
       await db.tx(async (t) => {
         const current = await t.row<UserRow>("SELECT * FROM users WHERE id=$1 FOR UPDATE", [u.id]);

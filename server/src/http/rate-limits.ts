@@ -2,6 +2,7 @@
  * Request rate limits for sensitive routes (per minute):
  *   - sign-in: per address (LOGIN_RATE_LIMIT_PER_MINUTE);
  *   - provider webhooks: per address (WEBHOOK_RATE_LIMIT_PER_MINUTE);
+ *   - support chat messages: 12 per minute per signed-in person (and a daily assistant limit in core/support);
  *   - public read-only sign-up options (plans, terms): per address (PUBLIC_READ_RATE_LIMIT_PER_MINUTE);
  *   - password and two-factor changes, invitations, adding members, every PALTAS staff change, data exports,
  *     bank statement work, sign-up, verification and upgrades: per signed-in person (their session), else per
@@ -59,6 +60,9 @@ export function rateLimitFor(e: Pick<EndpointDefinition, "id" | "auth" | "method
   if (e.id === "property.documents.download") return { max: 30, timeWindow: minute, keyGenerator: personOrAddress };
   if (e.id.startsWith("auth.staffEnrollment.") || e.id === "auth.staffBackup.login")
     return { max: Math.min(limits.login, 5), timeWindow: minute };
+  // support chat: a person writes a few messages a minute; each may cost an assistant answer
+  if (e.id === "support.start" || e.id === "support.send")
+    return { max: 12, timeWindow: minute, keyGenerator: personOrAddress };
   if (e.id === "auth.login") return { max: limits.login, timeWindow: minute };
   if (e.auth === "signed-webhook" || e.id === "webhooks.email" || e.id === "webhooks.stripe")
     return { max: limits.webhook, timeWindow: minute };

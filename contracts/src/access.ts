@@ -873,6 +873,77 @@ export function rolesForProducts(products: readonly string[]): Role[] {
   return ROLES.filter((r) => ROLE_DEFINITIONS[r].products.some((p) => products.includes(p)));
 }
 
-export const STAFF_ROLES = ["super_admin", "support"] as const;
+// ------------------------------------------------------------------ PALTAS staff (the Super Admin portal)
+/**
+ * What a PALTAS staff member may CHANGE. Every staff member can see the whole portal (read-only); each permission
+ * unlocks one area of changes. Super Admin holds every permission and is the only role that manages the staff team
+ * and exports a client's data.
+ */
+export const STAFF_PERMISSIONS = [
+  "staff.manage",
+  "clients.manage",
+  "billing.manage",
+  "marketplace.moderate",
+  "marketing.manage",
+  "platform.operate",
+  "support.respond",
+  "data.export",
+] as const;
+export const StaffPermission = z.enum(STAFF_PERMISSIONS);
+export type StaffPermission = z.infer<typeof StaffPermission>;
+
+export const STAFF_PERMISSION_LABELS: Record<StaffPermission, string> = {
+  "staff.manage": "Manage the PALTAS team and their roles",
+  "clients.manage": "Client companies: create, edit, products, trials, sign-up decisions, suspend and reactivate",
+  "billing.manage": "Billing: plans, modules, prices, discounts, invoices and receipts",
+  "marketplace.moderate": "Marketplace: approve or reject listings, business requests and reviews",
+  "marketing.manage": "Marketing campaigns",
+  "platform.operate": "Platform operations: scheduled jobs, trial policy, payment providers",
+  "support.respond": "Support chat: reply to clients, assign and close conversations",
+  "data.export": "Export a client's complete data",
+};
+
+export const STAFF_ROLES = ["super_admin", "operations", "finance", "moderator", "marketing", "support"] as const;
 export const StaffRole = z.enum(STAFF_ROLES);
 export type StaffRole = z.infer<typeof StaffRole>;
+
+export const STAFF_ROLE_DEFINITIONS: Record<
+  StaffRole,
+  { label: string; description: string; permissions: readonly StaffPermission[] }
+> = {
+  super_admin: {
+    label: "Super Admin",
+    description: "Everything, including the PALTAS team, roles and client data exports.",
+    permissions: STAFF_PERMISSIONS,
+  },
+  operations: {
+    label: "Operations",
+    description: "Runs client companies day to day: onboarding, sign-ups, trials, suspensions, moderation, jobs.",
+    permissions: ["clients.manage", "marketplace.moderate", "platform.operate", "support.respond"],
+  },
+  finance: {
+    label: "Finance",
+    description: "Plans, prices, discounts, invoices and receipts.",
+    permissions: ["billing.manage"],
+  },
+  moderator: {
+    label: "Marketplace moderator",
+    description: "Reviews listings, business requests and guest reviews.",
+    permissions: ["marketplace.moderate"],
+  },
+  marketing: {
+    label: "Marketing",
+    description: "Prepares and runs marketing campaigns.",
+    permissions: ["marketing.manage"],
+  },
+  support: {
+    label: "Support",
+    description: "Answers clients in the support chat and sees everything to help them; changes nothing else.",
+    permissions: ["support.respond"],
+  },
+};
+
+/** May this staff role make this kind of change? */
+export function staffCan(role: StaffRole | null | undefined, permission: StaffPermission): boolean {
+  return !!role && STAFF_ROLE_DEFINITIONS[role].permissions.includes(permission);
+}

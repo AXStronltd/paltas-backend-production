@@ -18,7 +18,7 @@ export function marketingRoutes(ctx: AppContext) {
       channels: SocialChannel.options.map((channel) => ({ channel, connected: false as const })),
     })),
     route(admin.createCampaign, async (r) => {
-      const actor = staffActor(r.user, "super_admin"),
+      const actor = staffActor(r.user, "marketing.manage"),
         id = randomUUID();
       return db.tx(async (t) => {
         await t.run(
@@ -32,7 +32,7 @@ export function marketingRoutes(ctx: AppContext) {
       });
     }),
     route(admin.updateCampaign, async (r) => {
-      const actor = staffActor(r.user, "super_admin");
+      const actor = staffActor(r.user, "marketing.manage");
       return db.tx(async (t) => {
         const before = await t.row<Row>(`${select} WHERE id=$1 FOR UPDATE`, [r.params.campaignId]);
         if (!before) throw fail.notFound();
@@ -56,7 +56,7 @@ export function marketingRoutes(ctx: AppContext) {
       });
     }),
     route(admin.campaignAction, async (r) => {
-      const actor = staffActor(r.user, "super_admin");
+      const actor = staffActor(r.user, "marketing.manage");
       return db.tx(async (t) => {
         const c = await t.row<Row>(`${select} WHERE id=$1 FOR UPDATE`, [r.params.campaignId]);
         if (!c) throw fail.notFound();

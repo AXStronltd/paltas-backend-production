@@ -285,6 +285,10 @@
                               "type": "string",
                               "enum": [
                                 "super_admin",
+                                "operations",
+                                "finance",
+                                "moderator",
+                                "marketing",
                                 "support"
                               ]
                             },
@@ -292,6 +296,23 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "staffPermissions": {
+                          "default": [],
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "staff.manage",
+                              "clients.manage",
+                              "billing.manage",
+                              "marketplace.moderate",
+                              "marketing.manage",
+                              "platform.operate",
+                              "support.respond",
+                              "data.export"
+                            ]
+                          }
                         },
                         "mfaEnabled": {
                           "type": "boolean"
@@ -306,6 +327,7 @@
                         "name",
                         "staff",
                         "staffRole",
+                        "staffPermissions",
                         "mfaEnabled",
                         "mustChangePassword"
                       ],
@@ -468,6 +490,10 @@
                               "type": "string",
                               "enum": [
                                 "super_admin",
+                                "operations",
+                                "finance",
+                                "moderator",
+                                "marketing",
                                 "support"
                               ]
                             },
@@ -475,6 +501,23 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "staffPermissions": {
+                          "default": [],
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "staff.manage",
+                              "clients.manage",
+                              "billing.manage",
+                              "marketplace.moderate",
+                              "marketing.manage",
+                              "platform.operate",
+                              "support.respond",
+                              "data.export"
+                            ]
+                          }
                         },
                         "mfaEnabled": {
                           "type": "boolean"
@@ -489,6 +532,7 @@
                         "name",
                         "staff",
                         "staffRole",
+                        "staffPermissions",
                         "mfaEnabled",
                         "mustChangePassword"
                       ],
@@ -603,6 +647,10 @@
                               "type": "string",
                               "enum": [
                                 "super_admin",
+                                "operations",
+                                "finance",
+                                "moderator",
+                                "marketing",
                                 "support"
                               ]
                             },
@@ -610,6 +658,23 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "staffPermissions": {
+                          "default": [],
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "staff.manage",
+                              "clients.manage",
+                              "billing.manage",
+                              "marketplace.moderate",
+                              "marketing.manage",
+                              "platform.operate",
+                              "support.respond",
+                              "data.export"
+                            ]
+                          }
                         },
                         "mfaEnabled": {
                           "type": "boolean"
@@ -624,6 +689,7 @@
                         "name",
                         "staff",
                         "staffRole",
+                        "staffPermissions",
                         "mfaEnabled",
                         "mustChangePassword"
                       ],
@@ -13343,6 +13409,2074 @@
                   },
                   "required": [
                     "ok"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/staff": {
+      "get": {
+        "operationId": "admin.staff.list",
+        "summary": "The PALTAS team: every staff account with its role, and what each role may change",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "staff": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "userId": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "super_admin",
+                              "operations",
+                              "finance",
+                              "moderator",
+                              "marketing",
+                              "support"
+                            ]
+                          },
+                          "active": {
+                            "type": "boolean"
+                          },
+                          "mustChangePassword": {
+                            "type": "boolean"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "lastSignInAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "userId",
+                          "email",
+                          "name",
+                          "role",
+                          "active",
+                          "mustChangePassword",
+                          "createdAt",
+                          "lastSignInAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "roles": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "role": {
+                            "type": "string",
+                            "enum": [
+                              "super_admin",
+                              "operations",
+                              "finance",
+                              "moderator",
+                              "marketing",
+                              "support"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          },
+                          "description": {
+                            "type": "string"
+                          },
+                          "permissions": {
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "staff.manage",
+                                "clients.manage",
+                                "billing.manage",
+                                "marketplace.moderate",
+                                "marketing.manage",
+                                "platform.operate",
+                                "support.respond",
+                                "data.export"
+                              ]
+                            }
+                          }
+                        },
+                        "required": [
+                          "role",
+                          "label",
+                          "description",
+                          "permissions"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "permissions": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "permission": {
+                            "type": "string",
+                            "enum": [
+                              "staff.manage",
+                              "clients.manage",
+                              "billing.manage",
+                              "marketplace.moderate",
+                              "marketing.manage",
+                              "platform.operate",
+                              "support.respond",
+                              "data.export"
+                            ]
+                          },
+                          "label": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "permission",
+                          "label"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "staff",
+                    "roles",
+                    "permissions"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "admin.staff.invite",
+        "summary": "Add a PALTAS staff member with a role (Super Admin only). Returns a temporary password and an authenticator secret ONCE; the person must change the password at first sign-in and always signs in with a 6-digit code.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "email": {
+                    "type": "string",
+                    "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$"
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120
+                  },
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "super_admin",
+                      "operations",
+                      "finance",
+                      "moderator",
+                      "marketing",
+                      "support"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "email",
+                  "name",
+                  "role",
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "temporaryPassword": {
+                      "type": "string"
+                    },
+                    "authenticatorSecret": {
+                      "type": "string"
+                    },
+                    "otpauthUrl": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "userId",
+                    "email",
+                    "temporaryPassword",
+                    "authenticatorSecret",
+                    "otpauthUrl"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/staff/{userId}": {
+      "put": {
+        "operationId": "admin.staff.update",
+        "summary": "Change a staff member's role, or deactivate / reactivate the account (Super Admin only). Their open sessions end. Nobody changes their own account here, and the last active Super Admin cannot be removed.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "role": {
+                    "type": "string",
+                    "enum": [
+                      "super_admin",
+                      "operations",
+                      "finance",
+                      "moderator",
+                      "marketing",
+                      "support"
+                    ]
+                  },
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/staff/{userId}/reset-access": {
+      "post": {
+        "operationId": "admin.staff.resetAccess",
+        "summary": "A lost phone or password: issue a new temporary password and a new authenticator secret (Super Admin only), returned ONCE. The old ones stop working and every open session ends.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "userId": {
+                      "type": "string"
+                    },
+                    "email": {
+                      "type": "string"
+                    },
+                    "temporaryPassword": {
+                      "type": "string"
+                    },
+                    "authenticatorSecret": {
+                      "type": "string"
+                    },
+                    "otpauthUrl": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "userId",
+                    "email",
+                    "temporaryPassword",
+                    "authenticatorSecret",
+                    "otpauthUrl"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/clients": {
+      "get": {
+        "operationId": "admin.clients.list",
+        "summary": "The client company directory: search and filter by product, status, country and how they registered",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "product",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "enum": [
+                "property",
+                "developer",
+                "agency",
+                "hotel",
+                "security"
+              ]
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "enum": [
+                "trial",
+                "active",
+                "suspended",
+                "expired"
+              ]
+            }
+          },
+          {
+            "name": "country",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "enum": [
+                "self_signup",
+                "business_request",
+                "paltas_staff",
+                "demo"
+              ]
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": "newest",
+              "type": "string",
+              "enum": [
+                "newest",
+                "oldest",
+                "name",
+                "last_active"
+              ]
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 50,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "clients": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "legalName": {
+                            "type": "string"
+                          },
+                          "country": {
+                            "type": "string"
+                          },
+                          "currency": {
+                            "type": "string",
+                            "pattern": "^[A-Z]{3}$"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "source": {
+                            "type": "string",
+                            "enum": [
+                              "self_signup",
+                              "business_request",
+                              "paltas_staff",
+                              "demo"
+                            ]
+                          },
+                          "suspended": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "at": {
+                                    "type": "string"
+                                  },
+                                  "reason": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "at",
+                                  "reason"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "products": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "product": {
+                                  "type": "string",
+                                  "enum": [
+                                    "property",
+                                    "developer",
+                                    "agency",
+                                    "hotel",
+                                    "security"
+                                  ]
+                                },
+                                "plan": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "trial",
+                                    "active",
+                                    "suspended",
+                                    "expired"
+                                  ]
+                                },
+                                "trialEnds": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "product",
+                                "plan",
+                                "status",
+                                "trialEnds"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "admin": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "name": {
+                                    "type": "string"
+                                  },
+                                  "email": {
+                                    "type": "string"
+                                  },
+                                  "emailVerified": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "name",
+                                  "email",
+                                  "emailVerified"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "members": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "listings": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "openInvoices": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "lastActiveAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "name",
+                          "legalName",
+                          "country",
+                          "currency",
+                          "createdAt",
+                          "source",
+                          "suspended",
+                          "products",
+                          "admin",
+                          "members",
+                          "listings",
+                          "openInvoices",
+                          "lastActiveAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "countries": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "total",
+                    "clients",
+                    "countries"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/people": {
+      "get": {
+        "operationId": "admin.people.search",
+        "summary": "Find a client account by name or e-mail, with every company it belongs to (PALTAS staff are not listed)",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "minLength": 2,
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 25,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "people": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "userId": {
+                            "type": "string"
+                          },
+                          "email": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          },
+                          "active": {
+                            "type": "boolean"
+                          },
+                          "emailVerified": {
+                            "type": "boolean"
+                          },
+                          "twoFactor": {
+                            "type": "boolean"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "lastSignInAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "memberships": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "orgId": {
+                                  "type": "string"
+                                },
+                                "orgName": {
+                                  "type": "string"
+                                },
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "org_admin",
+                                    "finance_director",
+                                    "accountant",
+                                    "property_manager",
+                                    "leasing_agent",
+                                    "front_desk",
+                                    "technician",
+                                    "sales_manager",
+                                    "sales_agent",
+                                    "project_manager",
+                                    "operations_manager",
+                                    "supervisor",
+                                    "auditor",
+                                    "viewer",
+                                    "general_manager",
+                                    "front_office_manager",
+                                    "receptionist",
+                                    "revenue_manager",
+                                    "housekeeping_supervisor",
+                                    "housekeeping_attendant",
+                                    "outlet_staff",
+                                    "financial_controller",
+                                    "income_auditor",
+                                    "credit_controller",
+                                    "ap_clerk",
+                                    "cost_controller",
+                                    "payroll_officer",
+                                    "group_owner",
+                                    "procurement_officer",
+                                    "treasury_officer",
+                                    "control_room_operator",
+                                    "guard",
+                                    "gate_officer",
+                                    "access_administrator",
+                                    "security_client",
+                                    "maintenance_manager",
+                                    "tenant",
+                                    "owner"
+                                  ]
+                                },
+                                "status": {
+                                  "type": "string",
+                                  "enum": [
+                                    "active",
+                                    "suspended",
+                                    "invited"
+                                  ]
+                                }
+                              },
+                              "required": [
+                                "orgId",
+                                "orgName",
+                                "role",
+                                "status"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "userId",
+                          "email",
+                          "name",
+                          "active",
+                          "emailVerified",
+                          "twoFactor",
+                          "createdAt",
+                          "lastSignInAt",
+                          "memberships"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "people"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/overview": {
+      "get": {
+        "operationId": "admin.overview",
+        "summary": "The whole platform at a glance: clients, people, money and every queue waiting for a PALTAS decision",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "asOf": {
+                      "type": "string"
+                    },
+                    "clients": {
+                      "type": "object",
+                      "properties": {
+                        "total": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "newLast30Days": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "suspended": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "bySource": {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "enum": [
+                              "self_signup",
+                              "business_request",
+                              "paltas_staff",
+                              "demo"
+                            ]
+                          },
+                          "additionalProperties": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "required": [
+                            "self_signup",
+                            "business_request",
+                            "paltas_staff",
+                            "demo"
+                          ]
+                        },
+                        "subscriptions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "product": {
+                                "type": "string",
+                                "enum": [
+                                  "property",
+                                  "developer",
+                                  "agency",
+                                  "hotel",
+                                  "security"
+                                ]
+                              },
+                              "status": {
+                                "type": "string",
+                                "enum": [
+                                  "trial",
+                                  "active",
+                                  "suspended",
+                                  "expired"
+                                ]
+                              },
+                              "count": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "product",
+                              "status",
+                              "count"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "total",
+                        "newLast30Days",
+                        "suspended",
+                        "bySource",
+                        "subscriptions"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "people": {
+                      "type": "object",
+                      "properties": {
+                        "clientAccounts": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "signedInLast30Days": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "staff": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "clientAccounts",
+                        "signedInLast30Days",
+                        "staff"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "money": {
+                      "type": "object",
+                      "properties": {
+                        "outstanding": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              "amountMinor": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "currency",
+                              "amountMinor"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "overdue": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              "amountMinor": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "currency",
+                              "amountMinor"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "paidLast30Days": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "currency": {
+                                "type": "string",
+                                "pattern": "^[A-Z]{3}$"
+                              },
+                              "amountMinor": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "required": [
+                              "currency",
+                              "amountMinor"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "outstanding",
+                        "overdue",
+                        "paidLast30Days"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "marketplace": {
+                      "type": "object",
+                      "properties": {
+                        "liveListings": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "bookingsLast30Days": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "offersLast30Days": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "liveListings",
+                        "bookingsLast30Days",
+                        "offersLast30Days"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "queues": {
+                      "type": "object",
+                      "properties": {
+                        "signups": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "businessRequests": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "listings": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "reviews": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "payments": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "priceChanges": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "signups",
+                        "businessRequests",
+                        "listings",
+                        "reviews",
+                        "payments",
+                        "priceChanges"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "asOf",
+                    "clients",
+                    "people",
+                    "money",
+                    "marketplace",
+                    "queues"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/support": {
+      "get": {
+        "operationId": "admin.support.inbox",
+        "summary": "Every client conversation: waiting for a person first, then the newest",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "view",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": "needs_person",
+              "type": "string",
+              "enum": [
+                "needs_person",
+                "open",
+                "mine",
+                "closed",
+                "all"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "maxLength": 120
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "conversations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "subject": {
+                            "type": "string"
+                          },
+                          "orgId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "orgName": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "closed"
+                            ]
+                          },
+                          "needsHuman": {
+                            "type": "boolean"
+                          },
+                          "lastMessageAt": {
+                            "type": "string"
+                          },
+                          "lastAuthor": {
+                            "type": "string",
+                            "enum": [
+                              "client",
+                              "assistant",
+                              "staff",
+                              "system"
+                            ]
+                          },
+                          "unread": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "client": {
+                            "type": "object",
+                            "properties": {
+                              "userId": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": "string"
+                              },
+                              "email": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "userId",
+                              "name",
+                              "email"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "assignedTo": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "userId": {
+                                    "type": "string"
+                                  },
+                                  "name": {
+                                    "type": "string"
+                                  }
+                                },
+                                "required": [
+                                  "userId",
+                                  "name"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "lastMessage": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "subject",
+                          "orgId",
+                          "orgName",
+                          "status",
+                          "needsHuman",
+                          "lastMessageAt",
+                          "lastAuthor",
+                          "unread",
+                          "createdAt",
+                          "client",
+                          "assignedTo",
+                          "lastMessage"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "counts": {
+                      "type": "object",
+                      "properties": {
+                        "needsPerson": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "open": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "mine": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "needsPerson",
+                        "open",
+                        "mine"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "conversations",
+                    "counts"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/support/{conversationId}": {
+      "get": {
+        "operationId": "admin.support.get",
+        "summary": "One conversation in full, internal notes included (marks the client's messages as read by PALTAS)",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "conversation": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "orgId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orgName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "closed"
+                          ]
+                        },
+                        "needsHuman": {
+                          "type": "boolean"
+                        },
+                        "lastMessageAt": {
+                          "type": "string"
+                        },
+                        "lastAuthor": {
+                          "type": "string",
+                          "enum": [
+                            "client",
+                            "assistant",
+                            "staff",
+                            "system"
+                          ]
+                        },
+                        "unread": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "subject",
+                        "orgId",
+                        "orgName",
+                        "status",
+                        "needsHuman",
+                        "lastMessageAt",
+                        "lastAuthor",
+                        "unread",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "author": {
+                            "type": "string",
+                            "enum": [
+                              "client",
+                              "assistant",
+                              "staff",
+                              "system"
+                            ]
+                          },
+                          "authorName": {
+                            "type": "string"
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "internal": {
+                            "type": "boolean"
+                          },
+                          "at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "author",
+                          "authorName",
+                          "body",
+                          "internal",
+                          "at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "assistantActive": {
+                      "type": "boolean"
+                    },
+                    "inbox": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "orgId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orgName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "closed"
+                          ]
+                        },
+                        "needsHuman": {
+                          "type": "boolean"
+                        },
+                        "lastMessageAt": {
+                          "type": "string"
+                        },
+                        "lastAuthor": {
+                          "type": "string",
+                          "enum": [
+                            "client",
+                            "assistant",
+                            "staff",
+                            "system"
+                          ]
+                        },
+                        "unread": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        },
+                        "client": {
+                          "type": "object",
+                          "properties": {
+                            "userId": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            },
+                            "email": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "userId",
+                            "name",
+                            "email"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "assignedTo": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "userId": {
+                                  "type": "string"
+                                },
+                                "name": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "userId",
+                                "name"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lastMessage": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "subject",
+                        "orgId",
+                        "orgName",
+                        "status",
+                        "needsHuman",
+                        "lastMessageAt",
+                        "lastAuthor",
+                        "unread",
+                        "createdAt",
+                        "client",
+                        "assignedTo",
+                        "lastMessage"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": [
+                    "conversation",
+                    "messages",
+                    "assistantActive",
+                    "inbox"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "admin.support.update",
+        "summary": "Assign (userId of a staff member who may reply, or null), close or reopen, or hand the conversation back to the PALTAS assistant (needsHuman: false).",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "assignedTo": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "minLength": 1
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "open",
+                      "closed"
+                    ]
+                  },
+                  "needsHuman": {
+                    "type": "boolean"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "ok": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "ok"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/admin/support/{conversationId}/messages": {
+      "post": {
+        "operationId": "admin.support.reply",
+        "summary": "Reply to the client as yourself (they see your name, and get an e-mail that PALTAS replied), or add an internal note for the team. A reply takes the conversation off the 'needs a person' list and assigns it to you if nobody has it.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "internal": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "message"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "conversation": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "orgId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orgName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "closed"
+                          ]
+                        },
+                        "needsHuman": {
+                          "type": "boolean"
+                        },
+                        "lastMessageAt": {
+                          "type": "string"
+                        },
+                        "lastAuthor": {
+                          "type": "string",
+                          "enum": [
+                            "client",
+                            "assistant",
+                            "staff",
+                            "system"
+                          ]
+                        },
+                        "unread": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "subject",
+                        "orgId",
+                        "orgName",
+                        "status",
+                        "needsHuman",
+                        "lastMessageAt",
+                        "lastAuthor",
+                        "unread",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "author": {
+                            "type": "string",
+                            "enum": [
+                              "client",
+                              "assistant",
+                              "staff",
+                              "system"
+                            ]
+                          },
+                          "authorName": {
+                            "type": "string"
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "internal": {
+                            "type": "boolean"
+                          },
+                          "at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "author",
+                          "authorName",
+                          "body",
+                          "internal",
+                          "at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "assistantActive": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "conversation",
+                    "messages",
+                    "assistantActive"
                   ],
                   "additionalProperties": false
                 }
@@ -166043,6 +168177,645 @@
                     "recorded",
                     "expiresAt",
                     "delivery"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/support/conversations": {
+      "get": {
+        "operationId": "support.list",
+        "summary": "My conversations with PALTAS Support, newest first",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "conversations": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "subject": {
+                            "type": "string"
+                          },
+                          "orgId": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "orgName": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "open",
+                              "closed"
+                            ]
+                          },
+                          "needsHuman": {
+                            "type": "boolean"
+                          },
+                          "lastMessageAt": {
+                            "type": "string"
+                          },
+                          "lastAuthor": {
+                            "type": "string",
+                            "enum": [
+                              "client",
+                              "assistant",
+                              "staff",
+                              "system"
+                            ]
+                          },
+                          "unread": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "subject",
+                          "orgId",
+                          "orgName",
+                          "status",
+                          "needsHuman",
+                          "lastMessageAt",
+                          "lastAuthor",
+                          "unread",
+                          "createdAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "conversations"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "support.start",
+        "summary": "Start a conversation with PALTAS Support. The PALTAS assistant answers at once (or the PALTAS team, when a person should). orgId: the company it is about (one you belong to), so the answer can use its plan, trial and invoices.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "orgId": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "person": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "message"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "conversation": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "orgId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orgName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "closed"
+                          ]
+                        },
+                        "needsHuman": {
+                          "type": "boolean"
+                        },
+                        "lastMessageAt": {
+                          "type": "string"
+                        },
+                        "lastAuthor": {
+                          "type": "string",
+                          "enum": [
+                            "client",
+                            "assistant",
+                            "staff",
+                            "system"
+                          ]
+                        },
+                        "unread": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "subject",
+                        "orgId",
+                        "orgName",
+                        "status",
+                        "needsHuman",
+                        "lastMessageAt",
+                        "lastAuthor",
+                        "unread",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "author": {
+                            "type": "string",
+                            "enum": [
+                              "client",
+                              "assistant",
+                              "staff",
+                              "system"
+                            ]
+                          },
+                          "authorName": {
+                            "type": "string"
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "internal": {
+                            "type": "boolean"
+                          },
+                          "at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "author",
+                          "authorName",
+                          "body",
+                          "internal",
+                          "at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "assistantActive": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "conversation",
+                    "messages",
+                    "assistantActive"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/support/conversations/{conversationId}": {
+      "get": {
+        "operationId": "support.get",
+        "summary": "One of my conversations in full (marks the replies as read)",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "conversation": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "orgId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orgName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "closed"
+                          ]
+                        },
+                        "needsHuman": {
+                          "type": "boolean"
+                        },
+                        "lastMessageAt": {
+                          "type": "string"
+                        },
+                        "lastAuthor": {
+                          "type": "string",
+                          "enum": [
+                            "client",
+                            "assistant",
+                            "staff",
+                            "system"
+                          ]
+                        },
+                        "unread": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "subject",
+                        "orgId",
+                        "orgName",
+                        "status",
+                        "needsHuman",
+                        "lastMessageAt",
+                        "lastAuthor",
+                        "unread",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "author": {
+                            "type": "string",
+                            "enum": [
+                              "client",
+                              "assistant",
+                              "staff",
+                              "system"
+                            ]
+                          },
+                          "authorName": {
+                            "type": "string"
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "internal": {
+                            "type": "boolean"
+                          },
+                          "at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "author",
+                          "authorName",
+                          "body",
+                          "internal",
+                          "at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "assistantActive": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "conversation",
+                    "messages",
+                    "assistantActive"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/support/conversations/{conversationId}/messages": {
+      "post": {
+        "operationId": "support.send",
+        "summary": "Write in my conversation. person: true asks for a person from PALTAS (the assistant stops answering). A closed conversation opens again.",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversationId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "message": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 4000
+                  },
+                  "person": {
+                    "default": false,
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "message"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "conversation": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "subject": {
+                          "type": "string"
+                        },
+                        "orgId": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "orgName": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "open",
+                            "closed"
+                          ]
+                        },
+                        "needsHuman": {
+                          "type": "boolean"
+                        },
+                        "lastMessageAt": {
+                          "type": "string"
+                        },
+                        "lastAuthor": {
+                          "type": "string",
+                          "enum": [
+                            "client",
+                            "assistant",
+                            "staff",
+                            "system"
+                          ]
+                        },
+                        "unread": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "createdAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "subject",
+                        "orgId",
+                        "orgName",
+                        "status",
+                        "needsHuman",
+                        "lastMessageAt",
+                        "lastAuthor",
+                        "unread",
+                        "createdAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    "messages": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "author": {
+                            "type": "string",
+                            "enum": [
+                              "client",
+                              "assistant",
+                              "staff",
+                              "system"
+                            ]
+                          },
+                          "authorName": {
+                            "type": "string"
+                          },
+                          "body": {
+                            "type": "string"
+                          },
+                          "internal": {
+                            "type": "boolean"
+                          },
+                          "at": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "author",
+                          "authorName",
+                          "body",
+                          "internal",
+                          "at"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "assistantActive": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "conversation",
+                    "messages",
+                    "assistantActive"
                   ],
                   "additionalProperties": false
                 }

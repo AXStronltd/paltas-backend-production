@@ -1,6 +1,6 @@
 // Sign-in, sessions, the signed-in person, password and two-factor set-up. Also the health check.
 import { z } from "zod";
-import { Product, Role, StaffRole } from "../access.js";
+import { Product, Role, StaffPermission, StaffRole } from "../access.js";
 import { Email, IsoDate, Ok } from "../common.js";
 import { endpoint } from "../endpoint.js";
 
@@ -10,6 +10,8 @@ export const SignedInUser = z.object({
   name: z.string(),
   staff: z.boolean(),
   staffRole: StaffRole.nullable(),
+  /** What a PALTAS staff member may change in the Super Admin portal (empty for clients and view-only staff). */
+  staffPermissions: z.array(StaffPermission).default([]),
   mfaEnabled: z.boolean(),
   /** A temporary password must be replaced before anything else (me.changePassword). */
   mustChangePassword: z.boolean(),

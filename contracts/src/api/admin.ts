@@ -416,3 +416,19 @@ export const voidInvoice = endpoint({
 });
 
 export { marketingOverview, createCampaign, updateCampaign, campaignAction } from "./marketing.js";
+export {
+  listStaff,
+  inviteStaff,
+  updateStaff,
+  resetStaffAccess,
+  listClients,
+  searchPeople,
+  platformOverview,
+  StaffMember,
+  StaffCredentials,
+  ClientRow,
+  ClientSource,
+  ClientStatus,
+  PersonRow,
+} from "./console.js";
+export { supportInbox, supportThread, supportReply, supportUpdate, InboxRow } from "./support.js";

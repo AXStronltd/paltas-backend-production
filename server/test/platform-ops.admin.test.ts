@@ -97,7 +97,7 @@ describe("Super Admin operations", () => {
         sa.api.admin.savePlan({ params: { planId: "PM-STARTER" }, body: { ...plan, baseMinor: 2_600_000 } }),
         409,
       );
-      expect(r.message).toMatch(/approved by a second Super Admin/);
+      expect(r.message).toMatch(/approved by a second staff member with billing rights/);
       await refused(
         sa.api.admin.saveModule({ params: { moduleKey: "crm" }, body: { priceMinor: 1, currency: "KES" } }),
         409,

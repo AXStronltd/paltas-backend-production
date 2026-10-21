@@ -12,6 +12,8 @@ import type { Config } from "./config.js";
 import type { AppContext } from "./context.js";
 import { marketingRoutes } from "./core/admin/marketing.routes.js";
 import { adminRoutes } from "./core/admin/admin.routes.js";
+import { consoleRoutes } from "./core/admin/console.routes.js";
+import { supportRoutes } from "./core/support/support.routes.js";
 import { contactsRoutes } from "./core/contacts/contacts.routes.js";
 import { opsRoutes } from "./core/admin/ops.routes.js";
 import { createCoreServices, type CoreServices } from "./core/core-services.js";
@@ -55,6 +57,8 @@ export interface AppOptions {
   migrate?: boolean;
   /** Tests only: reach the e-mail provider through local fake servers (a fetch, the fake SMTP certificate). */
   emailTransport?: AppContext["emailTransport"];
+  /** Tests only: the support chat's assistant (null: none, as without SUPPORT_AI_API_KEY). */
+  supportAssistant?: AppContext["supportAssistant"];
 }
 
 export async function buildApp(config: Config, options: AppOptions = {}): Promise<App> {
@@ -81,6 +85,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     secrets: secretBox(config.secretsKey),
     products: new ProductRegistry(options.products ?? PRODUCTS),
     ...(options.emailTransport ? { emailTransport: options.emailTransport } : {}),
+    ...(options.supportAssistant !== undefined ? { supportAssistant: options.supportAssistant } : {}),
   };
   const core = createCoreServices(ctx);
 
@@ -155,6 +160,8 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     ...paymentsRoutes(core.payments),
     ...ledgerRoutes(core),
     ...adminRoutes(core),
+    ...consoleRoutes(ctx),
+    ...supportRoutes(ctx, core),
     ...marketingRoutes(ctx),
     ...migrationRoutes(core),
     ...opsRoutes(ctx, core),

@@ -17,6 +17,7 @@ import * as property from "./property.js";
 import * as security from "./security.js";
 import * as signup from "./signup.js";
 import * as subscriptions from "./subscriptions.js";
+import * as support from "./support.js";
 import type { EndpointDefinition } from "../endpoint.js";
 
 export const AGENCY_API = {
@@ -239,6 +240,25 @@ export const ADMIN_API = {
   setModule: admin.setOrgModule,
   listInvoices: admin.listInvoices,
   voidInvoice: admin.voidInvoice,
+  listStaff: admin.listStaff,
+  inviteStaff: admin.inviteStaff,
+  updateStaff: admin.updateStaff,
+  resetStaffAccess: admin.resetStaffAccess,
+  listClients: admin.listClients,
+  searchPeople: admin.searchPeople,
+  overview: admin.platformOverview,
+  supportInbox: support.supportInbox,
+  supportThread: support.supportThread,
+  supportReply: support.supportReply,
+  supportUpdate: support.supportUpdate,
+} as const;
+
+/** PALTAS Support chat for signed-in clients. */
+export const SUPPORT_API = {
+  list: support.listConversations,
+  start: support.startConversation,
+  get: support.getConversation,
+  send: support.sendMessage,
 } as const;
 
 /** Self-service sign-up, e-mail verification and the public trial policy. */
@@ -863,6 +883,7 @@ export const API: {
   contacts: typeof CONTACTS_API;
   property: typeof PROPERTY_API;
   signup: typeof SIGNUP_API;
+  support: typeof SUPPORT_API;
 } = {
   identity: IDENTITY_API,
   organisations: ORGANISATIONS_API,
@@ -882,6 +903,7 @@ export const API: {
   contacts: CONTACTS_API,
   property: PROPERTY_API,
   signup: SIGNUP_API,
+  support: SUPPORT_API,
 };
 
 /** Every endpoint as a flat list (for registration checks and API docs). */
@@ -908,4 +930,5 @@ export {
   security,
   signup,
   subscriptions,
+  support,
 };

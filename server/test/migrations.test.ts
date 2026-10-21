@@ -53,7 +53,9 @@ describe("migrations", () => {
         "0027_social_campaigns",
         "0028_request_ids",
         "0029_staff_enrollment",
+        "0029_staff_roles",
         "0030_staff_auth_version",
+        "0030_support_chat",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything

@@ -85,7 +85,7 @@ export async function exportOrganisation(
   orgId: string,
   reason: string,
 ): Promise<{ body: Readable; filename: string }> {
-  return exportOrganisationAs(ctx, staffActor(user, "super_admin"), orgId, reason);
+  return exportOrganisationAs(ctx, staffActor(user, "data.export"), orgId, reason);
 }
 
 /** Exports in progress on this server: each holds one database connection for as long as the client downloads. */

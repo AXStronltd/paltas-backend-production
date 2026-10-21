@@ -348,7 +348,7 @@ export function schedulerService(ctx: AppContext) {
     },
 
     async pause(user: SessionUser, jobId: string, reason: string) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "platform.operate");
       return db.tx(async (t) => {
         const j = await loadJob(t, jobId, true);
         if (j.status === "paused") throw fail.conflict("This job is already paused");
@@ -362,7 +362,7 @@ export function schedulerService(ctx: AppContext) {
     },
 
     async resume(user: SessionUser, jobId: string, reason: string) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "platform.operate");
       return db.tx(async (t) => {
         const j = await loadJob(t, jobId, true);
         if (j.status === "active") throw fail.conflict("This job is not paused");
@@ -383,7 +383,7 @@ export function schedulerService(ctx: AppContext) {
     },
 
     async runNow(user: SessionUser, jobId: string, reason: string) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "platform.operate");
       return db.tx(async (t) => {
         const j = await loadJob(t, jobId, true);
         if (
@@ -410,7 +410,7 @@ export function schedulerService(ctx: AppContext) {
     },
 
     async reschedule(user: SessionUser, jobId: string, b: { cron: string; timezone: string; reason: string }) {
-      const actor = staffActor(user, "super_admin");
+      const actor = staffActor(user, "platform.operate");
       checkSchedule(b.cron, b.timezone);
       return db.tx(async (t) => {
         const j = await loadJob(t, jobId, true);
