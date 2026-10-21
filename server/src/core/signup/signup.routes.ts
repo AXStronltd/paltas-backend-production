@@ -39,7 +39,7 @@ export function signupRoutes(core: CoreServices) {
 
     route(admin.getTrialPolicy, async () => ({ policy: await loadPolicy(db), history: await policyHistory(db) })),
     route(admin.updateTrialPolicy, async (req) => {
-      const actor = staffActor(req.user, "super_admin");
+      const actor = staffActor(req.user, "platform.operate");
       const { reason, ...input } = req.body;
       return db.tx(async (t) => {
         const { before, after } = await savePolicy(t, input, reason, req.user.id);
@@ -57,10 +57,14 @@ export function signupRoutes(core: CoreServices) {
     }),
     route(admin.listSignups, async (req) => S.list(req.query)),
     route(admin.allowSignup, async (req) =>
-      S.allow({ ...staffActor(req.user, "super_admin"), userId: req.user.id }, req.params.signupId, req.body.reason),
+      S.allow({ ...staffActor(req.user, "clients.manage"), userId: req.user.id }, req.params.signupId, req.body.reason),
     ),
     route(admin.declineSignup, async (req) =>
-      S.decline({ ...staffActor(req.user, "super_admin"), userId: req.user.id }, req.params.signupId, req.body.reason),
+      S.decline(
+        { ...staffActor(req.user, "clients.manage"), userId: req.user.id },
+        req.params.signupId,
+        req.body.reason,
+      ),
     ),
     route(admin.listUpgrades, async (req) => U.list(req.query.status)),
   ];

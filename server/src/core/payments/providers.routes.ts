@@ -16,7 +16,7 @@ export function providersRoutes(core: CoreServices) {
   const paltas = (user: SessionUser, change: boolean) => ({
     orgId: null,
     userId: user.id,
-    actor: change ? staffActor(user, "super_admin") : staffActor(user),
+    actor: change ? staffActor(user, "platform.operate") : staffActor(user),
   });
 
   return [

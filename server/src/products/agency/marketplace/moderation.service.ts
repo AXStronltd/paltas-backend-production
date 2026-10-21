@@ -144,7 +144,7 @@ export function moderationService(d: AgencyDeps) {
     },
 
     async approve(user: SessionUser, id: string, note: string, registrationChecked = false) {
-      const actor = staffActor(user);
+      const actor = staffActor(user, "marketplace.moderate");
       return db.tx(async (t) => {
         await t.run("SELECT 1 FROM agency_listings WHERE id = $1 FOR UPDATE", [id]);
         const l = await listing(t, id);
@@ -186,7 +186,7 @@ export function moderationService(d: AgencyDeps) {
     },
 
     async reject(user: SessionUser, id: string, reason: string) {
-      const actor = staffActor(user);
+      const actor = staffActor(user, "marketplace.moderate");
       return db.tx(async (t) => {
         await t.run("SELECT 1 FROM agency_listings WHERE id = $1 FOR UPDATE", [id]);
         const l = await listing(t, id);
@@ -218,7 +218,7 @@ export function moderationService(d: AgencyDeps) {
     },
 
     async moderateReview(user: SessionUser, id: string, b: { decision: "approve" | "reject"; note: string }) {
-      const actor = staffActor(user);
+      const actor = staffActor(user, "marketplace.moderate");
       return db.tx(async (t) => {
         const r = await t.row<ReviewRow>(`${REVIEW_SQL} WHERE r.id = $1 FOR UPDATE OF r`, [id]);
         if (!r) throw fail.notFound("Review not found");
@@ -310,7 +310,7 @@ export function moderationService(d: AgencyDeps) {
     },
 
     async approveRequest(user: SessionUser, id: string, b: { plan: string; trial: boolean }) {
-      staffActor(user, "super_admin");
+      staffActor(user, "clients.manage");
       const r = await request(db, id);
       if (r.status !== "pending") throw fail.conflict(`This request is already ${r.status}`);
       // the core onboarding: organisation + subscription + chart of accounts + administrator, in its own transaction
@@ -345,7 +345,7 @@ export function moderationService(d: AgencyDeps) {
     },
 
     async rejectRequest(user: SessionUser, id: string, reason: string) {
-      const actor = staffActor(user);
+      const actor = staffActor(user, "marketplace.moderate");
       return db.tx(async (t) => {
         const r = await request(t, id, true);
         if (r.status !== "pending") throw fail.conflict(`This request is already ${r.status}`);

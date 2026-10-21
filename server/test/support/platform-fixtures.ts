@@ -9,6 +9,7 @@
  * connection exists (BLOCKED, needs credentials).
  */
 import { randomBytes } from "node:crypto";
+import type { StaffRole } from "@paltas/contracts";
 import { loadConfig } from "../../dist/config.js";
 import { createUser } from "../../dist/core/identity/identity.service.js";
 import { newTotpSecret, totp } from "../../dist/core/identity/totp.js";
@@ -21,7 +22,7 @@ import type { TestServer } from "./test-server.js";
 export const DEFAULTS = loadConfig({ NODE_ENV: "test", DATABASE_URL: "postgres://unused" });
 
 /** Another PALTAS staff member, signed in with their authenticator code. */
-export async function staffMember(S: TestServer, role: "super_admin" | "support" = "super_admin") {
+export async function staffMember(S: TestServer, role: StaffRole = "super_admin") {
   const secret = newTotpSecret();
   const password = "Staff-Pass-" + randomBytes(6).toString("hex");
   const email = `${role}+${randomBytes(3).toString("hex")}@paltas.test`;

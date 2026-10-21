@@ -12,6 +12,7 @@ import type { Config } from "./config.js";
 import type { AppContext } from "./context.js";
 import { marketingRoutes } from "./core/admin/marketing.routes.js";
 import { adminRoutes } from "./core/admin/admin.routes.js";
+import { consoleRoutes } from "./core/admin/console.routes.js";
 import { contactsRoutes } from "./core/contacts/contacts.routes.js";
 import { opsRoutes } from "./core/admin/ops.routes.js";
 import { createCoreServices, type CoreServices } from "./core/core-services.js";
@@ -155,6 +156,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     ...paymentsRoutes(core.payments),
     ...ledgerRoutes(core),
     ...adminRoutes(core),
+    ...consoleRoutes(ctx),
     ...marketingRoutes(ctx),
     ...migrationRoutes(core),
     ...opsRoutes(ctx, core),
