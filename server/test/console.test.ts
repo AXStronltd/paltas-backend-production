@@ -40,7 +40,12 @@ describe("the PALTAS team", () => {
     const me = await s.api.identity.me();
     expect(me.user.staffRole).toBe("operations");
     expect(me.user.mustChangePassword).toBe(true);
-    expect(me.user.staffPermissions).toEqual(["clients.manage", "marketplace.moderate", "platform.operate"]);
+    expect(me.user.staffPermissions).toEqual([
+      "clients.manage",
+      "marketplace.moderate",
+      "platform.operate",
+      "support.respond",
+    ]);
     const team = await sa.api.admin.listStaff();
     const amina = team.staff.find((m) => m.email === c.email)!;
     expect(amina).toMatchObject({ role: "operations", active: true, mustChangePassword: true });
@@ -151,7 +156,11 @@ describe("what each staff role may change", () => {
       await refused(suspend(s.api), 403, "STAFF_ROLE_NOT_ALLOWED");
       expect((await s.api.admin.listClients()).total).toBeGreaterThan(0);
       expect((await s.api.identity.me()).user.staffPermissions).toEqual(
-        role === "marketing" ? ["marketing.manage"] : role === "moderator" ? ["marketplace.moderate"] : [],
+        role === "marketing"
+          ? ["marketing.manage"]
+          : role === "moderator"
+            ? ["marketplace.moderate"]
+            : ["support.respond"],
       );
     }
     const o = await staffMember(S, "operations");
