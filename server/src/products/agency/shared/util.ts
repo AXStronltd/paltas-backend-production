@@ -1,6 +1,6 @@
 // Small helpers shared by the agency services: percentages, tokens, database rule errors, the audit actor of a
 // public visitor.
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes } from "node:crypto";
 import type { Actor } from "../../../core/audit/audit.service.js";
 import { fail } from "../../../http/errors.js";
 
@@ -20,6 +20,18 @@ export function newToken(): { token: string; hash: string } {
 }
 
 export const hashToken = (token: string): string => createHash("sha256").update(token).digest("hex");
+
+/** The private code for a request the browser identified with a random request id: derived with the server's secret
+ *  key, so the same request sent again gets the same code (a lost answer can be recovered) and nobody can compute it
+ *  without that key. */
+export function requestToken(
+  key: string,
+  kind: "booking" | "offer",
+  requestId: string,
+): { token: string; hash: string } {
+  const token = createHmac("sha256", key).update(`${kind}:${requestId}`).digest("base64url").slice(0, 32);
+  return { token, hash: hashToken(token) };
+}
 
 /** Who acts on a public endpoint: an anonymous visitor (the audit log keeps no address). */
 export const VISITOR: Actor = { userId: null, role: "public visitor" };

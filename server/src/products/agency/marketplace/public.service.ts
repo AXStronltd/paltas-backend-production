@@ -19,7 +19,7 @@ import { advanceLead, openLeadFor } from "../leads/leads.service.js";
 import { mediaOf, rulesInput, toPublicListing, type ListingRow } from "../listings/listings.repo.js";
 import { linkContact, noteOnContact } from "../shared/contacts.js";
 import { HOLDING, nightlyPrices, quote } from "../shared/quote.js";
-import { daysBetween, hashToken, newToken, unique, VISITOR } from "../shared/util.js";
+import { daysBetween, hashToken, newToken, requestToken, unique, VISITOR } from "../shared/util.js";
 import { insertBooking } from "../stays/stays.service.js";
 import { findStay, type StayRow } from "../stays/stays.repo.js";
 
@@ -338,63 +338,88 @@ export function publicService(d: AgencyDeps) {
         marketingConsent: boolean;
         amountMinor: number;
         message: string;
+        requestId?: string | undefined;
       },
     ) {
       d.limiter.submit(ip);
-      return db.tx(async (t) => {
-        const l = await publicListing(t, id);
-        if (l.purpose !== "sale") throw fail.invalid("Offers are made on homes for sale");
-        const c = await linkContact(d.core, t, {
-          orgId: l.org_id,
-          person: b,
-          as: "buyer",
-          marketing: b.marketingConsent,
-          source: SOURCE,
-          actor: VISITOR,
-        });
-        if (
-          await t.row(
-            "SELECT 1 FROM agency_offers WHERE listing_id = $1 AND contact_id = $2 AND status IN ('pending', 'countered')",
-            [l.id, c.id],
-          )
-        )
-          throw fail.conflict("You already have an open offer on this home — follow it with your reference");
-        const lead = await openLeadFor(t, {
-          orgId: l.org_id,
-          contactId: c.id,
-          listingId: l.id,
-          source: "PALTAS marketplace",
-          by: null,
-          agent: l.agent_user,
-        });
-        await advanceLead(t, lead, "offer", null);
-        const { token, hash } = newToken();
-        const offerId = newId("off");
-        const number = await nextNumber(t, l.org_id, "OFF");
-        await t.run(
-          `INSERT INTO agency_offers (id, org_id, number, listing_id, contact_id, lead_id, amount_minor, message, token_hash)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [offerId, l.org_id, number, l.id, c.id, lead.id, b.amountMinor, b.message, hash],
+      const key = d.ctx.config.secretsKey;
+      // the same request sent again (a lost answer, a retry): the offer already made, with the same private code
+      const repeat = async (t: Db) => {
+        if (!b.requestId) return null;
+        const prev = await t.row<{ id: string }>(
+          "SELECT id FROM agency_offers WHERE listing_id = $1 AND request_id = $2",
+          [id, b.requestId],
         );
-        await leadEvent(t, lead, "offer", `Offer ${number}: ${b.amountMinor}`, null);
-        await noteOnContact(d.core, t, {
-          orgId: l.org_id,
-          contactId: c.id,
-          kind: "enquiry",
-          text: `Offer ${number} on ${l.number}: ${l.currency} ${b.amountMinor} (minor units)`,
-          refType: "agency_offer",
-          refId: offerId,
-          by: null,
+        if (!prev) return null;
+        const { token } = requestToken(key, "offer", b.requestId);
+        return { ...offerView(await offerByToken(t, prev.id, token)), token };
+      };
+      const make = () =>
+        db.tx(async (t) => {
+          const again = await repeat(t);
+          if (again) return again;
+          const l = await publicListing(t, id);
+          if (l.purpose !== "sale") throw fail.invalid("Offers are made on homes for sale");
+          const c = await linkContact(d.core, t, {
+            orgId: l.org_id,
+            person: b,
+            as: "buyer",
+            marketing: b.marketingConsent,
+            source: SOURCE,
+            actor: VISITOR,
+          });
+          if (
+            await t.row(
+              "SELECT 1 FROM agency_offers WHERE listing_id = $1 AND contact_id = $2 AND status IN ('pending', 'countered')",
+              [l.id, c.id],
+            )
+          )
+            throw fail.conflict("You already have an open offer on this home — follow it with your reference");
+          const lead = await openLeadFor(t, {
+            orgId: l.org_id,
+            contactId: c.id,
+            listingId: l.id,
+            source: "PALTAS marketplace",
+            by: null,
+            agent: l.agent_user,
+          });
+          await advanceLead(t, lead, "offer", null);
+          const { token, hash } = b.requestId ? requestToken(key, "offer", b.requestId) : newToken();
+          const offerId = newId("off");
+          const number = await nextNumber(t, l.org_id, "OFF");
+          await t.run(
+            `INSERT INTO agency_offers (id, org_id, number, listing_id, contact_id, lead_id, amount_minor, message, token_hash,
+             request_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [offerId, l.org_id, number, l.id, c.id, lead.id, b.amountMinor, b.message, hash, b.requestId ?? null],
+          );
+          await leadEvent(t, lead, "offer", `Offer ${number}: ${b.amountMinor}`, null);
+          await noteOnContact(d.core, t, {
+            orgId: l.org_id,
+            contactId: c.id,
+            kind: "enquiry",
+            text: `Offer ${number} on ${l.number}: ${l.currency} ${b.amountMinor} (minor units)`,
+            refType: "agency_offer",
+            refId: offerId,
+            by: null,
+          });
+          await recordAudit(t, {
+            actor: VISITOR,
+            orgId: l.org_id,
+            action: "Marketplace offer received",
+            target: number,
+            detail: l.number,
+          });
+          return { ...offerView(await offerByToken(t, offerId, token)), token };
         });
-        await recordAudit(t, {
-          actor: VISITOR,
-          orgId: l.org_id,
-          action: "Marketplace offer received",
-          target: number,
-          detail: l.number,
-        });
-        return { ...offerView(await offerByToken(t, offerId, token)), token };
-      });
+      try {
+        return await make();
+      } catch (e) {
+        // two copies of the same request at once: the second finds the one the first created
+        const again = b.requestId ? await db.tx(repeat) : null;
+        if (again) return again;
+        throw e;
+      }
     },
 
     async offerStatus(ip: string, reference: string, token: string) {
@@ -450,66 +475,98 @@ export function publicService(d: AgencyDeps) {
         checkOut: string;
         guests: number;
         message: string;
+        requestId?: string | undefined;
       },
     ) {
       d.limiter.submit(ip);
-      return db.tx(async (t) => {
-        const l = await publicListing(t, id);
-        if (l.purpose !== "stay") throw fail.invalid("Only stays are booked");
-        // New York City stays under 30 nights: only with a registration PALTAS staff checked, and within local rules
-        if (
-          rentalRules.isNycShortTermRental(rulesInput(l)) &&
-          (!l.str_verified_at || rentalRules.rentalRuleIssues(rulesInput(l)).length)
-        )
-          throw fail.conflict("This New York City stay is not taking requests right now. Please choose another stay.");
-        const c = await linkContact(d.core, t, {
-          orgId: l.org_id,
-          person: b,
-          as: "guest",
-          marketing: b.marketingConsent,
-          source: SOURCE,
-          actor: VISITOR,
-        });
-        const open = await t.row<{ n: number }>(
-          "SELECT count(*)::int AS n FROM agency_stays WHERE listing_id = $1 AND contact_id = $2 AND status = 'requested'",
-          [l.id, c.id],
+      const key = d.ctx.config.secretsKey;
+      // the same request sent again (a lost answer, a retry): the booking already made, with the same private code
+      const repeat = async (t: Db) => {
+        if (!b.requestId) return null;
+        const prev = await t.row<{ id: string; org_id: string; request_quote: marketplace.StayQuote }>(
+          "SELECT id, org_id, request_quote FROM agency_stays WHERE listing_id = $1 AND request_id = $2",
+          [id, b.requestId],
         );
-        if ((open?.n ?? 0) >= OPEN_PER_PERSON.bookings)
-          throw fail.tooManyAttempts("You already have booking requests waiting for this stay");
-        const { token, hash } = newToken();
-        const q = await quote(t, l, b, clock.today());
-        const r = await insertBooking(t, {
-          orgId: l.org_id,
-          listing: l,
-          contactId: c.id,
-          checkIn: b.checkIn,
-          checkOut: b.checkOut,
-          guests: b.guests,
-          source: "marketplace",
-          status: l.instant_book ? "confirmed" : "requested",
-          note: b.message,
-          tokenHash: hash,
-          by: null,
-          today: clock.today(),
+        if (!prev) return null;
+        const { token } = requestToken(key, "booking", b.requestId);
+        return { ...(await bookingView(t, await findStay(t, prev.org_id, prev.id))), token, quote: prev.request_quote };
+      };
+      const make = () =>
+        db.tx(async (t) => {
+          const again = await repeat(t);
+          if (again) return again;
+          const l = await publicListing(t, id);
+          if (l.purpose !== "stay") throw fail.invalid("Only stays are booked");
+          // New York City stays under 30 nights: only with a registration PALTAS staff checked, and within local rules
+          if (
+            rentalRules.isNycShortTermRental(rulesInput(l)) &&
+            (!l.str_verified_at || rentalRules.rentalRuleIssues(rulesInput(l)).length)
+          )
+            throw fail.conflict(
+              "This New York City stay is not taking requests right now. Please choose another stay.",
+            );
+          const c = await linkContact(d.core, t, {
+            orgId: l.org_id,
+            person: b,
+            as: "guest",
+            marketing: b.marketingConsent,
+            source: SOURCE,
+            actor: VISITOR,
+          });
+          const open = await t.row<{ n: number }>(
+            "SELECT count(*)::int AS n FROM agency_stays WHERE listing_id = $1 AND contact_id = $2 AND status = 'requested'",
+            [l.id, c.id],
+          );
+          if ((open?.n ?? 0) >= OPEN_PER_PERSON.bookings)
+            throw fail.tooManyAttempts("You already have booking requests waiting for this stay");
+          const { token, hash } = b.requestId ? requestToken(key, "booking", b.requestId) : newToken();
+          const q = await quote(t, l, b, clock.today());
+          const r = await insertBooking(t, {
+            orgId: l.org_id,
+            listing: l,
+            contactId: c.id,
+            checkIn: b.checkIn,
+            checkOut: b.checkOut,
+            guests: b.guests,
+            source: "marketplace",
+            status: l.instant_book ? "confirmed" : "requested",
+            note: b.message,
+            tokenHash: hash,
+            by: null,
+            today: clock.today(),
+          });
+          if (b.requestId)
+            await t.run("UPDATE agency_stays SET request_id = $2, request_quote = $3::jsonb WHERE id = $1", [
+              r.id,
+              b.requestId,
+              JSON.stringify(q),
+            ]);
+          await noteOnContact(d.core, t, {
+            orgId: l.org_id,
+            contactId: c.id,
+            kind: "enquiry",
+            text: `Stay ${r.number} at ${l.number}: ${r.check_in} → ${r.check_out} (${r.status})`,
+            refType: "agency_stay",
+            refId: r.id,
+            by: null,
+          });
+          await recordAudit(t, {
+            actor: VISITOR,
+            orgId: l.org_id,
+            action: l.instant_book ? "Marketplace stay booked (instant)" : "Marketplace booking request received",
+            target: r.number,
+            detail: `${l.number} · ${r.check_in} → ${r.check_out}`,
+          });
+          return { ...(await bookingView(t, r)), token, quote: q };
         });
-        await noteOnContact(d.core, t, {
-          orgId: l.org_id,
-          contactId: c.id,
-          kind: "enquiry",
-          text: `Stay ${r.number} at ${l.number}: ${r.check_in} → ${r.check_out} (${r.status})`,
-          refType: "agency_stay",
-          refId: r.id,
-          by: null,
-        });
-        await recordAudit(t, {
-          actor: VISITOR,
-          orgId: l.org_id,
-          action: l.instant_book ? "Marketplace stay booked (instant)" : "Marketplace booking request received",
-          target: r.number,
-          detail: `${l.number} · ${r.check_in} → ${r.check_out}`,
-        });
-        return { ...(await bookingView(t, r)), token, quote: q };
-      });
+      try {
+        return await make();
+      } catch (e) {
+        // two copies of the same request at once: the second finds the one the first created
+        const again = b.requestId ? await db.tx(repeat) : null;
+        if (again) return again;
+        throw e;
+      }
     },
 
     async bookingStatus(ip: string, reference: string, token: string) {

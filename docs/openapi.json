@@ -109907,6 +109907,10 @@
                     "default": "",
                     "type": "string",
                     "maxLength": 2000
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{22,64}$"
                   }
                 },
                 "required": [
@@ -110379,6 +110383,10 @@
                     "default": "",
                     "type": "string",
                     "maxLength": 2000
+                  },
+                  "requestId": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{22,64}$"
                   }
                 },
                 "required": [
