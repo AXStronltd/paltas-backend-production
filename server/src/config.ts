@@ -12,6 +12,15 @@ const EnvSchema = z.object({
   PORT: z.coerce.number().int().min(1).max(65535).default(8787),
   DATABASE_URL: z.string().regex(/^postgres(ql)?:\/\//, "DATABASE_URL must be a postgres:// URL"),
   DATABASE_POOL_SIZE: z.coerce.number().int().min(1).max(100).default(10),
+  /** Server only (scripts are not limited): one statement may run this long; a transaction may sit idle this long;
+   *  a request waits this long for a free connection. Long jobs (exports, migrations) set their own limits. */
+  DB_STATEMENT_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(30_000),
+  DB_IDLE_IN_TRANSACTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(3_600_000).default(60_000),
+  DB_CONNECT_TIMEOUT_MS: z.coerce.number().int().min(500).max(120_000).default(10_000),
+  /** How long a client may take to send a whole request (slow-sender protection). */
+  HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().min(1000).max(600_000).default(30_000),
+  /** Organisation data exports running at once on this server (each holds one database connection). */
+  EXPORT_MAX_CONCURRENT: z.coerce.number().int().min(1).max(20).default(2),
   /** "provider": purchases wait for a signed payment event (always in production). "simulated": local demo only. */
   BILLING_MODE: z.enum(["provider", "simulated"]).default("provider"),
   STRIPE_ENABLED: Bool.default(false),
@@ -158,6 +167,9 @@ export interface Config {
   port: number;
   databaseUrl: string;
   databasePoolSize: number;
+  dbTimeouts: { statementMs: number; idleInTransactionMs: number; connectMs: number };
+  httpRequestTimeoutMs: number;
+  exportMaxConcurrent: number;
   billingMode: "provider" | "simulated";
   stripe?: {
     enabled: boolean;
@@ -359,6 +371,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     port: e.PORT,
     databaseUrl: e.DATABASE_URL,
     databasePoolSize: e.DATABASE_POOL_SIZE,
+    dbTimeouts: {
+      statementMs: e.DB_STATEMENT_TIMEOUT_MS,
+      idleInTransactionMs: e.DB_IDLE_IN_TRANSACTION_TIMEOUT_MS,
+      connectMs: e.DB_CONNECT_TIMEOUT_MS,
+    },
+    httpRequestTimeoutMs: e.HTTP_REQUEST_TIMEOUT_MS,
+    exportMaxConcurrent: e.EXPORT_MAX_CONCURRENT,
     billingMode: e.BILLING_MODE,
     sessionMinutes: e.SESSION_MINUTES,
     corsOrigins: e.CORS_ORIGINS.split(",")
