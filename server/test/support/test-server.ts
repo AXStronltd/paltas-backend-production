@@ -66,7 +66,12 @@ export interface TestServer {
 let counter = 0;
 
 export async function startServer(
-  o: { products?: ProductModule[]; config?: Partial<Config>; emailTransport?: AppOptions["emailTransport"] } = {},
+  o: {
+    products?: ProductModule[];
+    config?: Partial<Config>;
+    emailTransport?: AppOptions["emailTransport"];
+    supportAssistant?: AppOptions["supportAssistant"];
+  } = {},
 ): Promise<TestServer> {
   const name = `paltas_test_${process.pid}_${++counter}_${randomBytes(3).toString("hex")}`;
   const admin = new pg.Client({ connectionString: adminUrl() });
@@ -91,6 +96,8 @@ export async function startServer(
     products: o.products ?? [],
     migrate: false,
     ...(o.emailTransport ? { emailTransport: o.emailTransport } : {}),
+    // no test reaches the real AI provider: without an assistant of its own, a test server has none
+    supportAssistant: o.supportAssistant === undefined ? null : o.supportAssistant,
   });
   await app.server.listen({ host: "127.0.0.1", port: 0 });
   const addr = app.server.server.address();

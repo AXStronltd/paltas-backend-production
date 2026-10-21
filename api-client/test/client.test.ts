@@ -148,6 +148,7 @@ describe("API client", () => {
       "contacts",
       "property",
       "signup",
+      "support",
     ]);
     expect(self.PaltasApi.roleCan("accountant", "ledger.approve")).toBe(true);
     expect(self.PaltasApi.roleCan("leasing_agent", "ledger.approve")).toBe(false);

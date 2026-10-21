@@ -62,6 +62,18 @@ const EnvSchema = z.object({
     .min(32, "PROXY_SIGNING_SECRET must be at least 32 characters")
     .optional()
     .or(z.literal("").transform(() => undefined)),
+  /** The PALTAS assistant in the support chat (Anthropic API). Without a key the chat still works: every message
+   *  goes to the PALTAS team, and the client is told a person will reply. */
+  SUPPORT_AI_API_KEY: z
+    .string()
+    .min(20, "SUPPORT_AI_API_KEY looks too short")
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
+  SUPPORT_AI_MODEL: z.string().min(3).default("claude-haiku-5-5"),
+  /** The AI provider's address (tests point it at a local fake; production must use https). */
+  SUPPORT_AI_BASE_URL: z.string().url().default("https://api.anthropic.com"),
+  /** Assistant answers per client per day (cost guard); after that, messages go to the PALTAS team. */
+  SUPPORT_AI_DAILY_LIMIT: z.coerce.number().int().min(0).max(1000).default(60),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   LOGIN_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(20),
   /** Data migration limits and the background import worker (see core/migration). */
@@ -192,6 +204,7 @@ export interface Config {
   fixedToday: string | null;
   trustProxy: boolean;
   proxySigningSecret: string | undefined;
+  supportAi: { apiKey: string | undefined; model: string; dailyLimit: number; baseUrl?: string };
   logLevel: string;
   loginRateLimitPerMinute: number;
   /** Shared signing secret per payment provider adapter, from WEBHOOK_SECRET_<PROVIDER>. */
@@ -290,6 +303,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
   if (production && e.PALTAS_TODAY) throw new Error("PALTAS_TODAY must not be set in production");
   if (production && e.BILLING_MODE === "simulated") throw new Error("BILLING_MODE=simulated is refused in production");
   if (production && !e.SECRETS_KEY) throw new Error("SECRETS_KEY is required in production");
+  if (production && !/^https:\/\//.test(e.SUPPORT_AI_BASE_URL))
+    throw new Error("SUPPORT_AI_BASE_URL must use https in production");
   if (production && e.SIGNUP_ENABLED && /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:|\/|$)/i.test(e.APP_BASE_URL))
     throw new Error("APP_BASE_URL must be the public front-end address in production while SIGNUP_ENABLED is on");
 
@@ -395,6 +410,12 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     fixedToday: e.PALTAS_TODAY ?? null,
     trustProxy: e.TRUST_PROXY,
     proxySigningSecret: e.PROXY_SIGNING_SECRET,
+    supportAi: {
+      apiKey: e.SUPPORT_AI_API_KEY,
+      model: e.SUPPORT_AI_MODEL,
+      dailyLimit: e.SUPPORT_AI_DAILY_LIMIT,
+      baseUrl: e.SUPPORT_AI_BASE_URL.replace(/\/+$/, ""),
+    },
     logLevel: e.LOG_LEVEL,
     loginRateLimitPerMinute: e.LOGIN_RATE_LIMIT_PER_MINUTE,
     webhookSecrets,

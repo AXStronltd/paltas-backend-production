@@ -886,6 +886,7 @@ export const STAFF_PERMISSIONS = [
   "marketplace.moderate",
   "marketing.manage",
   "platform.operate",
+  "support.respond",
   "data.export",
 ] as const;
 export const StaffPermission = z.enum(STAFF_PERMISSIONS);
@@ -898,6 +899,7 @@ export const STAFF_PERMISSION_LABELS: Record<StaffPermission, string> = {
   "marketplace.moderate": "Marketplace: approve or reject listings, business requests and reviews",
   "marketing.manage": "Marketing campaigns",
   "platform.operate": "Platform operations: scheduled jobs, trial policy, payment providers",
+  "support.respond": "Support chat: reply to clients, assign and close conversations",
   "data.export": "Export a client's complete data",
 };
 
@@ -917,7 +919,7 @@ export const STAFF_ROLE_DEFINITIONS: Record<
   operations: {
     label: "Operations",
     description: "Runs client companies day to day: onboarding, sign-ups, trials, suspensions, moderation, jobs.",
-    permissions: ["clients.manage", "marketplace.moderate", "platform.operate"],
+    permissions: ["clients.manage", "marketplace.moderate", "platform.operate", "support.respond"],
   },
   finance: {
     label: "Finance",
@@ -935,9 +937,9 @@ export const STAFF_ROLE_DEFINITIONS: Record<
     permissions: ["marketing.manage"],
   },
   support: {
-    label: "Support (view only)",
-    description: "Sees every client company, invoice and log to help clients; cannot change anything.",
-    permissions: [],
+    label: "Support",
+    description: "Answers clients in the support chat and sees everything to help them; changes nothing else.",
+    permissions: ["support.respond"],
   },
 };
 
