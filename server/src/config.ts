@@ -55,6 +55,13 @@ const EnvSchema = z.object({
     .optional()
     .or(z.literal("").transform(() => undefined)),
   TRUST_PROXY: Bool.default(false),
+  /** Netlify's signed-proxy secret (same value on Netlify and here). When set, the client address comes only from
+   *  requests Netlify signed; direct callers are counted by the address the load balancer saw. See http/client-ip.ts. */
+  PROXY_SIGNING_SECRET: z
+    .string()
+    .min(32, "PROXY_SIGNING_SECRET must be at least 32 characters")
+    .optional()
+    .or(z.literal("").transform(() => undefined)),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   LOGIN_RATE_LIMIT_PER_MINUTE: z.coerce.number().int().min(1).default(20),
   /** Data migration limits and the background import worker (see core/migration). */
@@ -184,6 +191,7 @@ export interface Config {
   secretsKey: string;
   fixedToday: string | null;
   trustProxy: boolean;
+  proxySigningSecret: string | undefined;
   logLevel: string;
   loginRateLimitPerMinute: number;
   /** Shared signing secret per payment provider adapter, from WEBHOOK_SECRET_<PROVIDER>. */
@@ -386,6 +394,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     secretsKey: e.SECRETS_KEY ?? DEVELOPMENT_SECRETS_KEY,
     fixedToday: e.PALTAS_TODAY ?? null,
     trustProxy: e.TRUST_PROXY,
+    proxySigningSecret: e.PROXY_SIGNING_SECRET,
     logLevel: e.LOG_LEVEL,
     loginRateLimitPerMinute: e.LOGIN_RATE_LIMIT_PER_MINUTE,
     webhookSecrets,

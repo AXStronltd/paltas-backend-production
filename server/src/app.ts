@@ -2,6 +2,7 @@
  * Builds the HTTP server: security headers, CORS, JSON parsing (keeping the raw bytes for webhook signatures),
  * rate limiting on sign-in, uniform error answers, and every route from the core and the products.
  */
+import { registerClientAddress } from "./http/client-ip.js";
 import cors from "@fastify/cors";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -67,6 +68,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     requestTimeout: config.httpRequestTimeoutMs,
     return503OnClosing: true,
   });
+  registerClientAddress(server, config.proxySigningSecret);
   const db = options.db ?? connect(config.databaseUrl, config.databasePoolSize, config.dbTimeouts);
   if (options.migrate !== false) await migrate(db);
 
