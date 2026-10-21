@@ -10,7 +10,6 @@ const SECRET_FIELDS = [
   "backupCodes",
   "pending_sealed",
   "email_code_hash",
-  "account_fingerprint",
   "currentPassword",
   "newPassword",
   "temporaryPassword",

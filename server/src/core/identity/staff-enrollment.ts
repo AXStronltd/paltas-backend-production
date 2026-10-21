@@ -19,22 +19,20 @@ interface Account {
   email: string;
   staff_role: string | null;
   active: boolean;
-  password_hash: string;
-  mfa_secret_sealed: string | null;
+  auth_version: number;
 }
 interface Grant {
   id: string;
   user_id: string;
   email_code_hash: string;
-  account_fingerprint: string;
+  account_version: number;
+  allow_disabled: boolean;
   expires_at: string;
   attempts: number;
   pending_sealed: string | null;
   used_at: string | null;
   revoked_at: string | null;
 }
-const fingerprint = (u: Account) =>
-  digest(JSON.stringify([u.id, u.email, u.staff_role, u.active, u.password_hash, u.mfa_secret_sealed]));
 function step(secret: string, code: string, now: number): number | null {
   for (const delta of [-1, 0, 1]) {
     const n = Math.floor(now / 30000) + delta;
@@ -48,8 +46,16 @@ export function staffEnrollmentService(ctx: AppContext) {
     const g = await t.row<Grant>("SELECT * FROM staff_enrollments WHERE token_hash=$1 FOR UPDATE", [digest(token)]);
     if (!g || g.used_at || g.revoked_at || g.attempts >= 5 || new Date(g.expires_at).getTime() <= clock.now().getTime())
       return null;
-    const u = await t.row<Account>("SELECT * FROM users WHERE id=$1 FOR UPDATE", [g.user_id]);
-    if (!u || u.staff_role !== "super_admin" || fingerprint(u) !== g.account_fingerprint) return null;
+    const u = await t.row<Account>("SELECT id,email,staff_role,active,auth_version FROM users WHERE id=$1 FOR UPDATE", [
+      g.user_id,
+    ]);
+    if (
+      !u ||
+      u.staff_role !== "super_admin" ||
+      u.auth_version !== g.account_version ||
+      (!u.active && !g.allow_disabled)
+    )
+      return null;
     return { g, u };
   }
   return {
@@ -70,7 +76,10 @@ export function staffEnrollmentService(ctx: AppContext) {
       const url = `${config.signup.appBaseUrl}/admin.html#enroll=${token}`;
       await db.tx(async (t) => {
         await t.run("SELECT pg_advisory_xact_lock($1)", [7240812]);
-        let u = await t.row<Account>("SELECT * FROM users WHERE lower(email)=lower($1) FOR UPDATE", [input.email]);
+        let u = await t.row<Account>(
+          "SELECT id,email,staff_role,active,auth_version FROM users WHERE lower(email)=lower($1) FOR UPDATE",
+          [input.email],
+        );
         if (input.createFirst) {
           if (u || (await t.row("SELECT 1 FROM users WHERE staff_role IS NOT NULL LIMIT 1")))
             throw fail.conflict(
@@ -81,7 +90,9 @@ export function staffEnrollmentService(ctx: AppContext) {
             "INSERT INTO users(id,email,name,password_hash,staff_role,active) VALUES($1,lower($2),'PALTAS Owner',$3,'super_admin',false)",
             [userId, input.email, await hashPassword(randomBytes(32).toString("base64url"))],
           );
-          u = await t.row<Account>("SELECT * FROM users WHERE id=$1 FOR UPDATE", [userId]);
+          u = await t.row<Account>("SELECT id,email,staff_role,active,auth_version FROM users WHERE id=$1 FOR UPDATE", [
+            userId,
+          ]);
         }
         if (!u || u.staff_role !== "super_admin")
           throw fail.invalid("An existing Super Admin account is required; client accounts cannot be elevated");
@@ -97,8 +108,8 @@ export function staffEnrollmentService(ctx: AppContext) {
           [u.id],
         );
         await t.run(
-          "INSERT INTO staff_enrollments(id,user_id,token_hash,email_code_hash,account_fingerprint,approved_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7)",
-          [id, u.id, digest(token), digest(code), fingerprint(u), input.operator, expiresAt],
+          "INSERT INTO staff_enrollments(id,user_id,token_hash,email_code_hash,account_version,allow_disabled,approved_by,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8)",
+          [id, u.id, digest(token), digest(code), u.auth_version, !!input.createFirst, input.operator, expiresAt],
         );
         const result = await emailAdapter({ ...mail, provider }, ctx.emailTransport).submit({
           id,

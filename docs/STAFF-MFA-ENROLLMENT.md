@@ -44,11 +44,11 @@ Codes have 96 random bits each. They require the password and are consumed atomi
 - Five grant verification attempts and a fifteen-minute expiry; public endpoint rate limits also apply.
 - Setup origin is the canonical APP_BASE_URL. For staging, use its configured canonical Netlify origin, not an arbitrary deploy-preview hostname.
 - Secrets are encrypted with the environment's SECRETS_KEY. Setup/backup responses are no-store; admin pages send no referrer. No credentials enter browser storage, URLs in requests, analytics or application logs. The grant itself is initially in a fragment, not a query string.
-- Pending account fingerprint prevents activation after a concurrent role, activation, password or authenticator change. Consumed/revoked grants cannot be reused. Replayed TOTP steps are rejected for staff confirmed through this new flow.
+- A database-maintained authentication version prevents activation after a concurrent role, activation, password or authenticator change. Consumed/revoked grants cannot be reused. Replayed TOTP steps are rejected for staff confirmed through this new flow.
 - Provider acceptance is **not** delivery proof. Staging acceptance must include actual mailbox receipt before production approval.
 - Approval references must contain no secrets or sensitive identity documents.
 - Do not enable public signup, change payout/tax settings, or touch Appra for this feature.
 
 ## Migration / rollback
 
-Migration 0029 adds confirmation/replay metadata and isolated staff grant/backup tables. It extends the staff-secret constraint only for disabled staff; active staff still require a stored factor. It performs no data reset or backfill claiming confirmation. Keep database backups and deploy backend before frontend. Do not drop the new columns or tables during application rollback; once an owner has enrolled, retain the new identity service to preserve single-use/replay protections. No automatic SQL rollback of owner credentials.
+Migrations 0029 and 0030 add confirmation/replay/version metadata and isolated staff grant/backup tables. Migration 0029 extends the staff-secret constraint only for disabled staff; active staff still require a stored factor. The migrations perform no owner data reset or backfill claiming confirmation. Keep database backups and deploy backend before frontend. Do not drop the new columns or tables during application rollback; once an owner has enrolled, retain the new identity service to preserve single-use/replay protections. No automatic SQL rollback of owner credentials.
