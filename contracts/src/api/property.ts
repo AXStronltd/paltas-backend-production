@@ -8,7 +8,8 @@
 // - every money movement posts to the organisation's ONE ledger (trust accounting: rent is the owner's money, 2150 →
 //   2250; deposits are a liability, 2300; only management fees 4650 and agency charges 4660 are income);
 // - an invoice run is idempotent per lease and month: running it again creates nothing new;
-// - payments are RECORDED, never processed; messages and notices are RECORDED, never sent;
+// - payments are RECORDED, never processed; general messages/notices are recorded; explicitly confirmed invoice
+//   emails use the transactional outbox and a configured platform email provider;
 // - deposit refunds, owner payouts, supplier bills, purchase orders, applications and bank reconciliations need a
 //   second person; nothing posts into a closed month;
 // - another organisation's records answer "not found"; a tenant or owner sees only their own records.
@@ -16,6 +17,7 @@ import { z } from "zod";
 import { IsoDate, IsoDateTime, IsoMonth, MinorUnits, PositiveMinorUnits, Reason } from "../common.js";
 import { endpoint } from "../endpoint.js";
 import { Contact, Message } from "./contacts.js";
+import { Notification } from "./notifications.js";
 import { OrgParams } from "./organisations.js";
 
 // ------------------------------------------------------------------ building blocks
@@ -1523,6 +1525,38 @@ export const getInvoice = endpoint({
   summary: "One invoice with lines and what paid it",
   params: InvoiceParams,
   response: Invoice,
+});
+
+/** A server-rendered transactional email. A changed recipient or balance requires a fresh preview. */
+export const InvoiceEmailPreview = z.object({
+  tenantId: Id,
+  recipient: z.string(),
+  subject: z.string(),
+  body: z.string(),
+  previewKey: z.string(),
+  canSend: z.boolean(),
+  unavailableReason: z.string(),
+  lastMessage: z.object({ status: z.string(), note: z.string() }).nullable(),
+});
+export type InvoiceEmailPreview = z.infer<typeof InvoiceEmailPreview>;
+export const previewInvoiceEmail = endpoint({
+  id: "property.invoices.previewEmail",
+  method: "GET",
+  path: `${Base}/invoices/:invoiceId/email`,
+  auth: "user",
+  summary: "Preview an invoice email addressed only to this tenant's registered email",
+  params: InvoiceParams,
+  response: InvoiceEmailPreview,
+});
+export const sendInvoiceEmail = endpoint({
+  id: "property.invoices.sendEmail",
+  method: "POST",
+  path: `${Base}/invoices/:invoiceId/email`,
+  auth: "user",
+  summary: "Confirm an invoice email through the PALTAS transactional outbox; duplicate previews send once",
+  params: InvoiceParams,
+  body: z.object({ previewKey: z.string().length(64), confirm: z.literal("SEND") }),
+  response: Notification,
 });
 
 export const createChargeInvoice = endpoint({

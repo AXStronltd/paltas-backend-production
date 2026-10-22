@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Invoicing: the monthly billing run (rent, or recurring and metered charges), one-off charge invoices, late fees per
@@ -69,8 +70,95 @@ export function billingService(d: PmDeps) {
     return v as P.Invoice;
   };
 
+  async function emailPreview(s: OrgScope, id: string, t: Db = db): Promise<P.InvoiceEmailPreview> {
+    const [i] = await R.invoiceViews(t, [await R.invoiceRow(t, s.orgId, id)], s.today);
+    if (!i) throw fail.notFound("Invoice");
+    const tenant = await t.row<{ email: string | null; consent_email: boolean }>(
+      "SELECT email,consent_email FROM contacts WHERE org_id=$1 AND id=$2",
+      [s.orgId, i.tenantId],
+    );
+    const recipient = (tenant?.email ?? "").trim().toLowerCase();
+    const org = s.entitlement.org;
+    const money = (n: number) => formatMoney(n, org.currency);
+    const subject = `${org.name} — invoice ${i.number}`;
+    const body = [
+      `Hello ${i.tenantName},`,
+      "",
+      `Invoice ${i.number} from ${org.name}`,
+      `Unit: ${i.unitNo || "—"}`,
+      `Period: ${i.period || "—"}`,
+      `Issued: ${i.issueDate}`,
+      `Due: ${i.dueDate}`,
+      "",
+      ...i.lines.map((l) => `${l.description}: ${money(l.amountMinor)}`),
+      "",
+      `Total: ${money(i.amountMinor)}`,
+      `Paid: ${money(i.paidMinor)}`,
+      `Credited: ${money(i.creditedMinor)}`,
+      `Outstanding: ${money(i.balanceMinor)}`,
+      "",
+      "Contact your property manager for payment instructions or questions. This email does not collect money.",
+      "If you already have tenant portal access, your invoices and receipts are available there.",
+      "",
+      "Sent through PALTAS on behalf of your property manager.",
+    ].join("\n");
+    const previewKey = createHash("sha256")
+      .update(JSON.stringify([s.orgId, id, recipient, subject, body]))
+      .digest("hex");
+    const last = await t.row<{ status: string; status_note: string }>(
+      "SELECT status,status_note FROM notifications WHERE org_id=$1 AND source='property_invoice' AND source_ref=$2",
+      [s.orgId, `${id}:${previewKey}`],
+    );
+    const valid = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(recipient);
+    const unavailableReason = !valid
+      ? "Add a valid email address to this tenant's profile first."
+      : !tenant?.consent_email
+        ? "Email contact permission is not recorded. Confirm the tenant agrees, then update their contact preferences."
+        : !core.notifications.emailDeliveryConfigured()
+          ? "PALTAS transactional email delivery is not configured. The invoice remains available in the tenant portal."
+          : "";
+    return {
+      tenantId: i.tenantId,
+      recipient,
+      subject,
+      body,
+      previewKey,
+      canSend: !unavailableReason,
+      unavailableReason,
+      lastMessage: last ? { status: last.status, note: last.status_note } : null,
+    };
+  }
+
   return {
     view,
+    emailPreview,
+    async emailInvoice(s: OrgScope, id: string, previewKey: string) {
+      return financeTransaction(db, s.orgId, async (t) => {
+        const p = await emailPreview(s, id, t);
+        if (p.previewKey !== previewKey)
+          throw fail.conflict("The invoice or tenant email changed. Preview it again before sending.");
+        if (!p.canSend) throw fail.conflict(p.unavailableReason);
+        const m = await core.notifications.record(t, {
+          orgId: s.orgId,
+          channel: "email",
+          to: p.recipient,
+          category: "transactional",
+          subject: p.subject,
+          body: p.body,
+          source: "property_invoice",
+          sourceRef: `${id}:${p.previewKey}`,
+          createdBy: s.userId,
+        });
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Tenant invoice email confirmed",
+          target: id,
+          detail: `${m.id} · ${m.status}`,
+        });
+        return m;
+      });
+    },
 
     async runBilling(s: BillingOp, b: { propertyId: string; period: string; kind: "rent" | "charges" }) {
       await R.propertyRow(db, s.orgId, b.propertyId);

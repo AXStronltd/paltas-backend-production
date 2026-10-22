@@ -795,6 +795,8 @@ export const PROPERTY_API = {
   runBilling: property.runBilling,
   listInvoices: property.listInvoices,
   getInvoice: property.getInvoice,
+  previewInvoiceEmail: property.previewInvoiceEmail,
+  sendInvoiceEmail: property.sendInvoiceEmail,
   createChargeInvoice: property.createChargeInvoice,
   runLateFees: property.runLateFees,
   createCreditNote: property.createCreditNote,

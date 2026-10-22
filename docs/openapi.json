@@ -153544,6 +153544,327 @@
         }
       }
     },
+    "/api/v1/orgs/{orgId}/property/invoices/{invoiceId}/email": {
+      "get": {
+        "operationId": "property.invoices.previewEmail",
+        "summary": "Preview an invoice email addressed only to this tenant's registered email",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "tenantId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "recipient": {
+                      "type": "string"
+                    },
+                    "subject": {
+                      "type": "string"
+                    },
+                    "body": {
+                      "type": "string"
+                    },
+                    "previewKey": {
+                      "type": "string"
+                    },
+                    "canSend": {
+                      "type": "boolean"
+                    },
+                    "unavailableReason": {
+                      "type": "string"
+                    },
+                    "lastMessage": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "status": {
+                              "type": "string"
+                            },
+                            "note": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "status",
+                            "note"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "tenantId",
+                    "recipient",
+                    "subject",
+                    "body",
+                    "previewKey",
+                    "canSend",
+                    "unavailableReason",
+                    "lastMessage"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "property.invoices.sendEmail",
+        "summary": "Confirm an invoice email through the PALTAS transactional outbox; duplicate previews send once",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "previewKey": {
+                    "type": "string",
+                    "minLength": 64,
+                    "maxLength": 64
+                  },
+                  "confirm": {
+                    "type": "string",
+                    "const": "SEND"
+                  }
+                },
+                "required": [
+                  "previewKey",
+                  "confirm"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "channel": {
+                      "type": "string",
+                      "enum": [
+                        "email",
+                        "sms",
+                        "whatsapp",
+                        "push"
+                      ]
+                    },
+                    "to": {
+                      "type": "string"
+                    },
+                    "category": {
+                      "type": "string",
+                      "enum": [
+                        "transactional",
+                        "marketing"
+                      ]
+                    },
+                    "templateKey": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "subject": {
+                      "type": "string"
+                    },
+                    "body": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "recorded",
+                        "queued",
+                        "sent",
+                        "delivered",
+                        "bounced",
+                        "failed",
+                        "suppressed"
+                      ]
+                    },
+                    "statusNote": {
+                      "type": "string"
+                    },
+                    "provider": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "providerMessageId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "source": {
+                      "type": "string"
+                    },
+                    "sourceRef": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "queuedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "sentAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "deliveredAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "bouncedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "failedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "channel",
+                    "to",
+                    "category",
+                    "templateKey",
+                    "subject",
+                    "body",
+                    "status",
+                    "statusNote",
+                    "provider",
+                    "providerMessageId",
+                    "source",
+                    "sourceRef",
+                    "createdBy",
+                    "createdAt",
+                    "queuedAt",
+                    "sentAt",
+                    "deliveredAt",
+                    "bouncedAt",
+                    "failedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/orgs/{orgId}/property/late-fees/run": {
       "post": {
         "operationId": "property.lateFees.run",
