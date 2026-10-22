@@ -90,9 +90,9 @@ export function setupNotifications(ctx: AppContext, core: CoreServices) {
   async function sendDue() {
     // Existing companies never receive a retroactive onboarding email burst. Only new, verified administrators.
     const people = await db.rows<{ org_id: string; user_id: string; role: Role; email: string }>(
-      `SELECT m.org_id,m.user_id,m.role,u.email FROM memberships m JOIN users u ON u.id=m.user_id JOIN organisations o ON o.id=m.org_id
+      `SELECT m.org_id,m.user_id,(CASE WHEN m.product_roles IS NULL THEN m.role ELSE m.product_roles->>'developer' END) AS role,u.email FROM memberships m JOIN users u ON u.id=m.user_id JOIN organisations o ON o.id=m.org_id
    JOIN subscriptions s ON s.org_id=o.id AND s.product='developer' AND s.status IN ('trial','active')
-   WHERE m.status='active' AND m.role='org_admin' AND u.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
+   WHERE m.status='active' AND (CASE WHEN m.product_roles IS NULL THEN m.role ELSE m.product_roles->>'developer' END)='org_admin' AND u.email_verified_at IS NOT NULL AND o.suspended_at IS NULL
     AND s.created_at>=(SELECT eligible_after FROM dev_onboarding_campaign WHERE singleton)
     AND (s.status='active' OR s.trial_ends >= $1::date) ORDER BY m.org_id,m.user_id`,
       [clock.today()],

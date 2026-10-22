@@ -1,3 +1,4 @@
+import { memberProductRole } from "../../../core/access/product-role.js";
 /*
  * Loading and shaping the dev_* records every Development area shares: projects, units, buyers (with who may see
  * them), contracts with their instalments, documents, members and tasks. Every lookup is by organisation: another
@@ -301,12 +302,10 @@ export async function requireMember(
   userId: string,
   capability: Parameters<typeof roleCan>[1] = "developer.work",
 ): Promise<Role> {
-  const m = await db.row<{ role: Role }>(
-    "SELECT role FROM memberships WHERE org_id = $1 AND user_id = $2 AND status = 'active'",
-    [orgId, userId],
-  );
-  if (!m || !roleCan(m.role, capability)) throw fail.invalid("Pick a member of your organisation who can do this work");
-  return m.role;
+  const role = await memberProductRole(db, orgId, userId, "developer");
+  if (!role || !roleCan(role, capability))
+    throw fail.invalid("Pick a member of your organisation who can do this work");
+  return role;
 }
 
 export interface TaskInput {

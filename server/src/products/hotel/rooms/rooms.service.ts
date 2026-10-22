@@ -1,3 +1,4 @@
+import { memberProductRole } from "../../../core/access/product-role.js";
 /*
  * Rooms: the live status board, housekeeping (attendants' own rooms, supervisor inspection), maintenance tickets
  * that take rooms out of order (and out of inventory), lost and found, minibar and outlet charges to rooms.
@@ -210,11 +211,8 @@ export function roomsService(d: HotelDeps, folios: FoliosService) {
     },
 
     async assign(s: HotelScope, attendantUserId: string, roomIds: string[]) {
-      const m = await db.row<{ role: string }>(
-        "SELECT role FROM memberships WHERE org_id = $1 AND user_id = $2 AND status = 'active'",
-        [s.orgId, attendantUserId],
-      );
-      if (!m || !["housekeeping_attendant", "housekeeping_supervisor"].includes(m.role))
+      const role = await memberProductRole(db, s.orgId, attendantUserId, "hotel");
+      if (!role || !["housekeeping_attendant", "housekeeping_supervisor"].includes(role))
         throw fail.invalid("Assign rooms to a housekeeping attendant or supervisor");
       const known = new Set((await setup.rooms(db, s.property.id)).map((r) => r.id));
       if (roomIds.some((id) => !known.has(id))) throw fail.invalid("Every room must belong to this hotel");

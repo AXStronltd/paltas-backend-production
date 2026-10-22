@@ -11,10 +11,19 @@
  *   - a change while the subscription is not active → 402 SUBSCRIPTION_INACTIVE (records stay readable)
  *   - a module outside the plan               → 403 MODULE_NOT_ENTITLED (with what it would cost)
  */
-import { entitlements, ROLE_DEFINITIONS, roleCan, type Capability, type Product, type Role } from "@paltas/contracts";
+import {
+  entitlements,
+  ROLE_DEFINITIONS,
+  roleCan,
+  type Capability,
+  type Product,
+  type ProductRoles,
+  type Role,
+} from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import { fail } from "../../http/errors.js";
 import type { Actor } from "../audit/audit.service.js";
+import { productRole } from "./product-role.js";
 import type { SessionUser } from "../identity/identity.service.js";
 import { resolveEntitlement, type EntitlementContext } from "../subscriptions/entitlement.service.js";
 
@@ -52,48 +61,55 @@ export function orgAccess(ctx: AppContext) {
   const { db, clock, products: registry } = ctx;
 
   async function scope(user: SessionUser, orgId: string, o: ScopeOptions): Promise<OrgScope> {
-    const m = await db.row<{ role: Role; status: string; org_suspended: boolean }>(
-      `SELECT m.role, m.status, (o.suspended_at IS NOT NULL) AS org_suspended
+    const m = await db.row<{ role: Role; product_roles: ProductRoles | null; status: string; org_suspended: boolean }>(
+      `SELECT m.role, m.product_roles, m.status, (o.suspended_at IS NOT NULL) AS org_suspended
        FROM memberships m JOIN organisations o ON o.id = m.org_id WHERE m.org_id = $1 AND m.user_id = $2`,
       [orgId, user.id],
     );
     if (!m || m.status !== "active") throw fail.notFound("Organisation not found");
     if (m.org_suspended)
       throw fail.forbidden("This organisation is suspended by PALTAS — contact PALTAS support", { suspended: true });
-    if (!roleCan(m.role, o.capability)) {
-      throw fail.roleNotAllowed(`Your role (${ROLE_DEFINITIONS[m.role].label}) cannot do this`);
-    }
     const first = await resolveEntitlement(db, registry, clock.today(), orgId);
     if (!first) throw fail.notFound("Organisation not found");
+    const accessible = first.products.filter((p) => productRole(m.role, m.product_roles, p));
     let product: Product | undefined = o.product;
     if (o.products) {
-      product = o.products.find((p) => first.products.includes(p));
+      product = o.products.find((p) => accessible.includes(p));
       if (!product) throw fail.notFound("This workspace is not part of your organisation's subscriptions");
     }
-    if (product && !first.products.includes(product)) {
+    if (product && !accessible.includes(product)) {
       throw fail.notFound(`Your organisation has no ${entitlements.PRODUCT_NAME[product] ?? product} subscription`);
     }
-    let en =
-      product && product !== first.product
-        ? await resolveEntitlement(db, registry, clock.today(), orgId, product)
-        : first;
-    if (o.anyProduct && !product && en && !(en.ent.usable && (!o.module || en.ent.modules[o.module]))) {
-      for (const p of first.products.slice(1)) {
-        const other = await resolveEntitlement(db, registry, clock.today(), orgId, p);
-        if (other && other.ent.usable && (!o.module || other.ent.modules[o.module])) {
-          en = other;
-          break;
+    if (!product) {
+      const candidates = accessible.filter((p) => {
+        const role = productRole(m.role, m.product_roles, p);
+        return !!role && roleCan(role, o.capability);
+      });
+      product = candidates[0];
+      if (o.anyProduct) {
+        for (const p of candidates) {
+          const candidate = await resolveEntitlement(db, registry, clock.today(), orgId, p);
+          if (candidate?.ent.usable && (!o.module || candidate.ent.modules[o.module])) {
+            product = p;
+            break;
+          }
         }
       }
     }
+    if (!product) throw fail.roleNotAllowed("Your membership has no product role that permits this action");
+    const role = productRole(m.role, m.product_roles, product);
+    if (!role || !roleCan(role, o.capability))
+      throw fail.roleNotAllowed(`Your role (${role ? ROLE_DEFINITIONS[role].label : "No access"}) cannot do this`);
+    const en =
+      product === first.product ? first : await resolveEntitlement(db, registry, clock.today(), orgId, product);
     if (!en) throw fail.notFound("Organisation not found");
     const s: OrgScope = {
       orgId,
       userId: user.id,
-      role: m.role,
+      role,
       product: en.product,
       entitlement: en,
-      actor: { userId: user.id, role: m.role },
+      actor: { userId: user.id, role },
       today: clock.today(),
     };
     if (o.write) requireActive(s);

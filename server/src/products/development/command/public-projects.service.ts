@@ -73,7 +73,7 @@ export function publicProjects(ctx: AppContext, core: CoreServices) {
       )
         return;
       const agent = await t.row<{ user_id: string }>(
-        `SELECT m.user_id FROM memberships m WHERE m.org_id=$1 AND m.status='active' AND m.role IN ('sales_agent','org_admin') ORDER BY CASE WHEN m.role='sales_agent' THEN 0 ELSE 1 END, (SELECT count(*) FROM dev_contacts c WHERE c.org_id=m.org_id AND c.agent_user_id=m.user_id AND c.status='active'),m.user_id LIMIT 1`,
+        `SELECT m.user_id FROM memberships m WHERE m.org_id=$1 AND m.status='active' AND (CASE WHEN m.product_roles IS NULL THEN m.role ELSE m.product_roles->>'developer' END) IN ('sales_agent','org_admin') ORDER BY CASE WHEN (CASE WHEN m.product_roles IS NULL THEN m.role ELSE m.product_roles->>'developer' END)='sales_agent' THEN 0 ELSE 1 END, (SELECT count(*) FROM dev_contacts c WHERE c.org_id=m.org_id AND c.agent_user_id=m.user_id AND c.status='active'),m.user_id LIMIT 1`,
         [p.org_id],
       );
       if (!agent) throw fail.conflict("This project is not accepting enquiries yet.");

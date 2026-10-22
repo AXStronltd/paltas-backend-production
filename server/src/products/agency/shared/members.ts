@@ -1,14 +1,12 @@
 // Who in the organisation may be given agency work (an agent on a listing, lead or viewing).
-import { roleCan, type Capability, type Role } from "@paltas/contracts";
+import { roleCan, type Capability } from "@paltas/contracts";
+import { memberProductRole } from "../../../core/access/product-role.js";
 import type { Db } from "../../../db/database.js";
 import { fail } from "../../../http/errors.js";
 
 /** The person must be an active member of this organisation whose role grants the capability. */
 export async function requireMember(db: Db, orgId: string, userId: string, capability: Capability): Promise<void> {
-  const m = await db.row<{ role: Role }>(
-    "SELECT role FROM memberships WHERE org_id = $1 AND user_id = $2 AND status = 'active'",
-    [orgId, userId],
-  );
-  if (!m) throw fail.invalid("That person is not an active member of this organisation");
-  if (!roleCan(m.role, capability)) throw fail.invalid("That person's role cannot take this work");
+  const role = await memberProductRole(db, orgId, userId, "agency");
+  if (!role || !roleCan(role, capability))
+    throw fail.invalid("That person has no active Agent / Host role for this work");
 }

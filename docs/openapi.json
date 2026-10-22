@@ -762,6 +762,80 @@
                               "owner"
                             ]
                           },
+                          "portals": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "product": {
+                                  "type": "string",
+                                  "enum": [
+                                    "property",
+                                    "developer",
+                                    "agency",
+                                    "hotel",
+                                    "security"
+                                  ]
+                                },
+                                "role": {
+                                  "type": "string",
+                                  "enum": [
+                                    "org_admin",
+                                    "finance_director",
+                                    "accountant",
+                                    "property_manager",
+                                    "leasing_agent",
+                                    "front_desk",
+                                    "technician",
+                                    "sales_manager",
+                                    "sales_agent",
+                                    "project_manager",
+                                    "operations_manager",
+                                    "supervisor",
+                                    "auditor",
+                                    "viewer",
+                                    "general_manager",
+                                    "front_office_manager",
+                                    "receptionist",
+                                    "revenue_manager",
+                                    "housekeeping_supervisor",
+                                    "housekeeping_attendant",
+                                    "outlet_staff",
+                                    "financial_controller",
+                                    "income_auditor",
+                                    "credit_controller",
+                                    "ap_clerk",
+                                    "cost_controller",
+                                    "payroll_officer",
+                                    "group_owner",
+                                    "procurement_officer",
+                                    "treasury_officer",
+                                    "control_room_operator",
+                                    "guard",
+                                    "gate_officer",
+                                    "access_administrator",
+                                    "security_client",
+                                    "maintenance_manager",
+                                    "tenant",
+                                    "owner"
+                                  ]
+                                },
+                                "usable": {
+                                  "type": "boolean"
+                                },
+                                "status": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "product",
+                                "role",
+                                "usable",
+                                "status"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
                           "trials": {
                             "type": "array",
                             "items": {
@@ -1633,6 +1707,69 @@
                           },
                           "since": {
                             "type": "string"
+                          },
+                          "productRoles": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string",
+                                  "enum": [
+                                    "property",
+                                    "developer",
+                                    "agency",
+                                    "hotel",
+                                    "security"
+                                  ]
+                                },
+                                "additionalProperties": {
+                                  "type": "string",
+                                  "enum": [
+                                    "org_admin",
+                                    "finance_director",
+                                    "accountant",
+                                    "property_manager",
+                                    "leasing_agent",
+                                    "front_desk",
+                                    "technician",
+                                    "sales_manager",
+                                    "sales_agent",
+                                    "project_manager",
+                                    "operations_manager",
+                                    "supervisor",
+                                    "auditor",
+                                    "viewer",
+                                    "general_manager",
+                                    "front_office_manager",
+                                    "receptionist",
+                                    "revenue_manager",
+                                    "housekeeping_supervisor",
+                                    "housekeeping_attendant",
+                                    "outlet_staff",
+                                    "financial_controller",
+                                    "income_auditor",
+                                    "credit_controller",
+                                    "ap_clerk",
+                                    "cost_controller",
+                                    "payroll_officer",
+                                    "group_owner",
+                                    "procurement_officer",
+                                    "treasury_officer",
+                                    "control_room_operator",
+                                    "guard",
+                                    "gate_officer",
+                                    "access_administrator",
+                                    "security_client",
+                                    "maintenance_manager",
+                                    "tenant",
+                                    "owner"
+                                  ]
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -1744,6 +1881,69 @@
                       "tenant",
                       "owner"
                     ]
+                  },
+                  "productRoles": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "enum": [
+                            "property",
+                            "developer",
+                            "agency",
+                            "hotel",
+                            "security"
+                          ]
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "enum": [
+                            "org_admin",
+                            "finance_director",
+                            "accountant",
+                            "property_manager",
+                            "leasing_agent",
+                            "front_desk",
+                            "technician",
+                            "sales_manager",
+                            "sales_agent",
+                            "project_manager",
+                            "operations_manager",
+                            "supervisor",
+                            "auditor",
+                            "viewer",
+                            "general_manager",
+                            "front_office_manager",
+                            "receptionist",
+                            "revenue_manager",
+                            "housekeeping_supervisor",
+                            "housekeeping_attendant",
+                            "outlet_staff",
+                            "financial_controller",
+                            "income_auditor",
+                            "credit_controller",
+                            "ap_clerk",
+                            "cost_controller",
+                            "payroll_officer",
+                            "group_owner",
+                            "procurement_officer",
+                            "treasury_officer",
+                            "control_room_operator",
+                            "guard",
+                            "gate_officer",
+                            "access_administrator",
+                            "security_client",
+                            "maintenance_manager",
+                            "tenant",
+                            "owner"
+                          ]
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 },
                 "required": [
@@ -1828,6 +2028,69 @@
                         },
                         "since": {
                           "type": "string"
+                        },
+                        "productRoles": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "propertyNames": {
+                                "type": "string",
+                                "enum": [
+                                  "property",
+                                  "developer",
+                                  "agency",
+                                  "hotel",
+                                  "security"
+                                ]
+                              },
+                              "additionalProperties": {
+                                "type": "string",
+                                "enum": [
+                                  "org_admin",
+                                  "finance_director",
+                                  "accountant",
+                                  "property_manager",
+                                  "leasing_agent",
+                                  "front_desk",
+                                  "technician",
+                                  "sales_manager",
+                                  "sales_agent",
+                                  "project_manager",
+                                  "operations_manager",
+                                  "supervisor",
+                                  "auditor",
+                                  "viewer",
+                                  "general_manager",
+                                  "front_office_manager",
+                                  "receptionist",
+                                  "revenue_manager",
+                                  "housekeeping_supervisor",
+                                  "housekeeping_attendant",
+                                  "outlet_staff",
+                                  "financial_controller",
+                                  "income_auditor",
+                                  "credit_controller",
+                                  "ap_clerk",
+                                  "cost_controller",
+                                  "payroll_officer",
+                                  "group_owner",
+                                  "procurement_officer",
+                                  "treasury_officer",
+                                  "control_room_operator",
+                                  "guard",
+                                  "gate_officer",
+                                  "access_administrator",
+                                  "security_client",
+                                  "maintenance_manager",
+                                  "tenant",
+                                  "owner"
+                                ]
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -1953,6 +2216,69 @@
                       "active",
                       "suspended"
                     ]
+                  },
+                  "productRoles": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "propertyNames": {
+                          "type": "string",
+                          "enum": [
+                            "property",
+                            "developer",
+                            "agency",
+                            "hotel",
+                            "security"
+                          ]
+                        },
+                        "additionalProperties": {
+                          "type": "string",
+                          "enum": [
+                            "org_admin",
+                            "finance_director",
+                            "accountant",
+                            "property_manager",
+                            "leasing_agent",
+                            "front_desk",
+                            "technician",
+                            "sales_manager",
+                            "sales_agent",
+                            "project_manager",
+                            "operations_manager",
+                            "supervisor",
+                            "auditor",
+                            "viewer",
+                            "general_manager",
+                            "front_office_manager",
+                            "receptionist",
+                            "revenue_manager",
+                            "housekeeping_supervisor",
+                            "housekeeping_attendant",
+                            "outlet_staff",
+                            "financial_controller",
+                            "income_auditor",
+                            "credit_controller",
+                            "ap_clerk",
+                            "cost_controller",
+                            "payroll_officer",
+                            "group_owner",
+                            "procurement_officer",
+                            "treasury_officer",
+                            "control_room_operator",
+                            "guard",
+                            "gate_officer",
+                            "access_administrator",
+                            "security_client",
+                            "maintenance_manager",
+                            "tenant",
+                            "owner"
+                          ]
+                        }
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
                   }
                 }
               }
@@ -2030,6 +2356,69 @@
                     },
                     "since": {
                       "type": "string"
+                    },
+                    "productRoles": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "propertyNames": {
+                            "type": "string",
+                            "enum": [
+                              "property",
+                              "developer",
+                              "agency",
+                              "hotel",
+                              "security"
+                            ]
+                          },
+                          "additionalProperties": {
+                            "type": "string",
+                            "enum": [
+                              "org_admin",
+                              "finance_director",
+                              "accountant",
+                              "property_manager",
+                              "leasing_agent",
+                              "front_desk",
+                              "technician",
+                              "sales_manager",
+                              "sales_agent",
+                              "project_manager",
+                              "operations_manager",
+                              "supervisor",
+                              "auditor",
+                              "viewer",
+                              "general_manager",
+                              "front_office_manager",
+                              "receptionist",
+                              "revenue_manager",
+                              "housekeeping_supervisor",
+                              "housekeeping_attendant",
+                              "outlet_staff",
+                              "financial_controller",
+                              "income_auditor",
+                              "credit_controller",
+                              "ap_clerk",
+                              "cost_controller",
+                              "payroll_officer",
+                              "group_owner",
+                              "procurement_officer",
+                              "treasury_officer",
+                              "control_room_operator",
+                              "guard",
+                              "gate_officer",
+                              "access_administrator",
+                              "security_client",
+                              "maintenance_manager",
+                              "tenant",
+                              "owner"
+                            ]
+                          }
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -12356,6 +12745,69 @@
                           },
                           "since": {
                             "type": "string"
+                          },
+                          "productRoles": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "propertyNames": {
+                                  "type": "string",
+                                  "enum": [
+                                    "property",
+                                    "developer",
+                                    "agency",
+                                    "hotel",
+                                    "security"
+                                  ]
+                                },
+                                "additionalProperties": {
+                                  "type": "string",
+                                  "enum": [
+                                    "org_admin",
+                                    "finance_director",
+                                    "accountant",
+                                    "property_manager",
+                                    "leasing_agent",
+                                    "front_desk",
+                                    "technician",
+                                    "sales_manager",
+                                    "sales_agent",
+                                    "project_manager",
+                                    "operations_manager",
+                                    "supervisor",
+                                    "auditor",
+                                    "viewer",
+                                    "general_manager",
+                                    "front_office_manager",
+                                    "receptionist",
+                                    "revenue_manager",
+                                    "housekeeping_supervisor",
+                                    "housekeeping_attendant",
+                                    "outlet_staff",
+                                    "financial_controller",
+                                    "income_auditor",
+                                    "credit_controller",
+                                    "ap_clerk",
+                                    "cost_controller",
+                                    "payroll_officer",
+                                    "group_owner",
+                                    "procurement_officer",
+                                    "treasury_officer",
+                                    "control_room_operator",
+                                    "guard",
+                                    "gate_officer",
+                                    "access_administrator",
+                                    "security_client",
+                                    "maintenance_manager",
+                                    "tenant",
+                                    "owner"
+                                  ]
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
