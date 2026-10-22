@@ -84,7 +84,8 @@ export function setupService(d: PmDeps) {
       `SELECT count(*)::int AS units,
          count(*) FILTER (WHERE EXISTS (SELECT 1 FROM pm_leases l WHERE l.unit_id = u.id AND l.status = 'active'
            AND l.start_date <= $2 AND (l.end_date IS NULL OR l.end_date >= $2)))::int AS let
-       FROM pm_units u WHERE u.property_id = $1`,
+       FROM pm_units u WHERE u.property_id = $1
+       AND NOT EXISTS (SELECT 1 FROM pm_buildings b WHERE b.id=u.building_id AND b.is_archived)`,
       [p.id, today],
     );
     const owner = await db.row<{ owner_id: string }>(
