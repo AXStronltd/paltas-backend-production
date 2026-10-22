@@ -15,6 +15,17 @@ describe("manager unit inventory editing", () => {
     const b = await setUpBuilding(orgId, pm, { units: ["0804 W", "0805 W", "0806 W"] });
     let current = await pm.api.property.getProperty({ params: { orgId, propertyId: b.propertyId } });
     const original = current.units.find((u) => u.id === b.units["0804 W"])!;
+    await refused(
+      pm.api.property.updateBuilding({
+        params: { orgId, buildingId: original.buildingId! },
+        body: { name: "West", floors: 0 },
+      }),
+      409,
+    );
+    await pm.api.property.updateBuilding({
+      params: { orgId, buildingId: original.buildingId! },
+      body: { name: "West", floors: 1 },
+    });
     await pm.api.property.updateUnit({
       params: { orgId, unitId: original.id },
       body: { unitNo: "804 W", floor: "External" },

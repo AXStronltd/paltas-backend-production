@@ -1045,7 +1045,7 @@ export const updateBuilding = endpoint({
   auth: "user",
   summary: "Rename a block without changing its units or financial history",
   params: BuildingParams,
-  body: z.object({ name: z.string().trim().min(1).max(160) }),
+  body: z.object({ name: z.string().trim().min(1).max(160), floors: z.number().int().min(0).max(300).optional() }),
   response: Building,
 });
 export const deleteBuilding = endpoint({

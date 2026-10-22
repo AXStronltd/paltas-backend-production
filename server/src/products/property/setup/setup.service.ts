@@ -420,21 +420,36 @@ export function setupService(d: PmDeps) {
       });
     },
 
-    async updateBuilding(s: OrgScope, id: string, b: { name: string }) {
+    async updateBuilding(s: OrgScope, id: string, b: { name: string; floors?: number | undefined }) {
       const propertyId = await db.tx(async (t) => {
-        const before = await t.row<{ name: string; property_id: string }>(
+        const before = await t.row<{ name: string; property_id: string; floors: number | null }>(
           "SELECT * FROM pm_buildings WHERE org_id=$1 AND id=$2 FOR UPDATE",
           [s.orgId, id],
         );
         if (!before) throw fail.notFound("Block not found");
-        await t.run("UPDATE pm_buildings SET name=$3 WHERE org_id=$1 AND id=$2", [s.orgId, id, b.name]);
+        if (
+          b.floors !== undefined &&
+          (await t.row(
+            "SELECT 1 FROM pm_units WHERE org_id=$1 AND building_id=$2 AND CASE WHEN floor ~ '^[0-9]{1,3}$' THEN floor::integer ELSE NULL END > $3 LIMIT 1",
+            [s.orgId, id, b.floors],
+          ))
+        )
+          throw fail.conflict(
+            "Saved apartments are above this last floor. Correct their floor placement before reducing the block's floor count.",
+          );
+        await t.run("UPDATE pm_buildings SET name=$3,floors=COALESCE($4,floors) WHERE org_id=$1 AND id=$2", [
+          s.orgId,
+          id,
+          b.name,
+          b.floors ?? null,
+        ]);
         await recordAudit(t, {
           actor: s.actor,
           orgId: s.orgId,
-          action: "Block renamed",
+          action: "Block details changed",
           target: id,
-          before: { name: before.name },
-          after: { name: b.name },
+          before: { name: before.name, floors: before.floors },
+          after: { name: b.name, floors: b.floors ?? before.floors },
         });
         return before.property_id;
       });
