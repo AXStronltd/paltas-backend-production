@@ -248,6 +248,8 @@ export const ADMIN_API = {
   listClients: admin.listClients,
   searchPeople: admin.searchPeople,
   overview: admin.platformOverview,
+  dashboardInsights: admin.dashboardInsights,
+  platformRecords: admin.platformRecords,
   supportInbox: support.supportInbox,
   supportThread: support.supportThread,
   supportReply: support.supportReply,

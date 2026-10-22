@@ -424,6 +424,8 @@ export {
   listClients,
   searchPeople,
   platformOverview,
+  dashboardInsights,
+  platformRecords,
   StaffMember,
   StaffCredentials,
   ClientRow,
