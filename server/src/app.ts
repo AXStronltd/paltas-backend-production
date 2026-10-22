@@ -1,3 +1,4 @@
+import { managerGuard } from "./core/access/manager-guard.js";
 /*
  * Builds the HTTP server: security headers, CORS, JSON parsing (keeping the raw bytes for webhook signatures),
  * rate limiting on sign-in, uniform error answers, and every route from the core and the products.
@@ -177,7 +178,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
       authenticate: (token) => core.identity.authenticate(token),
       verifyWebhook: (provider, header, raw) => verifySignature(config.webhookSecrets, provider, header, raw),
     },
-    routes,
+    managerGuard(ctx.db)(routes),
     {
       login: config.loginRateLimitPerMinute,
       sensitive: config.sensitiveRateLimitPerMinute,

@@ -12,12 +12,15 @@ export function contactsRoutes(core: CoreServices) {
 
   return [
     route(api.listContacts, async (req) => {
-      await scope(req.user, req.params.orgId, "contacts.read");
+      const s = await scope(req.user, req.params.orgId, "contacts.read");
       return {
         contacts: await C.list(req.params.orgId, {
           q: req.query.q,
           type: req.query.type,
           includeMerged: req.query.includeMerged === "true",
+          includeArchived: req.query.includeArchived === "true",
+          propertyIds: s.propertyIds,
+          userId: s.userId,
         }),
       };
     }),

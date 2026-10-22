@@ -164,6 +164,8 @@ export const IDENTITY_API = {
 export const ORGANISATIONS_API = {
   get: organisations.getOrganisation,
   listMembers: organisations.listMembers,
+  getManagerGrants: organisations.getManagerGrants,
+  setManagerGrants: organisations.setManagerGrants,
   addMember: organisations.addMember,
   updateMember: organisations.updateMember,
   listAudit: organisations.listAudit,
@@ -808,6 +810,8 @@ export const PROPERTY_API = {
   getPayment: property.getPayment,
   applyCredit: property.applyCredit,
   tenantStatement: property.tenantStatement,
+  getTenantControl: property.getTenantControl,
+  setTenantControl: property.setTenantControl,
   listClaims: property.listClaims,
   rejectClaim: property.rejectClaim,
   requestDepositRefund: property.requestDepositRefund,

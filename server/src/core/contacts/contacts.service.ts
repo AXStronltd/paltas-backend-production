@@ -1,3 +1,4 @@
+import { contactScopeSql, contactWithinScope } from "../access/property-contact-scope.js";
 /*
  * The organisation's ONE contact store, used by every product (core.contacts). Products link their records to a
  * contact id; nobody keeps a second list of people.
@@ -296,14 +297,34 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
       );
     },
 
-    async list(orgId: string, f: { q?: string | undefined; type?: C.ContactType | undefined; includeMerged: boolean }) {
+    async list(
+      orgId: string,
+      f: {
+        q?: string | undefined;
+        type?: C.ContactType | undefined;
+        includeMerged: boolean;
+        includeArchived?: boolean;
+        propertyIds?: readonly string[] | null;
+        userId?: string;
+      },
+    ) {
       const rows = await db.rows<repo.ContactRow>(
         `SELECT * FROM contacts WHERE org_id = $1 AND ($2 OR merged_into IS NULL)
+           AND ($5 OR NOT EXISTS(SELECT 1 FROM pm_tenant_controls tc WHERE tc.org_id=contacts.org_id AND tc.tenant_id=contacts.id AND tc.archived))
+           AND ${contactScopeSql("contacts", "$6", "$7")}
            AND ($3::text IS NULL OR $3 = ANY (types))
            AND ($4::text IS NULL OR lower(name) LIKE '%' || lower($4) || '%' OR email_norm LIKE '%' || lower($4) || '%'
                 OR phone LIKE '%' || $4 || '%')
          ORDER BY lower(name), id LIMIT 1000`,
-        [orgId, f.includeMerged, f.type ?? null, f.q ?? null],
+        [
+          orgId,
+          f.includeMerged,
+          f.type ?? null,
+          f.q ?? null,
+          f.includeArchived ?? false,
+          f.propertyIds ?? null,
+          f.userId ?? null,
+        ],
       );
       return rows.map(repo.toContact);
     },
@@ -312,6 +333,13 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
       return db.tx(async (t) => {
         if (input.email || input.phone) {
           const dups = await repo.duplicatesOf(t, s.orgId, input.email ?? null, input.phone ?? null);
+          if (s.propertyIds !== null && s.propertyIds !== undefined)
+            for (const duplicate of dups) {
+              if (!(await contactWithinScope(t, s.orgId, duplicate.id, s.propertyIds, s.userId)))
+                throw fail.conflict(
+                  "A matching contact exists outside your assigned properties. Ask the company administrator to review it.",
+                );
+            }
           if (dups.length && !input.reuseExisting)
             throw fail.conflict("A contact with the same email or phone already exists", {
               duplicates: dups.map((d) => ({ id: d.id, name: d.name, email: d.email, phone: d.phone })),

@@ -1,3 +1,6 @@
+import { tenantControls } from "./leases/tenant-control.js";
+import { property as propertyApi } from "@paltas/contracts";
+import { route } from "../../http/route.js";
 /*
  * Property Management (product "property", also the Almas Tower pilot): one ProductModule. Its services are built once
  * per server from the core services and the PM access gate. People (tenants, owners, suppliers, prospects) live in the
@@ -68,6 +71,7 @@ export const property: ProductModule = {
     const access = pmAccess(core);
     const d: PmDeps = { ctx, core, access };
     const setup = setupService(d);
+    const controls = tenantControls(d);
     const leases = leasesService(d);
     const billing = billingService(d);
     const payments = paymentsService(d);
@@ -75,6 +79,25 @@ export const property: ProductModule = {
     const bills = billsService(d);
     const maintenance = maintenanceService(d);
     return [
+      route(propertyApi.getTenantControl, async (req) =>
+        controls.get(await access.org(req.user, req.params.orgId, "property.tenants.view"), req.params.tenantId),
+      ),
+      route(propertyApi.setTenantControl, async (req) =>
+        controls.change(
+          await access.org(
+            req.user,
+            req.params.orgId,
+            req.body.action === "suspend"
+              ? "property.tenants.suspend"
+              : req.body.action === "restore"
+                ? "property.tenants.restore"
+                : "property.tenants.archive",
+            { write: true },
+          ),
+          req.params.tenantId,
+          req.body,
+        ),
+      ),
       ...setupRoutes(access, setup),
       ...leasesRoutes(access, leases, billing, payments),
       ...billingRoutes(access, billing),

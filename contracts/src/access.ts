@@ -17,6 +17,21 @@ export type Product = z.infer<typeof Product>;
 export const SELLABLE_PRODUCTS = PRODUCTS satisfies readonly Product[];
 
 export const CAPABILITIES = [
+  "property.tenants.view",
+  "property.tenants.register",
+  "property.tenants.edit",
+  "property.tenants.assign",
+  "property.tenants.documents",
+  "property.tenants.leaseCreate",
+  "property.tenants.leaseEdit",
+  "property.tenants.leaseActivate",
+  "property.tenants.leaseRenew",
+  "property.tenants.leaseEnd",
+  "property.tenants.suspend",
+  "property.tenants.restore",
+  "property.tenants.archive",
+  "property.tenants.history",
+  "property.tenants.notices",
   "org.read",
   "members.read",
   "members.manage",
@@ -241,6 +256,7 @@ export type Capability = z.infer<typeof Capability>;
 
 export const ROLES = [
   "org_admin",
+  "main_manager",
   "finance_director",
   "accountant",
   "property_manager",
@@ -335,6 +351,12 @@ const PM_OPERATIONS: readonly Capability[] = [
 ];
 
 export const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
+  main_manager: {
+    label: "Main Manager",
+    products: ALL,
+    capabilities: ["org.read", "subscription.read"],
+    frontendKey: "pm",
+  },
   org_admin: {
     label: "Organisation administrator",
     products: ALL,
@@ -869,6 +891,25 @@ export const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
 
 /** Does this role grant this capability? */
 export function roleCan(role: Role, capability: Capability): boolean {
+  if (capability.startsWith("property.tenants.")) {
+    if (role === "org_admin") return true;
+    const base: Partial<Record<Capability, Capability>> = {
+      "property.tenants.view": "property.read",
+      "property.tenants.history": "property.read",
+      "property.tenants.register": "contacts.manage",
+      "property.tenants.edit": "contacts.manage",
+      "property.tenants.assign": "property.leases.manage",
+      "property.tenants.documents": "property.notices",
+      "property.tenants.leaseCreate": "property.leases.manage",
+      "property.tenants.leaseEdit": "property.leases.manage",
+      "property.tenants.leaseActivate": "property.leases.manage",
+      "property.tenants.leaseRenew": "property.leases.manage",
+      "property.tenants.leaseEnd": "property.leases.manage",
+      "property.tenants.notices": "property.notices",
+    };
+    const b = base[capability];
+    return !!b && ROLE_DEFINITIONS[role].capabilities.includes(b);
+  }
   return ROLE_DEFINITIONS[role].capabilities.includes(capability);
 }
 
@@ -950,4 +991,35 @@ export const STAFF_ROLE_DEFINITIONS: Record<
 /** May this staff role make this kind of change? */
 export function staffCan(role: StaffRole | null | undefined, permission: StaffPermission): boolean {
   return !!role && STAFF_ROLE_DEFINITIONS[role].permissions.includes(permission);
+}
+
+/** Operational delegation never includes platform staff, subscription ownership or delegation administration. */
+export const ManagerGrant = z.object({
+  product: Product,
+  capabilities: z.array(Capability).max(250),
+  propertyIds: z.array(z.string().min(1).max(80)).max(500).nullable(),
+  enabled: z.boolean(),
+});
+export type ManagerGrant = z.infer<typeof ManagerGrant>;
+
+/** Shared presentation/server rule; the server still reloads the persisted grant per request. */
+export function delegatedCapabilityCan(g: ManagerGrant | null | undefined, cap: Capability): boolean {
+  if (!g?.enabled) return false;
+  if (cap === "org.read" || cap === "subscription.read") return true;
+  if (g.capabilities.includes(cap)) return true;
+  const base: Partial<Record<Capability, Capability>> = {
+    "property.tenants.view": "property.read",
+    "property.tenants.history": "property.read",
+    "property.tenants.register": "contacts.manage",
+    "property.tenants.edit": "contacts.manage",
+    "property.tenants.assign": "property.leases.manage",
+    "property.tenants.documents": "property.notices",
+    "property.tenants.leaseCreate": "property.leases.manage",
+    "property.tenants.leaseEdit": "property.leases.manage",
+    "property.tenants.leaseActivate": "property.leases.manage",
+    "property.tenants.leaseRenew": "property.leases.manage",
+    "property.tenants.leaseEnd": "property.leases.manage",
+    "property.tenants.notices": "property.notices",
+  };
+  return g.capabilities.some((c) => base[c] === cap);
 }
