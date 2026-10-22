@@ -32,7 +32,7 @@ interface ExceptionRow {
 
 async function exceptions(db: Db, jobId: string): Promise<ExceptionRow[]> {
   return db.rows<ExceptionRow>(
-    `SELECT * FROM (SELECT 'row' AS kind, f.original_ref AS file, t.name AS "table", r.row_no, r.entity, r.source_record_id, r.status,
+    `SELECT * FROM (SELECT 'row' AS kind, f.original_ref AS file, t.name AS "table", CASE WHEN r.entity='historical_summary' AND r.raw->>'source_cell' ~ '^[A-Z]{1,3}[0-9]{1,7}$' THEN regexp_replace(r.raw->>'source_cell','^[A-Z]+','')::int ELSE r.row_no END AS row_no, r.entity, r.source_record_id, r.status,
             i.severity, i.code, i.message, r.decision,
             COALESCE(r.decision_reason, CASE WHEN t.ignored THEN 'Table ignored: ' || t.ignore_reason END) AS reason
      FROM mig_rows r JOIN mig_tables t ON t.id = r.table_id JOIN mig_files f ON f.id = t.file_id

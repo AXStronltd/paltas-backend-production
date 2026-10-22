@@ -48,13 +48,42 @@ describe("new company owner's Property Management workflow", () => {
       types: ["tenant"],
       email: "tenant@workflow.test",
     });
-    await post(base + "/agreements", {
+    const owned = await post(base + "/ownerships", {
       propertyId: property.id,
       ownerId: landlord.contact.id,
+      ownerType: "individual",
+      evidenceRef: "Synthetic ownership evidence",
+    });
+    expect(
+      (
+        await S.raw(
+          "POST",
+          base + "/ownerships/" + owned.ownerships[0].id + "/verify",
+          { confirm: "VERIFIED" },
+          owner.token,
+        )
+      ).status,
+    ).toBe(200);
+    const authority = await post(base + "/agreements", {
+      propertyId: property.id,
+      ownerId: landlord.contact.id,
+      ownershipId: owned.ownerships[0].id,
+      managementCompany: "Synthetic company",
+      evidenceRef: "Synthetic signed agreement",
       feePct: 10,
       authorityMinor: 0,
       startDate: today,
     });
+    expect(
+      (
+        await S.raw(
+          "POST",
+          base + "/agreements/" + authority.id + "/activate",
+          { confirm: "ACTIVATE", signedOn: today },
+          owner.token,
+        )
+      ).status,
+    ).toBe(200);
     const lease = await post(base + "/leases", {
       unitId: units.units[0].id,
       tenantId: tenant.contact.id,

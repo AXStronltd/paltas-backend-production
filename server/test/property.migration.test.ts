@@ -187,6 +187,7 @@ describe("Property Management data migration (FE sample accounting export)", () 
       "deposit",
       "bill",
       "trial_balance",
+      "historical_summary",
     ]);
     expect(pmDomain.accounts.map((a) => a.code).sort()).toEqual(["1040", "1120", "2250", "2300", "3900"]);
     const { profiles } = await admin.api.migration.listProfiles({ params: { orgId }, query: { domain: "property" } });

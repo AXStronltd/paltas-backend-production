@@ -63,7 +63,10 @@ const oneOf = (name: string, label: string, values: readonly string[], o: Partia
   ...o,
 });
 const contact = (role: "tenant" | "owner" | "supplier"): FieldSpec[] => [
-  text("name", "Name", { required: true, aliases: ["full name", "display name", "customer name", "vendor name"] }),
+  text("name", "Name", {
+    required: true,
+    aliases: ["full name", "display name", "customer name", "vendor name", `${role} name`],
+  }),
   { name: "email", label: "Email", type: "email", aliases: ["email address", "e mail"] },
   { name: "phone", label: "Phone", type: "phone", aliases: ["phone numbers", "mobile", "telephone", "phone number"] },
   text("address", "Address", { aliases: ["billing address", "postal address"] }),
@@ -243,6 +246,32 @@ export const PROPERTY_ENTITIES: EntitySpec[] = [
       date("as_of", "As of", { defaultsToCutover: true }),
     ],
   },
+  {
+    name: "historical_summary",
+    label: "Historical monthly summary (reference only — no posting)",
+    table: "pm_historical_records",
+    labelField: "source_subject",
+    hints: ["historical monthly summary"],
+    duplicateKeys: [["property_id", "unit_label", "record_kind", "period"]],
+    fields: [
+      text("property_id", "PALTAS property ID", { required: true }),
+      text("unit_label", "Unit identifier"),
+      oneOf(
+        "record_kind",
+        "Meaning of monthly amount",
+        ["service_charge_summary", "rent_summary", "payment_summary", "balance_summary", "expense_summary"],
+        { required: true },
+      ),
+      text("period", "Original accounting period (YYYY-MM)", { required: true }),
+      text("source_subject", "Name in source workbook", { required: true }),
+      oneOf("subject_type", "Source name identifies", ["tenant", "owner"], { required: true }),
+      money("amount", "Original monthly amount", { required: true, signed: true }),
+      text("currency", "Original currency", { required: true }),
+      text("source_workbook", "Source workbook", { required: true }),
+      text("source_worksheet", "Source worksheet", { required: true }),
+      text("source_cell", "Original Excel cell", { required: true }),
+    ],
+  },
 ];
 
 // ------------------------------------------------------------------ the domain's own checks
@@ -263,6 +292,127 @@ const tbBalance = (r: CheckRow) => num(r.values.debit) - num(r.values.credit);
 async function checks(c: CheckContext): Promise<CheckIssue[]> {
   const out: CheckIssue[] = [];
   const live = (e: string) => c.byEntity(e).filter((r) => !r.inactive);
+
+  const historyRows = live("historical_summary"),
+    historyKeys = new Map<string, CheckRow>();
+  const propertyIds = [...new Set(historyRows.map((r) => String(r.values.property_id ?? "")))];
+  const properties = new Set(
+    (propertyIds.length
+      ? await c.db.rows<{ id: string }>("SELECT id FROM pm_properties WHERE org_id=$1 AND id=ANY($2)", [
+          c.orgId,
+          propertyIds,
+        ])
+      : []
+    ).map((p) => p.id),
+  );
+  const canonical = (s: string) => s.toUpperCase().replace(/\s/g, "").replace(/^0+/, "");
+  const savedUnits = propertyIds.length
+    ? await c.db.rows<{ id: string; property_id: string; unit_no: string; archived: boolean }>(
+        "SELECT u.id,u.property_id,u.unit_no,COALESCE(b.is_archived,false) AS archived FROM pm_units u LEFT JOIN pm_buildings b ON b.id=u.building_id AND b.org_id=u.org_id WHERE u.org_id=$1 AND u.property_id=ANY($2)",
+        [c.orgId, propertyIds],
+      )
+    : [];
+  const unitIndex = new Map<string, typeof savedUnits>();
+  for (const u of savedUnits) {
+    const key = JSON.stringify([u.property_id, canonical(u.unit_no)]);
+    unitIndex.set(key, [...(unitIndex.get(key) ?? []), u]);
+  }
+  const existing = propertyIds.length
+    ? await c.db.rows<{ property_id: string; unit_id: string; record_kind: string; period: string }>(
+        "SELECT property_id,unit_id,record_kind,period FROM pm_historical_records WHERE org_id=$1 AND property_id=ANY($2) AND period=ANY($3) AND record_kind=ANY($4)",
+        [
+          c.orgId,
+          propertyIds,
+          [...new Set(historyRows.map((r) => String(r.values.period ?? "")))],
+          [...new Set(historyRows.map((r) => String(r.values.record_kind ?? "")))],
+        ],
+      )
+    : [];
+  const existingKeys = new Set(
+    existing.map((r) => JSON.stringify([r.property_id, r.unit_id, r.record_kind, r.period])),
+  );
+  // Resolve a whole report with bounded queries, including retired units for non-posting historical reference.
+  for (const r of historyRows) {
+    if (!properties.has(String(r.values.property_id ?? ""))) {
+      out.push(issue(r, "HISTORY_PROPERTY", "Choose a saved property in this organisation", "property_id"));
+      continue;
+    }
+    const period = String(r.values.period ?? "");
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(period))
+      out.push(issue(r, "HISTORY_PERIOD", "Use the original monthly accounting period, for example 2021-04", "period"));
+    if (String(r.values.currency ?? "").toUpperCase() !== c.currency)
+      out.push(
+        issue(
+          r,
+          "HISTORY_CURRENCY",
+          "The original currency must match this workspace; historical amounts are never converted automatically",
+          "currency",
+        ),
+      );
+    const label = String(r.values.unit_label ?? "").trim(),
+      hits = unitIndex.get(JSON.stringify([r.values.property_id, canonical(label)])) ?? [];
+    if (label && hits.length === 1) {
+      const u = hits[0];
+      if (!u) continue;
+      const key = JSON.stringify([r.values.property_id, u.id, r.values.record_kind, period]),
+        duplicate = historyKeys.get(key);
+      if (duplicate) {
+        out.push(
+          issue(
+            r,
+            "HISTORY_DUPLICATE",
+            "This saved apartment already has another summary for the same month and meaning in this import",
+            "unit_label",
+          ),
+        );
+        out.push(
+          issue(
+            duplicate,
+            "HISTORY_DUPLICATE",
+            "Another row duplicates this apartment, month and summary meaning",
+            "unit_label",
+          ),
+        );
+      } else historyKeys.set(key, r);
+      if (existingKeys.has(key))
+        out.push(
+          issue(
+            r,
+            "HISTORY_DUPLICATE_EXISTING",
+            "A summary for this saved apartment, month and meaning is already imported. Review its source reference instead of creating another",
+            "unit_label",
+          ),
+        );
+      if (u.archived)
+        out.push(
+          warn(
+            r,
+            "HISTORY_RETIRED_UNIT",
+            "This apartment is archived. Its historical reference will be retained without restoring it to current inventory",
+            "unit_label",
+          ),
+        );
+    } else if (label || r.values.record_kind !== "expense_summary")
+      out.push(
+        issue(
+          r,
+          "HISTORY_UNIT",
+          label
+            ? `Unit ${label} must match exactly one saved apartment in this property. Correct the identifier; names are not assumed to be units`
+            : "Map the apartment identifier for this monthly record",
+          "unit_label",
+        ),
+      );
+    if (r.values.record_kind !== "balance_summary" && num(r.values.amount) < 0)
+      out.push(
+        issue(
+          r,
+          "HISTORY_AMOUNT",
+          "Negative charges or payments need a separately identified adjustment; do not silently treat them as ordinary monthly totals",
+          "amount",
+        ),
+      );
+  }
 
   // leases: a unit (in the upload, or set up in PALTAS by number), active at the cut-over, one per unit
   const units = new Map<string, CheckRow[]>();

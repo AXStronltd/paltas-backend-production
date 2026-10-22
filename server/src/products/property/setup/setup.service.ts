@@ -14,6 +14,7 @@ import { LATE_FEES_JOB, MONTHLY_BILLING_JOB } from "../shared/jobs.js";
 import { financeTransaction } from "../shared/finance-transaction.js";
 import { ownerFunds } from "../shared/owner-funds.js";
 import * as R from "../shared/records.js";
+import { ownershipService, requireAuthorityReviewer } from "./ownership.service.js";
 import { toBp, toPct } from "../shared/util.js";
 
 interface SettingsRow {
@@ -678,6 +679,33 @@ export function setupService(d: PmDeps) {
       return view as P.Unit;
     },
 
+    async historicalSummaries(orgId: string, f: { propertyId?: string; offset: number; limit: number }) {
+      const filter = "h.org_id=$1 AND ($2::text IS NULL OR h.property_id=$2)";
+      const count = await db.row<{ n: number }>(`SELECT count(*)::int n FROM pm_historical_records h WHERE ${filter}`, [
+        orgId,
+        f.propertyId ?? null,
+      ]);
+      const records = await db.rows<{
+        id: string;
+        propertyName: string;
+        unitLabel: string | null;
+        kind: string;
+        period: string;
+        subject: string;
+        subjectType: string;
+        amountMinor: number;
+        currency: string;
+        sourceWorkbook: string;
+        sourceWorksheet: string;
+        sourceCell: string;
+      }>(
+        `SELECT h.id,p.name AS "propertyName",h.unit_label AS "unitLabel",h.record_kind AS kind,h.period,h.source_subject AS subject,h.subject_type AS "subjectType",h.amount_minor AS "amountMinor",h.currency,h.source_workbook AS "sourceWorkbook",h.source_worksheet AS "sourceWorksheet",h.source_cell AS "sourceCell" FROM pm_historical_records h JOIN pm_properties p ON p.id=h.property_id AND p.org_id=h.org_id WHERE ${filter} ORDER BY h.period DESC,h.id LIMIT $3 OFFSET $4`,
+        [orgId, f.propertyId ?? null, f.limit, f.offset],
+      );
+      return { total: count?.n ?? 0, records };
+    },
+    ownership: ownershipService(d),
+
     async listAgreements(orgId: string, f: { propertyId?: string | undefined; ownerId?: string | undefined }) {
       const rows = await R.agreements(
         db,
@@ -698,9 +726,22 @@ export function setupService(d: PmDeps) {
         authorityMinor: number;
         payoutDay: number;
         startDate: string;
+        endDate?: string | null;
+        ownershipId?: string;
+        managementModel: "owner_managed" | "developer_managed" | "third_party";
+        managementCompany: string;
+        evidenceRef: string;
       },
     ) {
       await R.propertyRow(db, s.orgId, b.propertyId);
+      if (!b.ownershipId)
+        throw fail.invalid(
+          "Complete ownership first, then record management authority. Refresh the property portal to use the guided setup.",
+          { correction: { action: "complete_ownership", propertyId: b.propertyId } },
+        );
+      if (b.endDate && b.endDate < b.startDate) throw fail.invalid("Management authority ends before it starts");
+      if (b.managementModel === "owner_managed" && b.feePct !== 0)
+        throw fail.invalid("Owner-managed authority has no third-party management fee");
       if (b.unitId) {
         const u = await R.unitRow(db, s.orgId, b.unitId);
         if (u.property_id !== b.propertyId) throw fail.invalid("That unit is not in this property");
@@ -708,11 +749,19 @@ export function setupService(d: PmDeps) {
       const id = newId("pag");
       await db.tx(async (t) => {
         const owner = await core.contacts.live(t, s.orgId, b.ownerId, true);
-        const clash = await t.row(
-          "SELECT number FROM pm_agreements WHERE property_id = $1 AND COALESCE(unit_id, '') = COALESCE($2, '') AND status = 'active'",
-          [b.propertyId, b.unitId ?? null],
-        );
-        if (clash) throw fail.conflict("An active management agreement already covers this — end it first");
+        if (b.ownershipId) {
+          const owned = await t.row<{ owner_id: string; property_id: string; unit_id: string | null }>(
+            "SELECT owner_id,property_id,unit_id FROM pm_ownerships WHERE org_id=$1 AND id=$2 AND status<>'revoked'",
+            [s.orgId, b.ownershipId],
+          );
+          if (
+            !owned ||
+            owned.owner_id !== b.ownerId ||
+            owned.property_id !== b.propertyId ||
+            (owned.unit_id !== null && owned.unit_id !== (b.unitId ?? null))
+          )
+            throw fail.invalid("The ownership record does not cover this owner, property and unit");
+        }
         await t.run(
           `INSERT INTO pm_agreements (id, org_id, number, property_id, unit_id, owner_id, fee_bp, authority_minor, payout_day,
              start_date, created_by)
@@ -731,6 +780,10 @@ export function setupService(d: PmDeps) {
             s.userId,
           ],
         );
+        await t.run(
+          "UPDATE pm_agreements SET end_date=$2,ownership_id=$3,management_model=$4,management_company=$5,evidence_ref=$6 WHERE id=$1",
+          [id, b.endDate ?? null, b.ownershipId ?? null, b.managementModel, b.managementCompany, b.evidenceRef],
+        );
         await core.contacts.addTypes(t, s.orgId, b.ownerId, ["owner"]);
         await t.run(
           "INSERT INTO pm_owner_profiles (owner_id, org_id) VALUES ($1, $2) ON CONFLICT (owner_id) DO NOTHING",
@@ -745,6 +798,114 @@ export function setupService(d: PmDeps) {
         });
       });
       const [a] = await R.agreements(db, s.orgId, "a.id = $2", [id]);
+      return R.toAgreement(a as R.AgreementRow);
+    },
+
+    async updateAgreement(
+      s: OrgScope,
+      id: string,
+      b: {
+        managementCompany: string;
+        evidenceRef: string;
+        startDate: string;
+        endDate: string | null;
+        feePct: number;
+        authorityMinor: number;
+        payoutDay: number;
+      },
+    ) {
+      await db.tx(async (t) => {
+        const a = await t.row<R.AgreementRow>("SELECT * FROM pm_agreements WHERE org_id=$1 AND id=$2 FOR UPDATE", [
+          s.orgId,
+          id,
+        ]);
+        if (!a) throw fail.notFound("Authority not found");
+        if (a.status !== "draft")
+          throw fail.conflict(
+            "Only draft authority can be edited. End active authority explicitly before replacing it",
+          );
+        if (b.endDate && b.endDate < b.startDate) throw fail.invalid("Authority ends before it starts");
+        if (a.management_model === "owner_managed" && b.feePct !== 0)
+          throw fail.invalid("Owner-managed authority has no third-party fee");
+        await t.run(
+          "UPDATE pm_agreements SET management_company=$3,evidence_ref=$4,start_date=$5,end_date=$6,fee_bp=$7,authority_minor=$8,payout_day=$9 WHERE org_id=$1 AND id=$2",
+          [
+            s.orgId,
+            id,
+            b.managementCompany,
+            b.evidenceRef,
+            b.startDate,
+            b.endDate,
+            toBp(b.feePct),
+            b.authorityMinor,
+            b.payoutDay,
+          ],
+        );
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Draft management authority changed",
+          target: id,
+          after: b,
+        });
+      });
+      const [a] = await R.agreements(db, s.orgId, "a.id=$2", [id]);
+      return R.toAgreement(a as R.AgreementRow);
+    },
+    async activateAgreement(s: OrgScope, id: string, b: { signedOn?: string; confirm: "ACTIVATE" }) {
+      requireAuthorityReviewer(s);
+      await db.tx(async (t) => {
+        const a = await t.row<R.AgreementRow>("SELECT * FROM pm_agreements WHERE org_id=$1 AND id=$2 FOR UPDATE", [
+          s.orgId,
+          id,
+        ]);
+        if (!a) throw fail.notFound("Management authority not found");
+        if (a.status !== "draft") throw fail.conflict("Only draft management authority can be activated");
+        const clash = await t.row(
+          "SELECT id FROM pm_agreements WHERE org_id=$1 AND property_id=$2 AND COALESCE(unit_id,'')=COALESCE($3,'') AND status='active' AND id<>$4",
+          [s.orgId, a.property_id, a.unit_id, id],
+        );
+        if (clash)
+          throw fail.conflict(
+            "An active authority already covers this scope. End it explicitly before activating this replacement draft",
+          );
+        if (a.start_date > s.today || (a.end_date && a.end_date < s.today))
+          throw fail.invalid("Management authority must cover today's date before activation");
+        const o = await t.row<{ owner_id: string; property_id: string; unit_id: string | null }>(
+          "SELECT owner_id,property_id,unit_id FROM pm_ownerships WHERE org_id=$1 AND id=$2 AND status='verified' FOR SHARE",
+          [s.orgId, a.ownership_id ?? null],
+        );
+        if (
+          !o ||
+          o.owner_id !== a.owner_id ||
+          o.property_id !== a.property_id ||
+          (o.unit_id !== null && o.unit_id !== a.unit_id)
+        )
+          throw fail.conflict(
+            "Verify the recorded owner and covered property or unit before activating management authority",
+          );
+        if (
+          a.management_model !== "owner_managed" &&
+          (!a.evidence_ref?.trim() || !a.management_company?.trim() || !b.signedOn)
+        )
+          throw fail.invalid(
+            "Record the management company, signed authority document reference and actual signing date",
+          );
+        if (b.signedOn && b.signedOn > s.today)
+          throw fail.invalid("The authority signing date cannot be in the future");
+        await t.run(
+          "UPDATE pm_agreements SET status='active',signed_on=$3,approved_by=$4,approved_at=now() WHERE org_id=$1 AND id=$2",
+          [s.orgId, id, b.signedOn ?? null, s.userId],
+        );
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Management authority approved and activated",
+          target: id,
+          detail: a.management_model ?? "third_party",
+        });
+      });
+      const [a] = await R.agreements(db, s.orgId, "a.id=$2", [id]);
       return R.toAgreement(a as R.AgreementRow);
     },
 
@@ -771,7 +932,7 @@ export function setupService(d: PmDeps) {
 
     async listOwners(s: OrgScope) {
       const ids = await db.rows<{ owner_id: string }>(
-        "SELECT DISTINCT owner_id FROM pm_agreements WHERE org_id = $1 UNION SELECT owner_id FROM pm_owner_profiles WHERE org_id = $1",
+        "SELECT DISTINCT owner_id FROM pm_agreements WHERE org_id = $1 UNION SELECT owner_id FROM pm_owner_profiles WHERE org_id = $1 UNION SELECT owner_id FROM pm_ownerships WHERE org_id=$1 AND status<>'revoked'",
         [s.orgId],
       );
       const owners = [];

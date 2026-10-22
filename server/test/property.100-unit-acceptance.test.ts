@@ -44,16 +44,30 @@ describe("100-unit Property Pro trial acceptance", () => {
     const owner = (
       await pm.api.contacts.createContact({ params: { orgId }, body: { name: "Synthetic owner", types: ["owner"] } })
     ).contact;
-    await pm.api.property.createAgreement({
+    const own = (
+      await pm.api.property.createOwnership({
+        params: { orgId },
+        body: { propertyId: p.id, ownerId: owner.id, ownerType: "company", evidenceRef: "Synthetic evidence" },
+      })
+    ).ownerships[0]!;
+    await admin.api.property.verifyOwnership({ params: { orgId, ownershipId: own.id }, body: { confirm: "VERIFIED" } });
+    const agreement = await pm.api.property.createAgreement({
       params: { orgId },
       body: {
         propertyId: p.id,
         ownerId: owner.id,
+        ownershipId: own.id,
+        managementCompany: "Synthetic management",
+        evidenceRef: "Synthetic signed agreement",
         feePct: 10,
         authorityMinor: 100_000,
         payoutDay: 10,
         startDate: "2026-01-01",
       },
+    });
+    await admin.api.property.activateAgreement({
+      params: { orgId, agreementId: agreement.id },
+      body: { confirm: "ACTIVATE", signedOn: "2026-01-01" },
     });
     for (const [i, unit] of created.units.entries()) {
       const tenantId = await newTenant(

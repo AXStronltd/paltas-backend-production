@@ -21,6 +21,9 @@ export function leasesRoutes(access: PmAccess, L: LeasesService, B: BillingServi
     }),
     route(api.updateLease, async (req) => L.update(await manage(req), req.params.leaseId, req.body)),
     // activation issues the deposit invoice: money, so the finance module
+    route(api.previewLeaseActivation, async (req) =>
+      L.previewActivation(await g.org(req, "property.leases.manage", FINANCE), req.params.leaseId, req.body),
+    ),
     route(api.activateLease, async (req) =>
       L.activate(await g.org(req, "property.leases.manage", FINANCE), req.params.leaseId, req.body),
     ),

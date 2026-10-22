@@ -27,6 +27,8 @@ export const PM_ROLES = [
 
 export type PmStaff = Record<(typeof PM_ROLES)[number], Person>;
 
+const authorityReviewers = new Map<string, Person>();
+
 export async function pmOrg(S: TestServer, o: { plan?: string; name?: string } = {}) {
   const org = await S.newOrg({
     name: o.name ?? "Almas Property Management " + randomBytes(3).toString("hex"),
@@ -34,6 +36,7 @@ export async function pmOrg(S: TestServer, o: { plan?: string; name?: string } =
     plan: o.plan ?? "PM-GROWTH",
     trial: false,
   });
+  authorityReviewers.set(org.orgId, org.admin);
   const staff = {} as PmStaff;
   for (const r of PM_ROLES) staff[r] = await S.addMember(org.orgId, org.admin.api, r);
   return { orgId: org.orgId, admin: org.admin, staff };
@@ -93,16 +96,40 @@ export async function setUpBuilding(
       types: ["owner"],
     },
   });
+  const reviewer = authorityReviewers.get(orgId);
+  if (!reviewer) throw new Error("Test organisation reviewer missing");
+  const own = (
+    await pm.api.property.createOwnership({
+      params: { orgId },
+      body: {
+        propertyId: p.id,
+        ownerId: owner.contact.id,
+        ownerType: "individual",
+        evidenceRef: "Synthetic test ownership evidence",
+      },
+    })
+  ).ownerships[0]!;
+  await reviewer.api.property.verifyOwnership({
+    params: { orgId, ownershipId: own.id },
+    body: { confirm: "VERIFIED" },
+  });
   const ag = await pm.api.property.createAgreement({
     params: { orgId },
     body: {
       propertyId: p.id,
       ownerId: owner.contact.id,
+      ownershipId: own.id,
+      managementCompany: "Synthetic test management",
+      evidenceRef: "Synthetic signed agreement",
       feePct: o.feePct ?? 10,
       authorityMinor: o.authorityMinor ?? 2_000_000,
       payoutDay: 10,
       startDate: "2026-01-01",
     },
+  });
+  await reviewer.api.property.activateAgreement({
+    params: { orgId, agreementId: ag.id },
+    body: { confirm: "ACTIVATE", signedOn: "2026-01-01" },
   });
   return {
     propertyId: p.id,

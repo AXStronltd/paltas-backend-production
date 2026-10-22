@@ -77,6 +77,16 @@ export const ColumnMapping = z.object({
 export type ColumnMapping = z.infer<typeof ColumnMapping>;
 
 export const ProfileConfig = z.object({
+  templates: z
+    .array(
+      z.object({
+        headers: z.array(z.string()).max(200),
+        entity: z.string().min(1),
+        columns: z.array(ColumnMapping).max(200),
+      }),
+    )
+    .max(100)
+    .default([]),
   settings: ParseSettings.partial().default({}),
   /** entity → keywords that, found in a sheet or file name, point to that entity. */
   entityHints: z.record(z.string(), z.array(z.string())).default({}),
@@ -105,6 +115,7 @@ export const DomainField = z.object({
   label: z.string(),
   type: z.enum(FIELD_TYPES),
   required: z.boolean(),
+  aliases: z.array(z.string()).optional(),
   values: z.array(z.string()).optional(),
   ref: z.string().optional(),
 });
@@ -195,6 +206,32 @@ export const MigrationFile = z.object({
 });
 export type MigrationFile = z.infer<typeof MigrationFile>;
 
+export const TableAnalysis = z.object({
+  sheet: z.string(),
+  headerRow: z.number().int().positive(),
+  confidence: z.number(),
+  classification: z.enum(["records", "annual_matrix", "unknown"]),
+  year: z.number().int().nullable(),
+  metadataRows: z.array(z.number().int()),
+  mergedRanges: z.array(z.string()).optional(),
+  columnNumbers: z.array(z.number().int().positive()).optional(),
+  reconciliationChecks: z
+    .array(
+      z.object({
+        column: z.string(),
+        sourceRow: z.number().int(),
+        sourceMinor: z.number().int(),
+        detectedMinor: z.number().int(),
+        ok: z.boolean(),
+      }),
+    )
+    .optional(),
+  totals: z
+    .array(z.object({ row: z.number().int().positive(), label: z.string(), values: z.record(z.string(), z.string()) }))
+    .optional(),
+  excludedRows: z.array(z.object({ row: z.number().int(), reason: z.enum(["blank", "repeated_header", "total"]) })),
+  warnings: z.array(z.string()),
+});
 export const MigrationTable = z.object({
   id: z.string(),
   fileId: z.string(),
@@ -208,6 +245,7 @@ export const MigrationTable = z.object({
   /** Source columns not mapped to any field (shown so nothing is left behind by accident). */
   unmappedColumns: z.array(z.string()),
   sample: z.array(z.record(z.string(), z.string())),
+  analysis: TableAnalysis.nullable().optional(),
 });
 export type MigrationTable = z.infer<typeof MigrationTable>;
 
@@ -527,6 +565,25 @@ export const mapTable = endpoint({
   body: z.union([
     z.object({ entity: z.string().min(1), columns: z.array(ColumnMapping).min(1).max(200) }),
     z.object({ ignore: z.literal(true), reason: Reason }),
+    z.object({ headerRow: z.number().int().min(1).max(1_048_576) }),
+    z.object({
+      normaliseAnnual: z.object({
+        propertyId: z.string().min(1),
+        year: z.number().int().min(1900).max(2200),
+        unitColumn: z.string(),
+        subjectColumn: z.string().min(1),
+        subjectType: z.enum(["tenant", "owner"]),
+        kind: z.enum([
+          "service_charge_summary",
+          "rent_summary",
+          "payment_summary",
+          "balance_summary",
+          "expense_summary",
+        ]),
+        currency: z.string().length(3),
+        confirm: z.literal("REFERENCE ONLY"),
+      }),
+    }),
   ]),
   response: MigrationTable,
 });

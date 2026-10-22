@@ -83,6 +83,19 @@ export function guessEntity(
   headers: string[],
   profile: ProfileConfig,
 ): { entity: string | null; confidence: number; mapping: ColumnMapping[] } {
+  const saved = profile.templates?.find(
+    (t) => t.headers.length === headers.length && t.headers.every((h, i) => h === headers[i]),
+  );
+  if (saved) {
+    const entity = d.entities.find((e) => e.name === saved.entity);
+    if (
+      entity &&
+      saved.columns.every(
+        (c) => headers.includes(c.source) && (c.field === SOURCE_ID || entity.fields.some((f) => f.name === c.field)),
+      )
+    )
+      return { entity: saved.entity, confidence: 1, mapping: saved.columns };
+  }
   if (isManifest(headers)) return { entity: MANIFEST, confidence: 1, mapping: manifestMapping(headers) };
   const names = norm(`${tableName} ${fileName}`);
   let best: { entity: string | null; confidence: number; mapping: ColumnMapping[] } = {
