@@ -123,6 +123,33 @@ describe("100-unit Property Pro trial acceptance", () => {
     expect(reloaded.units).toHaveLength(100);
     for (const [i, count] of counts.entries())
       expect(reloaded.units.filter((u) => u.floor === String(i + 1))).toHaveLength(count * 2);
+    // A mistaken four-unit block can be archived without inflating current inventory or erasing history.
+    const mistaken = await pm.api.property.createBuilding({
+      params: { orgId, propertyId: p.id },
+      body: { name: "Mistaken block", floors: 1 },
+    });
+    await pm.api.property.createUnits({
+      params: { orgId, propertyId: p.id },
+      body: {
+        units: Array.from({ length: 4 }, (_, i) => ({ unitNo: `010${i + 1} M`, buildingId: mistaken.id, floor: "1" })),
+      },
+    });
+    expect((await pm.api.property.getProperty({ params: { orgId, propertyId: p.id } })).property.unitCount).toBe(104);
+    expect((await pm.api.property.deleteBuilding({ params: { orgId, buildingId: mistaken.id } })).action).toBe(
+      "archived",
+    );
+    const corrected = await pm.api.property.getProperty({ params: { orgId, propertyId: p.id } });
+    expect(corrected.property.unitCount).toBe(100);
+    expect(corrected.units).toHaveLength(104); // historical records remain addressable
+    expect(corrected.property.buildings.find((b) => b.id === mistaken.id)?.isArchived).toBe(true);
+    const correctedDashboard = await accountant.api.property.dashboard({
+      params: { orgId },
+      query: { month: "2026-10", propertyId: p.id },
+    });
+    expect(correctedDashboard.occupancy).toMatchObject({ units: 100, let: 100, vacant: 0 });
+    expect(correctedDashboard.collectedMinor).toBe(d.collectedMinor);
+    expect(correctedDashboard.arrears.totalMinor).toBe(d.arrears.totalMinor);
+    for (const check of Object.values(correctedDashboard.ledger)) expect(check.agrees).toBe(true);
     const other = await S.newOrg({ name: "Other trial client", product: "property", plan: "PM-GROWTH", trial: true });
     await refused(other.admin.api.property.getProperty({ params: { orgId, propertyId: p.id } }), 404);
   }, 120_000);

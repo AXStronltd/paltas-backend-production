@@ -71,7 +71,8 @@ export function reportsService(d: PmDeps) {
            count(*) FILTER (WHERE EXISTS (SELECT 1 FROM pm_leases l WHERE l.unit_id = u.id AND l.status = 'active'
              AND l.start_date <= $3 AND (l.end_date IS NULL OR l.end_date >= $3)))::int AS let,
            count(*) FILTER (WHERE u.status = 'off_market')::int AS off
-         FROM pm_units u WHERE u.org_id = $1 AND ($2::text IS NULL OR u.property_id = $2)`,
+         FROM pm_units u WHERE u.org_id = $1 AND ($2::text IS NULL OR u.property_id = $2)
+         AND NOT EXISTS (SELECT 1 FROM pm_buildings b WHERE b.id=u.building_id AND b.is_archived)`,
         [s.orgId, pid, s.today],
       );
       const units = occ?.units ?? 0;
