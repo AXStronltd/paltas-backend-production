@@ -567,10 +567,53 @@ export function setupService(d: PmDeps) {
         areaSqm: number;
         marketRentMinor: number;
         status: "available" | "off_market";
+        archive: boolean;
       }>,
     ) {
       await db.tx(async (t) => {
+        // Serialize removal with lease creation/activation, which locks the same unit row.
+        if (!(await t.row("SELECT id FROM pm_units WHERE org_id=$1 AND id=$2 FOR UPDATE", [s.orgId, id])))
+          throw fail.notFound("Apartment not found");
         const u = await R.unitRow(t, s.orgId, id);
+        if (b.archive) {
+          if (Object.keys(b).some((key) => key !== "archive"))
+            throw fail.invalid("Remove the apartment separately from other edits");
+          const originalBlock = u.building_id
+            ? await t.row<{ is_archived: boolean }>("SELECT is_archived FROM pm_buildings WHERE org_id=$1 AND id=$2", [
+                s.orgId,
+                u.building_id,
+              ])
+            : undefined;
+          if (originalBlock?.is_archived) return;
+          if (
+            await t.row("SELECT 1 FROM pm_leases WHERE org_id=$1 AND unit_id=$2 AND status IN ('draft','active')", [
+              s.orgId,
+              id,
+            ])
+          )
+            throw fail.conflict("This apartment has a draft or active lease. Resolve that lease before removing it.");
+          // Move into a new active holding block, then archive it in the same transaction.
+          // Existing block/lease safety triggers remain enabled throughout; no history is deleted.
+          const archiveId = newId("pbl");
+          await t.run("INSERT INTO pm_buildings (id,org_id,property_id,name) VALUES ($1,$2,$3,$4)", [
+            archiveId,
+            s.orgId,
+            u.property_id,
+            `Removed ${u.unit_no.slice(0, 40)} — ${archiveId}`,
+          ]);
+          await t.run("UPDATE pm_units SET building_id=$3 WHERE org_id=$1 AND id=$2", [s.orgId, id, archiveId]);
+          await t.run("UPDATE pm_buildings SET is_archived=true WHERE org_id=$1 AND id=$2", [s.orgId, archiveId]);
+          await recordAudit(t, {
+            actor: s.actor,
+            orgId: s.orgId,
+            action: "Apartment removed from inventory",
+            target: id,
+            before: { buildingId: u.building_id, floor: u.floor, unitNo: u.unit_no },
+            after: { buildingId: archiveId, archived: true },
+            detail: "All tenancy, invoice, payment and ledger history retained",
+          });
+          return;
+        }
         if (b.status === "off_market") {
           const active = await t.row("SELECT 1 FROM pm_leases WHERE unit_id = $1 AND status = 'active'", [id]);
           if (active)

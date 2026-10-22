@@ -1079,7 +1079,7 @@ export const updateUnit = endpoint({
   params: OrgParams.extend({ unitId: Id }),
   body: UnitFields.omit({ status: true })
     .partial()
-    .extend({ status: z.enum(["available", "off_market"]).optional() }),
+    .extend({ status: z.enum(["available", "off_market"]).optional(), archive: z.boolean().optional() }),
   response: Unit,
 });
 
