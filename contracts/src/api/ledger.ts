@@ -207,6 +207,44 @@ export const trialBalance = endpoint({
   }),
 });
 
+/** One posted-ledger snapshot; amounts are in the organisation's currency, never converted. */
+export const financialStatements = endpoint({
+  id: "ledger.financialStatements",
+  method: "GET",
+  path: "/api/v1/orgs/:orgId/ledger/financial-statements",
+  auth: "user",
+  summary: "Accrual profit and loss and balance sheet from one posted-ledger snapshot; no bank connection implied",
+  params: OrgParams,
+  query: z.object({ from: IsoDate, to: IsoDate.optional() }),
+  response: z.object({
+    from: IsoDate,
+    to: IsoDate,
+    currency: Currency,
+    basis: z.literal("posted_accrual"),
+    rows: z.array(
+      z.object({
+        code: AccountCode,
+        name: z.string(),
+        type: AccountType,
+        openingMinor: MinorUnits,
+        debitMinor: MinorUnits,
+        creditMinor: MinorUnits,
+        movementMinor: MinorUnits,
+        closingMinor: MinorUnits,
+      }),
+    ),
+    profitAndLoss: z.object({ incomeMinor: MinorUnits, expensesMinor: MinorUnits, netProfitMinor: MinorUnits }),
+    balanceSheet: z.object({
+      assetsMinor: MinorUnits,
+      liabilitiesMinor: MinorUnits,
+      equityMinor: MinorUnits,
+      unclosedEarningsMinor: MinorUnits,
+      differenceMinor: MinorUnits,
+      balanced: z.boolean(),
+    }),
+  }),
+});
+
 export const accountActivity = endpoint({
   id: "ledger.accounts.activity",
   method: "GET",

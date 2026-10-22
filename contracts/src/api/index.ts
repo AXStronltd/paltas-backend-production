@@ -205,6 +205,7 @@ export const LEDGER_API = {
   rejectJournal: ledger.rejectJournal,
   reverseJournal: ledger.reverseJournal,
   trialBalance: ledger.trialBalance,
+  financialStatements: ledger.financialStatements,
   listPeriods: ledger.listPeriods,
   closePeriod: ledger.closePeriod,
   reopenPeriod: ledger.reopenPeriod,
