@@ -73,6 +73,8 @@ export const MyOrganisation = z.object({
   name: z.string(),
   products: z.array(Product),
   role: Role,
+  /** Authorised product roles and current subscription availability, checked by the server. */
+  portals: z.array(z.object({ product: Product, role: Role, usable: z.boolean(), status: z.string() })).optional(),
   /** Trial days and grace left, per product subscription that is (or was) a trial. */
   trials: z.array(SubscriptionTrial.extend({ product: Product })),
   /**

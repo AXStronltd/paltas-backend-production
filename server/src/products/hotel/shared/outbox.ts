@@ -228,7 +228,7 @@ export async function managerEmails(t: Db, orgId: string, propertyId: string): P
   const rows = await t.rows<{ email: string }>(
     `SELECT DISTINCT u.email FROM memberships m JOIN users u ON u.id = m.user_id
      WHERE m.org_id = $1 AND m.status = 'active' AND u.active
-       AND m.role IN ('general_manager', 'front_office_manager', 'financial_controller')
+       AND (CASE WHEN m.product_roles IS NULL THEN m.role ELSE m.product_roles->>'hotel' END) IN ('general_manager', 'front_office_manager', 'financial_controller')
        AND EXISTS (SELECT 1 FROM hotel_property_staff ps WHERE ps.property_id = $2 AND ps.user_id = m.user_id)
      ORDER BY u.email`,
     [orgId, propertyId],

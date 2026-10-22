@@ -4,7 +4,8 @@
  * the agent within an hour; a let unit cannot be viewed) → application (screening by one person, approval by another)
  * → draft lease → lease activated = lead won. Lost leads keep their reason. Every step is an activity on the contact.
  */
-import type { contacts as C, property as P } from "@paltas/contracts";
+import { roleCan, type contacts as C, type property as P } from "@paltas/contracts";
+import { memberProductRole } from "../../../core/access/product-role.js";
 import type { OrgScope } from "../../../core/access/org-access.js";
 import { recordAudit } from "../../../core/audit/audit.service.js";
 import { nextNumber } from "../../../db/counters.js";
@@ -368,11 +369,9 @@ export function crmService(d: PmDeps, deps: { leases: LeasesService }) {
         await R.unitRow(t, s.orgId, unitId);
         if (await unitLet(t, unitId, b.date)) throw fail.conflict("That unit is let");
         const agent = b.agentId ?? l.agent_id ?? s.userId;
-        const member = await t.row(
-          "SELECT 1 FROM memberships WHERE org_id = $1 AND user_id = $2 AND status = 'active'",
-          [s.orgId, agent],
-        );
-        if (!member) throw fail.invalid("The agent is not a member of this organisation");
+        const role = await memberProductRole(t, s.orgId, agent, "property");
+        if (!role || !roleCan(role, "property.crm"))
+          throw fail.invalid("The agent needs an active Property Management leasing role");
         // the agent cannot be in two viewings within the same hour (locked per agent and day)
         await t.run("SELECT pg_advisory_xact_lock(hashtext('pm-viewing:' || $1 || ':' || $2))", [agent, b.date]);
         const same = await t.rows<{ time: string }>(

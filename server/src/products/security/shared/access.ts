@@ -1,3 +1,4 @@
+import { memberProductRole } from "../../../core/access/product-role.js";
 /*
  * Every security request passes the core gate (membership, role capability, the security subscription, an active
  * subscription for changes, the module) and then, where it matters, a record-level rule:
@@ -37,11 +38,8 @@ export function securityAccess(core: CoreServices) {
       capabilities: [Capability, ...Capability[]],
       o: AccessOptions = {},
     ): Promise<OrgScope> => {
-      const m = await core.db.row<{ role: Parameters<typeof roleCan>[0] }>(
-        "SELECT role FROM memberships WHERE org_id = $1 AND user_id = $2 AND status = 'active'",
-        [req.params.orgId, req.user.id],
-      );
-      const capability = (m && capabilities.find((c) => roleCan(m.role, c))) ?? capabilities[0];
+      const role = await memberProductRole(core.db, req.params.orgId, req.user.id, "security");
+      const capability = (role && capabilities.find((c) => roleCan(role, c))) ?? capabilities[0];
       return core.access.scope(req.user, req.params.orgId, { capability, products: ["security"], ...o });
     },
   };

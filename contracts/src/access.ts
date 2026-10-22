@@ -282,6 +282,10 @@ export const ROLES = [
 export const Role = z.enum(ROLES);
 export type Role = z.infer<typeof Role>;
 
+/** Null preserves legacy membership roles; an object is an explicit product allowlist. */
+export const ProductRoles = z.partialRecord(Product, Role);
+export type ProductRoles = z.infer<typeof ProductRoles>;
+
 export interface RoleDefinition {
   label: string;
   /** Products whose organisations may give this role. */

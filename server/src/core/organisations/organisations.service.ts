@@ -8,6 +8,7 @@ import {
   type Member,
   type Organisation,
   type Product,
+  type ProductRoles,
   type Role,
 } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
@@ -22,6 +23,7 @@ interface MemberRow {
   email: string;
   name: string;
   role: Role;
+  product_roles: ProductRoles | null;
   status: "active" | "suspended" | "invited";
   created_at: string;
 }
@@ -32,11 +34,12 @@ const toMember = (r: MemberRow): Member => ({
   // an invited person's own account details stay private until they accept
   name: r.status === "invited" ? r.email : r.name,
   role: r.role,
+  productRoles: r.product_roles,
   status: r.status,
   since: r.created_at,
 });
 
-const MEMBER_SQL = `SELECT m.user_id, u.email, u.name, m.role, m.status, m.created_at
+const MEMBER_SQL = `SELECT m.user_id, u.email, u.name, m.role, m.product_roles, m.status, m.created_at
   FROM memberships m JOIN users u ON u.id = m.user_id WHERE m.org_id = $1`;
 
 export async function loadOrganisation(db: Db, orgId: string): Promise<Organisation | null> {
@@ -75,6 +78,14 @@ export async function loadMembers(db: Db, orgId: string): Promise<Member[]> {
   return (await db.rows<MemberRow>(MEMBER_SQL + " ORDER BY u.name", [orgId])).map(toMember);
 }
 
+function validateProductRoles(products: Product[], assignments: ProductRoles | null | undefined) {
+  if (assignments)
+    for (const [product, role] of Object.entries(assignments)) {
+      if (!products.includes(product as Product) || !rolesForProducts([product]).includes(role))
+        throw fail.invalid("Each assigned role must match a subscribed product");
+    }
+}
+
 export function organisationsService(ctx: AppContext) {
   const { db } = ctx;
 
@@ -82,7 +93,7 @@ export function organisationsService(ctx: AppContext) {
     return (
       (
         await t.row<{ n: number }>(
-          "SELECT count(*)::int AS n FROM memberships WHERE org_id = $1 AND role = 'org_admin' AND status = 'active'",
+          "SELECT count(*)::int AS n FROM memberships WHERE org_id = $1 AND role = 'org_admin' AND status = 'active' AND (product_roles IS NULL OR EXISTS (SELECT 1 FROM jsonb_each_text(product_roles) p WHERE p.value='org_admin'))",
           [orgId],
         )
       )?.n ?? 0
@@ -100,7 +111,17 @@ export function organisationsService(ctx: AppContext) {
       return { members: await loadMembers(db, orgId) };
     },
 
-    async addMember(s: OrgScope, input: { email: string; name?: string | undefined; role: Role }) {
+    async addMember(
+      s: OrgScope,
+      input: { email: string; name?: string | undefined; role: Role; productRoles?: ProductRoles | null | undefined },
+    ) {
+      const caller = await db.row<{ role: Role }>("SELECT role FROM memberships WHERE org_id=$1 AND user_id=$2", [
+        s.orgId,
+        s.userId,
+      ]);
+      if (caller?.role !== "org_admin")
+        throw fail.forbidden("Only an organisation administrator can change membership access");
+      validateProductRoles(s.entitlement.products, input.productRoles);
       const allowed = rolesForProducts(s.entitlement.products);
       if (!allowed.includes(input.role)) {
         throw fail.invalid(
@@ -125,18 +146,17 @@ export function organisationsService(ctx: AppContext) {
         }
         if (await t.row("SELECT 1 FROM memberships WHERE org_id = $1 AND user_id = $2", [s.orgId, u.id]))
           throw fail.conflict("Already a member or already invited");
-        await t.run("INSERT INTO memberships (org_id, user_id, role, status) VALUES ($1, $2, $3, $4)", [
-          s.orgId,
-          u.id,
-          input.role,
-          status,
-        ]);
+        await t.run(
+          "INSERT INTO memberships (org_id, user_id, role, status, product_roles) VALUES ($1, $2, $3, $4, $5)",
+          [s.orgId, u.id, input.role, status, input.productRoles ? JSON.stringify(input.productRoles) : null],
+        );
         await recordAudit(t, {
           actor: s.actor,
           orgId: s.orgId,
           action: status === "invited" ? "Member invited" : "Member added",
           target: input.email,
           detail: input.role,
+          after: { role: input.role, productRoles: input.productRoles ?? null },
         });
         const row = await t.row<MemberRow>(MEMBER_SQL + " AND m.user_id = $2", [s.orgId, u.id]);
         return { member: toMember(row as MemberRow), temporaryPassword };
@@ -146,16 +166,33 @@ export function organisationsService(ctx: AppContext) {
     async updateMember(
       s: OrgScope,
       userId: string,
-      input: { role?: Role | undefined; status?: "active" | "suspended" | undefined },
+      input: {
+        role?: Role | undefined;
+        status?: "active" | "suspended" | undefined;
+        productRoles?: ProductRoles | null | undefined;
+      },
     ) {
       if (userId === s.userId) throw fail.forbidden("You cannot change your own access — ask another administrator");
       return db.tx(async (t) => {
+        const caller = await t.row<{ role: Role }>("SELECT role FROM memberships WHERE org_id=$1 AND user_id=$2", [
+          s.orgId,
+          s.userId,
+        ]);
+        if (caller?.role !== "org_admin")
+          throw fail.forbidden("Only an organisation administrator can change membership access");
         // one access change per organisation at a time, so two administrators cannot remove each other at once
         await t.run("SELECT 1 FROM organisations WHERE id = $1 FOR UPDATE", [s.orgId]);
         const before = await t.row<MemberRow>(MEMBER_SQL + " AND m.user_id = $2", [s.orgId, userId]);
         if (!before) throw fail.notFound("Member not found");
         if (before.status === "invited" && input.status)
           throw fail.conflict("This person has not accepted the invitation yet");
+        validateProductRoles(s.entitlement.products, input.productRoles);
+        if (input.productRoles !== undefined)
+          await t.run("UPDATE memberships SET product_roles=$3 WHERE org_id=$1 AND user_id=$2", [
+            s.orgId,
+            userId,
+            input.productRoles === null ? null : JSON.stringify(input.productRoles),
+          ]);
         if (input.role && !rolesForProducts(s.entitlement.products).includes(input.role))
           throw fail.invalid("That role is not available for your products");
         await t.run(
@@ -178,8 +215,8 @@ export function organisationsService(ctx: AppContext) {
           orgId: s.orgId,
           action: "Member access changed",
           target: after.email,
-          before: { role: before.role, status: before.status },
-          after: { role: after.role, status: after.status },
+          before: { role: before.role, status: before.status, productRoles: before.product_roles },
+          after: { role: after.role, status: after.status, productRoles: after.product_roles },
         });
         return toMember(after);
       });

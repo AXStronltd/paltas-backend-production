@@ -11,6 +11,7 @@ import {
   entitlements,
   STAFF_ROLE_DEFINITIONS,
   type Product,
+  type ProductRoles,
   type Role,
   type SignedInUser,
   type StaffRole,
@@ -20,6 +21,8 @@ import type { Db } from "../../db/database.js";
 import { fail } from "../../http/errors.js";
 import { newId } from "../../lib/ids.js";
 import { recordAudit } from "../audit/audit.service.js";
+import { productRole } from "../access/product-role.js";
+import { resolveEntitlement } from "../subscriptions/entitlement.service.js";
 import { decoyHash, hashPassword, temporaryPassword, verifyPassword } from "./passwords.js";
 import { backupDigest } from "./staff-enrollment.js";
 import { newTotpSecret, otpauthUrl, verifyTotp, totp } from "./totp.js";
@@ -296,14 +299,20 @@ export function identityService(ctx: AppContext) {
     },
 
     async me(user: SessionUser) {
-      const organisations = await db.rows<{ id: string; name: string; role: Role; products: Product[] }>(
-        `SELECT o.id, o.name, m.role,
+      const organisations = await db.rows<{
+        id: string;
+        name: string;
+        role: Role;
+        product_roles: ProductRoles | null;
+        products: Product[];
+      }>(
+        `SELECT o.id, o.name, m.role, m.product_roles,
                 COALESCE(array_agg(s.product ORDER BY s.created_at, s.product) FILTER (WHERE s.product IS NOT NULL), '{}') AS products
          FROM memberships m
          JOIN organisations o ON o.id = m.org_id
          LEFT JOIN subscriptions s ON s.org_id = o.id
-         WHERE m.user_id = $1 AND m.status = 'active'
-         GROUP BY o.id, o.name, m.role
+         WHERE m.user_id = $1 AND m.status = 'active' AND o.suspended_at IS NULL
+         GROUP BY o.id, o.name, m.role, m.product_roles
          ORDER BY o.name`,
         [user.id],
       );
@@ -330,23 +339,38 @@ export function identityService(ctx: AppContext) {
         ).map((r) => [r.org_id, r.verified]),
       );
       const today = clock.today();
-      const withTrials = organisations.map((o) => ({
-        ...o,
-        trials: subs
-          .filter((s) => s.org_id === o.id)
-          .flatMap((s) => {
-            const st = entitlements.trialState(
-              { plan: "", status: s.status, trialEnds: s.trial_ends, graceDays: s.grace_days, anchor: s.anchor },
-              today,
-            );
-            return st ? [{ product: s.product, ...st }] : [];
-          }),
-        emailVerification: !verified.has(o.id)
-          ? ("not_required" as const)
-          : verified.get(o.id)
-            ? ("verified" as const)
-            : ("required" as const),
-      }));
+      const withTrials = await Promise.all(
+        organisations.map(async (o) => ({
+          id: o.id,
+          name: o.name,
+          role: o.role,
+          products: o.products.filter((p) => productRole(o.role, o.product_roles, p)),
+          portals: (
+            await Promise.all(
+              o.products.map(async (p) => {
+                const role = productRole(o.role, o.product_roles, p);
+                if (!role) return null;
+                const en = await resolveEntitlement(db, ctx.products, clock.today(), o.id, p);
+                return en ? { product: p, role, usable: en.ent.usable, status: en.ent.status } : null;
+              }),
+            )
+          ).filter((p): p is NonNullable<typeof p> => p !== null),
+          trials: subs
+            .filter((s) => s.org_id === o.id)
+            .flatMap((s) => {
+              const st = entitlements.trialState(
+                { plan: "", status: s.status, trialEnds: s.trial_ends, graceDays: s.grace_days, anchor: s.anchor },
+                today,
+              );
+              return st ? [{ product: s.product, ...st }] : [];
+            }),
+          emailVerification: !verified.has(o.id)
+            ? ("not_required" as const)
+            : verified.get(o.id)
+              ? ("verified" as const)
+              : ("required" as const),
+        })),
+      );
       const invitations = await db.rows<{ orgId: string; orgName: string; role: Role }>(
         `SELECT o.id AS "orgId", o.name AS "orgName", m.role FROM memberships m JOIN organisations o ON o.id = m.org_id
          WHERE m.user_id = $1 AND m.status = 'invited' ORDER BY o.name`,

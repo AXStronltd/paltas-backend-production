@@ -271,7 +271,7 @@ export function salesService(core: CoreServices) {
   async function leastLoadedAgent(t: Db, orgId: string): Promise<string | null> {
     const r = await t.row<{ user_id: string }>(
       `SELECT m.user_id FROM memberships m
-       WHERE m.org_id = $1 AND m.status = 'active' AND m.role = 'sales_agent'
+       WHERE m.org_id = $1 AND m.status = 'active' AND (CASE WHEN m.product_roles IS NULL THEN m.role ELSE m.product_roles->>'developer' END) = 'sales_agent'
        ORDER BY (SELECT count(*) FROM dev_contacts c WHERE c.org_id = m.org_id AND c.agent_user_id = m.user_id
                  AND c.status = 'active'), m.user_id LIMIT 1`,
       [orgId],

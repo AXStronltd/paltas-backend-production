@@ -1,6 +1,6 @@
 // An organisation (a PALTAS customer), its members and its own audit trail.
 import { z } from "zod";
-import { Product, Role } from "../access.js";
+import { Product, ProductRoles, Role } from "../access.js";
 import { Currency, Email, IsoDateTime } from "../common.js";
 import { endpoint } from "../endpoint.js";
 import { CompanyRegistrationProfile } from "./signup.js";
@@ -31,6 +31,7 @@ export const Member = z.object({
   role: Role,
   status: MemberStatus,
   since: IsoDateTime,
+  productRoles: ProductRoles.nullable().optional(),
 });
 export type Member = z.infer<typeof Member>;
 
@@ -63,7 +64,12 @@ export const addMember = endpoint({
     "Add a person with a role. A new account gets a temporary password, returned ONCE, to pass on through a secure channel. " +
     "An existing PALTAS account is invited instead and has no access until that person accepts.",
   params: OrgParams,
-  body: z.object({ email: Email, name: z.string().trim().min(2).max(120).optional(), role: Role }),
+  body: z.object({
+    email: Email,
+    name: z.string().trim().min(2).max(120).optional(),
+    role: Role,
+    productRoles: ProductRoles.nullable().optional(),
+  }),
   response: z.object({ member: Member, temporaryPassword: z.string().nullable() }),
   status: 201,
 });
@@ -76,8 +82,15 @@ export const updateMember = endpoint({
   summary: "Change a person's role or suspend them. You cannot change your own access.",
   params: OrgParams.extend({ userId: z.string().min(1) }),
   body: z
-    .object({ role: Role.optional(), status: z.enum(["active", "suspended"]).optional() })
-    .refine((b) => b.role !== undefined || b.status !== undefined, "Send a role or a status"),
+    .object({
+      role: Role.optional(),
+      status: z.enum(["active", "suspended"]).optional(),
+      productRoles: ProductRoles.nullable().optional(),
+    })
+    .refine(
+      (b) => b.role !== undefined || b.status !== undefined || b.productRoles !== undefined,
+      "Send a role, status or product access",
+    ),
   response: Member,
 });
 
