@@ -37,8 +37,8 @@ async function fileRow(db: Db, jobId: string, fileId: string): Promise<FileRow |
 /** Bytes the job holds or has been promised: stored files at their size, uploads in progress at their announced size. */
 async function committedBytes(db: Db, jobId: string, exceptFileId: string | null = null): Promise<number> {
   const r = await db.row<{ n: number }>(
-    `SELECT COALESCE(sum(CASE WHEN status = 'stored' THEN size_bytes ELSE declared_size END), 0)::bigint AS n
-     FROM mig_files WHERE job_id = $1 AND status IN ('stored', 'uploading') AND id IS DISTINCT FROM $2`,
+    `SELECT COALESCE(sum(CASE WHEN content IS NOT NULL THEN length(content) ELSE declared_size END), 0)::bigint AS n
+     FROM mig_files WHERE job_id = $1 AND (status = 'uploading' OR content IS NOT NULL) AND id IS DISTINCT FROM $2`,
     [jobId, exceptFileId],
   );
   return r?.n ?? 0;

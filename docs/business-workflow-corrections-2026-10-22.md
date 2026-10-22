@@ -20,7 +20,7 @@ Release candidate only. No production deployment or customer financial import is
 
 Header candidate scoring; explicit header-row override; populated unheaded/wider columns retained; physical source coordinates; company/report preamble separated; month matrices recognised; blank/repeated heading/explicit annual-total row dispositions; merge metadata and review warnings. Populated unnamed columns remain visible with samples. Fields and required mappings are shown; multiple sample values and aliases aid matching. Confirmed templates are reused only for exact compatible headings. Empty matching is refused locally and required fields remain validated on the server.
 
-XLSX parsing remains server-side, without Microsoft Office. ZIP safety is preserved. New guards reject ambiguous duplicate/mixed cell coordinates, invalid shared-text indices, out-of-range Excel references and sparse expansion above 2,000,000 cells. Consistent original cell coordinates are retained with a warning when a legacy row container is misnumbered. Sequential cells without optional references are supported. Uncached formulas are not invented or executed; 1904 workbook date systems are respected.
+XLSX parsing remains server-side, without Microsoft Office. ZIP safety is preserved. New guards reject ambiguous duplicate/mixed cell coordinates, invalid shared-text indices, out-of-range Excel references and sparse expansion above 2,000,000 cells per worksheet or 5,000,000 cells per workbook. Consistent original cell coordinates are retained with a warning when a legacy row container is misnumbered. Sequential cells without optional references are supported. Accepted source bytes are retained for auditable structural parse failures; unsafe archives are refused without retention. Retained originals remain subject to upload quotas. Uncached formulas are not invented or executed; 1904 workbook date systems are respected.
 
 ### Historical monthly reference migration
 
@@ -74,3 +74,14 @@ No production bank, M-Pesa, Stripe, subscription, Marketplace design or authenti
 Final command results and screenshots are recorded in the accompanying release report. Tests use isolated local PostgreSQL and real Chrome, synthetic contacts and units, explicit approvals and persisted outcomes. The actual uploaded workbook was tested only for read-only structure detection, not a financial import.
 
 Remaining limits: binary XLS is not supported; use XLSX/CSV. Merge/multirow headings have visible review metadata and header override, not speculative automatic interpretation. Exact payment dates cannot be inferred from annual month totals. Ownership evidence verification is a human review, not an automated land-registry/KYC service. Unsaved correction choices are memory-only; refreshing reloads the saved draft lease rather than persisting private form contents on a shared device. Intentionally unavailable provider/tax workflows remain labelled; this release does not assert complete QuickBooks parity or bank connectivity.
+
+## Review and production verification plan
+
+1. Review and approve the coordinated backend/frontend release and the three additive migrations above.
+2. Back up production; run migrations once through the normal deployment process. Check API readiness and migration status before releasing the frontend.
+3. Confirm Almas still has 100 active units (West 48; East 52 including four external units), unchanged property/unit IDs and unchanged historical invoice/payment counts.
+4. An authorised client representative selects the actual registered legal owner and records evidence. An organisation administrator or finance director reviews it. No owner identity is filled from the property/tenant label.
+5. Complete the appropriate authority model and actual supporting signatures/effective dates. Review before activation.
+6. Open the saved Unit 103 E lease, follow the correction return path, preview the selected unpaid period and confirm only the intended new posting. A historical lease may be activated without invoices.
+7. For the original workbook, explicitly confirm monthly meaning/name identity/currency and reconcile source totals before any import. The reference-only mode does not replace an accounting opening-balance cutover.
+8. Monitor scoped errors and audit entries; retain backups. No live charge or payout is part of this verification.

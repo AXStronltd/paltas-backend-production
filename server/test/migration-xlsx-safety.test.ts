@@ -57,6 +57,34 @@ describe("defensive XLSX structure and cached values", () => {
     ).join("");
     expect(() => read(book(rows))).toThrow(/2,000,000 cells/);
   });
+  it("caps combined expansion across many small worksheets", () => {
+    // Rewrite a bounded synthetic workbook's references to the farthest valid column; total sparse expansion is still capped.
+    const rawRows = Array.from(
+      { length: 100 },
+      (_, i) => `<row r="${i + 1}">${inline("XFD" + (i + 1), "Unit")}</row>`,
+    ).join("");
+    const items = [
+      {
+        name: "xl/workbook.xml",
+        data:
+          "<workbook><sheets>" +
+          Array.from({ length: 4 }, (_, i) => `<sheet name="${2021 + i}" r:id="r${i}"/>`).join("") +
+          "</sheets></workbook>",
+      },
+      {
+        name: "xl/_rels/workbook.xml.rels",
+        data:
+          "<Relationships>" +
+          Array.from({ length: 4 }, (_, i) => `<Relationship Id="r${i}" Target="worksheets/sheet${i}.xml"/>`).join("") +
+          "</Relationships>",
+      },
+      ...Array.from({ length: 4 }, (_, i) => ({
+        name: `xl/worksheets/sheet${i}.xml`,
+        data: `<worksheet><sheetData>${rawRows}</sheetData></worksheet>`,
+      })),
+    ];
+    expect(() => read(zip(items))).toThrow(/workbook expands beyond 5,000,000/);
+  });
   it("does not invent results for formulas without cached values", () => {
     expect(() =>
       read(

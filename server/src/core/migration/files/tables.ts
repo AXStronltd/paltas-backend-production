@@ -261,6 +261,7 @@ export function parseXlsx(buf: Buffer, limits: ZipLimits, overrides: Record<stri
   const dates = dateStyles(files.get("xl/styles.xml"));
   const date1904 = /<workbookPr\b[^>]*date1904="(?:1|true)"/.test(workbook);
   const tables: ParsedTable[] = [];
+  let workbookExpandedCells = 0;
   for (const m of workbook.matchAll(/<sheet\s[^>]*>/g)) {
     const name = xmlText(attr(m[0], "name") ?? "Sheet");
     const target = rels.get(attr(m[0], "r:id") ?? "");
@@ -326,6 +327,11 @@ export function parseXlsx(buf: Buffer, limits: ZipLimits, overrides: Record<stri
         cells[col] = value;
       }
       expandedCells += Math.max(cells.length, 1);
+      workbookExpandedCells += Math.max(cells.length, 1);
+      if (workbookExpandedCells > 5_000_000)
+        throw new UnreadableFile(
+          "The workbook expands beyond 5,000,000 cells. Split the financial years into smaller files before importing",
+        );
       if (expandedCells > 2_000_000)
         throw new UnreadableFile(
           `Sheet "${name}" expands beyond 2,000,000 cells. Split it into smaller worksheets before importing`,

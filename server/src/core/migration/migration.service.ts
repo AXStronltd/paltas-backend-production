@@ -577,10 +577,10 @@ export function migrationService(ctx: AppContext, deps: { ledger: LedgerService 
             tables = readTables(f.detected_type as "csv", f.filename, f.content, zipLimits(settings));
           } catch (e) {
             if (!(e instanceof UnreadableFile || e instanceof ZipRefused || e instanceof SyntaxError)) throw e;
-            await t.run("UPDATE mig_files SET status = 'refused', refusal = $2, content = NULL WHERE id = $1", [
-              f.id,
-              `Could not be read: ${e.message}`,
-            ]);
+            await t.run(
+              "UPDATE mig_files SET status = CASE WHEN $3::boolean THEN 'refused' ELSE 'stored' END, refusal = $2, content = CASE WHEN $3::boolean THEN NULL ELSE content END WHERE id = $1",
+              [f.id, `Could not be read: ${e.message}`, e instanceof ZipRefused],
+            );
             continue;
           }
           for (const tb of tables) {

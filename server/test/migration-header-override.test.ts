@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { pmOrg, startPropertyServer } from "./support/property-fixture.js";
-import { upload } from "./support/migration-fixtures.js";
+import { upload, migrationSettings } from "./support/migration-fixtures.js";
 import { refused, type Person, type TestServer } from "./support/test-server.js";
 describe("header correction is scoped, audited and stages actual Excel row numbers", () => {
   let S: TestServer, admin: Person, orgId: string, jobId: string, tableId: string;
@@ -49,6 +49,63 @@ describe("header correction is scoped, audited and stages actual Excel row numbe
         await S.sql("SELECT count(*)::int n FROM audit_log WHERE org_id=$1 AND action='Header row corrected'", [orgId])
       )[0]!.n,
     ).toBe(1);
+  });
+  it("retains an accepted original file when its table syntax needs correction", async () => {
+    const id = (
+      await admin.api.migration.createJob({
+        params: { orgId },
+        body: {
+          domain: "property",
+          name: "Original retained for audit",
+          sourceSystem: "old-export",
+          cutoverDate: "2026-10-01",
+        },
+      })
+    ).id;
+    const data = Buffer.from('Unit,Amount\n101,"unclosed');
+    await upload(admin.api, orgId, id, "needs-correction.csv", data);
+    const detected = await admin.api.migration.detect({ params: { orgId, jobId: id } });
+    expect(detected.tables).toHaveLength(0);
+    const [file] = await S.sql("SELECT status,content,refusal FROM mig_files WHERE job_id=$1", [id]);
+    expect(file!.status).toBe("stored");
+    expect(file!.refusal).toMatch(/quoted value is never closed/);
+    expect(file!.content).toEqual(data);
+  });
+  it("counts retained structural failures against the upload quota", async () => {
+    const test = await startPropertyServer({ migration: migrationSettings({ maxFileBytes: 1024, maxJobBytes: 2048 }) });
+    try {
+      const o = await test.newOrg({ product: "property", plan: "PM-GROWTH" }),
+        p = { orgId: o.orgId };
+      const id = (
+        await o.admin.api.migration.createJob({
+          params: p,
+          body: {
+            domain: "property",
+            name: "Retained source quota",
+            sourceSystem: "old-export",
+            cutoverDate: "2026-10-01",
+          },
+        })
+      ).id;
+      const prefix = 'Unit,Amount\n101,"',
+        bad = Buffer.from(prefix + "x".repeat(1024 - prefix.length));
+      await upload(o.admin.api, o.orgId, id, "needs-correction.csv", bad);
+      await o.admin.api.migration.detect({ params: { ...p, jobId: id } });
+      await o.admin.api.migration.startUpload({
+        params: { ...p, jobId: id },
+        body: { filename: "pending.csv", sizeBytes: 1024, sha256: "f".repeat(64) },
+      });
+      const e = await refused(
+        o.admin.api.migration.startUpload({
+          params: { ...p, jobId: id },
+          body: { filename: "too-many.csv", sizeBytes: 1, sha256: "e".repeat(64) },
+        }),
+        400,
+      );
+      expect(e.message).toMatch(/over|limit|exceed/i);
+    } finally {
+      await test.close();
+    }
   });
   it("refuses cross-company header changes", async () => {
     const other = await pmOrg(S);
