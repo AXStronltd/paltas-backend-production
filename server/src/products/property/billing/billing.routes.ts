@@ -14,6 +14,12 @@ export function billingRoutes(access: PmAccess, B: BillingService) {
       const s = await g.org(req, "property.read");
       return B.view(s.orgId, req.params.invoiceId, s.today);
     }),
+    route(api.previewInvoiceEmail, async (req) =>
+      B.emailPreview(await g.org(req, "property.billing", FINANCE), req.params.invoiceId),
+    ),
+    route(api.sendInvoiceEmail, async (req) =>
+      B.emailInvoice(await g.org(req, "property.billing", FINANCE), req.params.invoiceId, req.body.previewKey),
+    ),
     route(api.createChargeInvoice, async (req) =>
       B.chargeInvoice(await g.org(req, "property.billing", FINANCE), req.body),
     ),
