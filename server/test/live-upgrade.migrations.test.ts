@@ -52,6 +52,7 @@ const NEW = [
   "0032",
   "0033",
   "0034",
+  "0035",
 ];
 const KEY = randomBytes(32).toString("base64");
 
@@ -453,6 +454,7 @@ describe("live database at main (0001–0013) with real rows, then 0014–0020 a
       "0032",
       "0033",
       "0034",
+      "0035",
     ]);
     expect(await migrate(db)).toEqual([]); // checksums of 0001–0013 unchanged
     for (const [k, q] of Object.entries(SNAPSHOT)) {

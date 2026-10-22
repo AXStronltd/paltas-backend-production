@@ -2623,3 +2623,38 @@ export const ownerApprovePurchaseOrder = endpoint({
   params: WoParams,
   response: WorkOrder,
 });
+
+export const TenantControl = z.object({
+  tenantId: Id,
+  portalSuspended: z.boolean(),
+  archived: z.boolean(),
+  reason: z.string(),
+  reviewOn: IsoDate.nullable(),
+  updatedAt: IsoDateTime.nullable(),
+});
+export type TenantControl = z.infer<typeof TenantControl>;
+export const getTenantControl = endpoint({
+  id: "property.tenants.control",
+  method: "GET",
+  path: `${Base}/tenants/:tenantId/control`,
+  auth: "user",
+  summary: "Tenant operational status, retained independently of leases and payments",
+  params: TenantParams,
+  response: TenantControl,
+});
+export const setTenantControl = endpoint({
+  id: "property.tenants.control.change",
+  method: "POST",
+  path: `${Base}/tenants/:tenantId/control`,
+  auth: "user",
+  summary: "Suspend/restore portal access or archive/restore an ended tenant record; never ends a lease",
+  params: TenantParams,
+  body: z.object({
+    action: z.enum(["suspend", "restore", "archive", "unarchive"]),
+    reason: Reason,
+    reviewOn: IsoDate.optional(),
+    confirm: z.literal("CONFIRM"),
+    acknowledgeNoEviction: z.literal(true),
+  }),
+  response: TenantControl,
+});

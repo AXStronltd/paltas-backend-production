@@ -723,6 +723,7 @@
                             "type": "string",
                             "enum": [
                               "org_admin",
+                              "main_manager",
                               "finance_director",
                               "accountant",
                               "property_manager",
@@ -762,6 +763,194 @@
                               "owner"
                             ]
                           },
+                          "managerGrants": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "product": {
+                                  "type": "string",
+                                  "enum": [
+                                    "property",
+                                    "developer",
+                                    "agency",
+                                    "hotel",
+                                    "security"
+                                  ]
+                                },
+                                "capabilities": {
+                                  "maxItems": 250,
+                                  "type": "array",
+                                  "items": {
+                                    "type": "string",
+                                    "enum": [
+                                      "property.tenants.view",
+                                      "property.tenants.register",
+                                      "property.tenants.edit",
+                                      "property.tenants.assign",
+                                      "property.tenants.documents",
+                                      "property.tenants.leaseCreate",
+                                      "property.tenants.leaseEdit",
+                                      "property.tenants.leaseActivate",
+                                      "property.tenants.leaseRenew",
+                                      "property.tenants.leaseEnd",
+                                      "property.tenants.suspend",
+                                      "property.tenants.restore",
+                                      "property.tenants.archive",
+                                      "property.tenants.history",
+                                      "property.tenants.notices",
+                                      "org.read",
+                                      "members.read",
+                                      "members.manage",
+                                      "subscription.read",
+                                      "subscription.manage",
+                                      "subscription.own",
+                                      "audit.read",
+                                      "ledger.read",
+                                      "ledger.prepare",
+                                      "ledger.approve",
+                                      "ledger.accounts.manage",
+                                      "ledger.periods.close",
+                                      "migration.read",
+                                      "migration.run",
+                                      "migration.approve",
+                                      "hotel.read",
+                                      "hotel.setup",
+                                      "hotel.rates.manage",
+                                      "hotel.reservations.manage",
+                                      "hotel.frontdesk",
+                                      "hotel.folio.manage",
+                                      "hotel.folio.approve",
+                                      "hotel.cashier",
+                                      "hotel.outlet.post",
+                                      "hotel.housekeeping",
+                                      "hotel.housekeeping.inspect",
+                                      "hotel.maintenance",
+                                      "hotel.nightaudit.run",
+                                      "hotel.incomeaudit.signoff",
+                                      "hotel.reports.read",
+                                      "hotel.cityledger",
+                                      "hotel.costs.post",
+                                      "hotel.group.read",
+                                      "hotel.fx.manage",
+                                      "hotel.reconcile",
+                                      "hotel.stock.manage",
+                                      "hotel.purchasing.approve",
+                                      "hotel.payables",
+                                      "hotel.bookings.manage",
+                                      "hotel.events.manage",
+                                      "hotel.payroll",
+                                      "hotel.payroll.approve",
+                                      "hotel.budget.manage",
+                                      "hotel.assets.manage",
+                                      "hotel.labour.manage",
+                                      "developer.read",
+                                      "developer.settings",
+                                      "developer.projects",
+                                      "developer.pricing",
+                                      "developer.buyers.read",
+                                      "developer.buyers.all",
+                                      "developer.sales",
+                                      "developer.sales.manage",
+                                      "developer.executive",
+                                      "developer.collections",
+                                      "developer.procurement",
+                                      "developer.approve",
+                                      "developer.payables",
+                                      "developer.treasury",
+                                      "developer.suppliers.verify",
+                                      "developer.budget",
+                                      "developer.delivery",
+                                      "developer.reports",
+                                      "developer.work",
+                                      "agency.read",
+                                      "agency.listings.manage",
+                                      "agency.leads.manage",
+                                      "agency.leads.assign",
+                                      "agency.deals.manage",
+                                      "agency.stays.manage",
+                                      "agency.payments.record",
+                                      "agency.finance.approve",
+                                      "agency.reports.read",
+                                      "marketplace.inbox",
+                                      "marketplace.publish",
+                                      "security.read",
+                                      "security.setup",
+                                      "security.guards.manage",
+                                      "security.roster.manage",
+                                      "security.timesheets.approve",
+                                      "security.field",
+                                      "security.occurrences.write",
+                                      "security.control",
+                                      "security.incidents.manage",
+                                      "security.visitors",
+                                      "security.access.manage",
+                                      "security.billing",
+                                      "security.payroll.prepare",
+                                      "security.payroll.approve",
+                                      "security.reports.read",
+                                      "security.portal",
+                                      "notifications.read",
+                                      "notifications.manage",
+                                      "payments.reconcile",
+                                      "contacts.read",
+                                      "contacts.manage",
+                                      "contacts.merge",
+                                      "property.read",
+                                      "property.setup",
+                                      "property.leases.manage",
+                                      "property.billing",
+                                      "property.payments.record",
+                                      "property.deposits.request",
+                                      "property.deposits.approve",
+                                      "property.bills.submit",
+                                      "property.bills.approve",
+                                      "property.bills.pay",
+                                      "property.payouts.prepare",
+                                      "property.payouts.approve",
+                                      "property.bank.reconcile",
+                                      "property.maintenance.request",
+                                      "property.maintenance.manage",
+                                      "property.maintenance.approve",
+                                      "property.maintenance.work",
+                                      "property.crm",
+                                      "property.crm.approve",
+                                      "property.notices",
+                                      "property.reports.read",
+                                      "property.portal.tenant",
+                                      "property.portal.owner"
+                                    ]
+                                  }
+                                },
+                                "propertyIds": {
+                                  "anyOf": [
+                                    {
+                                      "maxItems": 500,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string",
+                                        "minLength": 1,
+                                        "maxLength": 80
+                                      }
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "enabled": {
+                                  "type": "boolean"
+                                }
+                              },
+                              "required": [
+                                "product",
+                                "capabilities",
+                                "propertyIds",
+                                "enabled"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
                           "portals": {
                             "type": "array",
                             "items": {
@@ -781,6 +970,7 @@
                                   "type": "string",
                                   "enum": [
                                     "org_admin",
+                                    "main_manager",
                                     "finance_director",
                                     "accountant",
                                     "property_manager",
@@ -924,6 +1114,7 @@
                             "type": "string",
                             "enum": [
                               "org_admin",
+                              "main_manager",
                               "finance_director",
                               "accountant",
                               "property_manager",
@@ -1658,6 +1849,7 @@
                             "type": "string",
                             "enum": [
                               "org_admin",
+                              "main_manager",
                               "finance_director",
                               "accountant",
                               "property_manager",
@@ -1726,6 +1918,7 @@
                                   "type": "string",
                                   "enum": [
                                     "org_admin",
+                                    "main_manager",
                                     "finance_director",
                                     "accountant",
                                     "property_manager",
@@ -1843,6 +2036,7 @@
                     "type": "string",
                     "enum": [
                       "org_admin",
+                      "main_manager",
                       "finance_director",
                       "accountant",
                       "property_manager",
@@ -1900,6 +2094,7 @@
                           "type": "string",
                           "enum": [
                             "org_admin",
+                            "main_manager",
                             "finance_director",
                             "accountant",
                             "property_manager",
@@ -1979,6 +2174,7 @@
                           "type": "string",
                           "enum": [
                             "org_admin",
+                            "main_manager",
                             "finance_director",
                             "accountant",
                             "property_manager",
@@ -2047,6 +2243,7 @@
                                 "type": "string",
                                 "enum": [
                                   "org_admin",
+                                  "main_manager",
                                   "finance_director",
                                   "accountant",
                                   "property_manager",
@@ -2132,6 +2329,711 @@
         }
       }
     },
+    "/api/v1/orgs/{orgId}/main-managers/{userId}": {
+      "get": {
+        "operationId": "members.managerGrants.get",
+        "summary": "Owner-controlled operational delegation",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "grants": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "product": {
+                            "type": "string",
+                            "enum": [
+                              "property",
+                              "developer",
+                              "agency",
+                              "hotel",
+                              "security"
+                            ]
+                          },
+                          "capabilities": {
+                            "maxItems": 250,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "property.tenants.view",
+                                "property.tenants.register",
+                                "property.tenants.edit",
+                                "property.tenants.assign",
+                                "property.tenants.documents",
+                                "property.tenants.leaseCreate",
+                                "property.tenants.leaseEdit",
+                                "property.tenants.leaseActivate",
+                                "property.tenants.leaseRenew",
+                                "property.tenants.leaseEnd",
+                                "property.tenants.suspend",
+                                "property.tenants.restore",
+                                "property.tenants.archive",
+                                "property.tenants.history",
+                                "property.tenants.notices",
+                                "org.read",
+                                "members.read",
+                                "members.manage",
+                                "subscription.read",
+                                "subscription.manage",
+                                "subscription.own",
+                                "audit.read",
+                                "ledger.read",
+                                "ledger.prepare",
+                                "ledger.approve",
+                                "ledger.accounts.manage",
+                                "ledger.periods.close",
+                                "migration.read",
+                                "migration.run",
+                                "migration.approve",
+                                "hotel.read",
+                                "hotel.setup",
+                                "hotel.rates.manage",
+                                "hotel.reservations.manage",
+                                "hotel.frontdesk",
+                                "hotel.folio.manage",
+                                "hotel.folio.approve",
+                                "hotel.cashier",
+                                "hotel.outlet.post",
+                                "hotel.housekeeping",
+                                "hotel.housekeeping.inspect",
+                                "hotel.maintenance",
+                                "hotel.nightaudit.run",
+                                "hotel.incomeaudit.signoff",
+                                "hotel.reports.read",
+                                "hotel.cityledger",
+                                "hotel.costs.post",
+                                "hotel.group.read",
+                                "hotel.fx.manage",
+                                "hotel.reconcile",
+                                "hotel.stock.manage",
+                                "hotel.purchasing.approve",
+                                "hotel.payables",
+                                "hotel.bookings.manage",
+                                "hotel.events.manage",
+                                "hotel.payroll",
+                                "hotel.payroll.approve",
+                                "hotel.budget.manage",
+                                "hotel.assets.manage",
+                                "hotel.labour.manage",
+                                "developer.read",
+                                "developer.settings",
+                                "developer.projects",
+                                "developer.pricing",
+                                "developer.buyers.read",
+                                "developer.buyers.all",
+                                "developer.sales",
+                                "developer.sales.manage",
+                                "developer.executive",
+                                "developer.collections",
+                                "developer.procurement",
+                                "developer.approve",
+                                "developer.payables",
+                                "developer.treasury",
+                                "developer.suppliers.verify",
+                                "developer.budget",
+                                "developer.delivery",
+                                "developer.reports",
+                                "developer.work",
+                                "agency.read",
+                                "agency.listings.manage",
+                                "agency.leads.manage",
+                                "agency.leads.assign",
+                                "agency.deals.manage",
+                                "agency.stays.manage",
+                                "agency.payments.record",
+                                "agency.finance.approve",
+                                "agency.reports.read",
+                                "marketplace.inbox",
+                                "marketplace.publish",
+                                "security.read",
+                                "security.setup",
+                                "security.guards.manage",
+                                "security.roster.manage",
+                                "security.timesheets.approve",
+                                "security.field",
+                                "security.occurrences.write",
+                                "security.control",
+                                "security.incidents.manage",
+                                "security.visitors",
+                                "security.access.manage",
+                                "security.billing",
+                                "security.payroll.prepare",
+                                "security.payroll.approve",
+                                "security.reports.read",
+                                "security.portal",
+                                "notifications.read",
+                                "notifications.manage",
+                                "payments.reconcile",
+                                "contacts.read",
+                                "contacts.manage",
+                                "contacts.merge",
+                                "property.read",
+                                "property.setup",
+                                "property.leases.manage",
+                                "property.billing",
+                                "property.payments.record",
+                                "property.deposits.request",
+                                "property.deposits.approve",
+                                "property.bills.submit",
+                                "property.bills.approve",
+                                "property.bills.pay",
+                                "property.payouts.prepare",
+                                "property.payouts.approve",
+                                "property.bank.reconcile",
+                                "property.maintenance.request",
+                                "property.maintenance.manage",
+                                "property.maintenance.approve",
+                                "property.maintenance.work",
+                                "property.crm",
+                                "property.crm.approve",
+                                "property.notices",
+                                "property.reports.read",
+                                "property.portal.tenant",
+                                "property.portal.owner"
+                              ]
+                            }
+                          },
+                          "propertyIds": {
+                            "anyOf": [
+                              {
+                                "maxItems": 500,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "product",
+                          "capabilities",
+                          "propertyIds",
+                          "enabled"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "grants"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "members.managerGrants.set",
+        "summary": "Owner confirms product permissions and property scope; empty grants revoke all delegated access",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "grants": {
+                    "maxItems": 5,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "product": {
+                          "type": "string",
+                          "enum": [
+                            "property",
+                            "developer",
+                            "agency",
+                            "hotel",
+                            "security"
+                          ]
+                        },
+                        "capabilities": {
+                          "maxItems": 250,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "enum": [
+                              "property.tenants.view",
+                              "property.tenants.register",
+                              "property.tenants.edit",
+                              "property.tenants.assign",
+                              "property.tenants.documents",
+                              "property.tenants.leaseCreate",
+                              "property.tenants.leaseEdit",
+                              "property.tenants.leaseActivate",
+                              "property.tenants.leaseRenew",
+                              "property.tenants.leaseEnd",
+                              "property.tenants.suspend",
+                              "property.tenants.restore",
+                              "property.tenants.archive",
+                              "property.tenants.history",
+                              "property.tenants.notices",
+                              "org.read",
+                              "members.read",
+                              "members.manage",
+                              "subscription.read",
+                              "subscription.manage",
+                              "subscription.own",
+                              "audit.read",
+                              "ledger.read",
+                              "ledger.prepare",
+                              "ledger.approve",
+                              "ledger.accounts.manage",
+                              "ledger.periods.close",
+                              "migration.read",
+                              "migration.run",
+                              "migration.approve",
+                              "hotel.read",
+                              "hotel.setup",
+                              "hotel.rates.manage",
+                              "hotel.reservations.manage",
+                              "hotel.frontdesk",
+                              "hotel.folio.manage",
+                              "hotel.folio.approve",
+                              "hotel.cashier",
+                              "hotel.outlet.post",
+                              "hotel.housekeeping",
+                              "hotel.housekeeping.inspect",
+                              "hotel.maintenance",
+                              "hotel.nightaudit.run",
+                              "hotel.incomeaudit.signoff",
+                              "hotel.reports.read",
+                              "hotel.cityledger",
+                              "hotel.costs.post",
+                              "hotel.group.read",
+                              "hotel.fx.manage",
+                              "hotel.reconcile",
+                              "hotel.stock.manage",
+                              "hotel.purchasing.approve",
+                              "hotel.payables",
+                              "hotel.bookings.manage",
+                              "hotel.events.manage",
+                              "hotel.payroll",
+                              "hotel.payroll.approve",
+                              "hotel.budget.manage",
+                              "hotel.assets.manage",
+                              "hotel.labour.manage",
+                              "developer.read",
+                              "developer.settings",
+                              "developer.projects",
+                              "developer.pricing",
+                              "developer.buyers.read",
+                              "developer.buyers.all",
+                              "developer.sales",
+                              "developer.sales.manage",
+                              "developer.executive",
+                              "developer.collections",
+                              "developer.procurement",
+                              "developer.approve",
+                              "developer.payables",
+                              "developer.treasury",
+                              "developer.suppliers.verify",
+                              "developer.budget",
+                              "developer.delivery",
+                              "developer.reports",
+                              "developer.work",
+                              "agency.read",
+                              "agency.listings.manage",
+                              "agency.leads.manage",
+                              "agency.leads.assign",
+                              "agency.deals.manage",
+                              "agency.stays.manage",
+                              "agency.payments.record",
+                              "agency.finance.approve",
+                              "agency.reports.read",
+                              "marketplace.inbox",
+                              "marketplace.publish",
+                              "security.read",
+                              "security.setup",
+                              "security.guards.manage",
+                              "security.roster.manage",
+                              "security.timesheets.approve",
+                              "security.field",
+                              "security.occurrences.write",
+                              "security.control",
+                              "security.incidents.manage",
+                              "security.visitors",
+                              "security.access.manage",
+                              "security.billing",
+                              "security.payroll.prepare",
+                              "security.payroll.approve",
+                              "security.reports.read",
+                              "security.portal",
+                              "notifications.read",
+                              "notifications.manage",
+                              "payments.reconcile",
+                              "contacts.read",
+                              "contacts.manage",
+                              "contacts.merge",
+                              "property.read",
+                              "property.setup",
+                              "property.leases.manage",
+                              "property.billing",
+                              "property.payments.record",
+                              "property.deposits.request",
+                              "property.deposits.approve",
+                              "property.bills.submit",
+                              "property.bills.approve",
+                              "property.bills.pay",
+                              "property.payouts.prepare",
+                              "property.payouts.approve",
+                              "property.bank.reconcile",
+                              "property.maintenance.request",
+                              "property.maintenance.manage",
+                              "property.maintenance.approve",
+                              "property.maintenance.work",
+                              "property.crm",
+                              "property.crm.approve",
+                              "property.notices",
+                              "property.reports.read",
+                              "property.portal.tenant",
+                              "property.portal.owner"
+                            ]
+                          }
+                        },
+                        "propertyIds": {
+                          "anyOf": [
+                            {
+                              "maxItems": 500,
+                              "type": "array",
+                              "items": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              }
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "enabled": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": [
+                        "product",
+                        "capabilities",
+                        "propertyIds",
+                        "enabled"
+                      ]
+                    }
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  },
+                  "confirm": {
+                    "type": "string",
+                    "const": "SAVE_PERMISSIONS"
+                  }
+                },
+                "required": [
+                  "grants",
+                  "reason",
+                  "confirm"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "grants": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "product": {
+                            "type": "string",
+                            "enum": [
+                              "property",
+                              "developer",
+                              "agency",
+                              "hotel",
+                              "security"
+                            ]
+                          },
+                          "capabilities": {
+                            "maxItems": 250,
+                            "type": "array",
+                            "items": {
+                              "type": "string",
+                              "enum": [
+                                "property.tenants.view",
+                                "property.tenants.register",
+                                "property.tenants.edit",
+                                "property.tenants.assign",
+                                "property.tenants.documents",
+                                "property.tenants.leaseCreate",
+                                "property.tenants.leaseEdit",
+                                "property.tenants.leaseActivate",
+                                "property.tenants.leaseRenew",
+                                "property.tenants.leaseEnd",
+                                "property.tenants.suspend",
+                                "property.tenants.restore",
+                                "property.tenants.archive",
+                                "property.tenants.history",
+                                "property.tenants.notices",
+                                "org.read",
+                                "members.read",
+                                "members.manage",
+                                "subscription.read",
+                                "subscription.manage",
+                                "subscription.own",
+                                "audit.read",
+                                "ledger.read",
+                                "ledger.prepare",
+                                "ledger.approve",
+                                "ledger.accounts.manage",
+                                "ledger.periods.close",
+                                "migration.read",
+                                "migration.run",
+                                "migration.approve",
+                                "hotel.read",
+                                "hotel.setup",
+                                "hotel.rates.manage",
+                                "hotel.reservations.manage",
+                                "hotel.frontdesk",
+                                "hotel.folio.manage",
+                                "hotel.folio.approve",
+                                "hotel.cashier",
+                                "hotel.outlet.post",
+                                "hotel.housekeeping",
+                                "hotel.housekeeping.inspect",
+                                "hotel.maintenance",
+                                "hotel.nightaudit.run",
+                                "hotel.incomeaudit.signoff",
+                                "hotel.reports.read",
+                                "hotel.cityledger",
+                                "hotel.costs.post",
+                                "hotel.group.read",
+                                "hotel.fx.manage",
+                                "hotel.reconcile",
+                                "hotel.stock.manage",
+                                "hotel.purchasing.approve",
+                                "hotel.payables",
+                                "hotel.bookings.manage",
+                                "hotel.events.manage",
+                                "hotel.payroll",
+                                "hotel.payroll.approve",
+                                "hotel.budget.manage",
+                                "hotel.assets.manage",
+                                "hotel.labour.manage",
+                                "developer.read",
+                                "developer.settings",
+                                "developer.projects",
+                                "developer.pricing",
+                                "developer.buyers.read",
+                                "developer.buyers.all",
+                                "developer.sales",
+                                "developer.sales.manage",
+                                "developer.executive",
+                                "developer.collections",
+                                "developer.procurement",
+                                "developer.approve",
+                                "developer.payables",
+                                "developer.treasury",
+                                "developer.suppliers.verify",
+                                "developer.budget",
+                                "developer.delivery",
+                                "developer.reports",
+                                "developer.work",
+                                "agency.read",
+                                "agency.listings.manage",
+                                "agency.leads.manage",
+                                "agency.leads.assign",
+                                "agency.deals.manage",
+                                "agency.stays.manage",
+                                "agency.payments.record",
+                                "agency.finance.approve",
+                                "agency.reports.read",
+                                "marketplace.inbox",
+                                "marketplace.publish",
+                                "security.read",
+                                "security.setup",
+                                "security.guards.manage",
+                                "security.roster.manage",
+                                "security.timesheets.approve",
+                                "security.field",
+                                "security.occurrences.write",
+                                "security.control",
+                                "security.incidents.manage",
+                                "security.visitors",
+                                "security.access.manage",
+                                "security.billing",
+                                "security.payroll.prepare",
+                                "security.payroll.approve",
+                                "security.reports.read",
+                                "security.portal",
+                                "notifications.read",
+                                "notifications.manage",
+                                "payments.reconcile",
+                                "contacts.read",
+                                "contacts.manage",
+                                "contacts.merge",
+                                "property.read",
+                                "property.setup",
+                                "property.leases.manage",
+                                "property.billing",
+                                "property.payments.record",
+                                "property.deposits.request",
+                                "property.deposits.approve",
+                                "property.bills.submit",
+                                "property.bills.approve",
+                                "property.bills.pay",
+                                "property.payouts.prepare",
+                                "property.payouts.approve",
+                                "property.bank.reconcile",
+                                "property.maintenance.request",
+                                "property.maintenance.manage",
+                                "property.maintenance.approve",
+                                "property.maintenance.work",
+                                "property.crm",
+                                "property.crm.approve",
+                                "property.notices",
+                                "property.reports.read",
+                                "property.portal.tenant",
+                                "property.portal.owner"
+                              ]
+                            }
+                          },
+                          "propertyIds": {
+                            "anyOf": [
+                              {
+                                "maxItems": 500,
+                                "type": "array",
+                                "items": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "enabled": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "product",
+                          "capabilities",
+                          "propertyIds",
+                          "enabled"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "grants"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/orgs/{orgId}/members/{userId}": {
       "put": {
         "operationId": "members.update",
@@ -2171,6 +3073,7 @@
                     "type": "string",
                     "enum": [
                       "org_admin",
+                      "main_manager",
                       "finance_director",
                       "accountant",
                       "property_manager",
@@ -2235,6 +3138,7 @@
                           "type": "string",
                           "enum": [
                             "org_admin",
+                            "main_manager",
                             "finance_director",
                             "accountant",
                             "property_manager",
@@ -2307,6 +3211,7 @@
                       "type": "string",
                       "enum": [
                         "org_admin",
+                        "main_manager",
                         "finance_director",
                         "accountant",
                         "property_manager",
@@ -2375,6 +3280,7 @@
                             "type": "string",
                             "enum": [
                               "org_admin",
+                              "main_manager",
                               "finance_director",
                               "accountant",
                               "property_manager",
@@ -12696,6 +13602,7 @@
                             "type": "string",
                             "enum": [
                               "org_admin",
+                              "main_manager",
                               "finance_director",
                               "accountant",
                               "property_manager",
@@ -12764,6 +13671,7 @@
                                   "type": "string",
                                   "enum": [
                                     "org_admin",
+                                    "main_manager",
                                     "finance_director",
                                     "accountant",
                                     "property_manager",
@@ -14982,6 +15890,7 @@
                                   "type": "string",
                                   "enum": [
                                     "org_admin",
+                                    "main_manager",
                                     "finance_director",
                                     "accountant",
                                     "property_manager",
@@ -118330,6 +119239,7 @@
                             "type": "string",
                             "enum": [
                               "org_admin",
+                              "main_manager",
                               "finance_director",
                               "accountant",
                               "property_manager",
@@ -118546,6 +119456,7 @@
                           "type": "string",
                           "enum": [
                             "org_admin",
+                            "main_manager",
                             "finance_director",
                             "accountant",
                             "property_manager",
@@ -118722,6 +119633,7 @@
                             "type": "string",
                             "enum": [
                               "org_admin",
+                              "main_manager",
                               "finance_director",
                               "accountant",
                               "property_manager",
@@ -139916,6 +140828,19 @@
                 "false"
               ]
             }
+          },
+          {
+            "name": "includeArchived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "enum": [
+                "true",
+                "false"
+              ]
+            }
           }
         ],
         "responses": {
@@ -156702,6 +157627,237 @@
                     "creditMinor",
                     "depositHeldMinor",
                     "lines"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/tenants/{tenantId}/control": {
+      "get": {
+        "operationId": "property.tenants.control",
+        "summary": "Tenant operational status, retained independently of leases and payments",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "tenantId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "portalSuspended": {
+                      "type": "boolean"
+                    },
+                    "archived": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "reviewOn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "updatedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "tenantId",
+                    "portalSuspended",
+                    "archived",
+                    "reason",
+                    "reviewOn",
+                    "updatedAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "property.tenants.control.change",
+        "summary": "Suspend/restore portal access or archive/restore an ended tenant record; never ends a lease",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "tenantId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "suspend",
+                      "restore",
+                      "archive",
+                      "unarchive"
+                    ]
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  },
+                  "reviewOn": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "confirm": {
+                    "type": "string",
+                    "const": "CONFIRM"
+                  },
+                  "acknowledgeNoEviction": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": [
+                  "action",
+                  "reason",
+                  "confirm",
+                  "acknowledgeNoEviction"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "tenantId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "portalSuspended": {
+                      "type": "boolean"
+                    },
+                    "archived": {
+                      "type": "boolean"
+                    },
+                    "reason": {
+                      "type": "string"
+                    },
+                    "reviewOn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "updatedAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "tenantId",
+                    "portalSuspended",
+                    "archived",
+                    "reason",
+                    "reviewOn",
+                    "updatedAt"
                   ],
                   "additionalProperties": false
                 }

@@ -1,3 +1,4 @@
+import { memberCan, managerGrant } from "./manager-access.js";
 /*
  * The one gate for every request about an organisation's data. A handler states what it needs:
  *
@@ -14,7 +15,6 @@
 import {
   entitlements,
   ROLE_DEFINITIONS,
-  roleCan,
   type Capability,
   type Product,
   type ProductRoles,
@@ -47,6 +47,7 @@ export interface ScopeOptions {
 
 export interface OrgScope {
   orgId: string;
+  propertyIds?: readonly string[] | null;
   userId: string;
   role: Role;
   product: Product;
@@ -81,10 +82,11 @@ export function orgAccess(ctx: AppContext) {
       throw fail.notFound(`Your organisation has no ${entitlements.PRODUCT_NAME[product] ?? product} subscription`);
     }
     if (!product) {
-      const candidates = accessible.filter((p) => {
-        const role = productRole(m.role, m.product_roles, p);
-        return !!role && roleCan(role, o.capability);
-      });
+      const candidates: Product[] = [];
+      for (const p of accessible) {
+        const r = productRole(m.role, m.product_roles, p);
+        if (r && (await memberCan(db, orgId, user.id, r, p, o.capability))) candidates.push(p);
+      }
       product = candidates[0];
       if (o.anyProduct) {
         for (const p of candidates) {
@@ -98,14 +100,27 @@ export function orgAccess(ctx: AppContext) {
     }
     if (!product) throw fail.roleNotAllowed("Your membership has no product role that permits this action");
     const role = productRole(m.role, m.product_roles, product);
-    if (!role || !roleCan(role, o.capability))
+    if (!role || !(await memberCan(db, orgId, user.id, role, product, o.capability)))
       throw fail.roleNotAllowed(`Your role (${role ? ROLE_DEFINITIONS[role].label : "No access"}) cannot do this`);
+    if (product === "property" && role === "tenant") {
+      const blocked = await db.row(
+        "SELECT 1 FROM pm_tenant_controls tc JOIN contacts c ON c.org_id=tc.org_id AND c.id=tc.tenant_id WHERE c.org_id=$1 AND c.user_id=$2 AND tc.portal_suspended",
+        [orgId, user.id],
+      );
+      if (blocked)
+        throw fail.forbidden(
+          "Your tenant portal access is suspended. Your lease and financial records remain unchanged. Contact the company administrator for review or appeal.",
+        );
+    }
     const en =
       product === first.product ? first : await resolveEntitlement(db, registry, clock.today(), orgId, product);
     if (!en) throw fail.notFound("Organisation not found");
     const s: OrgScope = {
       orgId,
       userId: user.id,
+      ...(role === "main_manager"
+        ? { propertyIds: (await managerGrant(db, orgId, user.id, product))?.propertyIds ?? null }
+        : {}),
       role,
       product: en.product,
       entitlement: en,

@@ -1,3 +1,4 @@
+import { managerGrant } from "../access/manager-access.js";
 /*
  * Identity: sign-in, sessions, password changes and two-factor set-up.
  *
@@ -350,11 +351,23 @@ export function identityService(ctx: AppContext) {
               o.products.map(async (p) => {
                 const role = productRole(o.role, o.product_roles, p);
                 if (!role) return null;
+                if (
+                  p === "property" &&
+                  role === "tenant" &&
+                  (await db.row(
+                    "SELECT 1 FROM pm_tenant_controls tc JOIN contacts c ON c.org_id=tc.org_id AND c.id=tc.tenant_id WHERE c.org_id=$1 AND c.user_id=$2 AND tc.portal_suspended",
+                    [o.id, user.id],
+                  ))
+                )
+                  return null;
                 const en = await resolveEntitlement(db, ctx.products, clock.today(), o.id, p);
                 return en ? { product: p, role, usable: en.ent.usable, status: en.ent.status } : null;
               }),
             )
           ).filter((p): p is NonNullable<typeof p> => p !== null),
+          managerGrants: (await Promise.all(o.products.map((p) => managerGrant(db, o.id, user.id, p)))).filter(
+            (g): g is NonNullable<typeof g> => g !== null,
+          ),
           trials: subs
             .filter((s) => s.org_id === o.id)
             .flatMap((s) => {

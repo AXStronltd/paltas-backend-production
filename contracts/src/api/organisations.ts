@@ -1,6 +1,6 @@
 // An organisation (a PALTAS customer), its members and its own audit trail.
 import { z } from "zod";
-import { Product, ProductRoles, Role } from "../access.js";
+import { Product, ProductRoles, Role, ManagerGrant } from "../access.js";
 import { Currency, Email, IsoDateTime } from "../common.js";
 import { endpoint } from "../endpoint.js";
 import { CompanyRegistrationProfile } from "./signup.js";
@@ -119,4 +119,28 @@ export const listAudit = endpoint({
     before: z.string().optional(),
   }),
   response: z.object({ entries: z.array(AuditEntry) }),
+});
+
+export const getManagerGrants = endpoint({
+  id: "members.managerGrants.get",
+  method: "GET",
+  path: "/api/v1/orgs/:orgId/main-managers/:userId",
+  auth: "user",
+  summary: "Owner-controlled operational delegation",
+  params: OrgParams.extend({ userId: z.string().min(1) }),
+  response: z.object({ grants: z.array(ManagerGrant) }),
+});
+export const setManagerGrants = endpoint({
+  id: "members.managerGrants.set",
+  method: "PUT",
+  path: "/api/v1/orgs/:orgId/main-managers/:userId",
+  auth: "user",
+  summary: "Owner confirms product permissions and property scope; empty grants revoke all delegated access",
+  params: OrgParams.extend({ userId: z.string().min(1) }),
+  body: z.object({
+    grants: z.array(ManagerGrant).max(5),
+    reason: z.string().trim().min(5).max(500),
+    confirm: z.literal("SAVE_PERMISSIONS"),
+  }),
+  response: z.object({ grants: z.array(ManagerGrant) }),
 });

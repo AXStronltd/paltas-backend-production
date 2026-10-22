@@ -1,3 +1,4 @@
+import { contactScopeSql } from "../../../core/access/property-contact-scope.js";
 import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Tenant money: recorded payments (never processed) with allocation and receipt numbers, the tenant's credit, the
@@ -418,9 +419,17 @@ export function paymentsService(d: PmDeps) {
       s: OrgScope,
       f: { tenantId?: string | undefined; limit?: number | undefined; offset?: number | undefined },
     ) {
+      const scopeSql = contactScopeSql("c", "$3", "$4"),
+        scopeParams = [f.tenantId ?? null, s.propertyIds ?? null, s.userId];
+      // Scope before counting and pagination; a later filter cannot provide complete pages.
       // Existing callers can still request their complete tenant statement; table views explicitly paginate.
       if (f.limit === undefined && f.offset === undefined) {
-        const rows = await R.paymentRows(db, s.orgId, "($2::text IS NULL OR p.tenant_id = $2)", [f.tenantId ?? null]);
+        const rows = await R.paymentRows(
+          db,
+          s.orgId,
+          `($2::text IS NULL OR p.tenant_id = $2) AND ${scopeSql}`,
+          scopeParams,
+        );
         return { payments: await R.paymentViews(db, rows) };
       }
       const limit = f.limit ?? 50,
@@ -428,12 +437,12 @@ export function paymentsService(d: PmDeps) {
       return db.tx(async (t) => {
         await t.run("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
         const total = await t.row<{ n: number }>(
-          "SELECT count(*)::int AS n FROM pm_payments WHERE org_id=$1 AND ($2::text IS NULL OR tenant_id=$2)",
-          [s.orgId, f.tenantId ?? null],
+          `SELECT count(*)::int AS n FROM pm_payments p JOIN contacts c ON c.id=p.tenant_id AND c.org_id=p.org_id WHERE p.org_id=$1 AND ($2::text IS NULL OR p.tenant_id=$2) AND ${scopeSql}`,
+          [s.orgId, ...scopeParams],
         );
         const rows = await t.rows<R.PaymentRow>(
-          `${R.PAYMENT_SQL} WHERE p.org_id=$1 AND ($2::text IS NULL OR p.tenant_id=$2) ORDER BY p.date DESC,p.number DESC,p.id DESC LIMIT $3 OFFSET $4`,
-          [s.orgId, f.tenantId ?? null, limit, offset],
+          `${R.PAYMENT_SQL} WHERE p.org_id=$1 AND ($2::text IS NULL OR p.tenant_id=$2) AND ${scopeSql} ORDER BY p.date DESC,p.number DESC,p.id DESC LIMIT $5 OFFSET $6`,
+          [s.orgId, ...scopeParams, limit, offset],
         );
         return { payments: await R.paymentViews(t, rows), total: total?.n ?? 0, limit, offset };
       });

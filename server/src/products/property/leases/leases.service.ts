@@ -119,7 +119,16 @@ export function leasesService(d: PmDeps) {
       throw fail.invalid("The unit is not in the selected block");
     if (b.floor !== undefined && b.floor !== unit.floor) throw fail.invalid("The unit is not on the selected floor");
     if (unit.status === "off_market") throw fail.conflict(`Unit ${unit.unit_no} is off the market`);
-    await core.contacts.live(t, s.orgId, b.tenantId);
+    await core.contacts.live(t, s.orgId, b.tenantId, true);
+    if (
+      await t.row("SELECT 1 FROM pm_tenant_controls WHERE org_id=$1 AND tenant_id=$2 AND archived", [
+        s.orgId,
+        b.tenantId,
+      ])
+    )
+      throw fail.conflict(
+        "Restore the archived tenant record before creating a new lease. Existing tenancy and financial history is preserved.",
+      );
     await core.contacts.addTypes(t, s.orgId, b.tenantId, ["tenant"] as C.ContactType[]);
     const id = newId("pls");
     await t.run(

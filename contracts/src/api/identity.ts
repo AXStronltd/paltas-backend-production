@@ -1,6 +1,6 @@
 // Sign-in, sessions, the signed-in person, password and two-factor set-up. Also the health check.
 import { z } from "zod";
-import { Product, Role, StaffPermission, StaffRole } from "../access.js";
+import { Product, Role, StaffPermission, StaffRole, ManagerGrant } from "../access.js";
 import { Email, IsoDate, Ok } from "../common.js";
 import { endpoint } from "../endpoint.js";
 
@@ -73,6 +73,7 @@ export const MyOrganisation = z.object({
   name: z.string(),
   products: z.array(Product),
   role: Role,
+  managerGrants: z.array(ManagerGrant).optional(),
   /** Authorised product roles and current subscription availability, checked by the server. */
   portals: z.array(z.object({ product: Product, role: Role, usable: z.boolean(), status: z.string() })).optional(),
   /** Trial days and grace left, per product subscription that is (or was) a trial. */

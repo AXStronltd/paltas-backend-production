@@ -147,6 +147,7 @@ export const listContacts = endpoint({
     q: z.string().trim().max(120).optional(),
     type: ContactType.optional(),
     includeMerged: z.enum(["true", "false"]).optional(),
+    includeArchived: z.enum(["true", "false"]).optional(),
   }),
   response: z.object({ contacts: z.array(Contact) }),
 });

@@ -13,6 +13,7 @@ import {
 } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import type { Db } from "../../db/database.js";
+import { delegatedCan, managerGrant } from "../access/manager-access.js";
 import { fail } from "../../http/errors.js";
 import type { OrgScope } from "../access/org-access.js";
 import { recordAudit } from "../audit/audit.service.js";
@@ -86,6 +87,41 @@ function validateProductRoles(products: Product[], assignments: ProductRoles | n
     }
 }
 
+/** Delegated staff control may grant only a subset of fresh, organisation-wide operational access. */
+async function requireStaffController(
+  db: Db,
+  s: OrgScope,
+  input: { role?: Role; productRoles?: ProductRoles | null },
+  before?: MemberRow,
+) {
+  const caller = await db.row<{ role: Role }>(
+    "SELECT role FROM memberships WHERE org_id=$1 AND user_id=$2 AND status='active'",
+    [s.orgId, s.userId],
+  );
+  if (caller?.role === "org_admin") return;
+  if (caller?.role !== "main_manager")
+    throw fail.forbidden("Only the company administrator or an authorised Main Manager can change staff access");
+  const privileged = (r: Role) => ["org_admin", "main_manager", "group_owner"].includes(r);
+  if (before && (privileged(before.role) || Object.values(before.product_roles ?? {}).some(privileged)))
+    throw fail.forbidden("Only the company administrator can change owner or Main Manager access");
+  const role = input.role ?? before?.role;
+  const roles = input.productRoles === undefined ? before?.product_roles : input.productRoles;
+  if (!role || privileged(role) || !roles || !Object.keys(roles).length)
+    throw fail.forbidden(
+      "Choose explicit operational product roles. Owner and Main Manager appointment requires the company administrator",
+    );
+  for (const [product, targetRole] of Object.entries(roles)) {
+    if (privileged(targetRole)) throw fail.forbidden("You cannot delegate company administration");
+    const grant = await managerGrant(db, s.orgId, s.userId, product as Product);
+    if (!grant || grant.propertyIds !== null || !delegatedCan(grant, "members.manage"))
+      throw fail.forbidden(
+        "Staff changes require organisation-wide Staff Management permission for every selected product",
+      );
+    if (ROLE_DEFINITIONS[targetRole].capabilities.some((cap) => !delegatedCan(grant, cap)))
+      throw fail.forbidden("The proposed staff role includes actions outside your own delegated permissions");
+  }
+}
+
 export function organisationsService(ctx: AppContext) {
   const { db } = ctx;
 
@@ -115,12 +151,7 @@ export function organisationsService(ctx: AppContext) {
       s: OrgScope,
       input: { email: string; name?: string | undefined; role: Role; productRoles?: ProductRoles | null | undefined },
     ) {
-      const caller = await db.row<{ role: Role }>("SELECT role FROM memberships WHERE org_id=$1 AND user_id=$2", [
-        s.orgId,
-        s.userId,
-      ]);
-      if (caller?.role !== "org_admin")
-        throw fail.forbidden("Only an organisation administrator can change membership access");
+      await requireStaffController(db, s, input);
       validateProductRoles(s.entitlement.products, input.productRoles);
       const allowed = rolesForProducts(s.entitlement.products);
       if (!allowed.includes(input.role)) {
@@ -129,6 +160,8 @@ export function organisationsService(ctx: AppContext) {
         );
       }
       return db.tx(async (t) => {
+        await t.run("SELECT 1 FROM organisations WHERE id=$1 FOR UPDATE", [s.orgId]);
+        await requireStaffController(t, s, input);
         let u = await t.row<{ id: string; staff_role: string | null }>(
           "SELECT id, staff_role FROM users WHERE lower(email) = lower($1)",
           [input.email],
@@ -174,16 +207,11 @@ export function organisationsService(ctx: AppContext) {
     ) {
       if (userId === s.userId) throw fail.forbidden("You cannot change your own access — ask another administrator");
       return db.tx(async (t) => {
-        const caller = await t.row<{ role: Role }>("SELECT role FROM memberships WHERE org_id=$1 AND user_id=$2", [
-          s.orgId,
-          s.userId,
-        ]);
-        if (caller?.role !== "org_admin")
-          throw fail.forbidden("Only an organisation administrator can change membership access");
         // one access change per organisation at a time, so two administrators cannot remove each other at once
         await t.run("SELECT 1 FROM organisations WHERE id = $1 FOR UPDATE", [s.orgId]);
         const before = await t.row<MemberRow>(MEMBER_SQL + " AND m.user_id = $2", [s.orgId, userId]);
         if (!before) throw fail.notFound("Member not found");
+        await requireStaffController(t, s, input, before);
         if (before.status === "invited" && input.status)
           throw fail.conflict("This person has not accepted the invitation yet");
         validateProductRoles(s.entitlement.products, input.productRoles);

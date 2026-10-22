@@ -1,3 +1,4 @@
+import { managerDelegation } from "../access/manager-access.js";
 import { organisations } from "@paltas/contracts";
 import { route } from "../../http/route.js";
 import { listAudit } from "../audit/audit.service.js";
@@ -5,7 +6,18 @@ import type { CoreServices } from "../core-services.js";
 
 export function organisationsRoutes(core: CoreServices) {
   const { access, organisations: O, db } = core;
+  const M = managerDelegation({ db });
   return [
+    route(organisations.getManagerGrants, async (req) =>
+      M.list(await access.scope(req.user, req.params.orgId, { capability: "members.manage" }), req.params.userId),
+    ),
+    route(organisations.setManagerGrants, async (req) =>
+      M.save(
+        await access.scope(req.user, req.params.orgId, { capability: "members.manage", write: true }),
+        req.params.userId,
+        req.body,
+      ),
+    ),
     route(organisations.getOrganisation, async (req) => {
       await access.scope(req.user, req.params.orgId, { capability: "org.read" });
       return O.get(req.params.orgId);
