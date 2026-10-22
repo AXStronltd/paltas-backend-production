@@ -18,6 +18,21 @@ import { issueInvoice, numberScope } from "../shared/money.js";
 import * as R from "../shared/records.js";
 import { addDays, addMonths, applyBp, dueDateIn, toBp } from "../shared/util.js";
 
+class PreviewOnly extends Error {
+  constructor(
+    readonly result: {
+      rentMinor: number;
+      depositMinor: number;
+      period: string | null;
+      issueDate: string | null;
+      dueDate: string | null;
+      note: string;
+    },
+  ) {
+    super("Activation preview rolled back");
+  }
+}
+
 export interface LeaseTerms {
   startDate: string;
   endDate: string | null;
@@ -151,6 +166,174 @@ export function leasesService(d: PmDeps) {
     return id;
   }
 
+  async function activate(
+    s: OrgScope,
+    id: string,
+    b: {
+      signedOn: string;
+      billFirstRent?: boolean;
+      billingMode?: "standard" | "historical";
+      billDeposit?: boolean;
+      firstRentPeriod?: string;
+      expectedRentMinor?: number;
+      expectedDepositMinor?: number;
+    },
+    preview = false,
+  ) {
+    const invoiceIds = await financeTransaction(db, s.orgId, async (t) => {
+      const l = await R.leaseRow(t, s.orgId, id, true);
+      if (l.status !== "draft") throw fail.conflict(`This lease is already ${l.status}`);
+      if (b.signedOn > s.today) throw fail.invalid("The signing date is in the future");
+      if (l.end_date && l.end_date < s.today) throw fail.conflict("This lease would already have ended");
+      const unit = await R.unitRow(t, s.orgId, l.unit_id);
+      if (unit.status === "off_market") throw fail.conflict(`Unit ${unit.unit_no} is off the market`);
+      if (!(await R.agreementForUnit(t, s.orgId, l.unit_id, s.today)))
+        throw fail.conflict(
+          `No verified management authority covers unit ${unit.unit_no} today — complete ownership and management authority first`,
+          {
+            correction: {
+              action: "complete_ownership",
+              propertyId: l.property_id,
+              unitId: l.unit_id,
+              tenantId: l.tenant_id,
+              leaseId: l.id,
+            },
+          },
+        );
+      // the database refuses two active leases on one unit for overlapping dates (pm_unit_not_double_let)
+      try {
+        await t.run("SAVEPOINT lease_activate");
+        await t.run(
+          "UPDATE pm_leases SET status = 'active', signed_on = $2, activated_by = $3, activated_at = now() WHERE id = $1",
+          [id, b.signedOn, s.userId],
+        );
+        await t.run("RELEASE SAVEPOINT lease_activate");
+      } catch (e) {
+        await t.run("ROLLBACK TO SAVEPOINT lease_activate");
+        if ((e as { code?: string }).code === "23P01")
+          throw fail.conflict(`Unit ${unit.unit_no} already has an active lease for these dates`);
+        throw e;
+      }
+      await writeSteps(t, l, s.userId);
+      let invoiceId: string | null = null;
+      if (
+        b.billingMode !== "historical" &&
+        l.start_date.slice(0, 7) >= s.today.slice(0, 7) &&
+        b.billDeposit !== false &&
+        l.deposit_mode === "collect" &&
+        l.deposit_minor > 0
+      ) {
+        invoiceId = await issueInvoice(t, core, {
+          orgId: s.orgId,
+          kind: "deposit",
+          lease: l,
+          period: s.today.slice(0, 7),
+          issueDate: s.today,
+          dueDate: l.start_date > s.today ? l.start_date : s.today,
+          note: "Security deposit, refundable",
+          createdBy: s.userId,
+          lines: [
+            {
+              code: "DEPOSIT",
+              description: "Security deposit (refundable)",
+              quantity: 1,
+              rateMinor: l.deposit_minor,
+              amountMinor: l.deposit_minor,
+              payee: "deposit",
+              feeApplies: false,
+              vatApplies: false,
+            },
+          ],
+        });
+      }
+      let firstRentInvoiceId: string | null = null;
+      if (b.billFirstRent) {
+        if (l.start_date.slice(0, 7) < s.today.slice(0, 7) && !b.firstRentPeriod)
+          throw fail.invalid(
+            "Historical lease: select and preview the next unpaid rent period explicitly, or activate without invoices",
+          );
+        const period = b.firstRentPeriod ?? l.start_date.slice(0, 7);
+        if (period < l.start_date.slice(0, 7) || (l.end_date && period > l.end_date.slice(0, 7)))
+          throw fail.invalid("The selected rent period is outside this lease");
+        if (period > addMonths(s.today, 1).slice(0, 7))
+          throw fail.invalid(
+            "The lease starts more than one month ahead. Activate without billing rent now; bill closer to the start date.",
+          );
+        const rent = await rentLine(t, l, period);
+        firstRentInvoiceId = await issueInvoice(t, core, {
+          orgId: s.orgId,
+          kind: "rent",
+          lease: l,
+          period,
+          issueDate: period === l.start_date.slice(0, 7) ? l.start_date : s.today,
+          dueDate: [
+            l.start_date > `${period}-01` ? l.start_date : dueDateIn(period, l.due_day),
+            period === l.start_date.slice(0, 7) ? l.start_date : s.today,
+          ]
+            .sort()
+            .at(-1) as string,
+          note: rent.note,
+          createdBy: s.userId,
+          lines: [rent.line],
+        });
+      }
+      // a lease from a rental application wins its lead
+      if (l.application_id) {
+        const app = await t.row<{ lead_id: string }>("SELECT lead_id FROM pm_applications WHERE id = $1", [
+          l.application_id,
+        ]);
+        if (app)
+          await t.run("UPDATE pm_leads SET stage = 'won', stage_at = now() WHERE id = $1 AND stage <> 'won'", [
+            app.lead_id,
+          ]);
+      }
+      await core.contacts.activity(t, {
+        orgId: s.orgId,
+        contactId: l.tenant_id,
+        kind: "lease",
+        text: `Lease ${l.number} activated for unit ${l.unit_no} (signed ${b.signedOn})`,
+        refType: "lease",
+        refId: id,
+        by: s.userId,
+      });
+      await recordAudit(t, {
+        actor: s.actor,
+        orgId: s.orgId,
+        action: "Lease activated",
+        target: l.number,
+        detail: `${l.unit_no} · ${l.tenant_name} · ${l.start_date} → ${l.end_date ?? "periodic"}`,
+      });
+      const deposit = invoiceId ? await R.invoiceRow(t, s.orgId, invoiceId) : null;
+      const rent = firstRentInvoiceId ? await R.invoiceRow(t, s.orgId, firstRentInvoiceId) : null;
+      if (b.expectedRentMinor !== undefined && b.expectedRentMinor !== (rent?.amount_minor ?? 0))
+        throw fail.conflict("Rent changed after preview. Review the invoice again before confirming");
+      if (b.expectedDepositMinor !== undefined && b.expectedDepositMinor !== (deposit?.amount_minor ?? 0))
+        throw fail.conflict("Deposit changed after preview. Review the invoice again before confirming");
+      if (preview)
+        throw new PreviewOnly({
+          rentMinor: rent?.amount_minor ?? 0,
+          depositMinor: deposit?.amount_minor ?? 0,
+          period: rent?.period ?? null,
+          issueDate: rent?.issue_date ?? null,
+          dueDate: rent?.due_date ?? null,
+          note: rent?.note ?? "No rent invoice will be created",
+        });
+      return { deposit: invoiceId, rent: firstRentInvoiceId };
+    });
+    const lease = await one(s, id);
+    let depositInvoice: P.Invoice | null = null;
+    if (invoiceIds.deposit) {
+      const [v] = await R.invoiceViews(db, [await R.invoiceRow(db, s.orgId, invoiceIds.deposit)], s.today);
+      depositInvoice = v ?? null;
+    }
+    let firstRentInvoice: P.Invoice | null = null;
+    if (invoiceIds.rent) {
+      const [v] = await R.invoiceViews(db, [await R.invoiceRow(db, s.orgId, invoiceIds.rent)], s.today);
+      firstRentInvoice = v ?? null;
+    }
+    return { lease, depositInvoice, ...(b.billFirstRent ? { firstRentInvoice } : {}) };
+  }
+
   return {
     views,
     one,
@@ -216,118 +399,15 @@ export function leasesService(d: PmDeps) {
       return one(s, id);
     },
 
-    async activate(s: OrgScope, id: string, b: { signedOn: string; billFirstRent?: boolean }) {
-      const invoiceIds = await financeTransaction(db, s.orgId, async (t) => {
-        const l = await R.leaseRow(t, s.orgId, id, true);
-        if (l.status !== "draft") throw fail.conflict(`This lease is already ${l.status}`);
-        if (b.signedOn > s.today) throw fail.invalid("The signing date is in the future");
-        if (l.end_date && l.end_date < s.today) throw fail.conflict("This lease would already have ended");
-        const unit = await R.unitRow(t, s.orgId, l.unit_id);
-        if (unit.status === "off_market") throw fail.conflict(`Unit ${unit.unit_no} is off the market`);
-        if (!(await R.agreementForUnit(t, s.orgId, l.unit_id)))
-          throw fail.conflict(
-            `No active management agreement covers unit ${unit.unit_no} — record the owner's agreement first`,
-          );
-        // the database refuses two active leases on one unit for overlapping dates (pm_unit_not_double_let)
-        try {
-          await t.run("SAVEPOINT lease_activate");
-          await t.run(
-            "UPDATE pm_leases SET status = 'active', signed_on = $2, activated_by = $3, activated_at = now() WHERE id = $1",
-            [id, b.signedOn, s.userId],
-          );
-          await t.run("RELEASE SAVEPOINT lease_activate");
-        } catch (e) {
-          await t.run("ROLLBACK TO SAVEPOINT lease_activate");
-          if ((e as { code?: string }).code === "23P01")
-            throw fail.conflict(`Unit ${unit.unit_no} already has an active lease for these dates`);
-          throw e;
-        }
-        await writeSteps(t, l, s.userId);
-        let invoiceId: string | null = null;
-        if (l.deposit_mode === "collect" && l.deposit_minor > 0) {
-          invoiceId = await issueInvoice(t, core, {
-            orgId: s.orgId,
-            kind: "deposit",
-            lease: l,
-            period: s.today.slice(0, 7),
-            issueDate: s.today,
-            dueDate: l.start_date > s.today ? l.start_date : s.today,
-            note: "Security deposit, refundable",
-            createdBy: s.userId,
-            lines: [
-              {
-                code: "DEPOSIT",
-                description: "Security deposit (refundable)",
-                quantity: 1,
-                rateMinor: l.deposit_minor,
-                amountMinor: l.deposit_minor,
-                payee: "deposit",
-                feeApplies: false,
-                vatApplies: false,
-              },
-            ],
-          });
-        }
-        let firstRentInvoiceId: string | null = null;
-        if (b.billFirstRent) {
-          const period = l.start_date.slice(0, 7);
-          if (period > addMonths(s.today, 1).slice(0, 7))
-            throw fail.invalid(
-              "The lease starts more than one month ahead. Activate without billing rent now; bill closer to the start date.",
-            );
-          const rent = await rentLine(t, l, period);
-          firstRentInvoiceId = await issueInvoice(t, core, {
-            orgId: s.orgId,
-            kind: "rent",
-            lease: l,
-            period,
-            issueDate: l.start_date,
-            dueDate: l.start_date > `${period}-01` ? l.start_date : dueDateIn(period, l.due_day),
-            note: rent.note,
-            createdBy: s.userId,
-            lines: [rent.line],
-          });
-        }
-        // a lease from a rental application wins its lead
-        if (l.application_id) {
-          const app = await t.row<{ lead_id: string }>("SELECT lead_id FROM pm_applications WHERE id = $1", [
-            l.application_id,
-          ]);
-          if (app)
-            await t.run("UPDATE pm_leads SET stage = 'won', stage_at = now() WHERE id = $1 AND stage <> 'won'", [
-              app.lead_id,
-            ]);
-        }
-        await core.contacts.activity(t, {
-          orgId: s.orgId,
-          contactId: l.tenant_id,
-          kind: "lease",
-          text: `Lease ${l.number} activated for unit ${l.unit_no} (signed ${b.signedOn})`,
-          refType: "lease",
-          refId: id,
-          by: s.userId,
-        });
-        await recordAudit(t, {
-          actor: s.actor,
-          orgId: s.orgId,
-          action: "Lease activated",
-          target: l.number,
-          detail: `${l.unit_no} · ${l.tenant_name} · ${l.start_date} → ${l.end_date ?? "periodic"}`,
-        });
-        return { deposit: invoiceId, rent: firstRentInvoiceId };
-      });
-      const lease = await one(s, id);
-      let depositInvoice: P.Invoice | null = null;
-      if (invoiceIds.deposit) {
-        const [v] = await R.invoiceViews(db, [await R.invoiceRow(db, s.orgId, invoiceIds.deposit)], s.today);
-        depositInvoice = v ?? null;
+    activate,
+    async previewActivation(s: OrgScope, id: string, b: Parameters<typeof activate>[2]) {
+      try {
+        await activate(s, id, b, true);
+      } catch (e) {
+        if (e instanceof PreviewOnly) return e.result;
+        throw e;
       }
-      let firstRentInvoice: P.Invoice | null = null;
-      if (invoiceIds.rent) {
-        const [v] = await R.invoiceViews(db, [await R.invoiceRow(db, s.orgId, invoiceIds.rent)], s.today);
-        firstRentInvoice = v ?? null;
-      }
-      return { lease, depositInvoice, ...(b.billFirstRent ? { firstRentInvoice } : {}) };
+      throw new Error("Activation preview did not roll back");
     },
 
     async renew(s: OrgScope, id: string, b: { endDate: string | null; rentMinor: number; effectiveFrom: string }) {

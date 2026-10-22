@@ -67,7 +67,7 @@ export async function issueInvoice(t: Db, core: CoreServices, inv: NewInvoice): 
     [inv.lease.id, inv.kind, inv.period, !!inv.recurring, inv.sourceInvoiceId ?? null],
   );
   if (exists) return null;
-  const ag = await R.agreementForUnit(t, inv.orgId, inv.lease.unit_id);
+  const ag = await R.agreementForUnit(t, inv.orgId, inv.lease.unit_id, inv.issueDate);
   if (!ag)
     throw fail.conflict(
       `No active management agreement covers unit ${inv.lease.unit_no} — record the owner's agreement first`,

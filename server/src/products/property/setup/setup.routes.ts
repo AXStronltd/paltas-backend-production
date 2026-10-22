@@ -39,6 +39,25 @@ export function setupRoutes(access: PmAccess, S: SetupService) {
     route(api.updateUnit, async (req) =>
       S.updateUnit(await g.org(req, "property.setup", WRITE), req.params.unitId, req.body),
     ),
+    route(api.listHistoricalSummaries, async (req) =>
+      S.historicalSummaries((await g.org(req, "property.reports.read")).orgId, req.query),
+    ),
+    route(api.listOwnerships, async (req) =>
+      S.ownership.list((await g.org(req, "property.read")).orgId, req.query.propertyId),
+    ),
+    route(api.createOwnership, async (req) => S.ownership.create(await g.org(req, "property.setup", WRITE), req.body)),
+    route(api.verifyOwnership, async (req) =>
+      S.ownership.verify(await g.org(req, "property.setup", WRITE), req.params.ownershipId),
+    ),
+    route(api.updateOwnership, async (req) =>
+      S.ownership.update(await g.org(req, "property.setup", WRITE), req.params.ownershipId, req.body),
+    ),
+    route(api.updateAgreement, async (req) =>
+      S.updateAgreement(await g.org(req, "property.setup", WRITE), req.params.agreementId, req.body),
+    ),
+    route(api.activateAgreement, async (req) =>
+      S.activateAgreement(await g.org(req, "property.setup", WRITE), req.params.agreementId, req.body),
+    ),
     route(api.listAgreements, async (req) => S.listAgreements((await g.org(req, "property.read")).orgId, req.query)),
     route(api.createAgreement, async (req) => S.createAgreement(await g.org(req, "property.setup", WRITE), req.body)),
     route(api.endAgreement, async (req) =>

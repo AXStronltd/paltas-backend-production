@@ -15798,6 +15798,12 @@
                                       "required": {
                                         "type": "boolean"
                                       },
+                                      "aliases": {
+                                        "type": "array",
+                                        "items": {
+                                          "type": "string"
+                                        }
+                                      },
                                       "values": {
                                         "type": "array",
                                         "items": {
@@ -15959,6 +15965,221 @@
                           "config": {
                             "type": "object",
                             "properties": {
+                              "templates": {
+                                "default": [],
+                                "maxItems": 100,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "headers": {
+                                      "maxItems": 200,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "string"
+                                      }
+                                    },
+                                    "entity": {
+                                      "type": "string",
+                                      "minLength": 1
+                                    },
+                                    "columns": {
+                                      "maxItems": 200,
+                                      "type": "array",
+                                      "items": {
+                                        "type": "object",
+                                        "properties": {
+                                          "source": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 200
+                                          },
+                                          "field": {
+                                            "type": "string",
+                                            "minLength": 1,
+                                            "maxLength": 60
+                                          },
+                                          "transforms": {
+                                            "default": [],
+                                            "maxItems": 10,
+                                            "type": "array",
+                                            "items": {
+                                              "oneOf": [
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "op": {
+                                                      "type": "string",
+                                                      "const": "trim"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "op"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "op": {
+                                                      "type": "string",
+                                                      "const": "upper"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "op"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "op": {
+                                                      "type": "string",
+                                                      "const": "lower"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "op"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "op": {
+                                                      "type": "string",
+                                                      "const": "date"
+                                                    },
+                                                    "format": {
+                                                      "type": "string",
+                                                      "enum": [
+                                                        "YYYY-MM-DD",
+                                                        "DD/MM/YYYY",
+                                                        "MM/DD/YYYY",
+                                                        "DD.MM.YYYY",
+                                                        "DD-MM-YYYY"
+                                                      ]
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "op",
+                                                    "format"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "op": {
+                                                      "type": "string",
+                                                      "const": "number"
+                                                    },
+                                                    "decimalSeparator": {
+                                                      "type": "string",
+                                                      "enum": [
+                                                        ".",
+                                                        ","
+                                                      ]
+                                                    },
+                                                    "thousandsSeparator": {
+                                                      "type": "string",
+                                                      "enum": [
+                                                        ",",
+                                                        ".",
+                                                        " ",
+                                                        "'",
+                                                        ""
+                                                      ]
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "op",
+                                                    "decimalSeparator",
+                                                    "thousandsSeparator"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "op": {
+                                                      "type": "string",
+                                                      "const": "enum"
+                                                    },
+                                                    "map": {
+                                                      "type": "object",
+                                                      "propertyNames": {
+                                                        "type": "string"
+                                                      },
+                                                      "additionalProperties": {
+                                                        "type": "string"
+                                                      }
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "op",
+                                                    "map"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "op": {
+                                                      "type": "string",
+                                                      "const": "default"
+                                                    },
+                                                    "value": {
+                                                      "type": "string"
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "op",
+                                                    "value"
+                                                  ],
+                                                  "additionalProperties": false
+                                                },
+                                                {
+                                                  "type": "object",
+                                                  "properties": {
+                                                    "op": {
+                                                      "type": "string",
+                                                      "const": "extract"
+                                                    },
+                                                    "pattern": {
+                                                      "type": "string",
+                                                      "minLength": 1,
+                                                      "maxLength": 200
+                                                    }
+                                                  },
+                                                  "required": [
+                                                    "op",
+                                                    "pattern"
+                                                  ],
+                                                  "additionalProperties": false
+                                                }
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "required": [
+                                          "source",
+                                          "field",
+                                          "transforms"
+                                        ],
+                                        "additionalProperties": false
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "headers",
+                                    "entity",
+                                    "columns"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
                               "settings": {
                                 "default": {},
                                 "type": "object",
@@ -16046,6 +16267,7 @@
                               }
                             },
                             "required": [
+                              "templates",
                               "settings",
                               "entityHints",
                               "aliases",
@@ -16133,6 +16355,210 @@
                   "config": {
                     "type": "object",
                     "properties": {
+                      "templates": {
+                        "default": [],
+                        "maxItems": 100,
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "headers": {
+                              "maxItems": 200,
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "entity": {
+                              "type": "string",
+                              "minLength": 1
+                            },
+                            "columns": {
+                              "maxItems": 200,
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "source": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 200
+                                  },
+                                  "field": {
+                                    "type": "string",
+                                    "minLength": 1,
+                                    "maxLength": 60
+                                  },
+                                  "transforms": {
+                                    "default": [],
+                                    "maxItems": 10,
+                                    "type": "array",
+                                    "items": {
+                                      "oneOf": [
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "op": {
+                                              "type": "string",
+                                              "const": "trim"
+                                            }
+                                          },
+                                          "required": [
+                                            "op"
+                                          ]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "op": {
+                                              "type": "string",
+                                              "const": "upper"
+                                            }
+                                          },
+                                          "required": [
+                                            "op"
+                                          ]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "op": {
+                                              "type": "string",
+                                              "const": "lower"
+                                            }
+                                          },
+                                          "required": [
+                                            "op"
+                                          ]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "op": {
+                                              "type": "string",
+                                              "const": "date"
+                                            },
+                                            "format": {
+                                              "type": "string",
+                                              "enum": [
+                                                "YYYY-MM-DD",
+                                                "DD/MM/YYYY",
+                                                "MM/DD/YYYY",
+                                                "DD.MM.YYYY",
+                                                "DD-MM-YYYY"
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "op",
+                                            "format"
+                                          ]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "op": {
+                                              "type": "string",
+                                              "const": "number"
+                                            },
+                                            "decimalSeparator": {
+                                              "type": "string",
+                                              "enum": [
+                                                ".",
+                                                ","
+                                              ]
+                                            },
+                                            "thousandsSeparator": {
+                                              "type": "string",
+                                              "enum": [
+                                                ",",
+                                                ".",
+                                                " ",
+                                                "'",
+                                                ""
+                                              ]
+                                            }
+                                          },
+                                          "required": [
+                                            "op",
+                                            "decimalSeparator",
+                                            "thousandsSeparator"
+                                          ]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "op": {
+                                              "type": "string",
+                                              "const": "enum"
+                                            },
+                                            "map": {
+                                              "type": "object",
+                                              "propertyNames": {
+                                                "type": "string"
+                                              },
+                                              "additionalProperties": {
+                                                "type": "string"
+                                              }
+                                            }
+                                          },
+                                          "required": [
+                                            "op",
+                                            "map"
+                                          ]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "op": {
+                                              "type": "string",
+                                              "const": "default"
+                                            },
+                                            "value": {
+                                              "type": "string"
+                                            }
+                                          },
+                                          "required": [
+                                            "op",
+                                            "value"
+                                          ]
+                                        },
+                                        {
+                                          "type": "object",
+                                          "properties": {
+                                            "op": {
+                                              "type": "string",
+                                              "const": "extract"
+                                            },
+                                            "pattern": {
+                                              "type": "string",
+                                              "minLength": 1,
+                                              "maxLength": 200
+                                            }
+                                          },
+                                          "required": [
+                                            "op",
+                                            "pattern"
+                                          ]
+                                        }
+                                      ]
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "source",
+                                  "field"
+                                ]
+                              }
+                            }
+                          },
+                          "required": [
+                            "headers",
+                            "entity",
+                            "columns"
+                          ]
+                        }
+                      },
                       "settings": {
                         "default": {},
                         "type": "object",
@@ -16256,6 +16682,221 @@
                     "config": {
                       "type": "object",
                       "properties": {
+                        "templates": {
+                          "default": [],
+                          "maxItems": 100,
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "headers": {
+                                "maxItems": 200,
+                                "type": "array",
+                                "items": {
+                                  "type": "string"
+                                }
+                              },
+                              "entity": {
+                                "type": "string",
+                                "minLength": 1
+                              },
+                              "columns": {
+                                "maxItems": 200,
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "source": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 200
+                                    },
+                                    "field": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 60
+                                    },
+                                    "transforms": {
+                                      "default": [],
+                                      "maxItems": 10,
+                                      "type": "array",
+                                      "items": {
+                                        "oneOf": [
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "op": {
+                                                "type": "string",
+                                                "const": "trim"
+                                              }
+                                            },
+                                            "required": [
+                                              "op"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "op": {
+                                                "type": "string",
+                                                "const": "upper"
+                                              }
+                                            },
+                                            "required": [
+                                              "op"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "op": {
+                                                "type": "string",
+                                                "const": "lower"
+                                              }
+                                            },
+                                            "required": [
+                                              "op"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "op": {
+                                                "type": "string",
+                                                "const": "date"
+                                              },
+                                              "format": {
+                                                "type": "string",
+                                                "enum": [
+                                                  "YYYY-MM-DD",
+                                                  "DD/MM/YYYY",
+                                                  "MM/DD/YYYY",
+                                                  "DD.MM.YYYY",
+                                                  "DD-MM-YYYY"
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "op",
+                                              "format"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "op": {
+                                                "type": "string",
+                                                "const": "number"
+                                              },
+                                              "decimalSeparator": {
+                                                "type": "string",
+                                                "enum": [
+                                                  ".",
+                                                  ","
+                                                ]
+                                              },
+                                              "thousandsSeparator": {
+                                                "type": "string",
+                                                "enum": [
+                                                  ",",
+                                                  ".",
+                                                  " ",
+                                                  "'",
+                                                  ""
+                                                ]
+                                              }
+                                            },
+                                            "required": [
+                                              "op",
+                                              "decimalSeparator",
+                                              "thousandsSeparator"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "op": {
+                                                "type": "string",
+                                                "const": "enum"
+                                              },
+                                              "map": {
+                                                "type": "object",
+                                                "propertyNames": {
+                                                  "type": "string"
+                                                },
+                                                "additionalProperties": {
+                                                  "type": "string"
+                                                }
+                                              }
+                                            },
+                                            "required": [
+                                              "op",
+                                              "map"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "op": {
+                                                "type": "string",
+                                                "const": "default"
+                                              },
+                                              "value": {
+                                                "type": "string"
+                                              }
+                                            },
+                                            "required": [
+                                              "op",
+                                              "value"
+                                            ],
+                                            "additionalProperties": false
+                                          },
+                                          {
+                                            "type": "object",
+                                            "properties": {
+                                              "op": {
+                                                "type": "string",
+                                                "const": "extract"
+                                              },
+                                              "pattern": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "maxLength": 200
+                                              }
+                                            },
+                                            "required": [
+                                              "op",
+                                              "pattern"
+                                            ],
+                                            "additionalProperties": false
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  },
+                                  "required": [
+                                    "source",
+                                    "field",
+                                    "transforms"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              }
+                            },
+                            "required": [
+                              "headers",
+                              "entity",
+                              "columns"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
                         "settings": {
                           "default": {},
                           "type": "object",
@@ -16343,6 +16984,7 @@
                         }
                       },
                       "required": [
+                        "templates",
                         "settings",
                         "entityHints",
                         "aliases",
@@ -18892,6 +19534,182 @@
                                 "type": "string"
                               }
                             }
+                          },
+                          "analysis": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "sheet": {
+                                    "type": "string"
+                                  },
+                                  "headerRow": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "classification": {
+                                    "type": "string",
+                                    "enum": [
+                                      "records",
+                                      "annual_matrix",
+                                      "unknown"
+                                    ]
+                                  },
+                                  "year": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "metadataRows": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    }
+                                  },
+                                  "mergedRanges": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "columnNumbers": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  },
+                                  "reconciliationChecks": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "column": {
+                                          "type": "string"
+                                        },
+                                        "sourceRow": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "sourceMinor": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "detectedMinor": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "ok": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "column",
+                                        "sourceRow",
+                                        "sourceMinor",
+                                        "detectedMinor",
+                                        "ok"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "totals": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "row": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "label": {
+                                          "type": "string"
+                                        },
+                                        "values": {
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      },
+                                      "required": [
+                                        "row",
+                                        "label",
+                                        "values"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "excludedRows": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "row": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "reason": {
+                                          "type": "string",
+                                          "enum": [
+                                            "blank",
+                                            "repeated_header",
+                                            "total"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "row",
+                                        "reason"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "warnings": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "sheet",
+                                  "headerRow",
+                                  "confidence",
+                                  "classification",
+                                  "year",
+                                  "metadataRows",
+                                  "excludedRows",
+                                  "warnings"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -19323,6 +20141,182 @@
                                 "type": "string"
                               }
                             }
+                          },
+                          "analysis": {
+                            "anyOf": [
+                              {
+                                "type": "object",
+                                "properties": {
+                                  "sheet": {
+                                    "type": "string"
+                                  },
+                                  "headerRow": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "confidence": {
+                                    "type": "number"
+                                  },
+                                  "classification": {
+                                    "type": "string",
+                                    "enum": [
+                                      "records",
+                                      "annual_matrix",
+                                      "unknown"
+                                    ]
+                                  },
+                                  "year": {
+                                    "anyOf": [
+                                      {
+                                        "type": "integer",
+                                        "minimum": -9007199254740991,
+                                        "maximum": 9007199254740991
+                                      },
+                                      {
+                                        "type": "null"
+                                      }
+                                    ]
+                                  },
+                                  "metadataRows": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "minimum": -9007199254740991,
+                                      "maximum": 9007199254740991
+                                    }
+                                  },
+                                  "mergedRanges": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  },
+                                  "columnNumbers": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "integer",
+                                      "exclusiveMinimum": 0,
+                                      "maximum": 9007199254740991
+                                    }
+                                  },
+                                  "reconciliationChecks": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "column": {
+                                          "type": "string"
+                                        },
+                                        "sourceRow": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "sourceMinor": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "detectedMinor": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "ok": {
+                                          "type": "boolean"
+                                        }
+                                      },
+                                      "required": [
+                                        "column",
+                                        "sourceRow",
+                                        "sourceMinor",
+                                        "detectedMinor",
+                                        "ok"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "totals": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "row": {
+                                          "type": "integer",
+                                          "exclusiveMinimum": 0,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "label": {
+                                          "type": "string"
+                                        },
+                                        "values": {
+                                          "type": "object",
+                                          "propertyNames": {
+                                            "type": "string"
+                                          },
+                                          "additionalProperties": {
+                                            "type": "string"
+                                          }
+                                        }
+                                      },
+                                      "required": [
+                                        "row",
+                                        "label",
+                                        "values"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "excludedRows": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "row": {
+                                          "type": "integer",
+                                          "minimum": -9007199254740991,
+                                          "maximum": 9007199254740991
+                                        },
+                                        "reason": {
+                                          "type": "string",
+                                          "enum": [
+                                            "blank",
+                                            "repeated_header",
+                                            "total"
+                                          ]
+                                        }
+                                      },
+                                      "required": [
+                                        "row",
+                                        "reason"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  },
+                                  "warnings": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "sheet",
+                                  "headerRow",
+                                  "confidence",
+                                  "classification",
+                                  "year",
+                                  "metadataRows",
+                                  "excludedRows",
+                                  "warnings"
+                                ],
+                                "additionalProperties": false
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
                           }
                         },
                         "required": [
@@ -19614,6 +20608,84 @@
                       "ignore",
                       "reason"
                     ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "headerRow": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": 1048576
+                      }
+                    },
+                    "required": [
+                      "headerRow"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "properties": {
+                      "normaliseAnnual": {
+                        "type": "object",
+                        "properties": {
+                          "propertyId": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "year": {
+                            "type": "integer",
+                            "minimum": 1900,
+                            "maximum": 2200
+                          },
+                          "unitColumn": {
+                            "type": "string"
+                          },
+                          "subjectColumn": {
+                            "type": "string",
+                            "minLength": 1
+                          },
+                          "subjectType": {
+                            "type": "string",
+                            "enum": [
+                              "tenant",
+                              "owner"
+                            ]
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "service_charge_summary",
+                              "rent_summary",
+                              "payment_summary",
+                              "balance_summary",
+                              "expense_summary"
+                            ]
+                          },
+                          "currency": {
+                            "type": "string",
+                            "minLength": 3,
+                            "maxLength": 3
+                          },
+                          "confirm": {
+                            "type": "string",
+                            "const": "REFERENCE ONLY"
+                          }
+                        },
+                        "required": [
+                          "propertyId",
+                          "year",
+                          "unitColumn",
+                          "subjectColumn",
+                          "subjectType",
+                          "kind",
+                          "currency",
+                          "confirm"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "normaliseAnnual"
+                    ]
                   }
                 ]
               }
@@ -19865,6 +20937,182 @@
                           "type": "string"
                         }
                       }
+                    },
+                    "analysis": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "sheet": {
+                              "type": "string"
+                            },
+                            "headerRow": {
+                              "type": "integer",
+                              "exclusiveMinimum": 0,
+                              "maximum": 9007199254740991
+                            },
+                            "confidence": {
+                              "type": "number"
+                            },
+                            "classification": {
+                              "type": "string",
+                              "enum": [
+                                "records",
+                                "annual_matrix",
+                                "unknown"
+                              ]
+                            },
+                            "year": {
+                              "anyOf": [
+                                {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                {
+                                  "type": "null"
+                                }
+                              ]
+                            },
+                            "metadataRows": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "minimum": -9007199254740991,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "mergedRanges": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            },
+                            "columnNumbers": {
+                              "type": "array",
+                              "items": {
+                                "type": "integer",
+                                "exclusiveMinimum": 0,
+                                "maximum": 9007199254740991
+                              }
+                            },
+                            "reconciliationChecks": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "column": {
+                                    "type": "string"
+                                  },
+                                  "sourceRow": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "sourceMinor": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "detectedMinor": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "ok": {
+                                    "type": "boolean"
+                                  }
+                                },
+                                "required": [
+                                  "column",
+                                  "sourceRow",
+                                  "sourceMinor",
+                                  "detectedMinor",
+                                  "ok"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "totals": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "row": {
+                                    "type": "integer",
+                                    "exclusiveMinimum": 0,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "label": {
+                                    "type": "string"
+                                  },
+                                  "values": {
+                                    "type": "object",
+                                    "propertyNames": {
+                                      "type": "string"
+                                    },
+                                    "additionalProperties": {
+                                      "type": "string"
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "row",
+                                  "label",
+                                  "values"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "excludedRows": {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "row": {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  "reason": {
+                                    "type": "string",
+                                    "enum": [
+                                      "blank",
+                                      "repeated_header",
+                                      "total"
+                                    ]
+                                  }
+                                },
+                                "required": [
+                                  "row",
+                                  "reason"
+                                ],
+                                "additionalProperties": false
+                              }
+                            },
+                            "warnings": {
+                              "type": "array",
+                              "items": {
+                                "type": "string"
+                              }
+                            }
+                          },
+                          "required": [
+                            "sheet",
+                            "headerRow",
+                            "confidence",
+                            "classification",
+                            "year",
+                            "metadataRows",
+                            "excludedRows",
+                            "warnings"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -141448,8 +142696,46 @@
                           "status": {
                             "type": "string",
                             "enum": [
+                              "draft",
                               "active",
                               "ended"
+                            ]
+                          },
+                          "ownershipId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "managementModel": {
+                            "type": "string",
+                            "enum": [
+                              "owner_managed",
+                              "developer_managed",
+                              "third_party"
+                            ]
+                          },
+                          "managementCompany": {
+                            "type": "string"
+                          },
+                          "evidenceRef": {
+                            "type": "string"
+                          },
+                          "signedOn": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                              },
+                              {
+                                "type": "null"
+                              }
                             ]
                           }
                         },
@@ -142180,6 +143466,11 @@
                     "type": "string",
                     "minLength": 1,
                     "maxLength": 160
+                  },
+                  "floors": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 300
                   }
                 },
                 "required": [
@@ -142657,6 +143948,9 @@
                       "available",
                       "off_market"
                     ]
+                  },
+                  "archive": {
+                    "type": "boolean"
                   }
                 }
               }
@@ -142909,8 +144203,46 @@
                           "status": {
                             "type": "string",
                             "enum": [
+                              "draft",
                               "active",
                               "ended"
+                            ]
+                          },
+                          "ownershipId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "managementModel": {
+                            "type": "string",
+                            "enum": [
+                              "owner_managed",
+                              "developer_managed",
+                              "third_party"
+                            ]
+                          },
+                          "managementCompany": {
+                            "type": "string"
+                          },
+                          "evidenceRef": {
+                            "type": "string"
+                          },
+                          "signedOn": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                              },
+                              {
+                                "type": "null"
+                              }
                             ]
                           }
                         },
@@ -142954,7 +144286,7 @@
       },
       "post": {
         "operationId": "property.agreements.create",
-        "summary": "Record an owner's management agreement for a property (or one unit): fee %, spending authority, payout day. The owner becomes a contact of type owner.",
+        "summary": "Save draft management authority linked to recorded ownership. Owner-managed authority needs no third-party contract; signing and administrator activation are separate.",
         "security": [
           {
             "bearer": []
@@ -143012,6 +144344,41 @@
                   "startDate": {
                     "type": "string",
                     "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "endDate": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "ownershipId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "managementModel": {
+                    "default": "third_party",
+                    "type": "string",
+                    "enum": [
+                      "owner_managed",
+                      "developer_managed",
+                      "third_party"
+                    ]
+                  },
+                  "managementCompany": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 160
+                  },
+                  "evidenceRef": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 1000
                   }
                 },
                 "required": [
@@ -143086,8 +144453,46 @@
                     "status": {
                       "type": "string",
                       "enum": [
+                        "draft",
                         "active",
                         "ended"
+                      ]
+                    },
+                    "ownershipId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "managementModel": {
+                      "type": "string",
+                      "enum": [
+                        "owner_managed",
+                        "developer_managed",
+                        "third_party"
+                      ]
+                    },
+                    "managementCompany": {
+                      "type": "string"
+                    },
+                    "evidenceRef": {
+                      "type": "string"
+                    },
+                    "signedOn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     }
                   },
@@ -143104,6 +144509,1324 @@
                     "startDate",
                     "endDate",
                     "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/historical-summaries": {
+      "get": {
+        "operationId": "property.history.list",
+        "summary": "Non-posting historical monthly reference amounts, with original worksheet/cell provenance",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "propertyId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 100,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "records": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "propertyName": {
+                            "type": "string"
+                          },
+                          "unitLabel": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "period": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                          },
+                          "subject": {
+                            "type": "string"
+                          },
+                          "subjectType": {
+                            "type": "string"
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "currency": {
+                            "type": "string"
+                          },
+                          "sourceWorkbook": {
+                            "type": "string"
+                          },
+                          "sourceWorksheet": {
+                            "type": "string"
+                          },
+                          "sourceCell": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "propertyName",
+                          "unitLabel",
+                          "kind",
+                          "period",
+                          "subject",
+                          "subjectType",
+                          "amountMinor",
+                          "currency",
+                          "sourceWorkbook",
+                          "sourceWorksheet",
+                          "sourceCell"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "total",
+                    "records"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/ownerships": {
+      "get": {
+        "operationId": "property.ownerships.list",
+        "summary": "Recorded property and unit ownership, including pending verification",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "propertyId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "ownerships": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "propertyId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "unitId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "ownerId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "ownerName": {
+                            "type": "string"
+                          },
+                          "ownerType": {
+                            "type": "string",
+                            "enum": [
+                              "individual",
+                              "company"
+                            ]
+                          },
+                          "evidenceRef": {
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "verified",
+                              "revoked"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "propertyId",
+                          "unitId",
+                          "ownerId",
+                          "ownerName",
+                          "ownerType",
+                          "evidenceRef",
+                          "note",
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "ownerships"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "property.ownerships.create",
+        "summary": "Record ownership for a property or selected units; administrator verification is separate",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "propertyId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "unitIds": {
+                    "minItems": 1,
+                    "maxItems": 1000,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    }
+                  },
+                  "ownerId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "ownerType": {
+                    "type": "string",
+                    "enum": [
+                      "individual",
+                      "company"
+                    ]
+                  },
+                  "evidenceRef": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "note": {
+                    "default": "",
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "propertyId",
+                  "ownerId",
+                  "ownerType"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "ownerships": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "propertyId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "unitId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "ownerId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "ownerName": {
+                            "type": "string"
+                          },
+                          "ownerType": {
+                            "type": "string",
+                            "enum": [
+                              "individual",
+                              "company"
+                            ]
+                          },
+                          "evidenceRef": {
+                            "type": "string"
+                          },
+                          "note": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "pending",
+                              "verified",
+                              "revoked"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "propertyId",
+                          "unitId",
+                          "ownerId",
+                          "ownerName",
+                          "ownerType",
+                          "evidenceRef",
+                          "note",
+                          "status"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "ownerships"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/ownerships/{ownershipId}": {
+      "put": {
+        "operationId": "property.ownerships.update",
+        "summary": "Correct ownership evidence or owner; changes require verification again",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ownershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "ownerId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "evidenceRef": {
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "note": {
+                    "type": "string",
+                    "maxLength": 2000
+                  }
+                },
+                "required": [
+                  "ownerId",
+                  "evidenceRef",
+                  "note"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "propertyId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "unitId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ownerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "ownerName": {
+                      "type": "string"
+                    },
+                    "ownerType": {
+                      "type": "string",
+                      "enum": [
+                        "individual",
+                        "company"
+                      ]
+                    },
+                    "evidenceRef": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "verified",
+                        "revoked"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "propertyId",
+                    "unitId",
+                    "ownerId",
+                    "ownerName",
+                    "ownerType",
+                    "evidenceRef",
+                    "note",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/ownerships/{ownershipId}/verify": {
+      "post": {
+        "operationId": "property.ownerships.verify",
+        "summary": "Administrator confirms reviewed ownership evidence; never inferred from tenant or property name",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "ownershipId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "type": "string",
+                    "const": "VERIFIED"
+                  }
+                },
+                "required": [
+                  "confirm"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "propertyId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "unitId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "ownerId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "ownerName": {
+                      "type": "string"
+                    },
+                    "ownerType": {
+                      "type": "string",
+                      "enum": [
+                        "individual",
+                        "company"
+                      ]
+                    },
+                    "evidenceRef": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "pending",
+                        "verified",
+                        "revoked"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "propertyId",
+                    "unitId",
+                    "ownerId",
+                    "ownerName",
+                    "ownerType",
+                    "evidenceRef",
+                    "note",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/agreements/{agreementId}": {
+      "put": {
+        "operationId": "property.agreements.update",
+        "summary": "Complete or correct a draft management authority without activating it",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agreementId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "managementCompany": {
+                    "type": "string",
+                    "maxLength": 160
+                  },
+                  "evidenceRef": {
+                    "type": "string",
+                    "maxLength": 1000
+                  },
+                  "startDate": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "endDate": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "feePct": {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 30
+                  },
+                  "authorityMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "payoutDay": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 28
+                  }
+                },
+                "required": [
+                  "managementCompany",
+                  "evidenceRef",
+                  "startDate",
+                  "endDate",
+                  "feePct",
+                  "authorityMinor",
+                  "payoutDay"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "number": {
+                      "type": "string"
+                    },
+                    "propertyId": {
+                      "type": "string"
+                    },
+                    "unitId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "ownerId": {
+                      "type": "string"
+                    },
+                    "ownerName": {
+                      "type": "string"
+                    },
+                    "feePct": {
+                      "type": "number"
+                    },
+                    "authorityMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "payoutDay": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "startDate": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "endDate": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "active",
+                        "ended"
+                      ]
+                    },
+                    "ownershipId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "managementModel": {
+                      "type": "string",
+                      "enum": [
+                        "owner_managed",
+                        "developer_managed",
+                        "third_party"
+                      ]
+                    },
+                    "managementCompany": {
+                      "type": "string"
+                    },
+                    "evidenceRef": {
+                      "type": "string"
+                    },
+                    "signedOn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "number",
+                    "propertyId",
+                    "unitId",
+                    "ownerId",
+                    "ownerName",
+                    "feePct",
+                    "authorityMinor",
+                    "payoutDay",
+                    "startDate",
+                    "endDate",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/agreements/{agreementId}/activate": {
+      "post": {
+        "operationId": "property.agreements.activate",
+        "summary": "Administrator activates verified management authority, requiring signed evidence for third-party management",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "agreementId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "type": "string",
+                    "const": "ACTIVATE"
+                  },
+                  "signedOn": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  }
+                },
+                "required": [
+                  "confirm"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "number": {
+                      "type": "string"
+                    },
+                    "propertyId": {
+                      "type": "string"
+                    },
+                    "unitId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "ownerId": {
+                      "type": "string"
+                    },
+                    "ownerName": {
+                      "type": "string"
+                    },
+                    "feePct": {
+                      "type": "number"
+                    },
+                    "authorityMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "payoutDay": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "startDate": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "endDate": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "active",
+                        "ended"
+                      ]
+                    },
+                    "ownershipId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "managementModel": {
+                      "type": "string",
+                      "enum": [
+                        "owner_managed",
+                        "developer_managed",
+                        "third_party"
+                      ]
+                    },
+                    "managementCompany": {
+                      "type": "string"
+                    },
+                    "evidenceRef": {
+                      "type": "string"
+                    },
+                    "signedOn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "number",
+                    "propertyId",
+                    "unitId",
+                    "ownerId",
+                    "ownerName",
+                    "feePct",
+                    "authorityMinor",
+                    "payoutDay",
+                    "startDate",
+                    "endDate",
+                    "status"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/leases/{leaseId}/activation-preview": {
+      "post": {
+        "operationId": "property.leases.activationPreview",
+        "summary": "Preview activation in a rolled-back transaction; no lease, invoice or ledger changes are committed",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "leaseId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "signedOn": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "billFirstRent": {
+                    "default": false,
+                    "type": "boolean"
+                  },
+                  "billingMode": {
+                    "default": "standard",
+                    "type": "string",
+                    "enum": [
+                      "standard",
+                      "historical"
+                    ]
+                  },
+                  "billDeposit": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "firstRentPeriod": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                  },
+                  "expectedRentMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "expectedDepositMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "signedOn"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "rentMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "depositMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "period": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "issueDate": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "dueDate": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "rentMinor",
+                    "depositMinor",
+                    "period",
+                    "issueDate",
+                    "dueDate",
+                    "note"
                   ],
                   "additionalProperties": false
                 }
@@ -143237,8 +145960,46 @@
                     "status": {
                       "type": "string",
                       "enum": [
+                        "draft",
                         "active",
                         "ended"
+                      ]
+                    },
+                    "ownershipId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "managementModel": {
+                      "type": "string",
+                      "enum": [
+                        "owner_managed",
+                        "developer_managed",
+                        "third_party"
+                      ]
+                    },
+                    "managementCompany": {
+                      "type": "string"
+                    },
+                    "evidenceRef": {
+                      "type": "string"
+                    },
+                    "signedOn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
                       ]
                     }
                   },
@@ -143386,8 +146147,46 @@
                                 "status": {
                                   "type": "string",
                                   "enum": [
+                                    "draft",
                                     "active",
                                     "ended"
+                                  ]
+                                },
+                                "ownershipId": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 80
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
+                                  ]
+                                },
+                                "managementModel": {
+                                  "type": "string",
+                                  "enum": [
+                                    "owner_managed",
+                                    "developer_managed",
+                                    "third_party"
+                                  ]
+                                },
+                                "managementCompany": {
+                                  "type": "string"
+                                },
+                                "evidenceRef": {
+                                  "type": "string"
+                                },
+                                "signedOn": {
+                                  "anyOf": [
+                                    {
+                                      "type": "string",
+                                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                    },
+                                    {
+                                      "type": "null"
+                                    }
                                   ]
                                 }
                               },
@@ -143583,8 +146382,46 @@
                           "status": {
                             "type": "string",
                             "enum": [
+                              "draft",
                               "active",
                               "ended"
+                            ]
+                          },
+                          "ownershipId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "managementModel": {
+                            "type": "string",
+                            "enum": [
+                              "owner_managed",
+                              "developer_managed",
+                              "third_party"
+                            ]
+                          },
+                          "managementCompany": {
+                            "type": "string"
+                          },
+                          "evidenceRef": {
+                            "type": "string"
+                          },
+                          "signedOn": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                              },
+                              {
+                                "type": "null"
+                              }
                             ]
                           }
                         },
@@ -145489,6 +148326,32 @@
                   "billFirstRent": {
                     "default": false,
                     "type": "boolean"
+                  },
+                  "billingMode": {
+                    "default": "standard",
+                    "type": "string",
+                    "enum": [
+                      "standard",
+                      "historical"
+                    ]
+                  },
+                  "billDeposit": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "firstRentPeriod": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-(0[1-9]|1[0-2])$"
+                  },
+                  "expectedRentMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "expectedDepositMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
                   }
                 },
                 "required": [

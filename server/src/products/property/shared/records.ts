@@ -54,7 +54,12 @@ export interface AgreementRow {
   payout_day: number;
   start_date: string;
   end_date: string | null;
-  status: "active" | "ended";
+  status: "draft" | "active" | "ended";
+  ownership_id?: string | null;
+  management_model?: "owner_managed" | "developer_managed" | "third_party";
+  management_company?: string;
+  evidence_ref?: string;
+  signed_on?: string | null;
 }
 
 export interface LeaseRow {
@@ -174,6 +179,11 @@ export const toAgreement = (r: AgreementRow): P.Agreement => ({
   startDate: r.start_date,
   endDate: r.end_date,
   status: r.status,
+  ownershipId: r.ownership_id ?? null,
+  managementModel: r.management_model ?? "third_party",
+  managementCompany: r.management_company ?? "",
+  evidenceRef: r.evidence_ref ?? "",
+  signedOn: r.signed_on ?? null,
 });
 
 const allocationOut = (a: AllocationRow): P.Allocation => ({
@@ -195,12 +205,20 @@ export const agreements = (db: Db, orgId: string, where = "TRUE", params: unknow
   ]);
 
 /** The active agreement covering a unit: the unit's own, else the property's. */
-export async function agreementForUnit(db: Db, orgId: string, unitId: string): Promise<AgreementRow | null> {
+export async function agreementForUnit(
+  db: Db,
+  orgId: string,
+  unitId: string,
+  onDate?: string,
+): Promise<AgreementRow | null> {
   return db.row<AgreementRow>(
     `${AGREEMENT_SQL} JOIN pm_units u ON u.id = $2 AND u.property_id = a.property_id
-     WHERE a.org_id = $1 AND a.status = 'active' AND (a.unit_id = u.id OR a.unit_id IS NULL)
+     WHERE a.org_id = $1 AND u.org_id=$1 AND a.status = 'active' AND (a.unit_id = u.id OR a.unit_id IS NULL)
+     AND ($3::date IS NULL OR (a.start_date <= $3 AND (a.end_date IS NULL OR a.end_date >= $3)))
+     AND NOT EXISTS(SELECT 1 FROM pm_ownerships specific WHERE specific.org_id=$1 AND specific.unit_id=u.id AND specific.status<>'revoked' AND (specific.status<>'verified' OR specific.owner_id<>a.owner_id))
+     AND (a.ownership_id IS NULL OR EXISTS(SELECT 1 FROM pm_ownerships o WHERE o.id=a.ownership_id AND o.org_id=$1 AND o.status='verified' AND o.owner_id=a.owner_id AND o.property_id=a.property_id AND (o.unit_id IS NULL OR o.unit_id=u.id)))
      ORDER BY (a.unit_id IS NULL), a.start_date DESC LIMIT 1`,
-    [orgId, unitId],
+    [orgId, unitId, onDate ?? null],
   );
 }
 

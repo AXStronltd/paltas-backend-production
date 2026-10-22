@@ -187,7 +187,12 @@ export const Agreement = z.object({
   payoutDay: z.number().int(),
   startDate: IsoDate,
   endDate: IsoDate.nullable(),
-  status: z.enum(["active", "ended"]),
+  status: z.enum(["draft", "active", "ended"]),
+  ownershipId: Id.nullable().optional(),
+  managementModel: z.enum(["owner_managed", "developer_managed", "third_party"]).optional(),
+  managementCompany: z.string().optional(),
+  evidenceRef: z.string().optional(),
+  signedOn: IsoDate.nullable().optional(),
 });
 export type Agreement = z.infer<typeof Agreement>;
 
@@ -1083,6 +1088,129 @@ export const updateUnit = endpoint({
   response: Unit,
 });
 
+export const listHistoricalSummaries = endpoint({
+  id: "property.history.list",
+  method: "GET",
+  path: `${Base}/historical-summaries`,
+  auth: "user",
+  summary: "Non-posting historical monthly reference amounts, with original worksheet/cell provenance",
+  params: OrgParams,
+  query: z.object({
+    propertyId: Id.optional(),
+    offset: z.coerce.number().int().min(0).default(0),
+    limit: z.coerce.number().int().min(1).max(200).default(100),
+  }),
+  response: z.object({
+    total: z.number().int(),
+    records: z.array(
+      z.object({
+        id: Id,
+        propertyName: z.string(),
+        unitLabel: z.string().nullable(),
+        kind: z.string(),
+        period: IsoMonth,
+        subject: z.string(),
+        subjectType: z.string(),
+        amountMinor: MinorUnits,
+        currency: z.string(),
+        sourceWorkbook: z.string(),
+        sourceWorksheet: z.string(),
+        sourceCell: z.string(),
+      }),
+    ),
+  }),
+});
+
+export const Ownership = z.object({
+  id: Id,
+  propertyId: Id,
+  unitId: Id.nullable(),
+  ownerId: Id,
+  ownerName: z.string(),
+  ownerType: z.enum(["individual", "company"]),
+  evidenceRef: z.string(),
+  note: z.string(),
+  status: z.enum(["pending", "verified", "revoked"]),
+});
+export const listOwnerships = endpoint({
+  id: "property.ownerships.list",
+  method: "GET",
+  path: `${Base}/ownerships`,
+  auth: "user",
+  summary: "Recorded property and unit ownership, including pending verification",
+  params: OrgParams,
+  query: z.object({ propertyId: Id.optional() }),
+  response: z.object({ ownerships: z.array(Ownership) }),
+});
+export const createOwnership = endpoint({
+  id: "property.ownerships.create",
+  method: "POST",
+  path: `${Base}/ownerships`,
+  auth: "user",
+  summary: "Record ownership for a property or selected units; administrator verification is separate",
+  params: OrgParams,
+  body: z.object({
+    propertyId: Id,
+    unitIds: z.array(Id).min(1).max(1000).optional(),
+    ownerId: Id,
+    ownerType: z.enum(["individual", "company"]),
+    evidenceRef: z.string().trim().max(1000).default(""),
+    note: z.string().trim().max(2000).default(""),
+  }),
+  response: z.object({ ownerships: z.array(Ownership) }),
+  status: 201,
+});
+export const verifyOwnership = endpoint({
+  id: "property.ownerships.verify",
+  method: "POST",
+  path: `${Base}/ownerships/:ownershipId/verify`,
+  auth: "user",
+  summary: "Administrator confirms reviewed ownership evidence; never inferred from tenant or property name",
+  params: OrgParams.extend({ ownershipId: Id }),
+  body: z.object({ confirm: z.literal("VERIFIED") }),
+  response: Ownership,
+});
+export const updateOwnership = endpoint({
+  id: "property.ownerships.update",
+  method: "PUT",
+  path: `${Base}/ownerships/:ownershipId`,
+  auth: "user",
+  summary: "Correct ownership evidence or owner; changes require verification again",
+  params: OrgParams.extend({ ownershipId: Id }),
+  body: z.object({ ownerId: Id, evidenceRef: z.string().trim().max(1000), note: z.string().trim().max(2000) }),
+  response: Ownership,
+});
+export const updateAgreement = endpoint({
+  id: "property.agreements.update",
+  method: "PUT",
+  path: `${Base}/agreements/:agreementId`,
+  auth: "user",
+  summary: "Complete or correct a draft management authority without activating it",
+  params: OrgParams.extend({ agreementId: Id }),
+  body: z.object({
+    managementCompany: z.string().trim().max(160),
+    evidenceRef: z.string().trim().max(1000),
+    startDate: IsoDate,
+    endDate: IsoDate.nullable(),
+    feePct: z.number().min(0).max(30),
+    authorityMinor: NonNegativeMinor,
+    payoutDay: z.number().int().min(1).max(28),
+  }),
+  response: Agreement,
+});
+
+export const activateAgreement = endpoint({
+  id: "property.agreements.activate",
+  method: "POST",
+  path: `${Base}/agreements/:agreementId/activate`,
+  auth: "user",
+  summary:
+    "Administrator activates verified management authority, requiring signed evidence for third-party management",
+  params: OrgParams.extend({ agreementId: Id }),
+  body: z.object({ confirm: z.literal("ACTIVATE"), signedOn: IsoDate.optional() }),
+  response: Agreement,
+});
+
 export const listAgreements = endpoint({
   id: "property.agreements.list",
   method: "GET",
@@ -1100,7 +1228,7 @@ export const createAgreement = endpoint({
   path: `${Base}/agreements`,
   auth: "user",
   summary:
-    "Record an owner's management agreement for a property (or one unit): fee %, spending authority, payout day. The owner becomes a contact of type owner.",
+    "Save draft management authority linked to recorded ownership. Owner-managed authority needs no third-party contract; signing and administrator activation are separate.",
   params: OrgParams,
   body: z.object({
     propertyId: Id,
@@ -1110,6 +1238,11 @@ export const createAgreement = endpoint({
     authorityMinor: NonNegativeMinor,
     payoutDay: z.number().int().min(1).max(28).default(10),
     startDate: IsoDate,
+    endDate: IsoDate.nullable().optional(),
+    ownershipId: Id.optional(),
+    managementModel: z.enum(["owner_managed", "developer_managed", "third_party"]).default("third_party"),
+    managementCompany: z.string().trim().max(160).default(""),
+    evidenceRef: z.string().trim().max(1000).default(""),
   }),
   response: Agreement,
   status: 201,
@@ -1205,6 +1338,34 @@ export const updateLease = endpoint({
   response: Lease,
 });
 
+export const ActivationOptions = z.object({
+  signedOn: IsoDate,
+  billFirstRent: z.boolean().default(false),
+  billingMode: z.enum(["standard", "historical"]).default("standard"),
+  billDeposit: z.boolean().default(true),
+  firstRentPeriod: IsoMonth.optional(),
+  expectedRentMinor: NonNegativeMinor.optional(),
+  expectedDepositMinor: NonNegativeMinor.optional(),
+});
+export const ActivationPreview = z.object({
+  rentMinor: NonNegativeMinor,
+  depositMinor: NonNegativeMinor,
+  period: IsoMonth.nullable(),
+  issueDate: IsoDate.nullable(),
+  dueDate: IsoDate.nullable(),
+  note: z.string(),
+});
+export const previewLeaseActivation = endpoint({
+  id: "property.leases.activationPreview",
+  method: "POST",
+  path: `${Base}/leases/:leaseId/activation-preview`,
+  auth: "user",
+  summary: "Preview activation in a rolled-back transaction; no lease, invoice or ledger changes are committed",
+  params: LeaseParams,
+  body: ActivationOptions,
+  response: ActivationPreview,
+});
+
 export const activateLease = endpoint({
   id: "property.leases.activate",
   method: "POST",
@@ -1213,7 +1374,7 @@ export const activateLease = endpoint({
   summary:
     "Activate a signed lease: the unit must be free for its dates and covered by a management agreement; rent steps are written for escalations and the deposit is invoiced",
   params: LeaseParams,
-  body: z.object({ signedOn: IsoDate, billFirstRent: z.boolean().default(false) }),
+  body: ActivationOptions,
   response: z.object({
     lease: Lease,
     depositInvoice: Invoice.nullable(),

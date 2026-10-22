@@ -8,6 +8,7 @@
  * (a file, a mapping, a row) sends the job back, which also withdraws a dry run or an approval: what was approved is
  * exactly what is imported. Every change is audited against the job (audit_log.target = job id).
  */
+import { createHash } from "node:crypto";
 import type {
   ColumnMapping,
   MigrationRow,
@@ -54,6 +55,7 @@ import {
 import { reconcileJob } from "./reconcile.js";
 import { buildReport } from "./report.js";
 import { CHUNK_BYTES, uploads, zipLimits } from "./uploads.js";
+import { convert } from "./transforms.js";
 import { runValidation } from "./validation.js";
 import { createWorker } from "./worker.js";
 
@@ -219,7 +221,10 @@ export function migrationService(ctx: AppContext, deps: { ledger: LedgerService 
       id: String(r.id),
       tableId: r.table_id,
       table: tables.get(r.table_id) ?? "",
-      rowNo: r.row_no,
+      rowNo:
+        r.entity === "historical_summary" && /^[A-Z]{1,3}[0-9]{1,7}$/.test(r.raw.source_cell ?? "")
+          ? Number((r.raw.source_cell ?? "").replace(/^[A-Z]+/, ""))
+          : r.row_no,
       entity: r.entity,
       sourceRecordId: r.source_record_id,
       status: r.status,
@@ -346,6 +351,7 @@ export function migrationService(ctx: AppContext, deps: { ledger: LedgerService 
                 label: f.label,
                 type: f.type,
                 required: !!f.required,
+                aliases: [...(f.aliases ?? [])],
                 ...(f.values ? { values: [...f.values] } : {}),
                 ...(f.ref ? { ref: f.ref } : {}),
               })),
@@ -571,18 +577,21 @@ export function migrationService(ctx: AppContext, deps: { ledger: LedgerService 
             tables = readTables(f.detected_type as "csv", f.filename, f.content, zipLimits(settings));
           } catch (e) {
             if (!(e instanceof UnreadableFile || e instanceof ZipRefused || e instanceof SyntaxError)) throw e;
-            await t.run("UPDATE mig_files SET status = 'refused', refusal = $2, content = NULL WHERE id = $1", [
-              f.id,
-              `Could not be read: ${e.message}`,
-            ]);
+            await t.run(
+              "UPDATE mig_files SET status = CASE WHEN $3::boolean THEN 'refused' ELSE 'stored' END, refusal = $2, content = CASE WHEN $3::boolean THEN NULL ELSE content END WHERE id = $1",
+              [f.id, `Could not be read: ${e.message}`, e instanceof ZipRefused],
+            );
             continue;
           }
           for (const tb of tables) {
-            const guess = guessEntity(d, tb.name, f.filename, tb.headers, profile);
+            const guess =
+              tb.analysis?.classification === "annual_matrix"
+                ? { entity: null, confidence: 0, mapping: [] }
+                : guessEntity(d, tb.name, f.filename, tb.headers, profile);
             const id = newId("mtb");
             await t.run(
-              `INSERT INTO mig_tables (id, org_id, job_id, file_id, name, headers, row_count, entity, confidence, mapping, sample)
-               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+              `INSERT INTO mig_tables (id, org_id, job_id, file_id, name, headers, row_count, entity, confidence, mapping, sample, analysis)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
               [
                 id,
                 job.org_id,
@@ -595,9 +604,10 @@ export function migrationService(ctx: AppContext, deps: { ledger: LedgerService 
                 guess.confidence,
                 JSON.stringify(guess.mapping),
                 JSON.stringify(tb.rows.slice(0, 5)),
+                JSON.stringify(tb.analysis ?? null),
               ],
             );
-            await insertRows(t, job.org_id, job.id, id, tb.rows);
+            await insertRows(t, job.org_id, job.id, id, tb.rows, tb.sourceRows);
             tableCount++;
           }
         }
@@ -625,7 +635,23 @@ export function migrationService(ctx: AppContext, deps: { ledger: LedgerService 
       s: OrgScope,
       jobId: string,
       tableId: string,
-      input: { entity: string; columns: ColumnMapping[] } | { ignore: true; reason: string },
+      input:
+        | { entity: string; columns: ColumnMapping[] }
+        | { ignore: true; reason: string }
+        | { headerRow: number }
+        | {
+            normaliseAnnual: {
+              propertyId: string;
+              year: number;
+              unitColumn: string;
+              subjectColumn: string;
+              subjectType: "tenant" | "owner";
+              kind:
+                "service_charge_summary" | "rent_summary" | "payment_summary" | "balance_summary" | "expense_summary";
+              currency: string;
+              confirm: "REFERENCE ONLY";
+            };
+          },
     ) {
       return db.tx(async (t) => {
         const job = await load(t, s.orgId, jobId, true);
@@ -637,7 +663,214 @@ export function migrationService(ctx: AppContext, deps: { ledger: LedgerService 
           tableId,
         ]);
         if (!table) throw fail.notFound("Table not found");
-        if ("ignore" in input) {
+        if ("normaliseAnnual" in input) {
+          const b = input.normaliseAnnual;
+          if (job.domain !== "property" || table.analysis?.classification !== "annual_matrix")
+            throw fail.invalid("Choose a detected annual property report before preparing monthly reference history");
+          if (!table.headers.includes(b.subjectColumn) || (b.unitColumn && !table.headers.includes(b.unitColumn)))
+            throw fail.invalid("Choose actual name and unit columns from this worksheet");
+          if (!b.unitColumn && b.kind !== "expense_summary")
+            throw fail.invalid(
+              "Select the apartment identifier column; a tenant or owner name is not assumed to be an apartment",
+            );
+          if (!(await t.row("SELECT id FROM pm_properties WHERE org_id=$1 AND id=$2", [s.orgId, b.propertyId])))
+            throw fail.notFound("Property not found");
+          const f = await t.row<{ filename: string }>("SELECT filename FROM mig_files WHERE id=$1 AND org_id=$2", [
+            table.file_id,
+            s.orgId,
+          ]);
+          if (!f) throw fail.notFound("Source workbook not found");
+          const source = await t.rows<{ row_no: number; raw: Record<string, string> }>(
+            "SELECT row_no,raw FROM mig_rows WHERE job_id=$1 AND table_id=$2 ORDER BY id",
+            [job.id, tableId],
+          );
+          const months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+          const monthly = table.headers
+            .map((h, i) => ({
+              header: h,
+              column: table.analysis?.columnNumbers?.[i] ?? i + 1,
+              month: months.indexOf(h.trim().toLowerCase().slice(0, 3)) + 1,
+            }))
+            .filter((x) => x.month > 0);
+          const letter = (n: number): string =>
+            n > 26
+              ? letter(Math.floor((n - 1) / 26)) + String.fromCharCode(65 + ((n - 1) % 26))
+              : String.fromCharCode(64 + n);
+          const rows: Record<string, string>[] = [];
+          let blanks = 0;
+          for (const r of source)
+            for (const m of monthly) {
+              const amount = r.raw[m.header] ?? "";
+              if (!amount.trim()) {
+                blanks++;
+                continue;
+              }
+              const cell = letter(m.column) + r.row_no;
+              if (rows.length >= 100_000)
+                throw fail.invalid(
+                  "This monthly report would exceed 100,000 reference records. Split it into smaller financial-year files before preparing the preview",
+                );
+              rows.push({
+                source_record_id: createHash("sha256")
+                  .update(JSON.stringify([b.propertyId, b.kind, b.year, table.analysis.sheet, cell]))
+                  .digest("hex"),
+                property_id: b.propertyId,
+                unit_label: b.unitColumn ? (r.raw[b.unitColumn] ?? "") : "",
+                record_kind: b.kind,
+                period: `${b.year}-${String(m.month).padStart(2, "0")}`,
+                source_subject: r.raw[b.subjectColumn] ?? "",
+                subject_type: b.subjectType,
+                amount,
+                currency: b.currency.toUpperCase(),
+                source_workbook: f.filename,
+                source_worksheet: table.analysis.sheet,
+                source_cell: cell,
+              });
+            }
+          if (!rows.length)
+            throw fail.invalid("No monthly amounts were found. Review the detected headings and selected columns");
+          if (b.currency.toUpperCase() !== job.currency)
+            throw fail.invalid(
+              "Use the original currency matching this workspace. PALTAS will not convert historical records automatically",
+            );
+          const totals = table.analysis.totals ?? [],
+            grand = totals.filter((x) => /^grand total/i.test(x.label));
+          const reported = grand.length === 1 ? grand[0] : totals.length === 1 ? totals[0] : undefined;
+          const reconciliationChecks: {
+            column: string;
+            sourceRow: number;
+            sourceMinor: number;
+            detectedMinor: number;
+            ok: boolean;
+          }[] = [];
+          const minor = (value: string, cell: string) => {
+            const n = convert(
+              { name: "amount", label: "Monthly amount", type: "money", signed: true },
+              value,
+              job.settings,
+              job.currency,
+            );
+            if (!n.ok || typeof n.value !== "number")
+              throw fail.invalid(`${table.name} · ${cell}: ${!n.ok ? n.message : "A monetary amount is required"}`);
+            return n.value;
+          };
+          if (reported)
+            for (const m of monthly) {
+              const value = reported.values[m.header] ?? "";
+              if (!value.trim()) continue;
+              const expected = minor(value, letter(m.column) + reported.row);
+              const sum = rows
+                .filter((r) => r.period === `${b.year}-${String(m.month).padStart(2, "0")}`)
+                .reduce((n, r) => n + BigInt(minor(r.amount ?? "", r.source_cell ?? "")), 0n);
+              if (sum > BigInt(Number.MAX_SAFE_INTEGER) || sum < BigInt(Number.MIN_SAFE_INTEGER))
+                throw fail.invalid("Monthly total exceeds the supported exact amount range");
+              const actual = Number(sum);
+              reconciliationChecks.push({
+                column: m.header,
+                sourceRow: reported.row,
+                sourceMinor: expected,
+                detectedMinor: actual,
+                ok: expected === actual,
+              });
+              if (expected !== actual)
+                throw fail.invalid(
+                  `${table.name} · ${m.header}: detected amounts do not agree with the reported total at ${letter(m.column) + reported.row}. Review table boundaries and missing rows before preparing history`,
+                  { sourceMinor: expected, detectedMinor: actual },
+                );
+            }
+
+          const headers = Object.keys(rows[0] ?? {}),
+            mapping = headers.map((field) => ({ source: field, field, transforms: [] }));
+          const analysis = {
+            ...table.analysis,
+            classification: "records",
+            reconciliationChecks,
+            warnings: [
+              ...table.analysis.warnings,
+              ...(table.headers.filter(
+                (h) => h !== b.unitColumn && h !== b.subjectColumn && !monthly.some((m) => m.header === h),
+              ).length
+                ? [
+                    "Not converted into monthly history: " +
+                      table.headers
+                        .filter(
+                          (h) => h !== b.unitColumn && h !== b.subjectColumn && !monthly.some((m) => m.header === h),
+                        )
+                        .join(", ") +
+                      ". These columns remain in the original workbook; review opening/closing balances and other information separately.",
+                  ]
+                : []),
+              ...(reconciliationChecks.length
+                ? [`${reconciliationChecks.length} monthly source totals reconciled exactly.`]
+                : [
+                    "No unambiguous monthly grand total was available; review the source totals manually before approving reference history.",
+                  ]),
+              `Prepared monthly REFERENCE history only: no invoices, payments, allocations or ledger entries will be created. ${blanks} blank amount cells were not interpreted as zero. Actual transaction dates are unknown and have not been invented.`,
+            ],
+          };
+          await t.run("DELETE FROM mig_rows WHERE job_id=$1 AND table_id=$2", [job.id, tableId]);
+          await t.run(
+            "UPDATE mig_tables SET headers=$2,row_count=$3,entity='historical_summary',confidence=1,mapping=$4,sample=$5,analysis=$6,ignored=false,ignore_reason=NULL,mapped_by=$7 WHERE id=$1",
+            [
+              tableId,
+              JSON.stringify(headers),
+              rows.length,
+              JSON.stringify(mapping),
+              JSON.stringify(rows.slice(0, 5)),
+              JSON.stringify(analysis),
+              s.userId,
+            ],
+          );
+          await insertRows(t, s.orgId, job.id, tableId, rows);
+          await audit(
+            t,
+            s.actor,
+            job,
+            "Monthly reference history prepared",
+            `${table.name}: ${rows.length} monthly amounts; meaning ${b.kind}, identity ${b.subjectType}, year ${b.year}. No live financial posting.`,
+          );
+        } else if ("headerRow" in input) {
+          const f = await t.row<FileRow & { content: Buffer }>(
+            "SELECT * FROM mig_files WHERE id=$1 AND org_id=$2 AND job_id=$3 AND status='stored'",
+            [table.file_id, s.orgId, job.id],
+          );
+          if (!f || !table.analysis) throw fail.invalid("Read this file again before choosing a header row");
+          let parsed;
+          try {
+            parsed = readTables(f.detected_type as "csv", f.filename, f.content, zipLimits(settings), {
+              [table.analysis.sheet]: input.headerRow,
+            });
+          } catch (e) {
+            if (e instanceof UnreadableFile) throw fail.invalid(e.message);
+            throw e;
+          }
+          const tb = parsed.find((x) => x.name === table.analysis?.sheet);
+          if (!tb?.analysis) throw fail.invalid("This worksheet cannot be reanalysed");
+          const guess =
+            tb.analysis.classification === "annual_matrix"
+              ? { entity: null, confidence: 0, mapping: [] }
+              : guessEntity(domainOf(job), tb.name, f.filename, tb.headers, await profileConfig(t, job));
+          await t.run(
+            "DELETE FROM mig_issues WHERE job_id=$1 AND row_id IN (SELECT id FROM mig_rows WHERE table_id=$2)",
+            [job.id, tableId],
+          );
+          await t.run("DELETE FROM mig_rows WHERE table_id=$1 AND job_id=$2", [tableId, job.id]);
+          await t.run(
+            "UPDATE mig_tables SET headers=$2,row_count=$3,entity=$4,confidence=$5,mapping=$6,sample=$7,analysis=$8,ignored=false,ignore_reason=NULL,mapped_by=NULL WHERE id=$1",
+            [
+              tableId,
+              JSON.stringify(tb.headers),
+              tb.rows.length,
+              guess.entity,
+              guess.confidence,
+              JSON.stringify(guess.mapping),
+              JSON.stringify(tb.rows.slice(0, 5)),
+              JSON.stringify(tb.analysis),
+            ],
+          );
+          await insertRows(t, job.org_id, job.id, tableId, tb.rows, tb.sourceRows);
+          await audit(t, s.actor, job, "Header row corrected", `${table.name}: row ${input.headerRow}`);
+        } else if ("ignore" in input) {
           await t.run(
             "UPDATE mig_tables SET ignored = true, ignore_reason = $2, entity = NULL, mapping = '[]', mapped_by = $3 WHERE id = $1",
             [tableId, input.reason, s.userId],
@@ -647,6 +880,15 @@ export function migrationService(ctx: AppContext, deps: { ledger: LedgerService 
           const d = domainOf(job);
           const spec = entityOf(d, input.entity);
           if (!spec && input.entity !== MANIFEST) throw fail.invalid(`Unknown entity ${input.entity}`);
+          if (table.analysis?.classification === "annual_matrix" && spec?.fields.some((f) => f.type === "money"))
+            throw fail.invalid(
+              "This worksheet is an annual monthly report, not a dated transaction export. Confirm whether amounts are charges, payments or balances and review unit matching before financial import. Do not map monthly totals to opening invoices.",
+              {
+                table: table.name,
+                headerRow: table.analysis.headerRow,
+                correction: { action: "review_historical_report", tableId },
+              },
+            );
           const allowed = new Set(spec ? [SOURCE_ID, ...spec.fields.map((f) => f.name)] : MANIFEST_FIELDS);
           const seen = new Set<string>();
           for (const c of input.columns) {

@@ -62,7 +62,42 @@ describe("custom blocks and safe archiving", () => {
     const tenantId = await contact("Almas tenant", ["tenant"]),
       ownerId = await contact("Almas owner", ["owner"]),
       today = S.app.clock.today();
-    await post("/agreements", { propertyId, ownerId, feePct: 10, authorityMinor: 0, startDate: today });
+    const own = await post("/ownerships", {
+      propertyId,
+      ownerId,
+      ownerType: "individual",
+      evidenceRef: "Synthetic ownership evidence",
+    });
+    expect(
+      (
+        await S.raw(
+          "POST",
+          base + "/ownerships/" + own.ownerships[0].id + "/verify",
+          { confirm: "VERIFIED" },
+          owner.token,
+        )
+      ).status,
+    ).toBe(200);
+    const agreement = await post("/agreements", {
+      propertyId,
+      ownerId,
+      ownershipId: own.ownerships[0].id,
+      managementCompany: "Synthetic management",
+      evidenceRef: "Synthetic signed agreement",
+      feePct: 10,
+      authorityMinor: 0,
+      startDate: today,
+    });
+    expect(
+      (
+        await S.raw(
+          "POST",
+          base + "/agreements/" + agreement.id + "/activate",
+          { confirm: "ACTIVATE", signedOn: today },
+          owner.token,
+        )
+      ).status,
+    ).toBe(200);
     for (const location of [{ buildingId: "wrong-block" }, { floor: "99" }]) {
       const mismatch = await S.raw(
         "POST",

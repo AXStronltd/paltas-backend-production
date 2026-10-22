@@ -13,6 +13,7 @@ import type {
   Reconciliation,
   ValidationSummary,
 } from "@paltas/contracts";
+import type { TableAnalysis } from "./files/tables.js";
 import type { Db } from "../../db/database.js";
 
 export interface JobRow {
@@ -77,6 +78,7 @@ export interface TableRow {
   ignored: boolean;
   mapping: ColumnMapping[];
   sample: Record<string, string>[];
+  analysis?: TableAnalysis | null;
 }
 
 export interface RowRow {
@@ -280,6 +282,7 @@ export function toTable(t: TableRow): MigrationTable {
     mapping: t.mapping,
     unmappedColumns: t.ignored ? [] : t.headers.filter((h) => !mapped.has(h)),
     sample: t.sample,
+    analysis: t.analysis ?? null,
   };
 }
 
@@ -298,7 +301,7 @@ export interface IssueRow {
 }
 
 export const ISSUE_SELECT = `SELECT i.id, i.row_id, i.document_id, i.entity, i.field, i.severity, i.code, i.message,
-    r.source_record_id, t.name AS table_name, r.row_no
+    r.source_record_id, t.name AS table_name, CASE WHEN r.entity='historical_summary' AND r.raw->>'source_cell' ~ '^[A-Z]{1,3}[0-9]{1,7}$' THEN regexp_replace(r.raw->>'source_cell','^[A-Z]+','')::int ELSE r.row_no END AS row_no
   FROM mig_issues i LEFT JOIN mig_rows r ON r.id = i.row_id LEFT JOIN mig_tables t ON t.id = r.table_id`;
 
 export const toIssue = (i: IssueRow): MigrationIssue => ({
@@ -357,13 +360,20 @@ export async function insertRows(
   jobId: string,
   tableId: string,
   rows: Record<string, string>[],
+  sourceRows?: number[],
 ): Promise<void> {
   for (let i = 0; i < rows.length; i += 1000) {
     const chunk = rows.slice(i, i + 1000);
     await db.run(
       `INSERT INTO mig_rows (org_id, job_id, table_id, row_no, raw)
        SELECT $1, $2, $3, n, r::jsonb FROM unnest($4::int[], $5::text[]) AS x(n, r)`,
-      [orgId, jobId, tableId, chunk.map((_, k) => i + k + 2), chunk.map((r) => JSON.stringify(r))],
+      [
+        orgId,
+        jobId,
+        tableId,
+        chunk.map((_, k) => sourceRows?.[i + k] ?? i + k + 2),
+        chunk.map((r) => JSON.stringify(r)),
+      ],
     );
   }
 }
