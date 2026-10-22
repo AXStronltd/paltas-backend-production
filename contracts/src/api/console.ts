@@ -220,3 +220,59 @@ export const platformOverview = endpoint({
     }),
   }),
 });
+
+/** Platform-only metadata: no document contents, guest codes or financial credentials. */
+export const dashboardInsights = endpoint({
+  id: "admin.dashboardInsights",
+  summary: "Staff-only inventory totals and bounded UTC creation series",
+  method: "GET",
+  path: "/api/v1/admin/dashboard-insights",
+  auth: "staff",
+  query: z.object({ days: z.coerce.number().int().min(7).max(90).default(30) }),
+  response: z.object({
+    asOf: IsoDateTime,
+    days: Count,
+    totals: z.object({
+      properties: Count,
+      units: Count,
+      projects: Count,
+      hotels: Count,
+      listings: Count,
+      securitySites: Count,
+      bookings: Count,
+      documents: Count,
+      countries: Count,
+    }),
+    timeline: z.array(z.object({ date: IsoDate, organisations: Count, users: Count, bookings: Count })),
+    countries: z.array(z.object({ country: z.string(), organisations: Count })),
+  }),
+});
+export const platformRecords = endpoint({
+  id: "admin.platformRecords",
+  summary: "Staff-only paginated property, booking and document metadata",
+  method: "GET",
+  path: "/api/v1/admin/platform-records",
+  auth: "staff",
+  query: z.object({
+    kind: z.enum(["properties", "bookings", "documents"]).default("properties"),
+    q: z.string().max(120).optional(),
+    orgId: z.string().max(100).optional(),
+    product: Product.optional(),
+    limit: z.coerce.number().int().min(1).max(50).default(25),
+    offset: z.coerce.number().int().min(0).max(100000).default(0),
+  }),
+  response: z.object({
+    total: Count,
+    records: z.array(
+      z.object({
+        id: z.string(),
+        orgId: z.string(),
+        orgName: z.string(),
+        product: Product,
+        name: z.string(),
+        status: z.string(),
+        createdAt: IsoDateTime,
+      }),
+    ),
+  }),
+});
