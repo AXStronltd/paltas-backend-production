@@ -333,6 +333,70 @@ export function ledgerService(ctx: AppContext) {
     },
 
     // ---------------------------------------------------------------- reports
+    async financialStatements(orgId: string, from: string, to = clock.today()) {
+      if (from > to) throw fail.invalid("The start date is after the end date");
+      if (to > clock.today()) throw fail.invalid("Choose a reporting period ending today or earlier");
+      const currency = await orgCurrency(db, orgId);
+      // A single SELECT gives all balances one PostgreSQL statement snapshot. Separate trial-balance requests
+      // can straddle a new posting and produce a false profit or an apparent balance-sheet difference.
+      const values = await db.rows<{
+        code: string;
+        name: string;
+        type: AccountType;
+        opening: number;
+        dr: number;
+        cr: number;
+      }>(
+        `SELECT a.code,a.name,a.type,
+          COALESCE(sum(l.debit_minor-l.credit_minor) FILTER (WHERE e.date<$2),0)::bigint AS opening,
+          COALESCE(sum(l.debit_minor) FILTER (WHERE e.date >= $2),0)::bigint AS dr,
+          COALESCE(sum(l.credit_minor) FILTER (WHERE e.date >= $2),0)::bigint AS cr
+         FROM journal_lines l
+         JOIN journal_entries e ON e.id=l.entry_id AND e.org_id=l.org_id AND e.status='posted' AND e.date<=$3
+         JOIN ledger_accounts a ON a.org_id=l.org_id AND a.code=l.account_code
+         WHERE l.org_id=$1 GROUP BY a.code,a.name,a.type ORDER BY a.code`,
+        [orgId, from, to],
+      );
+      const exact = (n: number) => {
+        if (!Number.isSafeInteger(n)) throw fail.conflict("Report totals exceed the supported exact monetary range");
+        return n;
+      };
+      const rows = values.map((r) => ({
+        code: r.code,
+        name: r.name,
+        type: r.type,
+        openingMinor: r.opening,
+        debitMinor: r.dr,
+        creditMinor: r.cr,
+        movementMinor: exact(r.dr - r.cr),
+        closingMinor: exact(exact(r.opening + r.dr) - r.cr),
+      }));
+      const total = (type: AccountType, period = false) =>
+        rows.filter((r) => r.type === type).reduce((n, r) => exact(n + (period ? r.movementMinor : r.closingMinor)), 0);
+      const incomeMinor = exact(-total("income", true)),
+        expensesMinor = total("expense", true);
+      const assetsMinor = total("asset"),
+        liabilitiesMinor = exact(-total("liability")),
+        equityMinor = exact(-total("equity"));
+      const unclosedEarningsMinor = exact(exact(-total("income")) - total("expense"));
+      const differenceMinor = exact(exact(exact(assetsMinor - liabilitiesMinor) - equityMinor) - unclosedEarningsMinor);
+      return {
+        from,
+        to,
+        currency,
+        basis: "posted_accrual" as const,
+        rows,
+        profitAndLoss: { incomeMinor, expensesMinor, netProfitMinor: exact(incomeMinor - expensesMinor) },
+        balanceSheet: {
+          assetsMinor,
+          liabilitiesMinor,
+          equityMinor,
+          unclosedEarningsMinor,
+          differenceMinor,
+          balanced: differenceMinor === 0,
+        },
+      };
+    },
     async trialBalance(orgId: string, asOf?: string) {
       const date = asOf ?? clock.today();
       const rows = (await repo.lineTotals(db, orgId, date)).map((r) => {

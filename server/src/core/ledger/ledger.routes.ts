@@ -9,6 +9,10 @@ const WRITE = { write: true, module: "finance", anyProduct: true } as const;
 export function ledgerRoutes(core: CoreServices) {
   const { access, ledger: L } = core;
   return [
+    route(ledger.financialStatements, async (req) => {
+      await access.scope(req.user, req.params.orgId, { capability: "ledger.read" });
+      return L.financialStatements(req.params.orgId, req.query.from, req.query.to);
+    }),
     route(ledger.listAccounts, async (req) => {
       await access.scope(req.user, req.params.orgId, { capability: "ledger.read" });
       return L.listAccounts(req.params.orgId);
