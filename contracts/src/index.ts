@@ -22,3 +22,4 @@ export * as rentalRules from "./rental-rules.js";
 export type * from "./entitlements/types.js";
 
 export { Campaign, CampaignInput, SocialChannel } from "./api/marketing.js";
+export * as universalBilling from "./universal-billing.js";
