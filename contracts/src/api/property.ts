@@ -14,7 +14,7 @@
 //   second person; nothing posts into a closed month;
 // - another organisation's records answer "not found"; a tenant or owner sees only their own records.
 import { z } from "zod";
-import { IsoDate, IsoDateTime, IsoMonth, MinorUnits, PositiveMinorUnits, Reason } from "../common.js";
+import { Currency, IsoDate, IsoDateTime, IsoMonth, MinorUnits, PositiveMinorUnits, Reason } from "../common.js";
 import { endpoint } from "../endpoint.js";
 import { Contact, Message } from "./contacts.js";
 import { Notification } from "./notifications.js";
@@ -742,6 +742,34 @@ export type Reconciliation = z.infer<typeof Reconciliation>;
 // ------------------------------------------------------------------ reports
 const LedgerCheck = z.object({ recordsMinor: MinorUnits, ledgerMinor: MinorUnits, agrees: z.boolean() });
 
+/** Rent invoice cohort and current operational balances; never company revenue. */
+export const RentAnalysis = z.object({
+  currency: Currency,
+  billedMinor: NonNegativeMinor,
+  paidMinor: NonNegativeMinor,
+  creditedMinor: NonNegativeMinor,
+  outstandingMinor: NonNegativeMinor,
+  collectionRatePct: z.number().nullable(),
+  invoiceCount: z.number().int().nonnegative(),
+  settledCount: z.number().int().nonnegative(),
+  partiallyPaidCount: z.number().int().nonnegative(),
+  unpaidCount: z.number().int().nonnegative(),
+  overdueMinor: NonNegativeMinor,
+  dueSoonMinor: NonNegativeMinor,
+  overdueTenants: z.number().int().nonnegative(),
+  ageing: z.array(z.object({ label: z.string(), amountMinor: NonNegativeMinor })),
+  followUp: z.array(
+    z.object({
+      tenantId: Id,
+      tenantName: z.string(),
+      overdueMinor: NonNegativeMinor,
+      oldestDueDate: IsoDate,
+      invoiceCount: z.number().int().positive(),
+    }),
+  ),
+});
+export type RentAnalysis = z.infer<typeof RentAnalysis>;
+
 export const Dashboard = z.object({
   asOf: IsoDate,
   month: IsoMonth,
@@ -757,6 +785,7 @@ export const Dashboard = z.object({
   /** Net collections for the period; approved receipt reversals can make this negative. */
   collectedMinor: MinorUnits,
   collectionRatePct: z.number(),
+  rentAnalysis: RentAnalysis.optional(),
   arrears: z.object({
     totalMinor: NonNegativeMinor,
     overdueMinor: NonNegativeMinor,

@@ -6,6 +6,7 @@
 import type { property as P } from "@paltas/contracts";
 import type { OrgScope } from "../../../core/access/org-access.js";
 import type { Db } from "../../../db/database.js";
+import { rentAnalysis } from "./rent-insights.js";
 import { ACC } from "../accounts.js";
 import type { PmDeps } from "../deps.js";
 import { ownerFunds } from "../shared/owner-funds.js";
@@ -92,9 +93,8 @@ export function reportsService(d: PmDeps) {
          ) x`,
         [s.orgId, from, to, pid],
       );
-      const open = (await R.invoiceRows(db, s.orgId, "($2::text IS NULL OR i.property_id = $2)", [pid])).filter(
-        (i) => R.balanceOf(i) > 0,
-      );
+      const allInvoices = await R.invoiceRows(db, s.orgId, "($2::text IS NULL OR i.property_id = $2)", [pid]);
+      const open = allInvoices.filter((i) => R.balanceOf(i) > 0);
       const overdue = open.filter((i) => i.due_date < s.today);
       const expiring = await db.row<{ n: number }>(
         `SELECT count(*)::int AS n FROM pm_leases WHERE org_id = $1 AND status = 'active' AND end_date BETWEEN $2 AND $3
@@ -120,6 +120,7 @@ export function reportsService(d: PmDeps) {
           offMarket: occ?.off ?? 0,
           ratePct: lettable ? Math.round(((occ?.let ?? 0) * 10_000) / lettable) / 100 : 0,
         },
+        rentAnalysis: rentAnalysis(allInvoices, month, s.today, s.entitlement.org.currency),
         billedMinor: billedN,
         collectedMinor: collectedN,
         collectionRatePct: billedN ? Math.round((collectedN * 10_000) / billedN) / 100 : 0,
