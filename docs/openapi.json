@@ -1048,6 +1048,10 @@
                                       "property.bills.submit",
                                       "property.bills.approve",
                                       "property.bills.pay",
+                                      "property.payroll.view",
+                                      "property.payroll.prepare",
+                                      "property.payroll.approve",
+                                      "property.payroll.pay",
                                       "property.payouts.prepare",
                                       "property.payouts.approve",
                                       "property.bank.reconcile",
@@ -2650,6 +2654,10 @@
                                 "property.bills.submit",
                                 "property.bills.approve",
                                 "property.bills.pay",
+                                "property.payroll.view",
+                                "property.payroll.prepare",
+                                "property.payroll.approve",
+                                "property.payroll.pay",
                                 "property.payouts.prepare",
                                 "property.payouts.approve",
                                 "property.bank.reconcile",
@@ -2894,6 +2902,10 @@
                               "property.bills.submit",
                               "property.bills.approve",
                               "property.bills.pay",
+                              "property.payroll.view",
+                              "property.payroll.prepare",
+                              "property.payroll.approve",
+                              "property.payroll.pay",
                               "property.payouts.prepare",
                               "property.payouts.approve",
                               "property.bank.reconcile",
@@ -3109,6 +3121,10 @@
                                 "property.bills.submit",
                                 "property.bills.approve",
                                 "property.bills.pay",
+                                "property.payroll.view",
+                                "property.payroll.prepare",
+                                "property.payroll.approve",
+                                "property.payroll.pay",
                                 "property.payouts.prepare",
                                 "property.payouts.approve",
                                 "property.bank.reconcile",
@@ -142997,6 +143013,2365 @@
         }
       }
     },
+    "/api/v1/orgs/{orgId}/property/bills/{billId}": {
+      "put": {
+        "operationId": "property.bills.edit",
+        "summary": "Correct unposted supplier bill; posted records require reversal",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "billId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "description": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 500
+                  },
+                  "amountMinor": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "dueDate": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "expenseCategory": {
+                    "type": "string",
+                    "enum": [
+                      "repairs",
+                      "utilities",
+                      "cleaning",
+                      "security",
+                      "administration",
+                      "bank_charges",
+                      "other"
+                    ]
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "description",
+                  "amountMinor",
+                  "dueDate",
+                  "expenseCategory",
+                  "expectedVersion",
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "expenseCategory": {
+                      "type": "string",
+                      "enum": [
+                        "repairs",
+                        "utilities",
+                        "cleaning",
+                        "security",
+                        "administration",
+                        "bank_charges",
+                        "other"
+                      ]
+                    },
+                    "expenseAccount": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "number": {
+                      "type": "string"
+                    },
+                    "supplierId": {
+                      "type": "string"
+                    },
+                    "supplierName": {
+                      "type": "string"
+                    },
+                    "propertyId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "unitId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "workOrderId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "supplierInvoiceNo": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "billDate": {
+                      "type": "string",
+                      "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                    },
+                    "dueDate": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "amountMinor": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "recoverFrom": {
+                      "type": "string",
+                      "enum": [
+                        "owner",
+                        "company"
+                      ]
+                    },
+                    "ownerId": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "submitted",
+                        "held",
+                        "awaiting_owner",
+                        "approved",
+                        "rejected",
+                        "paid"
+                      ]
+                    },
+                    "matchIssues": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "submittedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "approvedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "ownerApprovedBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "paidBy": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "paidDate": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "paidReference": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "migrated": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "expenseCategory",
+                    "expenseAccount",
+                    "version",
+                    "id",
+                    "number",
+                    "supplierId",
+                    "supplierName",
+                    "propertyId",
+                    "unitId",
+                    "workOrderId",
+                    "description",
+                    "supplierInvoiceNo",
+                    "billDate",
+                    "dueDate",
+                    "amountMinor",
+                    "recoverFrom",
+                    "ownerId",
+                    "status",
+                    "matchIssues",
+                    "submittedBy",
+                    "approvedBy",
+                    "ownerApprovedBy",
+                    "paidBy",
+                    "paidDate",
+                    "paidReference",
+                    "migrated"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/payroll/employees": {
+      "get": {
+        "operationId": "property.payroll.employees",
+        "summary": "Authorised payroll employee register",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "employees": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "code": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 30
+                          },
+                          "name": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 160
+                          },
+                          "email": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "format": "email",
+                                "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "grossMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100000000000
+                          },
+                          "active": {
+                            "type": "boolean"
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "version": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "name",
+                          "email",
+                          "grossMinor",
+                          "active",
+                          "id",
+                          "version"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "employees"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/payroll/employees/{employeeId}": {
+      "put": {
+        "operationId": "property.payroll.employee.save",
+        "summary": "Create or update an employee without altering historical payslips",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "employeeId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "code": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 30
+                  },
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 160
+                  },
+                  "email": {
+                    "anyOf": [
+                      {
+                        "type": "string",
+                        "format": "email",
+                        "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ]
+                  },
+                  "grossMinor": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100000000000
+                  },
+                  "active": {
+                    "type": "boolean"
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "code",
+                  "name",
+                  "email",
+                  "grossMinor",
+                  "active",
+                  "expectedVersion"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 30
+                    },
+                    "name": {
+                      "type": "string",
+                      "minLength": 2,
+                      "maxLength": 160
+                    },
+                    "email": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "email",
+                          "pattern": "^(?:[A-Za-z0-9_'+\\-]+\\.)*[A-Za-z0-9_'+\\-]*[A-Za-z0-9_+-]@(?:[A-Za-z0-9][A-Za-z0-9\\-]*\\.)+[A-Za-z]{2,}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "grossMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 100000000000
+                    },
+                    "active": {
+                      "type": "boolean"
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "name",
+                    "email",
+                    "grossMinor",
+                    "active",
+                    "id",
+                    "version"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/payroll": {
+      "get": {
+        "operationId": "property.payroll.runs",
+        "summary": "Payroll runs with immutable approved snapshots",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "runs": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "period": {
+                            "type": "string"
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "draft",
+                              "approved",
+                              "paid",
+                              "cancelled",
+                              "reversed"
+                            ]
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "preparedBy": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "approvedBy": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "paidOn": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "paidReference": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "journalId": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "lines": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "employeeId": {
+                                  "type": "string",
+                                  "minLength": 1,
+                                  "maxLength": 80
+                                },
+                                "employeeCode": {
+                                  "type": "string"
+                                },
+                                "employeeName": {
+                                  "type": "string"
+                                },
+                                "inputs": {
+                                  "type": "object",
+                                  "properties": {
+                                    "employeeId": {
+                                      "type": "string",
+                                      "minLength": 1,
+                                      "maxLength": 80
+                                    },
+                                    "grossMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "pensionableMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "taxableBenefitsMinor": {
+                                      "default": 0,
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "resident": {
+                                      "type": "boolean"
+                                    },
+                                    "nitaLiable": {
+                                      "type": "boolean"
+                                    },
+                                    "nitaExemptionReason": {
+                                      "default": "",
+                                      "type": "string",
+                                      "maxLength": 300
+                                    },
+                                    "pensionMinor": {
+                                      "default": 0,
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "mortgageMinor": {
+                                      "default": 0,
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "medicalMinor": {
+                                      "default": 0,
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "insurancePremiumMinor": {
+                                      "default": 0,
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "otherDeductionsMinor": {
+                                      "default": 0,
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "otherEmployerMinor": {
+                                      "default": 0,
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    }
+                                  },
+                                  "required": [
+                                    "employeeId",
+                                    "grossMinor",
+                                    "pensionableMinor",
+                                    "taxableBenefitsMinor",
+                                    "resident",
+                                    "nitaLiable",
+                                    "nitaExemptionReason",
+                                    "pensionMinor",
+                                    "mortgageMinor",
+                                    "medicalMinor",
+                                    "insurancePremiumMinor",
+                                    "otherDeductionsMinor",
+                                    "otherEmployerMinor"
+                                  ],
+                                  "additionalProperties": false
+                                },
+                                "calculation": {
+                                  "type": "object",
+                                  "properties": {
+                                    "ruleVersion": {
+                                      "type": "string"
+                                    },
+                                    "grossMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "taxableMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "taxBeforeReliefMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "personalReliefMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "insuranceReliefMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "payeMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "nssfMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "shifMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "ahlMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "otherDeductionsMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "employerNssfMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "employerAhlMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "otherEmployerMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "employerMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "netMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "nitaMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    },
+                                    "totalCostMinor": {
+                                      "type": "integer",
+                                      "minimum": 0,
+                                      "maximum": 100000000000
+                                    }
+                                  },
+                                  "required": [
+                                    "ruleVersion",
+                                    "grossMinor",
+                                    "taxableMinor",
+                                    "taxBeforeReliefMinor",
+                                    "personalReliefMinor",
+                                    "insuranceReliefMinor",
+                                    "payeMinor",
+                                    "nssfMinor",
+                                    "shifMinor",
+                                    "ahlMinor",
+                                    "otherDeductionsMinor",
+                                    "employerNssfMinor",
+                                    "employerAhlMinor",
+                                    "otherEmployerMinor",
+                                    "employerMinor",
+                                    "netMinor",
+                                    "nitaMinor",
+                                    "totalCostMinor"
+                                  ],
+                                  "additionalProperties": false
+                                }
+                              },
+                              "required": [
+                                "employeeId",
+                                "employeeCode",
+                                "employeeName",
+                                "inputs",
+                                "calculation"
+                              ],
+                              "additionalProperties": false
+                            }
+                          },
+                          "remittances": {
+                            "type": "array",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "kind": {
+                                  "type": "string"
+                                },
+                                "amountMinor": {
+                                  "type": "integer",
+                                  "minimum": 0,
+                                  "maximum": 100000000000
+                                },
+                                "paidOn": {
+                                  "type": "string",
+                                  "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                                },
+                                "reference": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "kind",
+                                "amountMinor",
+                                "paidOn",
+                                "reference"
+                              ],
+                              "additionalProperties": false
+                            }
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "period",
+                          "status",
+                          "version",
+                          "preparedBy",
+                          "approvedBy",
+                          "paidOn",
+                          "paidReference",
+                          "journalId",
+                          "lines",
+                          "remittances"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "runs"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "property.payroll.prepare",
+        "summary": "Prepare or replace a draft; no posting before independent approval",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "period": {
+                    "type": "string",
+                    "pattern": "^2026-(0[2-9]|1[0-2])$"
+                  },
+                  "lines": {
+                    "minItems": 1,
+                    "maxItems": 500,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "employeeId": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        "grossMinor": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000000000
+                        },
+                        "pensionableMinor": {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000000000
+                        },
+                        "taxableBenefitsMinor": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000000000
+                        },
+                        "resident": {
+                          "type": "boolean"
+                        },
+                        "nitaLiable": {
+                          "type": "boolean"
+                        },
+                        "nitaExemptionReason": {
+                          "default": "",
+                          "type": "string",
+                          "maxLength": 300
+                        },
+                        "pensionMinor": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000000000
+                        },
+                        "mortgageMinor": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000000000
+                        },
+                        "medicalMinor": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000000000
+                        },
+                        "insurancePremiumMinor": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000000000
+                        },
+                        "otherDeductionsMinor": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000000000
+                        },
+                        "otherEmployerMinor": {
+                          "default": 0,
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 100000000000
+                        }
+                      },
+                      "required": [
+                        "employeeId",
+                        "grossMinor",
+                        "pensionableMinor",
+                        "resident",
+                        "nitaLiable"
+                      ]
+                    }
+                  },
+                  "runId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reviewConfirmed": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": [
+                  "period",
+                  "lines",
+                  "reviewConfirmed"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "period": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "approved",
+                        "paid",
+                        "cancelled",
+                        "reversed"
+                      ]
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "preparedBy": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "approvedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "paidOn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "paidReference": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "journalId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "employeeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "employeeCode": {
+                            "type": "string"
+                          },
+                          "employeeName": {
+                            "type": "string"
+                          },
+                          "inputs": {
+                            "type": "object",
+                            "properties": {
+                              "employeeId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "grossMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "pensionableMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "taxableBenefitsMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "resident": {
+                                "type": "boolean"
+                              },
+                              "nitaLiable": {
+                                "type": "boolean"
+                              },
+                              "nitaExemptionReason": {
+                                "default": "",
+                                "type": "string",
+                                "maxLength": 300
+                              },
+                              "pensionMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "mortgageMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "medicalMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "insurancePremiumMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherDeductionsMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherEmployerMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              }
+                            },
+                            "required": [
+                              "employeeId",
+                              "grossMinor",
+                              "pensionableMinor",
+                              "taxableBenefitsMinor",
+                              "resident",
+                              "nitaLiable",
+                              "nitaExemptionReason",
+                              "pensionMinor",
+                              "mortgageMinor",
+                              "medicalMinor",
+                              "insurancePremiumMinor",
+                              "otherDeductionsMinor",
+                              "otherEmployerMinor"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "calculation": {
+                            "type": "object",
+                            "properties": {
+                              "ruleVersion": {
+                                "type": "string"
+                              },
+                              "grossMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "taxableMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "taxBeforeReliefMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "personalReliefMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "insuranceReliefMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "payeMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "nssfMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "shifMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "ahlMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherDeductionsMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "employerNssfMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "employerAhlMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherEmployerMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "employerMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "netMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "nitaMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "totalCostMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              }
+                            },
+                            "required": [
+                              "ruleVersion",
+                              "grossMinor",
+                              "taxableMinor",
+                              "taxBeforeReliefMinor",
+                              "personalReliefMinor",
+                              "insuranceReliefMinor",
+                              "payeMinor",
+                              "nssfMinor",
+                              "shifMinor",
+                              "ahlMinor",
+                              "otherDeductionsMinor",
+                              "employerNssfMinor",
+                              "employerAhlMinor",
+                              "otherEmployerMinor",
+                              "employerMinor",
+                              "netMinor",
+                              "nitaMinor",
+                              "totalCostMinor"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "employeeId",
+                          "employeeCode",
+                          "employeeName",
+                          "inputs",
+                          "calculation"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "remittances": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100000000000
+                          },
+                          "paidOn": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          },
+                          "reference": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "amountMinor",
+                          "paidOn",
+                          "reference"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "period",
+                    "status",
+                    "version",
+                    "preparedBy",
+                    "approvedBy",
+                    "paidOn",
+                    "paidReference",
+                    "journalId",
+                    "lines",
+                    "remittances"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/payroll/{runId}/actions": {
+      "post": {
+        "operationId": "property.payroll.action",
+        "summary": "Approve, record external payment, cancel or reverse with separate authority",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "approve",
+                      "pay",
+                      "cancel",
+                      "reverse"
+                    ]
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "date": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 500
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "action",
+                  "expectedVersion",
+                  "date",
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "period": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "approved",
+                        "paid",
+                        "cancelled",
+                        "reversed"
+                      ]
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "preparedBy": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "approvedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "paidOn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "paidReference": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "journalId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "employeeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "employeeCode": {
+                            "type": "string"
+                          },
+                          "employeeName": {
+                            "type": "string"
+                          },
+                          "inputs": {
+                            "type": "object",
+                            "properties": {
+                              "employeeId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "grossMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "pensionableMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "taxableBenefitsMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "resident": {
+                                "type": "boolean"
+                              },
+                              "nitaLiable": {
+                                "type": "boolean"
+                              },
+                              "nitaExemptionReason": {
+                                "default": "",
+                                "type": "string",
+                                "maxLength": 300
+                              },
+                              "pensionMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "mortgageMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "medicalMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "insurancePremiumMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherDeductionsMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherEmployerMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              }
+                            },
+                            "required": [
+                              "employeeId",
+                              "grossMinor",
+                              "pensionableMinor",
+                              "taxableBenefitsMinor",
+                              "resident",
+                              "nitaLiable",
+                              "nitaExemptionReason",
+                              "pensionMinor",
+                              "mortgageMinor",
+                              "medicalMinor",
+                              "insurancePremiumMinor",
+                              "otherDeductionsMinor",
+                              "otherEmployerMinor"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "calculation": {
+                            "type": "object",
+                            "properties": {
+                              "ruleVersion": {
+                                "type": "string"
+                              },
+                              "grossMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "taxableMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "taxBeforeReliefMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "personalReliefMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "insuranceReliefMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "payeMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "nssfMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "shifMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "ahlMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherDeductionsMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "employerNssfMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "employerAhlMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherEmployerMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "employerMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "netMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "nitaMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "totalCostMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              }
+                            },
+                            "required": [
+                              "ruleVersion",
+                              "grossMinor",
+                              "taxableMinor",
+                              "taxBeforeReliefMinor",
+                              "personalReliefMinor",
+                              "insuranceReliefMinor",
+                              "payeMinor",
+                              "nssfMinor",
+                              "shifMinor",
+                              "ahlMinor",
+                              "otherDeductionsMinor",
+                              "employerNssfMinor",
+                              "employerAhlMinor",
+                              "otherEmployerMinor",
+                              "employerMinor",
+                              "netMinor",
+                              "nitaMinor",
+                              "totalCostMinor"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "employeeId",
+                          "employeeCode",
+                          "employeeName",
+                          "inputs",
+                          "calculation"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "remittances": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100000000000
+                          },
+                          "paidOn": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          },
+                          "reference": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "amountMinor",
+                          "paidOn",
+                          "reference"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "period",
+                    "status",
+                    "version",
+                    "preparedBy",
+                    "approvedBy",
+                    "paidOn",
+                    "paidReference",
+                    "journalId",
+                    "lines",
+                    "remittances"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/payroll/{runId}/remittances": {
+      "post": {
+        "operationId": "property.payroll.remit",
+        "summary": "Record externally paid payroll liabilities once; never initiates remittance",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "runId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "PAYE",
+                      "NSSF",
+                      "SHIF",
+                      "AHL",
+                      "NITA",
+                      "pension",
+                      "medical",
+                      "other_employee",
+                      "other_employer"
+                    ]
+                  },
+                  "date": {
+                    "type": "string",
+                    "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                  },
+                  "reference": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "kind",
+                  "date",
+                  "reference"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "period": {
+                      "type": "string"
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "approved",
+                        "paid",
+                        "cancelled",
+                        "reversed"
+                      ]
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "preparedBy": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "approvedBy": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "paidOn": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "paidReference": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "journalId": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 80
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "employeeId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "employeeCode": {
+                            "type": "string"
+                          },
+                          "employeeName": {
+                            "type": "string"
+                          },
+                          "inputs": {
+                            "type": "object",
+                            "properties": {
+                              "employeeId": {
+                                "type": "string",
+                                "minLength": 1,
+                                "maxLength": 80
+                              },
+                              "grossMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "pensionableMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "taxableBenefitsMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "resident": {
+                                "type": "boolean"
+                              },
+                              "nitaLiable": {
+                                "type": "boolean"
+                              },
+                              "nitaExemptionReason": {
+                                "default": "",
+                                "type": "string",
+                                "maxLength": 300
+                              },
+                              "pensionMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "mortgageMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "medicalMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "insurancePremiumMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherDeductionsMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherEmployerMinor": {
+                                "default": 0,
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              }
+                            },
+                            "required": [
+                              "employeeId",
+                              "grossMinor",
+                              "pensionableMinor",
+                              "taxableBenefitsMinor",
+                              "resident",
+                              "nitaLiable",
+                              "nitaExemptionReason",
+                              "pensionMinor",
+                              "mortgageMinor",
+                              "medicalMinor",
+                              "insurancePremiumMinor",
+                              "otherDeductionsMinor",
+                              "otherEmployerMinor"
+                            ],
+                            "additionalProperties": false
+                          },
+                          "calculation": {
+                            "type": "object",
+                            "properties": {
+                              "ruleVersion": {
+                                "type": "string"
+                              },
+                              "grossMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "taxableMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "taxBeforeReliefMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "personalReliefMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "insuranceReliefMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "payeMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "nssfMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "shifMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "ahlMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherDeductionsMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "employerNssfMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "employerAhlMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "otherEmployerMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "employerMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "netMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "nitaMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              },
+                              "totalCostMinor": {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 100000000000
+                              }
+                            },
+                            "required": [
+                              "ruleVersion",
+                              "grossMinor",
+                              "taxableMinor",
+                              "taxBeforeReliefMinor",
+                              "personalReliefMinor",
+                              "insuranceReliefMinor",
+                              "payeMinor",
+                              "nssfMinor",
+                              "shifMinor",
+                              "ahlMinor",
+                              "otherDeductionsMinor",
+                              "employerNssfMinor",
+                              "employerAhlMinor",
+                              "otherEmployerMinor",
+                              "employerMinor",
+                              "netMinor",
+                              "nitaMinor",
+                              "totalCostMinor"
+                            ],
+                            "additionalProperties": false
+                          }
+                        },
+                        "required": [
+                          "employeeId",
+                          "employeeCode",
+                          "employeeName",
+                          "inputs",
+                          "calculation"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "remittances": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "kind": {
+                            "type": "string"
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100000000000
+                          },
+                          "paidOn": {
+                            "type": "string",
+                            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+                          },
+                          "reference": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "kind",
+                          "amountMinor",
+                          "paidOn",
+                          "reference"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "period",
+                    "status",
+                    "version",
+                    "preparedBy",
+                    "approvedBy",
+                    "paidOn",
+                    "paidReference",
+                    "journalId",
+                    "lines",
+                    "remittances"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/orgs/{orgId}/property/settings": {
       "get": {
         "operationId": "property.settings.get",
@@ -160004,6 +162379,19 @@
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "type": "object",
                 "properties": {
+                  "expenseCategory": {
+                    "default": "repairs",
+                    "type": "string",
+                    "enum": [
+                      "repairs",
+                      "utilities",
+                      "cleaning",
+                      "security",
+                      "administration",
+                      "bank_charges",
+                      "other"
+                    ]
+                  },
                   "supplierId": {
                     "type": "string",
                     "minLength": 1,
@@ -160076,6 +162464,26 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "expenseCategory": {
+                      "type": "string",
+                      "enum": [
+                        "repairs",
+                        "utilities",
+                        "cleaning",
+                        "security",
+                        "administration",
+                        "bank_charges",
+                        "other"
+                      ]
+                    },
+                    "expenseAccount": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -160211,6 +162619,9 @@
                     }
                   },
                   "required": [
+                    "expenseCategory",
+                    "expenseAccount",
+                    "version",
                     "id",
                     "number",
                     "supplierId",
@@ -160301,6 +162712,26 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "expenseCategory": {
+                            "type": "string",
+                            "enum": [
+                              "repairs",
+                              "utilities",
+                              "cleaning",
+                              "security",
+                              "administration",
+                              "bank_charges",
+                              "other"
+                            ]
+                          },
+                          "expenseAccount": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
                           "id": {
                             "type": "string"
                           },
@@ -160436,6 +162867,9 @@
                           }
                         },
                         "required": [
+                          "expenseCategory",
+                          "expenseAccount",
+                          "version",
                           "id",
                           "number",
                           "supplierId",
@@ -160521,6 +162955,26 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "expenseCategory": {
+                      "type": "string",
+                      "enum": [
+                        "repairs",
+                        "utilities",
+                        "cleaning",
+                        "security",
+                        "administration",
+                        "bank_charges",
+                        "other"
+                      ]
+                    },
+                    "expenseAccount": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -160656,6 +163110,9 @@
                     }
                   },
                   "required": [
+                    "expenseCategory",
+                    "expenseAccount",
+                    "version",
                     "id",
                     "number",
                     "supplierId",
@@ -160755,6 +163212,26 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "expenseCategory": {
+                      "type": "string",
+                      "enum": [
+                        "repairs",
+                        "utilities",
+                        "cleaning",
+                        "security",
+                        "administration",
+                        "bank_charges",
+                        "other"
+                      ]
+                    },
+                    "expenseAccount": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -160890,6 +163367,9 @@
                     }
                   },
                   "required": [
+                    "expenseCategory",
+                    "expenseAccount",
+                    "version",
                     "id",
                     "number",
                     "supplierId",
@@ -160989,6 +163469,26 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "expenseCategory": {
+                      "type": "string",
+                      "enum": [
+                        "repairs",
+                        "utilities",
+                        "cleaning",
+                        "security",
+                        "administration",
+                        "bank_charges",
+                        "other"
+                      ]
+                    },
+                    "expenseAccount": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -161124,6 +163624,9 @@
                     }
                   },
                   "required": [
+                    "expenseCategory",
+                    "expenseAccount",
+                    "version",
                     "id",
                     "number",
                     "supplierId",
@@ -161228,6 +163731,26 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "expenseCategory": {
+                      "type": "string",
+                      "enum": [
+                        "repairs",
+                        "utilities",
+                        "cleaning",
+                        "security",
+                        "administration",
+                        "bank_charges",
+                        "other"
+                      ]
+                    },
+                    "expenseAccount": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -161363,6 +163886,9 @@
                     }
                   },
                   "required": [
+                    "expenseCategory",
+                    "expenseAccount",
+                    "version",
                     "id",
                     "number",
                     "supplierId",
@@ -172205,6 +174731,26 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "expenseCategory": {
+                            "type": "string",
+                            "enum": [
+                              "repairs",
+                              "utilities",
+                              "cleaning",
+                              "security",
+                              "administration",
+                              "bank_charges",
+                              "other"
+                            ]
+                          },
+                          "expenseAccount": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
                           "id": {
                             "type": "string"
                           },
@@ -172340,6 +174886,9 @@
                           }
                         },
                         "required": [
+                          "expenseCategory",
+                          "expenseAccount",
+                          "version",
                           "id",
                           "number",
                           "supplierId",
@@ -172821,6 +175370,26 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "expenseCategory": {
+                      "type": "string",
+                      "enum": [
+                        "repairs",
+                        "utilities",
+                        "cleaning",
+                        "security",
+                        "administration",
+                        "bank_charges",
+                        "other"
+                      ]
+                    },
+                    "expenseAccount": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -172956,6 +175525,9 @@
                     }
                   },
                   "required": [
+                    "expenseCategory",
+                    "expenseAccount",
+                    "version",
                     "id",
                     "number",
                     "supplierId",

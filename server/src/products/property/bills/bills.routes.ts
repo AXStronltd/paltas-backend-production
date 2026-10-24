@@ -8,6 +8,9 @@ import type { BillsService } from "./bills.service.js";
 export function billsRoutes(access: PmAccess, B: BillsService) {
   const g = gate(access);
   return [
+    route(api.editBill, async (req) =>
+      B.edit(await g.org(req, "property.bills.submit", FINANCE), req.params.billId, req.body),
+    ),
     route(api.submitBill, async (req) => B.submit(await g.org(req, "property.bills.submit", FINANCE), req.body)),
     route(api.listBills, async (req) => B.list(await g.org(req, "property.read"), req.query.status)),
     route(api.approveBill, async (req) =>

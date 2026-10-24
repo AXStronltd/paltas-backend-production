@@ -27,6 +27,9 @@ import * as R from "../shared/records.js";
 import { addDays, applyBp, toBp } from "../shared/util.js";
 
 export interface BillRow {
+  expense_category: P.Bill["expenseCategory"];
+  expense_account: string;
+  version: number;
   id: string;
   org_id: string;
   number: string;
@@ -57,6 +60,9 @@ export interface BillRow {
 }
 
 export const toBill = (r: BillRow): P.Bill => ({
+  expenseCategory: r.expense_category,
+  expenseAccount: r.expense_account,
+  version: r.version,
   id: r.id,
   number: r.number,
   supplierId: r.supplier_id,
@@ -106,7 +112,7 @@ export function billsService(d: PmDeps) {
       ref: `bill:${b.id}`,
       link: { propertyId: b.property_id, ownerId: owner ? b.owner_id : null },
       lines: [
-        dr(owner ? ACC.ownerFunds : ACC.companyRepairs, b.amount_minor, b.description),
+        dr(owner ? ACC.ownerFunds : b.expense_account, b.amount_minor, b.description),
         cr(ACC.payables, b.amount_minor, b.supplier_name),
       ],
     });
@@ -141,6 +147,7 @@ export function billsService(d: PmDeps) {
     async submit(
       s: OrgScope,
       b: {
+        expenseCategory?: P.Bill["expenseCategory"];
         supplierId: string;
         propertyId?: string | undefined;
         unitId?: string | undefined;
@@ -153,8 +160,12 @@ export function billsService(d: PmDeps) {
         recoverFrom: "owner" | "company";
       },
     ) {
+      if (b.dueDate && b.dueDate < b.billDate) throw fail.invalid("Due date cannot precede the bill date.");
       let propertyId = b.propertyId ?? null;
       let unitId = b.unitId ?? null;
+      const category = b.expenseCategory ?? "repairs";
+      const expenseAccount =
+        category === "bank_charges" ? "5300" : category === "repairs" ? ACC.companyRepairs : "5000";
       const issues: string[] = [];
       const st = await settingsOf(db, s.orgId);
       const id = newId("pbi");
@@ -195,6 +206,8 @@ export function billsService(d: PmDeps) {
           if (propertyId && u.property_id !== propertyId) throw fail.invalid("That unit is not in this property");
           propertyId = u.property_id;
         }
+        if (s.propertyIds != null && (!propertyId || !s.propertyIds.includes(propertyId)))
+          throw fail.forbidden("This expense is outside your assigned properties.");
         let ownerId: string | null = null;
         if (b.recoverFrom === "owner") {
           if (!propertyId) throw fail.invalid("An owner's cost needs the property (or unit) it is for");
@@ -225,8 +238,8 @@ export function billsService(d: PmDeps) {
         const number = await nextNumber(t, numberScope(s.orgId), "BILL", 5);
         await t.run(
           `INSERT INTO pm_bills (id, org_id, number, supplier_id, property_id, unit_id, work_order_id, description,
-             supplier_invoice_no, bill_date, due_date, amount_minor, recover_from, owner_id, status, match_issues, submitted_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)`,
+             supplier_invoice_no, bill_date, due_date, amount_minor, recover_from, owner_id, status, match_issues, submitted_by,expense_category,expense_account)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,$18,$19)`,
           [
             id,
             s.orgId,
@@ -245,6 +258,8 @@ export function billsService(d: PmDeps) {
             issues.length ? "held" : "submitted",
             JSON.stringify(issues),
             s.userId,
+            category,
+            expenseAccount,
           ],
         );
         await recordAudit(t, {
@@ -258,10 +273,77 @@ export function billsService(d: PmDeps) {
       return toBill(await billRow(db, s.orgId, id));
     },
 
+    async edit(
+      s: OrgScope,
+      id: string,
+      b: {
+        description: string;
+        amountMinor: number;
+        dueDate: string | null;
+        expenseCategory: P.Bill["expenseCategory"];
+        expectedVersion: number;
+        reason: string;
+      },
+    ) {
+      await financeTransaction(db, s.orgId, async (t) => {
+        const old = await billRow(t, s.orgId, id, true);
+        if (s.propertyIds != null && (!old.property_id || !s.propertyIds.includes(old.property_id)))
+          throw fail.notFound("Bill not found");
+        if (!["submitted", "held"].includes(old.status) || old.approve_journal_id)
+          throw fail.conflict("Only unposted bills can be edited. Reject an approved unpaid bill to reverse it.");
+        if (old.work_order_id)
+          throw fail.conflict("Purchase-order bills must be rejected and re-entered so matching is rerun.");
+        if (b.dueDate && b.dueDate < old.bill_date) throw fail.invalid("Due date cannot precede the bill date.");
+        if (old.version !== b.expectedVersion) throw fail.conflict("Bill changed. Reopen the latest record.");
+        const near = await t.row<{ number: string }>(
+          "SELECT number FROM pm_bills WHERE org_id=$1 AND supplier_id=$2 AND id<>$3 AND status<>'rejected' AND property_id IS NOT DISTINCT FROM $4 AND amount_minor=$5 AND bill_date BETWEEN $6 AND $7",
+          [
+            s.orgId,
+            old.supplier_id,
+            id,
+            old.property_id,
+            b.amountMinor,
+            addDays(old.bill_date, -30),
+            addDays(old.bill_date, 30),
+          ],
+        );
+        const issues = near
+          ? [`Possible duplicate: same supplier, property and amount as ${near.number} within 30 days`]
+          : [];
+        await t.run(
+          "UPDATE pm_bills SET description=$2,amount_minor=$3,due_date=$4,expense_category=$5,expense_account=$6,version=version+1,status=$7,match_issues=$8,hold_cleared_by=NULL WHERE id=$1",
+          [
+            id,
+            b.description,
+            b.amountMinor,
+            b.dueDate,
+            b.expenseCategory,
+            b.expenseCategory === "bank_charges"
+              ? "5300"
+              : b.expenseCategory === "repairs"
+                ? ACC.companyRepairs
+                : "5000",
+            issues.length ? "held" : "submitted",
+            JSON.stringify(issues),
+          ],
+        );
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Unposted bill corrected",
+          target: old.number,
+          detail: b.reason,
+          before: { amountMinor: old.amount_minor, description: old.description, category: old.expense_category },
+          after: { amountMinor: b.amountMinor, description: b.description, category: b.expenseCategory },
+        });
+      });
+      return toBill(await billRow(db, s.orgId, id));
+    },
+
     async list(s: OrgScope, status?: P.Bill["status"]) {
       const rows = await db.rows<BillRow>(
-        `${BILL_SQL} WHERE b.org_id = $1 AND ($2::text IS NULL OR b.status = $2) ORDER BY b.bill_date DESC, b.number`,
-        [s.orgId, status ?? null],
+        `${BILL_SQL} WHERE b.org_id = $1 AND ($2::text IS NULL OR b.status = $2) AND ($3::text[] IS NULL OR b.property_id=ANY($3)) ORDER BY b.bill_date DESC, b.number`,
+        [s.orgId, status ?? null, s.propertyIds ?? null],
       );
       return { bills: rows.map(toBill) };
     },
@@ -269,6 +351,8 @@ export function billsService(d: PmDeps) {
     async approve(s: OrgScope, id: string) {
       await financeTransaction(db, s.orgId, async (t) => {
         const b = await billRow(t, s.orgId, id, true);
+        if (s.propertyIds != null && (!b.property_id || !s.propertyIds.includes(b.property_id)))
+          throw fail.notFound("Bill not found");
         if (b.status === "held") throw fail.conflict(`Held: ${b.match_issues.join("; ")} — clear the hold first`);
         if (b.status !== "submitted") throw fail.conflict(`This bill is ${b.status.replace("_", " ")}`);
         if (b.submitted_by === s.userId)
@@ -293,6 +377,8 @@ export function billsService(d: PmDeps) {
     async clearHold(s: OrgScope, id: string, reason: string) {
       await financeTransaction(db, s.orgId, async (t) => {
         const b = await billRow(t, s.orgId, id, true);
+        if (s.propertyIds != null && (!b.property_id || !s.propertyIds.includes(b.property_id)))
+          throw fail.notFound("Bill not found");
         if (b.status !== "held") throw fail.conflict("This bill is not held");
         if (b.submitted_by === s.userId)
           throw fail.separationOfDuties("You entered this bill — someone else must clear its hold");
@@ -314,6 +400,8 @@ export function billsService(d: PmDeps) {
     async reject(s: OrgScope, id: string, reason: string) {
       await financeTransaction(db, s.orgId, async (t) => {
         const b = await billRow(t, s.orgId, id, true);
+        if (s.propertyIds != null && (!b.property_id || !s.propertyIds.includes(b.property_id)))
+          throw fail.notFound("Bill not found");
         if (b.status === "paid" || b.status === "rejected")
           throw fail.conflict(`A ${b.status} bill cannot be rejected`);
         if (b.approve_journal_id) {
@@ -327,7 +415,7 @@ export function billsService(d: PmDeps) {
             link: { propertyId: b.property_id, ownerId: owner ? b.owner_id : null },
             lines: [
               dr(ACC.payables, b.amount_minor, b.supplier_name),
-              cr(owner ? ACC.ownerFunds : ACC.companyRepairs, b.amount_minor, `Reversal: ${b.description}`),
+              cr(owner ? ACC.ownerFunds : b.expense_account, b.amount_minor, `Reversal: ${b.description}`),
             ],
           });
         }
@@ -344,8 +432,11 @@ export function billsService(d: PmDeps) {
     },
 
     async pay(s: OrgScope, id: string, p: { paidDate: string; reference: string }) {
+      if (p.paidDate > s.today) throw fail.invalid("Only record payments that have occurred.");
       await financeTransaction(db, s.orgId, async (t) => {
         const b = await billRow(t, s.orgId, id, true);
+        if (s.propertyIds != null && (!b.property_id || !s.propertyIds.includes(b.property_id)))
+          throw fail.notFound("Bill not found");
         if (b.status !== "approved") throw fail.conflict(`Only an approved bill can be paid (this one is ${b.status})`);
         if (b.approved_by === s.userId)
           throw fail.separationOfDuties("You approved this bill — someone else records its payment");

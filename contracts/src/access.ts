@@ -224,6 +224,10 @@ export const CAPABILITIES = [
   "property.bills.approve",
   /** Property Management: record bill payments (never a bill you approved). */
   "property.bills.pay",
+  "property.payroll.view",
+  "property.payroll.prepare",
+  "property.payroll.approve",
+  "property.payroll.pay",
   /** Property Management: prepare owner payouts and release approved ones (never one you approved). */
   "property.payouts.prepare",
   /** Property Management: approve owner payouts prepared by someone else. */
@@ -332,6 +336,10 @@ const PM_FINANCE: readonly Capability[] = [
   "property.bills.submit",
   "property.bills.approve",
   "property.bills.pay",
+  "property.payroll.view",
+  "property.payroll.prepare",
+  "property.payroll.approve",
+  "property.payroll.pay",
   "property.payouts.prepare",
   "property.payouts.approve",
   "property.bank.reconcile",
@@ -400,6 +408,8 @@ export const ROLE_DEFINITIONS: Record<Role, RoleDefinition> = {
       "property.billing",
       "property.payments.record",
       "property.bills.submit",
+      "property.payroll.view",
+      "property.payroll.prepare",
     ],
   },
   finance_director: {

@@ -1,3 +1,5 @@
+import { propertyPayrollService } from "./payroll/payroll.service.js";
+import { propertyPayrollRoutes } from "./payroll/payroll.routes.js";
 import { tenantControls } from "./leases/tenant-control.js";
 import { property as propertyApi } from "@paltas/contracts";
 import { route } from "../../http/route.js";
@@ -98,6 +100,7 @@ export const property: ProductModule = {
           req.body,
         ),
       ),
+      ...propertyPayrollRoutes(access, propertyPayrollService(d)),
       ...setupRoutes(access, setup),
       ...leasesRoutes(access, leases, billing, payments),
       ...billingRoutes(access, billing),

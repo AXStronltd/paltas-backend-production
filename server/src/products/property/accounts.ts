@@ -28,6 +28,15 @@
 import type { AccountSeed } from "../../core/ledger/default-chart.js";
 
 export const PM_ACCOUNTS: AccountSeed[] = [
+  { code: "5670", name: "Property payroll wages", type: "expense", system: true },
+  { code: "5671", name: "Property employer payroll contributions", type: "expense", system: true },
+  { code: "2670", name: "Property net wages payable", type: "liability", system: true },
+  { code: "2671", name: "Property PAYE payable", type: "liability", system: true },
+  { code: "2672", name: "Property NSSF payable", type: "liability", system: true },
+  { code: "2673", name: "Property SHIF payable", type: "liability", system: true },
+  { code: "2674", name: "Property housing levy payable", type: "liability", system: true },
+  { code: "2675", name: "Property other payroll deductions payable", type: "liability", system: true },
+
   { code: "1040", name: "Client account (owners' and tenants' money)", type: "asset", system: true },
   { code: "1120", name: "Tenant receivables", type: "asset", system: true },
   { code: "2150", name: "Owner rent and charges billed, not yet collected", type: "liability", system: true },

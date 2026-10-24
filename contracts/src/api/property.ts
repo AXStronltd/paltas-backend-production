@@ -476,7 +476,19 @@ export type Payout = z.infer<typeof Payout>;
 
 // ------------------------------------------------------------------ bills and maintenance
 export const BILL_STATUSES = ["submitted", "held", "awaiting_owner", "approved", "rejected", "paid"] as const;
+export const ExpenseCategory = z.enum([
+  "repairs",
+  "utilities",
+  "cleaning",
+  "security",
+  "administration",
+  "bank_charges",
+  "other",
+]);
 export const Bill = z.object({
+  expenseCategory: ExpenseCategory,
+  expenseAccount: z.string(),
+  version: z.number().int().positive(),
   id: z.string(),
   number: z.string(),
   supplierId: z.string(),
@@ -1901,6 +1913,7 @@ export const submitBill = endpoint({
     "Enter a supplier bill. Bills on a work order are matched to its purchase order (amount, tolerance, work checked) and possible duplicates are held.",
   params: OrgParams,
   body: z.object({
+    expenseCategory: ExpenseCategory.default("repairs"),
     supplierId: Id,
     propertyId: Id.optional(),
     unitId: Id.optional(),
@@ -2686,4 +2699,166 @@ export const setTenantControl = endpoint({
     acknowledgeNoEviction: z.literal(true),
   }),
   response: TenantControl,
+});
+
+export const editBill = endpoint({
+  id: "property.bills.edit",
+  method: "PUT",
+  path: `${Base}/bills/:billId`,
+  auth: "user",
+  summary: "Correct unposted supplier bill; posted records require reversal",
+  params: BillParams,
+  body: z.object({
+    description: z.string().trim().min(2).max(500),
+    amountMinor: PositiveMinorUnits,
+    dueDate: IsoDate.nullable(),
+    expenseCategory: ExpenseCategory,
+    expectedVersion: z.number().int().positive(),
+    reason: Reason,
+  }),
+  response: Bill,
+});
+const PayrollMoney = z.number().int().min(0).max(100000000000);
+export const EmployeeInput = z.object({
+  code: z.string().trim().min(1).max(30),
+  name: z.string().trim().min(2).max(160),
+  email: z.string().email().nullable(),
+  grossMinor: PayrollMoney.refine((v) => v > 0),
+  active: z.boolean(),
+});
+export const Employee = EmployeeInput.extend({ id: Id, version: z.number().int().positive() });
+export const PayrollInput = z.object({
+  employeeId: Id,
+  grossMinor: PayrollMoney,
+  pensionableMinor: PayrollMoney,
+  taxableBenefitsMinor: PayrollMoney.default(0),
+  resident: z.boolean(),
+  nitaLiable: z.boolean(),
+  nitaExemptionReason: z.string().trim().max(300).default(""),
+  pensionMinor: PayrollMoney.default(0),
+  mortgageMinor: PayrollMoney.default(0),
+  medicalMinor: PayrollMoney.default(0),
+  insurancePremiumMinor: PayrollMoney.default(0),
+  otherDeductionsMinor: PayrollMoney.default(0),
+  otherEmployerMinor: PayrollMoney.default(0),
+});
+export const PayrollCalculation = z.object({
+  ruleVersion: z.string(),
+  grossMinor: PayrollMoney,
+  taxableMinor: PayrollMoney,
+  taxBeforeReliefMinor: PayrollMoney,
+  personalReliefMinor: PayrollMoney,
+  insuranceReliefMinor: PayrollMoney,
+  payeMinor: PayrollMoney,
+  nssfMinor: PayrollMoney,
+  shifMinor: PayrollMoney,
+  ahlMinor: PayrollMoney,
+  otherDeductionsMinor: PayrollMoney,
+  employerNssfMinor: PayrollMoney,
+  employerAhlMinor: PayrollMoney,
+  otherEmployerMinor: PayrollMoney,
+  employerMinor: PayrollMoney,
+  netMinor: PayrollMoney,
+  nitaMinor: PayrollMoney,
+  totalCostMinor: PayrollMoney,
+});
+export const PayrollRun = z.object({
+  id: Id,
+  period: z.string(),
+  status: z.enum(["draft", "approved", "paid", "cancelled", "reversed"]),
+  version: z.number().int(),
+  preparedBy: Id,
+  approvedBy: Id.nullable(),
+  paidOn: IsoDate.nullable(),
+  paidReference: z.string().nullable(),
+  journalId: Id.nullable(),
+  lines: z.array(
+    z.object({
+      employeeId: Id,
+      employeeCode: z.string(),
+      employeeName: z.string(),
+      inputs: PayrollInput,
+      calculation: PayrollCalculation,
+    }),
+  ),
+  remittances: z.array(
+    z.object({ kind: z.string(), amountMinor: PayrollMoney, paidOn: IsoDate, reference: z.string() }),
+  ),
+});
+export type PayrollRun = z.infer<typeof PayrollRun>;
+const PayrollBase = `${Base}/payroll`;
+const RunParams = OrgParams.extend({ runId: Id });
+export const payrollEmployees = endpoint({
+  id: "property.payroll.employees",
+  method: "GET",
+  path: `${PayrollBase}/employees`,
+  auth: "user",
+  summary: "Authorised payroll employee register",
+  params: OrgParams,
+  response: z.object({ employees: z.array(Employee) }),
+});
+export const savePayrollEmployee = endpoint({
+  id: "property.payroll.employee.save",
+  method: "PUT",
+  path: `${PayrollBase}/employees/:employeeId`,
+  auth: "user",
+  summary: "Create or update an employee without altering historical payslips",
+  params: OrgParams.extend({ employeeId: Id }),
+  body: EmployeeInput.extend({ expectedVersion: z.number().int().min(0) }),
+  response: Employee,
+});
+export const payrollRuns = endpoint({
+  id: "property.payroll.runs",
+  method: "GET",
+  path: PayrollBase,
+  auth: "user",
+  summary: "Payroll runs with immutable approved snapshots",
+  params: OrgParams,
+  response: z.object({ runs: z.array(PayrollRun) }),
+});
+export const preparePayroll = endpoint({
+  id: "property.payroll.prepare",
+  method: "POST",
+  path: PayrollBase,
+  auth: "user",
+  summary: "Prepare or replace a draft; no posting before independent approval",
+  params: OrgParams,
+  body: z.object({
+    period: z.string().regex(/^2026-(0[2-9]|1[0-2])$/),
+    lines: z.array(PayrollInput).min(1).max(500),
+    runId: Id.optional(),
+    expectedVersion: z.number().int().positive().optional(),
+    reviewConfirmed: z.literal(true),
+  }),
+  response: PayrollRun,
+});
+export const payrollAction = endpoint({
+  id: "property.payroll.action",
+  method: "POST",
+  path: `${PayrollBase}/:runId/actions`,
+  auth: "user",
+  summary: "Approve, record external payment, cancel or reverse with separate authority",
+  params: RunParams,
+  body: z.object({
+    action: z.enum(["approve", "pay", "cancel", "reverse"]),
+    expectedVersion: z.number().int().positive(),
+    date: IsoDate,
+    reason: Reason,
+    reference: z.string().trim().min(2).max(100).optional(),
+  }),
+  response: PayrollRun,
+});
+export const payrollRemit = endpoint({
+  id: "property.payroll.remit",
+  method: "POST",
+  path: `${PayrollBase}/:runId/remittances`,
+  auth: "user",
+  summary: "Record externally paid payroll liabilities once; never initiates remittance",
+  params: RunParams,
+  body: z.object({
+    kind: z.enum(["PAYE", "NSSF", "SHIF", "AHL", "NITA", "pension", "medical", "other_employee", "other_employer"]),
+    date: IsoDate,
+    reference: z.string().trim().min(2).max(100),
+  }),
+  response: PayrollRun,
 });

@@ -755,6 +755,13 @@ export const CONTACTS_API = {
 } as const;
 
 export const PROPERTY_API = {
+  editBill: property.editBill,
+  payrollEmployees: property.payrollEmployees,
+  savePayrollEmployee: property.savePayrollEmployee,
+  payrollRuns: property.payrollRuns,
+  preparePayroll: property.preparePayroll,
+  payrollAction: property.payrollAction,
+  payrollRemit: property.payrollRemit,
   getSettings: property.getSettings,
   updateSettings: property.updateSettings,
   listChargeTypes: property.listChargeTypes,

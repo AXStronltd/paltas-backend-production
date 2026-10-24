@@ -9,7 +9,18 @@ import type { NewLine } from "../../../core/ledger/ledger.repo.js";
 import type { Db } from "../../../db/database.js";
 
 export type PostingKind =
-  "invoice" | "receipt" | "collection" | "credit_note" | "deposit_refund" | "bill" | "bill_payment" | "payout";
+  | "payroll"
+  | "payroll_payment"
+  | "payroll_remittance"
+  | "payroll_reversal"
+  | "invoice"
+  | "receipt"
+  | "collection"
+  | "credit_note"
+  | "deposit_refund"
+  | "bill"
+  | "bill_payment"
+  | "payout";
 
 export interface PostingLink {
   propertyId?: string | null;

@@ -62,6 +62,7 @@ describe("migrations", () => {
         "0034_membership_product_roles",
         "0035_operational_controls",
         "0036_staff_password_reset",
+        "0037_property_finance_operations",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything
