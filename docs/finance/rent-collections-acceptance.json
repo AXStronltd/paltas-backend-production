@@ -724,8 +724,12 @@
         {
           "id": "utilities.23",
           "requirement": "Disputes",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.billing-disputes.test.ts",
+            "frontend/tests/property.billing-disputes.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 3 and remaining gaps"
+          ]
         },
         {
           "id": "utilities.24",
@@ -1121,8 +1125,12 @@
         {
           "id": "arrears.10",
           "requirement": "Disputes",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.billing-disputes.test.ts",
+            "frontend/tests/property.billing-disputes.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 3 and remaining gaps"
+          ]
         },
         {
           "id": "arrears.11",
@@ -1804,8 +1812,12 @@
         {
           "id": "tenant_portal.08",
           "requirement": "Billing disputes",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.billing-disputes.test.ts",
+            "frontend/tests/property.billing-disputes.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 3 and remaining gaps"
+          ]
         },
         {
           "id": "tenant_portal.09",

@@ -3129,3 +3129,110 @@ export const deleteInvoiceDraft = endpoint({
   body: z.object({ expectedVersion: z.number().int().positive(), reason: z.string().trim().min(3).max(500) }),
   response: z.object({ deleted: z.literal(true) }),
 });
+
+export const BillingDispute = z.object({
+  id: Id,
+  invoiceId: Id,
+  invoiceNumber: z.string(),
+  tenantId: Id,
+  tenantName: z.string(),
+  unitNo: z.string().nullable(),
+  amountMinor: PositiveMinorUnits,
+  reason: z.string(),
+  status: z.enum(["open", "reviewing", "resolved", "rejected", "withdrawn"]),
+  resolution: z.string(),
+  creditNoteId: Id.nullable(),
+  version: z.number().int().positive(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  events: z.array(z.object({ id: Id, action: z.string(), reason: z.string(), createdAt: z.string() })),
+});
+export type BillingDispute = z.infer<typeof BillingDispute>;
+const DisputeInput = z.object({
+  invoiceId: Id,
+  amountMinor: PositiveMinorUnits,
+  reason: z.string().trim().min(5).max(2000),
+});
+export type DisputeInput = z.infer<typeof DisputeInput>;
+const DisputeAction = z.object({
+  expectedVersion: z.number().int().positive(),
+  action: z.enum(["review", "resolve", "reject", "reopen", "withdraw"]),
+  reason: z.string().trim().min(5).max(2000),
+  creditNoteId: Id.optional(),
+});
+export type DisputeAction = z.infer<typeof DisputeAction>;
+const DisputeQuery = z.object({
+  invoiceId: Id.optional(),
+  propertyId: Id.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).max(1000000).default(0),
+});
+export type DisputeQuery = z.infer<typeof DisputeQuery>;
+const DisputePage = z.object({
+  disputes: z.array(BillingDispute),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export const listBillingDisputes = endpoint({
+  id: "property.invoices.disputes.list",
+  method: "GET",
+  path: `${Base}/billing-disputes`,
+  auth: "user",
+  summary: "Billing disputes within authorised properties, without changing financial balances",
+  params: OrgParams,
+  query: DisputeQuery,
+  response: DisputePage,
+});
+export const createBillingDispute = endpoint({
+  id: "property.invoices.disputes.create",
+  method: "POST",
+  path: `${Base}/billing-disputes`,
+  auth: "user",
+  summary: "Open a billing query on behalf of a tenant",
+  params: OrgParams,
+  body: DisputeInput,
+  response: BillingDispute,
+  status: 201,
+});
+export const billingDisputeAction = endpoint({
+  id: "property.invoices.disputes.action",
+  method: "POST",
+  path: `${Base}/billing-disputes/:disputeId`,
+  auth: "user",
+  summary: "Review a dispute; link an existing posted credit or explain the resolution",
+  params: OrgParams.extend({ disputeId: Id }),
+  body: DisputeAction,
+  response: BillingDispute,
+});
+export const tenantBillingDisputes = endpoint({
+  id: "property.tenant.disputes.list",
+  method: "GET",
+  path: `${Base}/tenant/billing-disputes`,
+  auth: "user",
+  summary: "Your own billing disputes and resolution history",
+  params: OrgParams,
+  query: DisputeQuery,
+  response: DisputePage,
+});
+export const tenantCreateBillingDispute = endpoint({
+  id: "property.tenant.disputes.create",
+  method: "POST",
+  path: `${Base}/tenant/billing-disputes`,
+  auth: "user",
+  summary: "Ask your manager to review your invoice",
+  params: OrgParams,
+  body: DisputeInput,
+  response: BillingDispute,
+  status: 201,
+});
+export const tenantBillingDisputeAction = endpoint({
+  id: "property.tenant.disputes.action",
+  method: "POST",
+  path: `${Base}/tenant/billing-disputes/:disputeId`,
+  auth: "user",
+  summary: "Reopen or withdraw your own billing dispute; never alters your lease or balances",
+  params: OrgParams.extend({ disputeId: Id }),
+  body: DisputeAction,
+  response: BillingDispute,
+});

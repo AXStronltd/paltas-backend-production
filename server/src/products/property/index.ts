@@ -1,3 +1,5 @@
+import { billingDisputeRoutes } from "./billing/billing-disputes.routes.js";
+import { billingDisputesService } from "./billing/billing-disputes.service.js";
 import { propertyPayrollService } from "./payroll/payroll.service.js";
 import { propertyPayrollRoutes } from "./payroll/payroll.routes.js";
 import { tenantControls } from "./leases/tenant-control.js";
@@ -104,6 +106,7 @@ export const property: ProductModule = {
       ...setupRoutes(access, setup),
       ...leasesRoutes(access, leases, billing, payments),
       ...billingRoutes(access, billing),
+      ...billingDisputeRoutes(access, billingDisputesService(d)),
       ...paymentsRoutes(access, payments),
       ...ownersRoutes(access, owners),
       ...billsRoutes(access, bills),

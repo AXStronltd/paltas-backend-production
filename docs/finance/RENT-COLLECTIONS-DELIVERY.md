@@ -70,3 +70,13 @@ The owner's latest clarification rejects partial implementation and partial depl
 `rent-collections-acceptance.json` tracks 374 individual requirements plus the 14 mandatory journeys. `implemented_subset` records existing/new functionality without promoting it to full-enterprise verification. `pending` means evidence still needs to be completed; it does not imply every underlying component is absent.
 
 Draft approval now fingerprints payer/unit/management context as well as category settings. A change requires renewed approval. Charge quantity precision matches the existing invoice database column (three decimals). Drafts and immediate service invoices use the existing shared exact-money calculator; confirmation displays the server-calculated total. These changes do not introduce a second financial ledger.
+
+## Increment 3: billing disputes and tenant review history
+
+Added tenant-owned invoice queries, manager review/resolution/rejection, reopening and withdrawal with optimistic versions and immutable event history. A case may link an actual posted credit note on the same invoice, issued after the case opened; it cannot create a credit, refund, payment, lease termination or access restriction. Invoice correction reuses the existing invoice credit action. Resolution history and current balances are visible to the tenant.
+
+Additive migration `0041_property_billing_disputes.sql` creates operational case/event records and organisation-scoped invoice/credit foreign keys. Existing invoices, readings and financial history are unchanged. Only one active query per invoice is permitted. Lists are paginated and restricted by organisation, property assignment and tenant identity.
+
+Verification: five backend dispute tests; 43 focused backend tests including billing acceptance, operations, draft controls and additive upgrades; 18 browser checks at 1440/768/390 px exercising tenant query → manager invoice credit → linked resolution → tenant balance/history. Browser tests initially selected background invoice controls while a modal was open; selectors were scoped to the active modal and rerun successfully.
+
+This completes a supported dispute journey, not the whole utilities/arrears specification. Meter lifecycle, estimates, shared allocation, repayment/reminder automation and other acceptance gaps remain open. No production release performed.
