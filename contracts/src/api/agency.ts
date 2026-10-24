@@ -213,7 +213,10 @@ export const updateListing = endpoint({
   auth: "user",
   summary: "Change a draft, paused or refused listing (a published or waiting one must be taken down first)",
   params: ListingParams,
-  body: ListingInput,
+  body: ListingInput.extend({
+    /** Optional for legacy clients; current editors send the version they opened. */
+    expectedUpdatedAt: IsoDateTime.optional(),
+  }),
   response: Listing,
 });
 

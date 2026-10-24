@@ -142,7 +142,7 @@ export function listingsService(d: AgencyDeps) {
       });
     },
 
-    async update(s: OrgScope, id: string, b: Input) {
+    async update(s: OrgScope, id: string, b: Input & { expectedUpdatedAt?: string | undefined }) {
       return db.tx(async (t) => {
         const before = await findListing(t, s.orgId, id, true);
         if (!EDITABLE.includes(before.status))
@@ -150,6 +150,10 @@ export function listingsService(d: AgencyDeps) {
             before.status === "closed"
               ? "This listing is closed (sold or let)"
               : "Take the listing off the marketplace before changing it",
+          );
+        if (b.expectedUpdatedAt && Date.parse(b.expectedUpdatedAt) !== Date.parse(before.updated_at))
+          throw fail.conflict(
+            "This listing changed after you opened it. Your changes were not saved. Reopen the latest record and try again.",
           );
         if (before.purpose !== b.purpose) throw fail.invalid("A listing's purpose cannot change — draft a new one");
         await check(t, s, b);
@@ -161,11 +165,40 @@ export function listingsService(d: AgencyDeps) {
              agreement_id = $24, agent_user = $25, str_registration_number = $26, host_present = $27,
              tenant_fees = $28::jsonb, no_tenant_broker_fee = $29,
              str_verified_by = CASE WHEN str_registration_number = $26 THEN str_verified_by END,
-             str_verified_at = CASE WHEN str_registration_number = $26 THEN str_verified_at END, updated_at = now()
+             str_verified_at = CASE WHEN str_registration_number = $26 THEN str_verified_at END,
+             updated_at = GREATEST(clock_timestamp(), updated_at + interval '1 millisecond')
            WHERE org_id = $1 AND id = $2 RETURNING *`,
           [s.orgId, id, ...values(b)],
         )) as ListingRow;
-        await audit(t, s, "Listing changed", l);
+        await recordAudit(t, {
+          actor: s.actor,
+          orgId: s.orgId,
+          action: "Listing changed",
+          target: l.number,
+          detail: l.title,
+          before: {
+            title: before.title,
+            priceMinor: before.price_minor,
+            city: before.city,
+            ownerContactId: before.owner_contact_id,
+            agreementId: before.agreement_id,
+            agentUserId: before.agent_user,
+            serviceFeeBp: before.service_fee_bp,
+            taxBp: before.tax_bp,
+            updatedAt: before.updated_at,
+          },
+          after: {
+            title: l.title,
+            priceMinor: l.price_minor,
+            city: l.city,
+            ownerContactId: l.owner_contact_id,
+            agreementId: l.agreement_id,
+            agentUserId: l.agent_user,
+            serviceFeeBp: l.service_fee_bp,
+            taxBp: l.tax_bp,
+            updatedAt: l.updated_at,
+          },
+        });
         return view(t, l);
       });
     },
