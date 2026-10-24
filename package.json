@@ -26,7 +26,8 @@
     "bootstrap": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/bootstrap.js",
     "browser:build": "npm run build && node scripts/build-browser-files.mjs",
     "browser:check": "node scripts/build-browser-files.mjs --check",
-    "openapi": "npm run build && node scripts/write-openapi.mjs"
+    "openapi": "npm run build && node scripts/write-openapi.mjs",
+    "release:rent-collections:check": "node scripts/check-rent-collections-release.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",

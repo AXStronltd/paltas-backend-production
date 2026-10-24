@@ -1,0 +1,2535 @@
+{
+  "scope": "Complete enterprise Rent & Collections specification",
+  "productionRelease": "blocked",
+  "customerAcceptance": {
+    "status": "pending",
+    "evidence": []
+  },
+  "providerDependencies": "Provider execution is conditional on verified onboarding; mark unavailable rather than simulate success.",
+  "sections": [
+    {
+      "area": "billing",
+      "requirements": [
+        {
+          "id": "billing.01",
+          "requirement": "Individual rent billing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.02",
+          "requirement": "Building-wide billing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.03",
+          "requirement": "Portfolio billing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.04",
+          "requirement": "Monthly cycles",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "billing.05",
+          "requirement": "Weekly cycles",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.06",
+          "requirement": "Quarterly cycles",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.07",
+          "requirement": "Annual cycles",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.08",
+          "requirement": "Custom cycles",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.09",
+          "requirement": "Recurring invoices",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.10",
+          "requirement": "Proration",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "billing.11",
+          "requirement": "Mid-cycle adjustments",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.12",
+          "requirement": "Rent increases",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.13",
+          "requirement": "Scheduled escalations",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "billing.14",
+          "requirement": "Grace periods",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.15",
+          "requirement": "Late fees",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "billing.16",
+          "requirement": "Discounts",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.17",
+          "requirement": "Concessions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.18",
+          "requirement": "Promotional rates",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.19",
+          "requirement": "Rent-free periods",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.20",
+          "requirement": "Lease renewals",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.21",
+          "requirement": "Rent changes",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.22",
+          "requirement": "Shared tenancies",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.23",
+          "requirement": "Multiple occupancy arrangements",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.24",
+          "requirement": "Residential billing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.25",
+          "requirement": "Commercial billing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.26",
+          "requirement": "Multi-currency invoicing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.27",
+          "requirement": "Tax-aware billing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.28",
+          "requirement": "Bulk processing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.29",
+          "requirement": "Drafts",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "billing.30",
+          "requirement": "Approval",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "billing.31",
+          "requirement": "Issue",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "billing.32",
+          "requirement": "Cancellation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.33",
+          "requirement": "Credit workflows",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "billing.34",
+          "requirement": "Configurable invoice numbers",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "billing.35",
+          "requirement": "Duplicate prevention",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "invoices",
+      "requirements": [
+        {
+          "id": "invoices.01",
+          "requirement": "Individual invoices",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.02",
+          "requirement": "Bulk invoices",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.03",
+          "requirement": "Edit drafts",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "invoices.04",
+          "requirement": "Delete eligible drafts",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "invoices.05",
+          "requirement": "Custom lines",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "invoices.06",
+          "requirement": "Recurring templates",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.07",
+          "requirement": "Attachments",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.08",
+          "requirement": "Preview",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "invoices.09",
+          "requirement": "Send",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.10",
+          "requirement": "Resend",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.11",
+          "requirement": "Delivery tracking",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.12",
+          "requirement": "Partial payments",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "invoices.13",
+          "requirement": "Full payments",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "invoices.14",
+          "requirement": "Receipts",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "invoices.15",
+          "requirement": "Credit notes",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "invoices.16",
+          "requirement": "Issued invoice corrections",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "invoices.17",
+          "requirement": "PDF exports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.18",
+          "requirement": "Excel exports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.19",
+          "requirement": "CSV exports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.20",
+          "requirement": "Search",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.21",
+          "requirement": "Filter",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.22",
+          "requirement": "Archive",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.23",
+          "requirement": "Retrieve",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.24",
+          "requirement": "Branded invoices",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "invoices.25",
+          "requirement": "Branded receipts",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "services",
+      "requirements": [
+        {
+          "id": "services.01",
+          "requirement": "Security",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.02",
+          "requirement": "Cleaning",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.03",
+          "requirement": "Parking",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.04",
+          "requirement": "Internet",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.05",
+          "requirement": "Waste",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.06",
+          "requirement": "Maintenance",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.07",
+          "requirement": "Common areas",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.08",
+          "requirement": "Generator fuel",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.09",
+          "requirement": "Building insurance",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.10",
+          "requirement": "Management fees",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.11",
+          "requirement": "Owner assessments",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.12",
+          "requirement": "Custom categories",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.13",
+          "requirement": "Fixed pricing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.14",
+          "requirement": "Percentage pricing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.15",
+          "requirement": "Usage pricing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.16",
+          "requirement": "Shared allocation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.17",
+          "requirement": "Per-unit pricing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.18",
+          "requirement": "Per-area pricing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.19",
+          "requirement": "One-time charges",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.20",
+          "requirement": "Recurring charges",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.21",
+          "requirement": "Owner payers",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.22",
+          "requirement": "Tenant payers",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.23",
+          "requirement": "Mixed allocation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.24",
+          "requirement": "Exemptions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.25",
+          "requirement": "Credits",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.26",
+          "requirement": "Adjustments",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.27",
+          "requirement": "Bulk assessments",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "services.28",
+          "requirement": "Customer configuration",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "utilities",
+      "requirements": [
+        {
+          "id": "utilities.01",
+          "requirement": "Water",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.02",
+          "requirement": "Electricity",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.03",
+          "requirement": "Gas",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.04",
+          "requirement": "Internet",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.05",
+          "requirement": "Sewerage",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.06",
+          "requirement": "Waste",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.07",
+          "requirement": "Heating",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.08",
+          "requirement": "Cooling",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.09",
+          "requirement": "Custom utilities",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.10",
+          "requirement": "Individual meters",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.11",
+          "requirement": "Shared meters",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.12",
+          "requirement": "Assignment",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.13",
+          "requirement": "Replacement",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.14",
+          "requirement": "Opening readings",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.15",
+          "requirement": "Closing readings",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.16",
+          "requirement": "Reading history",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.17",
+          "requirement": "Tariffs",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.18",
+          "requirement": "Tiered pricing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.19",
+          "requirement": "Variable pricing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.20",
+          "requirement": "Shared allocation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.21",
+          "requirement": "Reading corrections",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.22",
+          "requirement": "Estimates",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.23",
+          "requirement": "Disputes",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.24",
+          "requirement": "Billing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.25",
+          "requirement": "Analytics",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.26",
+          "requirement": "Supplier reconciliation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.27",
+          "requirement": "Residential support",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.28",
+          "requirement": "Commercial support",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "utilities.29",
+          "requirement": "Mixed-use support",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "payments",
+      "requirements": [
+        {
+          "id": "payments.01",
+          "requirement": "Bank recording",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.02",
+          "requirement": "Mobile-money recording",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.03",
+          "requirement": "Card recording",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.04",
+          "requirement": "Cash recording",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.05",
+          "requirement": "Cheques",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.06",
+          "requirement": "Standing orders",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.07",
+          "requirement": "Enabled direct debit",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.08",
+          "requirement": "Enabled payment links",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.09",
+          "requirement": "Approved other methods",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.10",
+          "requirement": "Initiation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.11",
+          "requirement": "Confirmation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.12",
+          "requirement": "Pending state",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.13",
+          "requirement": "Processing state",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.14",
+          "requirement": "Settlement tracking",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.15",
+          "requirement": "Partial payments",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "payments.16",
+          "requirement": "Split payments",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.17",
+          "requirement": "Overpayments",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "payments.18",
+          "requirement": "Credits",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "payments.19",
+          "requirement": "Allocation priorities",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.20",
+          "requirement": "Unallocated funds",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.21",
+          "requirement": "Reversals",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "payments.22",
+          "requirement": "Chargebacks",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.23",
+          "requirement": "Failures",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.24",
+          "requirement": "Deduplication",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.25",
+          "requirement": "Refunds",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.26",
+          "requirement": "Investigations",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "payments.27",
+          "requirement": "References",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "payments.28",
+          "requirement": "Complete history",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        }
+      ]
+    },
+    {
+      "area": "reconciliation",
+      "requirements": [
+        {
+          "id": "reconciliation.01",
+          "requirement": "Bank imports",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "reconciliation.02",
+          "requirement": "Provider imports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.03",
+          "requirement": "Automatic matching",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "reconciliation.04",
+          "requirement": "Manual matching",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "reconciliation.05",
+          "requirement": "One-to-many matching",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.06",
+          "requirement": "Many-to-one matching",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.07",
+          "requirement": "Settlement reconciliation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.08",
+          "requirement": "Bank charges",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.09",
+          "requirement": "Processing fees",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.10",
+          "requirement": "Gross-to-net settlement",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.11",
+          "requirement": "Unmatched queues",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.12",
+          "requirement": "Duplicate detection",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.13",
+          "requirement": "Exceptions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "reconciliation.14",
+          "requirement": "Approval",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "reconciliation.15",
+          "requirement": "Audit history",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "reconciliation.16",
+          "requirement": "Source traceability",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "arrears",
+      "requirements": [
+        {
+          "id": "arrears.01",
+          "requirement": "Outstanding balances",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.02",
+          "requirement": "Ageing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.03",
+          "requirement": "Late identification",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.04",
+          "requirement": "Automatic reminders",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.05",
+          "requirement": "Manual reminders",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.06",
+          "requirement": "Bulk reminders",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.07",
+          "requirement": "Repayment plans",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.08",
+          "requirement": "Instalments",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.09",
+          "requirement": "Promises to pay",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.10",
+          "requirement": "Disputes",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.11",
+          "requirement": "Notes",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.12",
+          "requirement": "Escalations",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.13",
+          "requirement": "Communication history",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.14",
+          "requirement": "Performance reports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.15",
+          "requirement": "Configurable templates",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.16",
+          "requirement": "Reminder schedules",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.17",
+          "requirement": "Enabled email",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.18",
+          "requirement": "Enabled SMS",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.19",
+          "requirement": "Enabled WhatsApp",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "arrears.20",
+          "requirement": "Applicable communication controls",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "deposits",
+      "requirements": [
+        {
+          "id": "deposits.01",
+          "requirement": "Collection",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.02",
+          "requirement": "Liability accounting",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.03",
+          "requirement": "Balance tracking",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.04",
+          "requirement": "Deductions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.05",
+          "requirement": "Damage charges",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.06",
+          "requirement": "Rent deductions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.07",
+          "requirement": "Move-out statements",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.08",
+          "requirement": "Refund requests",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.09",
+          "requirement": "Approval",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.10",
+          "requirement": "Partial refunds",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.11",
+          "requirement": "Execution tracking",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.12",
+          "requirement": "Failed refunds",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.13",
+          "requirement": "Final statements",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.14",
+          "requirement": "Audit history",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "deposits.15",
+          "requirement": "Validated jurisdiction adapters",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "owners",
+      "requirements": [
+        {
+          "id": "owners.01",
+          "requirement": "Owner collections",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.02",
+          "requirement": "Unit ownership",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.03",
+          "requirement": "Ownership shares",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.04",
+          "requirement": "Commissions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.05",
+          "requirement": "Owner charges",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.06",
+          "requirement": "Recoverable expenses",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.07",
+          "requirement": "Balances",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.08",
+          "requirement": "Liabilities",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.09",
+          "requirement": "Statements",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.10",
+          "requirement": "Payout calculation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.11",
+          "requirement": "Approval",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.12",
+          "requirement": "Execution tracking",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.13",
+          "requirement": "Reconciliation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.14",
+          "requirement": "Profitability",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.15",
+          "requirement": "Self-service",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owners.16",
+          "requirement": "Client-money separation",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "command",
+      "requirements": [
+        {
+          "id": "command.01",
+          "requirement": "Today receipts",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.02",
+          "requirement": "Yesterday receipts",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.03",
+          "requirement": "Week receipts",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.04",
+          "requirement": "Month receipts",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.05",
+          "requirement": "Unpaid tenants",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.06",
+          "requirement": "Partially paid tenants",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.07",
+          "requirement": "Due today",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.08",
+          "requirement": "Overdue",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.09",
+          "requirement": "Cleared funds",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.10",
+          "requirement": "Pending funds",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.11",
+          "requirement": "Fees",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.12",
+          "requirement": "Owner balances",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.13",
+          "requirement": "Pending refunds",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.14",
+          "requirement": "Pending payouts",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.15",
+          "requirement": "Quarter preset",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.16",
+          "requirement": "Year preset",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.17",
+          "requirement": "Custom dates",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.18",
+          "requirement": "Property filter",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.19",
+          "requirement": "Unit filter",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.20",
+          "requirement": "Tenant filter",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.21",
+          "requirement": "Owner filter",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.22",
+          "requirement": "Account filter",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.23",
+          "requirement": "Collection totals",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.24",
+          "requirement": "Collection rates",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.25",
+          "requirement": "Outstanding totals",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.26",
+          "requirement": "Settlement totals",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.27",
+          "requirement": "Daily cashbook",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.28",
+          "requirement": "Activity timeline",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.29",
+          "requirement": "Alerts",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.30",
+          "requirement": "Drilldowns",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "command.31",
+          "requirement": "Exports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.32",
+          "requirement": "Scheduled reports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "command.33",
+          "requirement": "Distinguish cash settlement and profit",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "control",
+      "requirements": [
+        {
+          "id": "control.01",
+          "requirement": "Create",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.02",
+          "requirement": "View",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.03",
+          "requirement": "Repeat edit",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "control.04",
+          "requirement": "Delete eligible drafts",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "control.05",
+          "requirement": "Archive",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "control.06",
+          "requirement": "Restore",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "control.07",
+          "requirement": "Close",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.08",
+          "requirement": "Authorised reopen",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.09",
+          "requirement": "Approve",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "control.10",
+          "requirement": "Reject",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.11",
+          "requirement": "Send",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.12",
+          "requirement": "Resend",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.13",
+          "requirement": "Export",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.14",
+          "requirement": "Correct",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "control.15",
+          "requirement": "Reverse",
+          "status": "implemented_subset",
+          "evidence": [
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+          ]
+        },
+        {
+          "id": "control.16",
+          "requirement": "Bulk update",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.17",
+          "requirement": "Configure",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.18",
+          "requirement": "Automate",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.19",
+          "requirement": "Sensitive permissions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "control.20",
+          "requirement": "No silent posted deletion",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "tenant_portal",
+      "requirements": [
+        {
+          "id": "tenant_portal.01",
+          "requirement": "Rent and charges",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.02",
+          "requirement": "Outstanding balances",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.03",
+          "requirement": "Invoices",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.04",
+          "requirement": "Receipt downloads",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.05",
+          "requirement": "Payment history",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.06",
+          "requirement": "Enabled payment methods",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.07",
+          "requirement": "Repayment plans",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.08",
+          "requirement": "Billing disputes",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.09",
+          "requirement": "Reminders",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.10",
+          "requirement": "Statements",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.11",
+          "requirement": "Eligible deposit requests",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "tenant_portal.12",
+          "requirement": "Own-record isolation",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "owner_portal",
+      "requirements": [
+        {
+          "id": "owner_portal.01",
+          "requirement": "Properties and units",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.02",
+          "requirement": "Collections",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.03",
+          "requirement": "Expenses",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.04",
+          "requirement": "Fees",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.05",
+          "requirement": "Statements",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.06",
+          "requirement": "Payouts",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.07",
+          "requirement": "Arrears",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.08",
+          "requirement": "Reports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.09",
+          "requirement": "Profitability",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.10",
+          "requirement": "Configurable permissions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "owner_portal.11",
+          "requirement": "Own-record isolation",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "migration",
+      "requirements": [
+        {
+          "id": "migration.01",
+          "requirement": "Properties",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.02",
+          "requirement": "Units",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.03",
+          "requirement": "Owners",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.04",
+          "requirement": "Tenants",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.05",
+          "requirement": "Leases",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.06",
+          "requirement": "Schedules",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.07",
+          "requirement": "Outstanding balances",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.08",
+          "requirement": "Deposits",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.09",
+          "requirement": "Historical invoices",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.10",
+          "requirement": "Payments",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.11",
+          "requirement": "Service categories",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.12",
+          "requirement": "CSV",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.13",
+          "requirement": "Excel",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.14",
+          "requirement": "Mapping",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.15",
+          "requirement": "Validation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.16",
+          "requirement": "Deduplication",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.17",
+          "requirement": "Preview",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.18",
+          "requirement": "Status",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.19",
+          "requirement": "Error reports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.20",
+          "requirement": "Safe corrections",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.21",
+          "requirement": "Opening reconciliation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "migration.22",
+          "requirement": "Verified competitor formats",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "accounting",
+      "requirements": [
+        {
+          "id": "accounting.01",
+          "requirement": "Rent receivables",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.02",
+          "requirement": "Revenue versus owner liabilities",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.03",
+          "requirement": "Service charges",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.04",
+          "requirement": "Utilities",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.05",
+          "requirement": "Deposits",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.06",
+          "requirement": "Processing fees",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.07",
+          "requirement": "Refunds",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.08",
+          "requirement": "Commissions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.09",
+          "requirement": "Payouts",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.10",
+          "requirement": "Settlements",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.11",
+          "requirement": "Credit notes",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.12",
+          "requirement": "Reversals",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.13",
+          "requirement": "Idempotent events",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "accounting.14",
+          "requirement": "Ledger reconciliation",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "scale",
+      "requirements": [
+        {
+          "id": "scale.01",
+          "requirement": "Landlord workload",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.02",
+          "requirement": "Management-company workload",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.03",
+          "requirement": "Multi-building workload",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.04",
+          "requirement": "Mixed ownership",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.05",
+          "requirement": "Enterprise portfolios",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.06",
+          "requirement": "Multi-country workload",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.07",
+          "requirement": "Hundred-thousand-unit target",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.08",
+          "requirement": "High-volume billing",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.09",
+          "requirement": "Concurrent payments",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.10",
+          "requirement": "Large exports",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.11",
+          "requirement": "Bulk communications",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.12",
+          "requirement": "Index plans",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.13",
+          "requirement": "Pagination",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.14",
+          "requirement": "Jobs",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.15",
+          "requirement": "Queues",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.16",
+          "requirement": "Cache consistency",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.17",
+          "requirement": "Monitoring",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.18",
+          "requirement": "Measured SLOs",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "scale.19",
+          "requirement": "Realistic load tests",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "security",
+      "requirements": [
+        {
+          "id": "security.01",
+          "requirement": "Organisation isolation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.02",
+          "requirement": "Tenant isolation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.03",
+          "requirement": "Roles",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.04",
+          "requirement": "Approvals",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.05",
+          "requirement": "Audit",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.06",
+          "requirement": "Secure provider integration",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.07",
+          "requirement": "Encryption",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.08",
+          "requirement": "Idempotency",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.09",
+          "requirement": "Concurrency",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.10",
+          "requirement": "Financial integrity",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.11",
+          "requirement": "Backups",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.12",
+          "requirement": "Disaster recovery",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.13",
+          "requirement": "Monitoring",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.14",
+          "requirement": "Alerts",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.15",
+          "requirement": "Safe migrations",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.16",
+          "requirement": "Regression",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "security.17",
+          "requirement": "Data protection",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    },
+    {
+      "area": "ux",
+      "requirements": [
+        {
+          "id": "ux.01",
+          "requirement": "Existing branding",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.02",
+          "requirement": "Clear dashboard",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.03",
+          "requirement": "Navigation",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.04",
+          "requirement": "Working controls",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.05",
+          "requirement": "Search",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.06",
+          "requirement": "Filters",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.07",
+          "requirement": "Bulk actions",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.08",
+          "requirement": "Statuses",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.09",
+          "requirement": "Responsive layouts",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.10",
+          "requirement": "Accessible forms",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.11",
+          "requirement": "Correction guidance",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.12",
+          "requirement": "Minimal clicks",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.13",
+          "requirement": "Consistent journeys",
+          "status": "pending",
+          "evidence": []
+        },
+        {
+          "id": "ux.14",
+          "requirement": "No overcrowded sidebar",
+          "status": "pending",
+          "evidence": []
+        }
+      ]
+    }
+  ],
+  "mandatoryJourneys": [
+    {
+      "id": "journey.01",
+      "status": "pending",
+      "evidence": [],
+      "description": "Tenant \u2192 lease \u2192 rent configuration \u2192 invoice \u2192 confirmed send \u2192 payment \u2192 receipt"
+    },
+    {
+      "id": "journey.02",
+      "status": "pending",
+      "evidence": [],
+      "description": "Create category \u2192 multi-apartment assessment \u2192 invoices \u2192 collections"
+    },
+    {
+      "id": "journey.03",
+      "status": "pending",
+      "evidence": [],
+      "description": "Register meter \u2192 readings \u2192 calculated utility invoice \u2192 dispute resolution"
+    },
+    {
+      "id": "journey.04",
+      "status": "pending",
+      "evidence": [],
+      "description": "Partial payment \u2192 allocation \u2192 remaining balance \u2192 receipt"
+    },
+    {
+      "id": "journey.05",
+      "status": "pending",
+      "evidence": [],
+      "description": "Overdue tenant \u2192 reminder \u2192 repayment plan \u2192 instalment tracking"
+    },
+    {
+      "id": "journey.06",
+      "status": "pending",
+      "evidence": [],
+      "description": "Third-party unit rent \u2192 authorised fees \u2192 owner payout calculation \u2192 statement"
+    },
+    {
+      "id": "journey.07",
+      "status": "pending",
+      "evidence": [],
+      "description": "Payment gross amount \u2192 processing fees \u2192 net settlement reconciliation"
+    },
+    {
+      "id": "journey.08",
+      "status": "pending",
+      "evidence": [],
+      "description": "Lease closure \u2192 final charges \u2192 deposit settlement \u2192 refund"
+    },
+    {
+      "id": "journey.09",
+      "status": "pending",
+      "evidence": [],
+      "description": "Competitor portfolio import \u2192 validation \u2192 reconciled opening balances"
+    },
+    {
+      "id": "journey.10",
+      "status": "pending",
+      "evidence": [],
+      "description": "Daily collections report \u2192 every source transaction \u2192 export"
+    },
+    {
+      "id": "journey.11",
+      "status": "pending",
+      "evidence": [],
+      "description": "Issued invoice correction \u2192 balanced ledger and retained history"
+    },
+    {
+      "id": "journey.12",
+      "status": "pending",
+      "evidence": [],
+      "description": "Large-portfolio bulk billing \u2192 no duplicate or lost transactions"
+    },
+    {
+      "id": "journey.13",
+      "status": "pending",
+      "evidence": [],
+      "description": "Organisation/property/role isolation across every workflow"
+    },
+    {
+      "id": "journey.14",
+      "status": "pending",
+      "evidence": [],
+      "description": "Failed provider requests/background jobs \u2192 safe recovery and retries"
+    }
+  ]
+}
