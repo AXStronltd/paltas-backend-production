@@ -1,3 +1,4 @@
+import { billCategory } from "../setup/finance-config.service.js";
 import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Supplier bills: entered by one person, approved by another, paid (recorded) by a third.
@@ -27,6 +28,9 @@ import * as R from "../shared/records.js";
 import { addDays, applyBp, toBp } from "../shared/util.js";
 
 export interface BillRow {
+  custom_category_id: string | null;
+  custom_category_name: string | null;
+  custom_tax_code: string | null;
   expense_category: P.Bill["expenseCategory"];
   expense_account: string;
   version: number;
@@ -60,6 +64,9 @@ export interface BillRow {
 }
 
 export const toBill = (r: BillRow): P.Bill => ({
+  customCategoryId: r.custom_category_id ?? null,
+  customCategoryName: r.custom_category_name ?? null,
+  customTaxCode: r.custom_tax_code ?? null,
   expenseCategory: r.expense_category,
   expenseAccount: r.expense_account,
   version: r.version,
@@ -148,6 +155,7 @@ export function billsService(d: PmDeps) {
       s: OrgScope,
       b: {
         expenseCategory?: P.Bill["expenseCategory"];
+        customCategoryId?: string | undefined;
         supplierId: string;
         propertyId?: string | undefined;
         unitId?: string | undefined;
@@ -163,13 +171,15 @@ export function billsService(d: PmDeps) {
       if (b.dueDate && b.dueDate < b.billDate) throw fail.invalid("Due date cannot precede the bill date.");
       let propertyId = b.propertyId ?? null;
       let unitId = b.unitId ?? null;
-      const category = b.expenseCategory ?? "repairs";
-      const expenseAccount =
-        category === "bank_charges" ? "5300" : category === "repairs" ? ACC.companyRepairs : "5000";
+
       const issues: string[] = [];
       const st = await settingsOf(db, s.orgId);
       const id = newId("pbi");
       await financeTransaction(db, s.orgId, async (t) => {
+        const customCategory = await billCategory(t, s.orgId, b.customCategoryId);
+        const category = customCategory?.baseCategory ?? b.expenseCategory ?? "repairs";
+        const expenseAccount =
+          category === "bank_charges" ? "5300" : category === "repairs" ? ACC.companyRepairs : "5000";
         const supplier = await core.contacts.live(t, s.orgId, b.supplierId);
         if (b.workOrderId) {
           const wo = await t.row<{
@@ -238,8 +248,8 @@ export function billsService(d: PmDeps) {
         const number = await nextNumber(t, numberScope(s.orgId), "BILL", 5);
         await t.run(
           `INSERT INTO pm_bills (id, org_id, number, supplier_id, property_id, unit_id, work_order_id, description,
-             supplier_invoice_no, bill_date, due_date, amount_minor, recover_from, owner_id, status, match_issues, submitted_by,expense_category,expense_account)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,$18,$19)`,
+             supplier_invoice_no, bill_date, due_date, amount_minor, recover_from, owner_id, status, match_issues, submitted_by,expense_category,expense_account,custom_category_id,custom_category_name,custom_tax_code)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17,$18,$19,$20,$21,$22)`,
           [
             id,
             s.orgId,
@@ -260,6 +270,9 @@ export function billsService(d: PmDeps) {
             s.userId,
             category,
             expenseAccount,
+            customCategory?.id ?? null,
+            customCategory?.name ?? null,
+            customCategory?.taxCode ?? null,
           ],
         );
         await recordAudit(t, {
@@ -281,6 +294,7 @@ export function billsService(d: PmDeps) {
         amountMinor: number;
         dueDate: string | null;
         expenseCategory: P.Bill["expenseCategory"];
+        customCategoryId?: string | null | undefined;
         expectedVersion: number;
         reason: string;
       },
@@ -295,6 +309,17 @@ export function billsService(d: PmDeps) {
           throw fail.conflict("Purchase-order bills must be rejected and re-entered so matching is rerun.");
         if (b.dueDate && b.dueDate < old.bill_date) throw fail.invalid("Due date cannot precede the bill date.");
         if (old.version !== b.expectedVersion) throw fail.conflict("Bill changed. Reopen the latest record.");
+        const nextCategoryId = b.customCategoryId === undefined ? old.custom_category_id : b.customCategoryId;
+        const category =
+          nextCategoryId === old.custom_category_id && nextCategoryId
+            ? {
+                id: nextCategoryId,
+                name: old.custom_category_name ?? "Unlabelled custom category",
+                taxCode: old.custom_tax_code ?? "",
+                baseCategory: old.expense_category,
+              }
+            : await billCategory(t, s.orgId, nextCategoryId);
+        const baseCategory = category?.baseCategory ?? b.expenseCategory;
         const near = await t.row<{ number: string }>(
           "SELECT number FROM pm_bills WHERE org_id=$1 AND supplier_id=$2 AND id<>$3 AND status<>'rejected' AND property_id IS NOT DISTINCT FROM $4 AND amount_minor=$5 AND bill_date BETWEEN $6 AND $7",
           [
@@ -311,20 +336,19 @@ export function billsService(d: PmDeps) {
           ? [`Possible duplicate: same supplier, property and amount as ${near.number} within 30 days`]
           : [];
         await t.run(
-          "UPDATE pm_bills SET description=$2,amount_minor=$3,due_date=$4,expense_category=$5,expense_account=$6,version=version+1,status=$7,match_issues=$8,hold_cleared_by=NULL WHERE id=$1",
+          "UPDATE pm_bills SET description=$2,amount_minor=$3,due_date=$4,expense_category=$5,expense_account=$6,version=version+1,status=$7,match_issues=$8,hold_cleared_by=NULL,custom_category_id=$9,custom_category_name=$10,custom_tax_code=$11 WHERE id=$1",
           [
             id,
             b.description,
             b.amountMinor,
             b.dueDate,
-            b.expenseCategory,
-            b.expenseCategory === "bank_charges"
-              ? "5300"
-              : b.expenseCategory === "repairs"
-                ? ACC.companyRepairs
-                : "5000",
+            baseCategory,
+            baseCategory === "bank_charges" ? "5300" : baseCategory === "repairs" ? ACC.companyRepairs : "5000",
             issues.length ? "held" : "submitted",
             JSON.stringify(issues),
+            category?.id ?? null,
+            category?.name ?? null,
+            category?.taxCode ?? null,
           ],
         );
         await recordAudit(t, {
@@ -333,8 +357,18 @@ export function billsService(d: PmDeps) {
           action: "Unposted bill corrected",
           target: old.number,
           detail: b.reason,
-          before: { amountMinor: old.amount_minor, description: old.description, category: old.expense_category },
-          after: { amountMinor: b.amountMinor, description: b.description, category: b.expenseCategory },
+          before: {
+            amountMinor: old.amount_minor,
+            description: old.description,
+            category: old.expense_category,
+            customCategoryId: old.custom_category_id,
+          },
+          after: {
+            amountMinor: b.amountMinor,
+            description: b.description,
+            category: baseCategory,
+            customCategoryId: category?.id ?? null,
+          },
         });
       });
       return toBill(await billRow(db, s.orgId, id));

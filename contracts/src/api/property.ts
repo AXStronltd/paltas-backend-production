@@ -281,6 +281,7 @@ const LeaseTerms = z.object({
 export const INVOICE_KINDS = ["rent", "deposit", "charge", "late_fee", "opening"] as const;
 export const InvoiceKind = z.enum(INVOICE_KINDS);
 export const InvoiceLine = z.object({
+  pricingSnapshot: z.record(z.string(), z.unknown()).nullable().optional(),
   lineNo: z.number().int(),
   code: z.string(),
   description: z.string(),
@@ -486,6 +487,9 @@ export const ExpenseCategory = z.enum([
   "other",
 ]);
 export const Bill = z.object({
+  customCategoryId: Id.nullable().optional(),
+  customCategoryName: z.string().nullable().optional(),
+  customTaxCode: z.string().nullable().optional(),
   expenseCategory: ExpenseCategory,
   expenseAccount: z.string(),
   version: z.number().int().positive(),
@@ -1914,6 +1918,7 @@ export const submitBill = endpoint({
   params: OrgParams,
   body: z.object({
     expenseCategory: ExpenseCategory.default("repairs"),
+    customCategoryId: Id.optional(),
     supplierId: Id,
     propertyId: Id.optional(),
     unitId: Id.optional(),
@@ -2713,6 +2718,7 @@ export const editBill = endpoint({
     amountMinor: PositiveMinorUnits,
     dueDate: IsoDate.nullable(),
     expenseCategory: ExpenseCategory,
+    customCategoryId: Id.nullable().optional(),
     expectedVersion: z.number().int().positive(),
     reason: Reason,
   }),
@@ -2861,4 +2867,91 @@ export const payrollRemit = endpoint({
     reference: z.string().trim().min(2).max(100),
   }),
   response: PayrollRun,
+});
+
+// Dated metered tariff schedules are immutable; subsequent periods receive a new schedule.
+const UtilityTier = z
+  .object({
+    upTo: z
+      .string()
+      .regex(/^(?:0|[1-9]\d{0,8})(?:\.\d{1,3})?$/)
+      .nullable(),
+    rateMinor: NonNegativeMinor,
+  })
+  .strict();
+export const UtilityTariffInput = z
+  .object({
+    unitId: Id.nullable(),
+    effectivePeriod: IsoMonth,
+    tiers: z.array(UtilityTier).min(1).max(100),
+    fixedMinor: NonNegativeMinor,
+    meterSerial: z.string().trim().max(100),
+    reason: Reason,
+  })
+  .strict();
+export const UtilityTariff = UtilityTariffInput.extend({ id: Id, chargeTypeId: Id, createdAt: z.string() });
+export const listUtilityTariffs = endpoint({
+  id: "property.tariffs.list",
+  method: "GET",
+  path: `${Base}/charge-types/:chargeTypeId/tariffs`,
+  auth: "user",
+  summary: "Dated utility tariffs within assigned property scope",
+  params: OrgParams.extend({ chargeTypeId: Id }),
+  response: z.object({ tariffs: z.array(UtilityTariff) }),
+});
+export const createUtilityTariff = endpoint({
+  id: "property.tariffs.create",
+  method: "POST",
+  path: `${Base}/charge-types/:chargeTypeId/tariffs`,
+  auth: "user",
+  summary: "Save an immutable tariff schedule; never recalculates issued invoices",
+  params: OrgParams.extend({ chargeTypeId: Id }),
+  body: UtilityTariffInput,
+  response: UtilityTariff,
+  status: 201,
+});
+export const ExpenseCategoryInput = z
+  .object({ name: Name, baseCategory: ExpenseCategory, taxCode: z.string().trim().max(60), active: z.boolean() })
+  .strict();
+export const CustomExpenseCategory = ExpenseCategoryInput.extend({ id: Id, version: z.number().int().positive() });
+export const listExpenseCategories = endpoint({
+  id: "property.expenseCategories.list",
+  method: "GET",
+  path: `${Base}/expense-categories`,
+  auth: "user",
+  summary: "Organisation's reusable expense categories",
+  params: OrgParams,
+  response: z.object({ categories: z.array(CustomExpenseCategory) }),
+});
+export const createExpenseCategory = endpoint({
+  id: "property.expenseCategories.create",
+  method: "POST",
+  path: `${Base}/expense-categories`,
+  auth: "user",
+  summary: "Create a reusable expense category, not a transaction",
+  params: OrgParams,
+  body: ExpenseCategoryInput,
+  response: CustomExpenseCategory,
+  status: 201,
+});
+export const updateExpenseCategory = endpoint({
+  id: "property.expenseCategories.update",
+  method: "PUT",
+  path: `${Base}/expense-categories/:categoryId`,
+  auth: "user",
+  summary: "Edit or deactivate a category without changing historical bills",
+  params: OrgParams.extend({ categoryId: Id }),
+  body: ExpenseCategoryInput.extend({ expectedVersion: z.number().int().positive(), reason: Reason }),
+  response: CustomExpenseCategory,
+});
+
+export const exportAuditIntegrity = endpoint({
+  id: "property.audit.exportIntegrity",
+  method: "GET",
+  path: `${Base}/audit-integrity-export`,
+  auth: "user",
+  summary:
+    "Export the latest 1000 organisation audit entries with a separately retainable SHA256 fingerprint; not a database tamper-proof guarantee",
+  params: OrgParams,
+  response: z.object({ export: z.record(z.string(), z.unknown()), fingerprint: z.string(), coverage: z.string() }),
 });

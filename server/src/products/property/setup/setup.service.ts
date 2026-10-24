@@ -1,3 +1,4 @@
+import { financeConfigService } from "./finance-config.service.js";
 /*
  * Portfolio set-up: settings, charge types, properties (each uses one building allowance of the plan), buildings,
  * units, owners' management agreements and owners' payout details.
@@ -158,6 +159,7 @@ export function setupService(d: PmDeps) {
   }
 
   return {
+    financeConfig: financeConfigService(d),
     propertyView,
     unitViews,
 

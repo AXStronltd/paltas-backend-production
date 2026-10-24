@@ -115,6 +115,7 @@ export interface InvoiceRow {
 }
 
 export interface LineRow {
+  pricing_snapshot: Record<string, unknown> | null;
   invoice_id: string;
   line_no: number;
   code: string;
@@ -400,6 +401,7 @@ export async function invoiceViews(db: Db, rows: InvoiceRow[], today: string): P
       lines: lines
         .filter((l) => l.invoice_id === i.id)
         .map((l) => ({
+          pricingSnapshot: l.pricing_snapshot ?? null,
           lineNo: l.line_no,
           code: l.code,
           description: l.description,

@@ -8,6 +8,20 @@ import type { SetupService } from "./setup.service.js";
 export function setupRoutes(access: PmAccess, S: SetupService) {
   const g = gate(access);
   return [
+    route(api.exportAuditIntegrity, async (req) => S.financeConfig.exportAudit(await g.org(req, "audit.read"))),
+    route(api.listUtilityTariffs, async (req) =>
+      S.financeConfig.tariffs(await g.org(req, "property.read"), req.params.chargeTypeId),
+    ),
+    route(api.createUtilityTariff, async (req) =>
+      S.financeConfig.createTariff(await g.org(req, "property.setup", FINANCE), req.params.chargeTypeId, req.body),
+    ),
+    route(api.listExpenseCategories, async (req) => S.financeConfig.categories(await g.org(req, "property.read"))),
+    route(api.createExpenseCategory, async (req) =>
+      S.financeConfig.saveCategory(await g.org(req, "property.setup", FINANCE), null, req.body),
+    ),
+    route(api.updateExpenseCategory, async (req) =>
+      S.financeConfig.saveCategory(await g.org(req, "property.setup", FINANCE), req.params.categoryId, req.body),
+    ),
     route(api.getSettings, async (req) => S.settings((await g.org(req, "property.read")).orgId)),
     route(api.updateSettings, async (req) => S.updateSettings(await g.org(req, "property.setup", WRITE), req.body)),
     route(api.listChargeTypes, async (req) => S.listChargeTypes((await g.org(req, ANY_PM_READ)).orgId)),

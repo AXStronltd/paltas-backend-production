@@ -70,11 +70,13 @@ const LISTS: Record<string, [string, string]> = {
 const SAFE_SHARED = new Set([
   "property.settings.get",
   "property.chargeTypes.list",
+  "property.tariffs.list", // service filters unit overrides to assigned properties; shared tariff is configuration only
+  "property.expenseCategories.list",
   "orgs.get",
   "subscription.entitlements",
 ]);
 const SCOPED =
-  /^(property\.(properties\.(list|get|update)|buildings\.(create|update|delete)|units\.(create|update)|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|invoices\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
+  /^(property\.(properties\.(list|get|update)|buildings\.(create|update|delete)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|invoices\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
 const GLOBAL =
   /^property\.(settings\.update|chargeTypes\.(create|update)|properties\.create|bank\.|reconciliations\.|payouts\.|owners\.|reports\.(clientMoney|aged|dashboard))/;
 export function managerGuard(db: Db) {

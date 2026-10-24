@@ -25,6 +25,7 @@ import { applyBp, splitProportionally, sum, toBp } from "./util.js";
 import { formatMoney } from "../../../lib/money.js";
 
 export interface NewInvoiceLine {
+  pricingSnapshot?: Record<string, unknown>;
   code: string;
   description: string;
   quantity: number;
@@ -105,8 +106,8 @@ export async function issueInvoice(t: Db, core: CoreServices, inv: NewInvoice): 
   for (const l of lines)
     await t.run(
       `INSERT INTO pm_invoice_lines (invoice_id, line_no, org_id, code, description, quantity, rate_minor, amount_minor,
-         payee, fee_applies, vat_applies)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+         payee, fee_applies, vat_applies,pricing_snapshot)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,$12)`,
       [
         id,
         ++n,
@@ -119,6 +120,7 @@ export async function issueInvoice(t: Db, core: CoreServices, inv: NewInvoice): 
         l.payee,
         l.feeApplies,
         l.vatApplies,
+        l.pricingSnapshot ? JSON.stringify(l.pricingSnapshot) : null,
       ],
     );
   const byAccount = new Map<string, number>();

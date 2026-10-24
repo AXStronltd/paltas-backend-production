@@ -1,3 +1,4 @@
+import { quoteTariff, type TariffRow } from "../setup/finance-config.service.js";
 import { calculateMeteredAmount } from "../../../core/billing/pricing.js";
 import { createHash } from "node:crypto";
 import { financeTransaction } from "../shared/finance-transaction.js";
@@ -233,18 +234,38 @@ export function billingService(d: PmDeps) {
                 );
                 if (!m)
                   throw fail.conflict(`Missing ${c.name} meter reading for ${b.period} — record it before billing`);
-                const { consumption: used, amountMinor: amount } = calculateMeteredAmount(
-                  String(m.previous),
-                  String(m.current),
-                  c.rate_minor,
+                const { consumption: used } = calculateMeteredAmount(String(m.previous), String(m.current), 0);
+                const tariff = await t.row<TariffRow>(
+                  `SELECT * FROM pm_utility_tariffs WHERE org_id=$1 AND charge_type_id=$2
+                  AND (unit_id IS NULL OR unit_id=$3) AND effective_period <= $4
+                  ORDER BY (unit_id IS NOT NULL) DESC,effective_period DESC LIMIT 1`,
+                  [s.orgId, c.id, l.unit_id, b.period],
                 );
-                if (amount > 0)
+                const org = tariff
+                  ? await t.row<{ currency: string }>("SELECT currency FROM organisations WHERE id=$1", [s.orgId])
+                  : null;
+                let priced: ReturnType<typeof quoteTariff> | null = null;
+                if (tariff) {
+                  if (!org) throw fail.notFound("Organisation not found");
+                  try {
+                    priced = quoteTariff(tariff, String(m.previous), String(m.current), used, org.currency);
+                  } catch (e) {
+                    throw fail.invalid(
+                      `${c.name} for ${b.period}: ${e instanceof Error ? e.message : "Invalid tariff"}`,
+                    );
+                  }
+                }
+                const billedAmount =
+                  priced?.amountMinor ??
+                  calculateMeteredAmount(String(m.previous), String(m.current), c.rate_minor).amountMinor;
+                if (billedAmount > 0)
                   lines.push({
                     code: c.code,
-                    description: `${c.name}: ${Number(m?.previous)} → ${Number(m?.current)} ${c.unit_name}`,
+                    description: `${c.name}: ${Number(m.previous)} → ${Number(m.current)} ${c.unit_name}${priced ? ` · tiered tariff ${priced.snapshot.effectivePeriod}; variable ${formatMoney(priced.snapshot.variableMinor, priced.snapshot.currency)}, fixed ${formatMoney(priced.snapshot.fixedMinor, priced.snapshot.currency)}` : ""}`,
                     quantity: used,
-                    rateMinor: c.rate_minor,
-                    amountMinor: amount,
+                    rateMinor: tariff ? 0 : c.rate_minor,
+                    amountMinor: billedAmount,
+                    ...(priced ? { pricingSnapshot: priced.snapshot } : {}),
                     payee: c.payee,
                     feeApplies: c.fee_applies,
                     vatApplies: c.vat_applies,
