@@ -1620,7 +1620,12 @@ export const createChargeInvoice = endpoint({
         z.object({
           chargeTypeId: Id,
           description: z.string().trim().max(200).default(""),
-          quantity: z.number().positive().max(1e6).default(1),
+          quantity: z
+            .number()
+            .positive()
+            .max(1e6)
+            .refine((n) => /^\d+(\.\d{1,3})?$/.test(String(n)), "Use no more than three decimal places for quantity")
+            .default(1),
           rateMinor: PositiveMinorUnits,
         }),
       )
@@ -3032,4 +3037,95 @@ export const collectionsOverview = endpoint({
   params: OrgParams,
   query: CollectionsQuery,
   response: CollectionsOverview,
+});
+
+export const InvoiceDraftInput = createChargeInvoice.body;
+export type InvoiceDraftInput = z.infer<typeof InvoiceDraftInput>;
+export const InvoiceDraft = z.object({
+  totalMinor: NonNegativeMinor,
+  lineAmountsMinor: z.array(NonNegativeMinor),
+  id: Id,
+  leaseId: Id,
+  tenantName: z.string(),
+  unitNo: z.string(),
+  version: z.number().int().positive(),
+  status: z.enum(["draft", "approved", "issued", "archived"]),
+  input: InvoiceDraftInput,
+  createdBy: Id,
+  updatedBy: Id,
+  approvedBy: Id.nullable(),
+  invoiceId: Id.nullable(),
+  updatedAt: z.string(),
+});
+export type InvoiceDraft = z.infer<typeof InvoiceDraft>;
+export const listInvoiceDrafts = endpoint({
+  id: "property.invoices.drafts.list",
+  method: "GET",
+  path: `${Base}/invoice-drafts`,
+  auth: "user",
+  summary: "Saved charge invoice drafts; no ledger entries until confirmed issuance",
+  params: OrgParams,
+  query: z.object({
+    propertyId: Id.optional(),
+    leaseId: Id.optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).max(1000000).default(0),
+  }),
+  response: z.object({
+    drafts: z.array(InvoiceDraft),
+    total: z.number().int(),
+    limit: z.number().int(),
+    offset: z.number().int(),
+  }),
+});
+export const createInvoiceDraft = endpoint({
+  id: "property.invoices.drafts.create",
+  method: "POST",
+  path: `${Base}/invoice-drafts`,
+  auth: "user",
+  summary: "Save a multi-line invoice draft without posting",
+  params: OrgParams,
+  body: InvoiceDraftInput,
+  response: InvoiceDraft,
+  status: 201,
+});
+export const updateInvoiceDraft = endpoint({
+  id: "property.invoices.drafts.update",
+  method: "PUT",
+  path: `${Base}/invoice-drafts/:draftId`,
+  auth: "user",
+  summary: "Edit a draft using its current version",
+  params: OrgParams.extend({ draftId: Id }),
+  body: z.object({ expectedVersion: z.number().int().positive(), input: InvoiceDraftInput }),
+  response: InvoiceDraft,
+});
+export const invoiceDraftAction = endpoint({
+  id: "property.invoices.drafts.action",
+  method: "POST",
+  path: `${Base}/invoice-drafts/:draftId/action`,
+  auth: "user",
+  summary: "Approve, return, archive, restore or explicitly issue a saved draft",
+  params: OrgParams.extend({ draftId: Id }),
+  body: z
+    .object({
+      expectedVersion: z.number().int().positive(),
+      action: z.enum(["approve", "return", "issue", "archive", "restore"]),
+      reason: z.string().trim().min(3).max(500),
+      confirm: z.string().optional(),
+    })
+    .refine((x) => x.action !== "issue" || x.confirm === "ISSUE", {
+      message: "Confirm ISSUE to create the invoice and accounting entries",
+      path: ["confirm"],
+    }),
+  response: InvoiceDraft,
+});
+export const deleteInvoiceDraft = endpoint({
+  id: "property.invoices.drafts.delete",
+  method: "DELETE",
+  path: `${Base}/invoice-drafts/:draftId`,
+  auth: "user",
+  summary: "Delete an unissued draft; preserve the deletion audit record",
+  params: OrgParams.extend({ draftId: Id }),
+  body: z.object({ expectedVersion: z.number().int().positive(), reason: z.string().trim().min(3).max(500) }),
+  response: z.object({ deleted: z.literal(true) }),
 });

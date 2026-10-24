@@ -8,6 +8,31 @@ import type { BillingService } from "./billing.service.js";
 export function billingRoutes(access: PmAccess, B: BillingService) {
   const g = gate(access);
   return [
+    route(api.listInvoiceDrafts, async (req) =>
+      B.drafts.list(await g.org(req, "property.billing", FINANCE), req.query),
+    ),
+    route(api.createInvoiceDraft, async (req) =>
+      B.drafts.create(await g.org(req, "property.billing", FINANCE), req.body),
+    ),
+    route(api.updateInvoiceDraft, async (req) =>
+      B.drafts.update(
+        await g.org(req, "property.billing", FINANCE),
+        req.params.draftId,
+        req.body.expectedVersion,
+        req.body.input,
+      ),
+    ),
+    route(api.invoiceDraftAction, async (req) =>
+      B.drafts.action(await g.org(req, "property.billing", FINANCE), req.params.draftId, req.body),
+    ),
+    route(api.deleteInvoiceDraft, async (req) =>
+      B.drafts.remove(
+        await g.org(req, "property.billing", FINANCE),
+        req.params.draftId,
+        req.body.expectedVersion,
+        req.body.reason,
+      ),
+    ),
     route(api.runBilling, async (req) => B.runBilling(await g.org(req, "property.billing", FINANCE), req.body)),
     route(api.listInvoices, async (req) => B.list(await g.org(req, "property.read"), req.query)),
     route(api.getInvoice, async (req) => {

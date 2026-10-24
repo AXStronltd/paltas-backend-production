@@ -52,3 +52,21 @@ This is an unreleased development increment. Deploy neither repository until exp
 Dates use the existing PALTAS business-date scope. This increment does not change the platform-wide clock or reconstruct historic as-of financial state. Reports describe current effective records and exclude approved reversals. The cashbook must not be used as proof of physical cash availability.
 
 Known scale limitation: aggregates read the full selected invoice population; only detail lists are paginated. Enterprise workload tests, query-plan tuning and large export jobs remain mandatory before an enterprise-scale claim.
+
+## Increment 2: saved multi-line charge invoice drafts
+
+Implemented create, list/paginate, reopen, repeat edit, independent review/approval, return for edits, archive/restore, eligible draft deletion and explicit issue confirmation. Optimistic versions reject stale edits. Concurrent issue retries return the same invoice. Category configuration changes after approval require renewed review. Issued draft records are immutable in the database.
+
+The existing charge invoice issuing function is shared by immediate invoices and saved drafts; accounting is not duplicated. The additive migration `0040_property_invoice_drafts.sql` creates operational draft records and composite organisation foreign keys. It does not recalculate or backfill customer financial transactions. Rollback the application only; retain the additive table and posted invoice history.
+
+Two authorised users are required to approve a saved draft; existing immediate invoice creation remains unchanged. Metered charges continue through readings-based billing. Full template/attachment/recurrence/multi-currency/branding/export coverage remains incomplete. No automatic invoice email or money movement is triggered.
+
+The owner subsequently clarified that partial implementation is not accepted. Production deployment is blocked until the complete enterprise acceptance standard is met. Do not publish individual increments as the finished product.
+
+## Full-completion release policy
+
+The owner's latest clarification rejects partial implementation and partial deployment. No deployment commands, publication or production migration were performed. The local `npm run release:rent-collections:check` gate is expected to fail until each tracked requirement and all 14 journeys have verification evidence and customer acceptance is recorded. It is a local release check, not a claim that hosting-provider publication controls have been changed.
+
+`rent-collections-acceptance.json` tracks 374 individual requirements plus the 14 mandatory journeys. `implemented_subset` records existing/new functionality without promoting it to full-enterprise verification. `pending` means evidence still needs to be completed; it does not imply every underlying component is absent.
+
+Draft approval now fingerprints payer/unit/management context as well as category settings. A change requires renewed approval. Charge quantity precision matches the existing invoice database column (three decimals). Drafts and immediate service invoices use the existing shared exact-money calculator; confirmation displays the server-calculated total. These changes do not introduce a second financial ledger.

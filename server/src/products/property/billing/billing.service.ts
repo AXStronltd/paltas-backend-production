@@ -1,3 +1,5 @@
+import { chargeLineAmount } from "../shared/charge-pricing.js";
+import { invoiceDraftsService } from "./invoice-drafts.service.js";
 import { quoteTariff, type TariffRow } from "../setup/finance-config.service.js";
 import { calculateMeteredAmount } from "../../../core/billing/pricing.js";
 import { createHash } from "node:crypto";
@@ -131,9 +133,66 @@ export function billingService(d: PmDeps) {
     };
   }
 
+  async function issueChargeIn(
+    t: Db,
+    s: OrgScope,
+    b: {
+      leaseId: string;
+      dueDate?: string | undefined;
+      note: string;
+      lines: { chargeTypeId: string; description: string; quantity: number; rateMinor: number }[];
+    },
+  ) {
+    const lease = await R.leaseRow(t, s.orgId, b.leaseId);
+    if (lease.status !== "active" && lease.status !== "ended")
+      throw fail.conflict("Charges are billed on an active or ended lease");
+    const lines: NewInvoiceLine[] = [];
+    for (const l of b.lines) {
+      const ct = await chargeTypeRow(t, s.orgId, l.chargeTypeId);
+      if (!ct.active) throw fail.invalid(`${ct.name} is no longer used`);
+      const amountMinor = chargeLineAmount(l.quantity, l.rateMinor);
+      if (amountMinor <= 0)
+        throw fail.invalid(`${ct.name}: the calculated amount must be at least one minor currency unit`);
+      lines.push({
+        code: ct.code,
+        description: l.description || ct.name,
+        quantity: l.quantity,
+        rateMinor: l.rateMinor,
+        amountMinor,
+        payee: ct.payee,
+        feeApplies: ct.fee_applies,
+        vatApplies: ct.vat_applies,
+      });
+    }
+    if (!Number.isSafeInteger(sum(lines, (x) => x.amountMinor)))
+      throw fail.invalid("The invoice total exceeds the supported range");
+    const dueDate = b.dueDate ?? addDays(s.today, 7);
+    if (dueDate < s.today) throw fail.invalid("The due date is in the past");
+    const id = await issueInvoice(t, core, {
+      orgId: s.orgId,
+      kind: "charge",
+      lease,
+      period: s.today.slice(0, 7),
+      issueDate: s.today,
+      dueDate,
+      note: b.note,
+      createdBy: s.userId,
+      lines,
+    });
+    await recordAudit(t, {
+      actor: s.actor,
+      orgId: s.orgId,
+      action: "Charge invoice issued",
+      target: id ?? "",
+      detail: `${lease.number} · ${sum(lines, (l) => l.amountMinor)}`,
+    });
+    return id as string;
+  }
+
   return {
     view,
     emailPreview,
+    drafts: invoiceDraftsService(d, issueChargeIn),
     async emailInvoice(s: OrgScope, id: string, previewKey: string) {
       return financeTransaction(db, s.orgId, async (t) => {
         const p = await emailPreview(s, id, t);
@@ -359,47 +418,7 @@ export function billingService(d: PmDeps) {
         lines: { chargeTypeId: string; description: string; quantity: number; rateMinor: number }[];
       },
     ) {
-      const lease = await R.leaseRow(db, s.orgId, b.leaseId);
-      if (lease.status !== "active" && lease.status !== "ended")
-        throw fail.conflict("Charges are billed on an active or ended lease");
-      const lines: NewInvoiceLine[] = [];
-      for (const l of b.lines) {
-        const ct = await chargeTypeRow(db, s.orgId, l.chargeTypeId);
-        if (!ct.active) throw fail.invalid(`${ct.name} is no longer used`);
-        lines.push({
-          code: ct.code,
-          description: l.description || ct.name,
-          quantity: l.quantity,
-          rateMinor: l.rateMinor,
-          amountMinor: Math.round(l.quantity * l.rateMinor),
-          payee: ct.payee,
-          feeApplies: ct.fee_applies,
-          vatApplies: ct.vat_applies,
-        });
-      }
-      const dueDate = b.dueDate ?? addDays(s.today, 7);
-      if (dueDate < s.today) throw fail.invalid("The due date is in the past");
-      const id = await financeTransaction(db, s.orgId, async (t) => {
-        const id = await issueInvoice(t, core, {
-          orgId: s.orgId,
-          kind: "charge",
-          lease,
-          period: s.today.slice(0, 7),
-          issueDate: s.today,
-          dueDate,
-          note: b.note,
-          createdBy: s.userId,
-          lines,
-        });
-        await recordAudit(t, {
-          actor: s.actor,
-          orgId: s.orgId,
-          action: "Charge invoice issued",
-          target: id ?? "",
-          detail: `${lease.number} · ${sum(lines, (l) => l.amountMinor)}`,
-        });
-        return id as string;
-      });
+      const id = await financeTransaction(db, s.orgId, (t) => issueChargeIn(t, s, b));
       return view(s.orgId, id, s.today);
     },
 

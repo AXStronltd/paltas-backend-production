@@ -41,6 +41,8 @@ const FINE: Record<string, Capability> = {
   "property.tenants.statement": "property.tenants.history",
 };
 const TABLES: Record<string, string> = {
+  draftId:
+    "SELECT l.property_id FROM pm_invoice_drafts d JOIN pm_leases l ON l.id=d.lease_id AND l.org_id=d.org_id WHERE d.org_id=$1 AND d.id=$2",
   propertyId: "SELECT id AS property_id FROM pm_properties WHERE org_id=$1 AND id=$2",
   buildingId: "SELECT property_id FROM pm_buildings WHERE org_id=$1 AND id=$2",
   unitId: "SELECT property_id FROM pm_units WHERE org_id=$1 AND id=$2",
@@ -56,6 +58,7 @@ const TABLES: Record<string, string> = {
   inspectionId: "SELECT property_id FROM pm_inspections WHERE org_id=$1 AND id=$2",
 };
 const LISTS: Record<string, [string, string]> = {
+  "property.invoices.drafts.list": ["drafts", "draftId"],
   "property.properties.list": ["properties", "propertyId"],
   "property.leases.list": ["leases", "leaseId"],
   "property.invoices.list": ["invoices", "invoiceId"],
@@ -228,7 +231,8 @@ export function managerGuard(db: Db) {
             const filtered = [];
             for (const x of rows) if (x && typeof x.id === "string" && (await allowed(field, x.id))) filtered.push(x);
             data[key] = filtered;
-            if ("total" in data && r.endpoint.id !== "property.payments.list") data.total = filtered.length;
+            if ("total" in data && !["property.payments.list", "property.invoices.drafts.list"].includes(r.endpoint.id))
+              data.total = filtered.length;
           }
         }
         return out;
