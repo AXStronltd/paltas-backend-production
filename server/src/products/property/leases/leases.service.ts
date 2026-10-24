@@ -581,6 +581,15 @@ export function leasesService(d: PmDeps) {
           await R.unitRow(t, s.orgId, r.unitId);
           const ct = await chargeTypeRow(t, s.orgId, r.chargeTypeId);
           if (!ct.metered) throw fail.invalid(`${ct.name} is not metered`);
+          for (const [label, value] of [
+            ["Previous", r.previous],
+            ["Current", r.current],
+          ] as const) {
+            if (!/^\d+(?:\.\d{1,3})?$/.test(String(value)))
+              throw fail.invalid(
+                `${label} reading for ${ct.code} must have at most 3 decimal places — use the meter's recorded precision`,
+              );
+          }
           if (r.current < r.previous)
             throw fail.invalid(`The reading for ${ct.code} went down (${r.previous} → ${r.current}) — check the meter`);
           const billed = await t.row(

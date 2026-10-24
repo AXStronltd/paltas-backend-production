@@ -52,6 +52,15 @@ function baseAmount(pricing: billing.QuoteLineInput["pricing"]): bigint {
     }
   }
 }
+/** Reuse the quote engine for persisted meter readings; round money only after exact subtraction. */
+export function calculateMeteredAmount(previous: string, current: string, rateMinor: number) {
+  const pricing = billing.Pricing.parse({ kind: "metered", previous, current, rateMinor });
+  if (pricing.kind !== "metered") throw new Error("Expected metered pricing");
+  const amountMinor = safe(baseAmount(pricing));
+  const consumption = Number(quantity(current) - quantity(previous)) / Number(SCALE);
+  return { consumption, amountMinor };
+}
+
 /** Proportional taxes use largest remainders, preserving the exact rounded total. */
 function splitTax(total: bigint, components: billing.QuoteLineInput["tax"]["components"]): bigint[] {
   const denominator = components.reduce((s, c) => s + BigInt(c.basisPoints), 0n);

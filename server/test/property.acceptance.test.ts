@@ -181,6 +181,16 @@ describe("Property Management acceptance: from onboarding to an owner statement 
       }),
       409,
     );
+    await refused(
+      pm.api.property.recordMeterReadings({
+        params: O(),
+        body: {
+          period: "2026-09",
+          readings: [{ unitId: B.units["A-101"]!, chargeTypeId: waterId, previous: 100.1234, current: 112 }],
+        },
+      }),
+      400,
+    );
     await pm.api.property.recordMeterReadings({
       params: O(),
       body: {

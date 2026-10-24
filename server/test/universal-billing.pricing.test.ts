@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { universalBilling as billing } from "@paltas/contracts";
-import { calculateQuote } from "../dist/core/billing/pricing.js";
+import { calculateMeteredAmount, calculateQuote } from "../dist/core/billing/pricing.js";
 
 const line = (overrides: Partial<billing.QuoteLineInput> = {}): billing.QuoteLineInput => ({
   categoryId: "parking",
@@ -207,5 +207,26 @@ describe("shared billing quote calculations (no financial posting)", () => {
         if (mode === "inclusive") expect(result.totalMinor).toBe(amount);
       }
     }
+  });
+});
+
+describe("persisted metered billing shares exact quote arithmetic", () => {
+  it("rounds a half minor unit correctly after decimal reading subtraction", () => {
+    expect(calculateMeteredAmount("0.2", "0.3", 5)).toEqual({ consumption: 0.1, amountMinor: 1 });
+    expect(calculateMeteredAmount("100.123", "100.124", 500)).toEqual({ consumption: 0.001, amountMinor: 1 });
+  });
+  it("matches the existing quote and rejects invalid or backwards readings", () => {
+    const result = calculateMeteredAmount("20.1", "22.3", 150);
+    expect(result.amountMinor).toBe(
+      quote(line({ pricing: { kind: "metered", previous: "20.1", current: "22.3", rateMinor: 150 } })).totalMinor,
+    );
+    expect(calculateMeteredAmount("2", "2", 150).amountMinor).toBe(0);
+    for (const [previous, current, rate] of [
+      ["2", "1", 100],
+      ["NaN", "2", 100],
+      ["0", "2", -1],
+      ["0", "2", Infinity],
+    ] as const)
+      expect(() => calculateMeteredAmount(previous, current, rate)).toThrow();
   });
 });

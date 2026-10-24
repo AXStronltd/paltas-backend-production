@@ -1,3 +1,4 @@
+import { calculateMeteredAmount } from "../../../core/billing/pricing.js";
 import { createHash } from "node:crypto";
 import { financeTransaction } from "../shared/finance-transaction.js";
 /*
@@ -230,8 +231,13 @@ export function billingService(d: PmDeps) {
                   "SELECT previous, current FROM pm_meter_readings WHERE unit_id = $1 AND charge_type_id = $2 AND period = $3",
                   [l.unit_id, c.id, b.period],
                 );
-                const used = Number(m?.current ?? 0) - Number(m?.previous ?? 0);
-                const amount = Math.round(used * c.rate_minor);
+                if (!m)
+                  throw fail.conflict(`Missing ${c.name} meter reading for ${b.period} — record it before billing`);
+                const { consumption: used, amountMinor: amount } = calculateMeteredAmount(
+                  String(m.previous),
+                  String(m.current),
+                  c.rate_minor,
+                );
                 if (amount > 0)
                   lines.push({
                     code: c.code,
