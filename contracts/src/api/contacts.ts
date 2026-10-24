@@ -10,6 +10,7 @@
 // - messages are RECORDED here, never sent: outgoing e-mail, SMS and WhatsApp are handed to the notifications outbox
 //   (core/notifications), the only place that talks to delivery providers.
 import { z } from "zod";
+import { Product } from "../access.js";
 import { Email, IsoDateTime, Reason } from "../common.js";
 import { endpoint } from "../endpoint.js";
 import { OrgParams } from "./organisations.js";
@@ -78,6 +79,9 @@ export const ACTIVITY_KINDS = [
   "system",
 ] as const;
 export const Activity = z.object({
+  sourceProduct: Product.nullable().optional(),
+  eventType: z.string().nullable().optional(),
+  eventKey: z.string().nullable().optional(),
   id: z.string(),
   contactId: z.string(),
   kind: z.enum(ACTIVITY_KINDS),

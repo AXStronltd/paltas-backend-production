@@ -242,6 +242,12 @@ describe("agency short stays", () => {
     S.setToday("2026-10-15");
     const out = await A.agent.api.agency.stayAction({ params: { ...P(), stayId: id }, body: { action: "check_out" } });
     expect(out).toMatchObject({ status: "completed", paidMinor: 2_500_000, balanceMinor: 1_000_000 });
+    const timeline = await A.manager.api.contacts.getContact({ params: { ...P(), contactId: out.guest!.id } });
+    expect(timeline.activities.find((a) => a.refId === id && a.eventType === "agency.stay.completed")).toMatchObject({
+      sourceProduct: "agency",
+      kind: "system",
+    });
+
     // nights 30,000: owner 80 % = 24,000; management 6,000 + cleaning 2,000 + service 3,000 = 11,000
     expect(await ledgerBalance(S, A.orgId, "2470")).toBe(-2_400_000);
     expect(await ledgerBalance(S, A.orgId, "4720")).toBe(-1_100_000);

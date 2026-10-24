@@ -141712,6 +141712,35 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "sourceProduct": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "property",
+                                  "developer",
+                                  "agency",
+                                  "hotel",
+                                  "security"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "eventType": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "eventKey": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
                           "id": {
                             "type": "string"
                           },
@@ -142741,6 +142770,35 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "sourceProduct": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "property",
+                            "developer",
+                            "agency",
+                            "hotel",
+                            "security"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "eventType": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "eventKey": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
                     "id": {
                       "type": "string"
                     },

@@ -31,6 +31,9 @@ export interface ContactRow {
 }
 
 export interface ActivityRow {
+  source_product: C.Activity["sourceProduct"];
+  event_type: string | null;
+  event_key: string | null;
   id: string;
   contact_id: string;
   kind: C.Activity["kind"];
@@ -85,6 +88,7 @@ export const toContact = (r: ContactRow): C.Contact => ({
 });
 
 export const toActivity = (r: ActivityRow): C.Activity => ({
+  ...(r.source_product ? { sourceProduct: r.source_product, eventType: r.event_type, eventKey: r.event_key } : {}),
   id: r.id,
   contactId: r.contact_id,
   kind: r.kind,

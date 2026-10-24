@@ -277,6 +277,15 @@ export function staysService(d: AgencyDeps) {
             if (r.status !== "checked_in") throw fail.conflict("Only a guest in house checks out");
             await set("completed");
             await postCompleted(t, s, r);
+            if (r.contact_id)
+              await d.core.contacts.productActivity(t, {
+                orgId: s.orgId,
+                contactId: r.contact_id,
+                eventType: "agency.stay.completed",
+                recordId: r.id,
+                text: `Stay ${r.number} checked out (${r.check_in} → ${r.check_out})`,
+                by: s.userId,
+              });
             break;
         }
         const out = await findStay(t, s.orgId, id);

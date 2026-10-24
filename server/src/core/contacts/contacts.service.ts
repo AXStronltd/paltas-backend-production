@@ -1,3 +1,6 @@
+import { projectProductActivity, PRODUCT_ACTIVITY_ORIGINS } from "./product-activity.js";
+import { memberProductRole } from "../access/product-role.js";
+import { memberCan } from "../access/manager-access.js";
 import { contactScopeSql, contactWithinScope } from "../access/property-contact-scope.js";
 /*
  * The organisation's ONE contact store, used by every product (core.contacts). Products link their records to a
@@ -282,6 +285,7 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
     findOrCreate,
     addTypes,
     activity,
+    productActivity: projectProductActivity,
     recordMessage,
 
     /** A contact as the API shows it (404 for another organisation's contact). */
@@ -534,11 +538,32 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
       });
     },
 
-    async detail(orgId: string, id: string) {
+    async detail(orgId: string, id: string, viewer?: OrgScope) {
+      const visible: string[] = [];
+      if (viewer)
+        for (const product of PRODUCT_ACTIVITY_ORIGINS) {
+          const role = await memberProductRole(db, orgId, viewer.userId, product);
+          if (
+            role &&
+            (await memberCan(
+              db,
+              orgId,
+              viewer.userId,
+              role,
+              product,
+              product === "property" ? "property.read" : "agency.read",
+            ))
+          )
+            visible.push(product);
+        }
       const c = await load(db, orgId, id);
       const activities = await db.rows<repo.ActivityRow>(
-        "SELECT * FROM contact_activities WHERE org_id = $1 AND contact_id = $2 ORDER BY at DESC, id DESC LIMIT 500",
-        [orgId, id],
+        `SELECT * FROM contact_activities WHERE org_id = $1 AND contact_id = $2 AND ($3::text[] IS NULL OR source_product IS NULL OR source_product=ANY($3))
+         AND ($4::text[] IS NULL OR source_product IS NULL OR
+          (source_product='property' AND event_type='property.lease.activated' AND EXISTS
+           (SELECT 1 FROM pm_leases l WHERE l.org_id=contact_activities.org_id AND l.id=contact_activities.ref_id AND l.property_id=ANY($4))))
+         ORDER BY at DESC, id DESC LIMIT 500`,
+        [orgId, id, viewer ? visible : null, viewer?.propertyIds ?? null],
       );
       const messages = await db.rows<repo.MessageRow>(
         "SELECT * FROM contact_messages WHERE org_id = $1 AND contact_id = $2 ORDER BY at DESC, id DESC LIMIT 500",

@@ -296,13 +296,12 @@ export function leasesService(d: PmDeps) {
             app.lead_id,
           ]);
       }
-      await core.contacts.activity(t, {
+      await core.contacts.productActivity(t, {
         orgId: s.orgId,
         contactId: l.tenant_id,
-        kind: "lease",
+        eventType: "property.lease.activated",
         text: `Lease ${l.number} activated for unit ${l.unit_no} (signed ${b.signedOn})`,
-        refType: "lease",
-        refId: id,
+        recordId: id,
         by: s.userId,
       });
       await recordAudit(t, {

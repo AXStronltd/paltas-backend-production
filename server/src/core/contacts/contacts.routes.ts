@@ -28,8 +28,8 @@ export function contactsRoutes(core: CoreServices) {
       C.create(await scope(req.user, req.params.orgId, "contacts.manage", true), req.body),
     ),
     route(api.getContact, async (req) => {
-      await scope(req.user, req.params.orgId, "contacts.read");
-      return C.detail(req.params.orgId, req.params.contactId);
+      const s = await scope(req.user, req.params.orgId, "contacts.read");
+      return C.detail(req.params.orgId, req.params.contactId, s);
     }),
     route(api.updateContact, async (req) =>
       C.update(await scope(req.user, req.params.orgId, "contacts.manage", true), req.params.contactId, req.body),

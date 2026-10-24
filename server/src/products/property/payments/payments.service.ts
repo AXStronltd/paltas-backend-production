@@ -208,13 +208,12 @@ export function paymentsService(d: PmDeps) {
         "UPDATE pm_payment_claims SET status = 'matched', payment_id = $2, decided_by = $3, decided_at = now() WHERE id = $1",
         [claim.id, id, s.userId],
       );
-    await core.contacts.activity(t, {
+    await core.contacts.productActivity(t, {
       orgId: s.orgId,
       contactId: b.tenantId,
-      kind: "payment",
+      eventType: "property.payment.recorded",
       text: `Payment ${number} recorded: ${b.amountMinor} by ${b.method} (${b.reference}) · receipt ${receipt}`,
-      refType: "payment",
-      refId: id,
+      recordId: id,
       by: s.userId,
     });
     await recordAudit(t, {
