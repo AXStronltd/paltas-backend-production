@@ -1107,20 +1107,32 @@
         {
           "id": "arrears.07",
           "requirement": "Repayment plans",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-plans.test.ts",
+            "frontend/tests/property.collection-plans.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 4 and remaining gaps"
+          ]
         },
         {
           "id": "arrears.08",
           "requirement": "Instalments",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-plans.test.ts",
+            "frontend/tests/property.collection-plans.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 4 and remaining gaps"
+          ]
         },
         {
           "id": "arrears.09",
           "requirement": "Promises to pay",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-plans.test.ts",
+            "frontend/tests/property.collection-plans.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 4 and remaining gaps"
+          ]
         },
         {
           "id": "arrears.10",
@@ -1806,8 +1818,12 @@
         {
           "id": "tenant_portal.07",
           "requirement": "Repayment plans",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-plans.test.ts",
+            "frontend/tests/property.collection-plans.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 4 and remaining gaps"
+          ]
         },
         {
           "id": "tenant_portal.08",

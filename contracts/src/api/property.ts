@@ -3236,3 +3236,169 @@ export const tenantBillingDisputeAction = endpoint({
   body: DisputeAction,
   response: BillingDispute,
 });
+
+export const CollectionPlanInput = z
+  .object({
+    invoiceId: Id,
+    kind: z.enum(["repayment", "promise"]),
+    schedule: z
+      .array(z.object({ dueDate: IsoDate, amountMinor: PositiveMinorUnits }))
+      .min(1)
+      .max(120),
+    evidenceRef: z.string().trim().min(5).max(1000),
+    note: z.string().trim().max(2000).default(""),
+  })
+  .refine((x) => x.kind !== "promise" || x.schedule.length === 1, {
+    message: "A promise to pay has one due date; use a repayment plan for multiple instalments",
+    path: ["schedule"],
+  })
+  .refine((x) => x.schedule.every((s, i) => i === 0 || s.dueDate >= (x.schedule[i - 1]?.dueDate ?? s.dueDate)), {
+    message: "List instalments in due-date order",
+    path: ["schedule"],
+  });
+export type CollectionPlanInput = z.infer<typeof CollectionPlanInput>;
+export const CollectionPlan = z.object({
+  id: Id,
+  invoiceId: Id,
+  invoiceNumber: z.string(),
+  tenantName: z.string(),
+  unitNo: z.string().nullable(),
+  input: CollectionPlanInput,
+  status: z.enum(["proposed", "active", "paused", "completed", "cancelled"]),
+  version: z.number().int().positive(),
+  targetMinor: PositiveMinorUnits,
+  settledMinor: NonNegativeMinor,
+  invoiceBalanceMinor: NonNegativeMinor,
+  unplannedBalanceMinor: NonNegativeMinor,
+  overdueMinor: NonNegativeMinor,
+  reviewRequired: z.boolean(),
+  approvedBy: Id.nullable(),
+  createdBy: Id,
+  instalments: z.array(
+    z.object({
+      dueDate: IsoDate,
+      amountMinor: PositiveMinorUnits,
+      settledMinor: NonNegativeMinor,
+      remainingMinor: NonNegativeMinor,
+      status: z.enum(["unpaid", "partial", "settled"]),
+    }),
+  ),
+  events: z.array(
+    z.object({
+      id: Id,
+      action: z.string(),
+      reason: z.string(),
+      createdAt: z.string(),
+      snapshot: z.object({
+        input: CollectionPlanInput,
+        status: z.enum(["proposed", "active", "paused", "completed", "cancelled"]),
+        version: z.number().int().positive(),
+        targetMinor: PositiveMinorUnits,
+        approvedBy: Id.nullable(),
+      }),
+    }),
+  ),
+  updatedAt: z.string(),
+});
+export type CollectionPlan = z.infer<typeof CollectionPlan>;
+const PlanQuery = z.object({
+  propertyId: Id.optional(),
+  invoiceId: Id.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).max(1000000).default(0),
+});
+export type PlanQuery = z.infer<typeof PlanQuery>;
+const PlanPage = z.object({
+  plans: z.array(CollectionPlan),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+const PlanAction = z.object({
+  expectedVersion: z.number().int().positive(),
+  action: z.enum(["approve", "pause", "resume", "complete", "cancel", "reopen"]),
+  reason: z.string().trim().min(5).max(2000),
+});
+export type PlanAction = z.infer<typeof PlanAction>;
+export const listCollectionPlans = endpoint({
+  id: "property.invoices.plans.list",
+  method: "GET",
+  path: `${Base}/collection-plans`,
+  auth: "user",
+  summary: "Repayment arrangements for existing invoices, without creating new debt",
+  params: OrgParams,
+  query: PlanQuery,
+  response: PlanPage,
+});
+export const createCollectionPlan = endpoint({
+  id: "property.invoices.plans.create",
+  method: "POST",
+  path: `${Base}/collection-plans`,
+  auth: "user",
+  summary: "Propose an instalment plan or promise to pay",
+  params: OrgParams,
+  body: CollectionPlanInput,
+  response: CollectionPlan,
+  status: 201,
+});
+export const updateCollectionPlan = endpoint({
+  id: "property.invoices.plans.update",
+  method: "PUT",
+  path: `${Base}/collection-plans/:planId`,
+  auth: "user",
+  summary: "Edit a proposed arrangement using its current version",
+  params: OrgParams.extend({ planId: Id }),
+  body: z.object({ expectedVersion: z.number().int().positive(), input: CollectionPlanInput }),
+  response: CollectionPlan,
+});
+export const collectionPlanAction = endpoint({
+  id: "property.invoices.plans.action",
+  method: "POST",
+  path: `${Base}/collection-plans/:planId/action`,
+  auth: "user",
+  summary: "Approve or manage an arrangement; payments remain on the original invoice",
+  params: OrgParams.extend({ planId: Id }),
+  body: PlanAction,
+  response: CollectionPlan,
+});
+export const tenantCollectionPlans = endpoint({
+  id: "property.tenant.plans.list",
+  method: "GET",
+  path: `${Base}/tenant/collection-plans`,
+  auth: "user",
+  summary: "Your repayment arrangements and current instalment progress",
+  params: OrgParams,
+  query: PlanQuery,
+  response: PlanPage,
+});
+export const tenantCreateCollectionPlan = endpoint({
+  id: "property.tenant.plans.create",
+  method: "POST",
+  path: `${Base}/tenant/collection-plans`,
+  auth: "user",
+  summary: "Request an arrangement on your own existing invoice for manager review",
+  params: OrgParams,
+  body: CollectionPlanInput,
+  response: CollectionPlan,
+  status: 201,
+});
+export const tenantUpdateCollectionPlan = endpoint({
+  id: "property.tenant.plans.update",
+  method: "PUT",
+  path: `${Base}/tenant/collection-plans/:planId`,
+  auth: "user",
+  summary: "Correct your own unapproved repayment proposal",
+  params: OrgParams.extend({ planId: Id }),
+  body: z.object({ expectedVersion: z.number().int().positive(), input: CollectionPlanInput }),
+  response: CollectionPlan,
+});
+export const tenantCollectionPlanAction = endpoint({
+  id: "property.tenant.plans.action",
+  method: "POST",
+  path: `${Base}/tenant/collection-plans/:planId/action`,
+  auth: "user",
+  summary: "Withdraw your own unapproved proposal; never ends the tenancy",
+  params: OrgParams.extend({ planId: Id }),
+  body: PlanAction,
+  response: CollectionPlan,
+});

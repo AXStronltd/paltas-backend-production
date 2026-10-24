@@ -1,3 +1,5 @@
+import { collectionPlanRoutes } from "./billing/collection-plans.routes.js";
+import { collectionPlansService } from "./billing/collection-plans.service.js";
 import { billingDisputeRoutes } from "./billing/billing-disputes.routes.js";
 import { billingDisputesService } from "./billing/billing-disputes.service.js";
 import { propertyPayrollService } from "./payroll/payroll.service.js";
@@ -107,6 +109,7 @@ export const property: ProductModule = {
       ...leasesRoutes(access, leases, billing, payments),
       ...billingRoutes(access, billing),
       ...billingDisputeRoutes(access, billingDisputesService(d)),
+      ...collectionPlanRoutes(access, collectionPlansService(d)),
       ...paymentsRoutes(access, payments),
       ...ownersRoutes(access, owners),
       ...billsRoutes(access, bills),

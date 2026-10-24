@@ -9,6 +9,7 @@ import { productRole } from "./product-role.js";
 
 type Req = Parameters<Route["handler"]>[0];
 const FINE: Record<string, Capability> = {
+  "property.invoices.plans.list": "property.tenants.history",
   "property.invoices.disputes.list": "property.tenants.history",
   "contacts.list": "property.tenants.view",
   "contacts.get": "property.tenants.view",
@@ -42,6 +43,8 @@ const FINE: Record<string, Capability> = {
   "property.tenants.statement": "property.tenants.history",
 };
 const TABLES: Record<string, string> = {
+  planId:
+    "SELECT i.property_id FROM pm_collection_plans p JOIN pm_invoices i ON i.id=p.invoice_id AND i.org_id=p.org_id WHERE p.org_id=$1 AND p.id=$2",
   disputeId:
     "SELECT i.property_id FROM pm_billing_disputes d JOIN pm_invoices i ON i.id=d.invoice_id AND i.org_id=d.org_id WHERE d.org_id=$1 AND d.id=$2",
   draftId:
@@ -61,6 +64,7 @@ const TABLES: Record<string, string> = {
   inspectionId: "SELECT property_id FROM pm_inspections WHERE org_id=$1 AND id=$2",
 };
 const LISTS: Record<string, [string, string]> = {
+  "property.invoices.plans.list": ["plans", "planId"],
   "property.invoices.disputes.list": ["disputes", "disputeId"],
   "property.invoices.drafts.list": ["drafts", "draftId"],
   "property.properties.list": ["properties", "propertyId"],
@@ -237,9 +241,12 @@ export function managerGuard(db: Db) {
             data[key] = filtered;
             if (
               "total" in data &&
-              !["property.payments.list", "property.invoices.drafts.list", "property.invoices.disputes.list"].includes(
-                r.endpoint.id,
-              )
+              ![
+                "property.payments.list",
+                "property.invoices.drafts.list",
+                "property.invoices.disputes.list",
+                "property.invoices.plans.list",
+              ].includes(r.endpoint.id)
             )
               data.total = filtered.length;
           }

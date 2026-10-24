@@ -80,3 +80,16 @@ Additive migration `0041_property_billing_disputes.sql` creates operational case
 Verification: five backend dispute tests; 43 focused backend tests including billing acceptance, operations, draft controls and additive upgrades; 18 browser checks at 1440/768/390 px exercising tenant query → manager invoice credit → linked resolution → tenant balance/history. Browser tests initially selected background invoice controls while a modal was open; selectors were scoped to the active modal and rerun successfully.
 
 This completes a supported dispute journey, not the whole utilities/arrears specification. Meter lifecycle, estimates, shared allocation, repayment/reminder automation and other acceptance gaps remain open. No production release performed.
+
+
+## Increment 4: reviewed repayment plans and promises to pay
+
+Added balanced instalment proposals against one existing unpaid invoice. Tenants can propose, repeatedly edit and withdraw their own unapproved proposals. Authorised managers can review/approve, pause/resume tracking, cancel, complete fully settled arrangements and reopen unpaid closed arrangements as proposals. Company administrators may explicitly approve an operational tracking proposal; delegated managers cannot approve their own creation or last edit. This does not attest legal validity or change a signed contract.
+
+Progress is derived from existing invoice allocations and credit notes, not a second ledger. Payments and credits are labelled settlement, not cash receipts. Approvals recheck the current balance; stale versions and duplicate live arrangements are rejected. Completed history remains retained after a later receipt reversal and flags the renewed debt for review. Pausing a plan does not waive fees, change the original invoice due date, stop recurring billing or restrict access.
+
+Additive migration `0042_property_collection_plans.sql` stores plans and immutable events only. Organisation/property/tenant scopes, explicit reasons, audit entries and pagination are enforced. No real customer records were changed. No migration or release was run in production.
+
+Verification: 21 browser checks at 1440/768/390 px exercised tenant proposal → repeated edit → manager approval → actual partial receipt → tenant instalment balance/history. The first run correctly rejected a future-dated test receipt; the fixture was corrected and all three viewport journeys passed. Backend coverage includes balancing, credits, reversals, stale edits, own-tenant and assigned-property isolation, independent manager review, immediate grant revocation and retained withdrawal history. Automated reminders, multi-invoice arrangements, legal agreement signing and scheduled communications remain separate open requirements; no whole-programme completion claim is made.
+
+Final increment-4 verification: the broad suite passed 131 files / 859 tests before history snapshot hardening. After snapshot hardening, 26 focused tests passed across collection plans, manager controls and safe migration/upgrade checks. Immutable event snapshots preserve each previous schedule, approval status and version when proposals are edited or closed plans are reopened. Database triggers reject event changes and deletion.
