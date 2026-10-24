@@ -200,3 +200,32 @@ export const loginWithBackup = endpoint({
   body: z.object({ email: Email, password: z.string().min(1).max(200), backupCode: z.string().min(10).max(100) }),
   response: login.response,
 });
+
+export const requestStaffPasswordReset = endpoint({
+  id: "auth.staffPasswordReset.request",
+  method: "POST",
+  path: "/api/v1/auth/staff-password-reset",
+  auth: "public",
+  summary: "Request a Super Admin password reset; uniform response, email plus existing second factor required",
+  body: z.object({ email: Email }),
+  response: PasswordResetReceived,
+});
+export const completeStaffPasswordReset = endpoint({
+  id: "auth.staffPasswordReset.complete",
+  method: "POST",
+  path: "/api/v1/auth/staff-password-reset/complete",
+  auth: "public",
+  summary: "Reset staff password using single-use email token and existing second factor; MFA unchanged",
+  body: z
+    .object({
+      token: z.string().trim().min(20).max(200),
+      newPassword: NewPassword,
+      code: z
+        .string()
+        .regex(/^\d{6}$/)
+        .optional(),
+      backupCode: z.string().trim().min(10).max(60).optional(),
+    })
+    .refine((v) => !!v.code !== !!v.backupCode, { message: "Provide an authenticator code or a backup code" }),
+  response: Ok,
+});

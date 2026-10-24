@@ -1,3 +1,4 @@
+import { staffPasswordResetService } from "./staff-password-reset.js";
 import { identity } from "@paltas/contracts";
 import type { AppContext } from "../../context.js";
 import { ApiError } from "../../http/errors.js";
@@ -7,6 +8,7 @@ import { staffEnrollmentService } from "./staff-enrollment.js";
 import type { PasswordResetService } from "./password-reset.js";
 
 export function identityRoutes(ctx: AppContext, ids: IdentityService, reset: PasswordResetService) {
+  const staffReset = staffPasswordResetService(ctx);
   const enrollment = staffEnrollmentService(ctx);
   function sameOrigin(origin: string | undefined) {
     if (origin && origin !== new URL(ctx.config.signup.appBaseUrl).origin)
@@ -34,6 +36,14 @@ export function identityRoutes(ctx: AppContext, ids: IdentityService, reset: Pas
     route(identity.completeStaffEnrollment, async (req) => {
       sameOrigin(req.header("origin"));
       return enrollment.complete(req.body.token, req.body.code, req.body.newPassword);
+    }),
+    route(identity.requestStaffPasswordReset, async (req) => {
+      sameOrigin(req.header("origin"));
+      return staffReset.request(req.body.email, req.ip);
+    }),
+    route(identity.completeStaffPasswordReset, async (req) => {
+      sameOrigin(req.header("origin"));
+      return staffReset.complete(req.body);
     }),
     route(identity.loginWithBackup, async (req) => ids.loginWithBackup(req.body, req.ip)),
     route(identity.login, async (req) => ids.login(req.body, req.ip)),

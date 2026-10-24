@@ -108,7 +108,11 @@ export function registerRoutes(
       ...(bodyLimit ? { bodyLimit } : {}),
       config: rateLimit ? { rateLimit } : {},
       handler: async (request: FastifyRequest, reply) => {
-        if (endpoint.id.startsWith("auth.staffEnrollment.") || endpoint.id === "auth.staffBackup.login") {
+        if (
+          endpoint.id.startsWith("auth.staffEnrollment.") ||
+          endpoint.id.startsWith("auth.staffPasswordReset.") ||
+          endpoint.id === "auth.staffBackup.login"
+        ) {
           reply.header("Cache-Control", "no-store");
           reply.header("Referrer-Policy", "no-referrer");
         }

@@ -145,6 +145,8 @@ export const PAYMENT_PROVIDERS_API = {
 // Each group is its own constant and API is typed from them: one inferred type for every endpoint would be too
 // large for the compiler to write into the declaration files.
 export const IDENTITY_API = {
+  requestStaffPasswordReset: identity.requestStaffPasswordReset,
+  completeStaffPasswordReset: identity.completeStaffPasswordReset,
   beginStaffEnrollment: identity.beginStaffEnrollment,
   completeStaffEnrollment: identity.completeStaffEnrollment,
   loginWithBackup: identity.loginWithBackup,
