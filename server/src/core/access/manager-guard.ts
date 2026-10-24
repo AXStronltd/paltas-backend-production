@@ -31,6 +31,7 @@ const FINE: Record<string, Capability> = {
   "contacts.activities.add": "property.tenants.edit",
   "contacts.messages.record": "property.tenants.edit",
   "property.notices.publish": "property.tenants.notices",
+  "property.reports.collectionsOverview": "property.tenants.history",
   "property.payments.list": "property.tenants.history",
   "property.payments.get": "property.tenants.history",
   "property.invoices.list": "property.tenants.history",
@@ -76,7 +77,7 @@ const SAFE_SHARED = new Set([
   "subscription.entitlements",
 ]);
 const SCOPED =
-  /^(property\.(properties\.(list|get|update)|buildings\.(create|update|delete)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|invoices\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
+  /^(property\.(properties\.(list|get|update)|buildings\.(create|update|delete)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|invoices\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll|collectionsOverview))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
 const GLOBAL =
   /^property\.(settings\.update|chargeTypes\.(create|update)|properties\.create|bank\.|reconciliations\.|payouts\.|owners\.|reports\.(clientMoney|aged|dashboard))/;
 export function managerGuard(db: Db) {
@@ -204,7 +205,12 @@ export function managerGuard(db: Db) {
         await check(req.params);
         await check(req.query);
         await check(req.body);
-        if (["property.reports.dashboard", "property.reports.rentRoll"].includes(r.endpoint.id) && !bound)
+        if (
+          ["property.reports.dashboard", "property.reports.rentRoll", "property.reports.collectionsOverview"].includes(
+            r.endpoint.id,
+          ) &&
+          !bound
+        )
           throw fail.invalid("Choose an assigned property for this report");
         if (r.endpoint.id === "property.documents.list" && !bound)
           throw fail.invalid("Select a lease, contact or property to view its documents");

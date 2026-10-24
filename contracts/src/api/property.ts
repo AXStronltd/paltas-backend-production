@@ -2955,3 +2955,81 @@ export const exportAuditIntegrity = endpoint({
   params: OrgParams,
   response: z.object({ export: z.record(z.string(), z.unknown()), fingerprint: z.string(), coverage: z.string() }),
 });
+
+/** Cash receipts by receipt date; invoice balances remain current, not historical reconstructions. */
+export const CollectionsQuery = z
+  .object({
+    invoiceStatus: z.enum(["billed", "open", "overdue", "due_today"]).default("open"),
+    invoiceOffset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+    from: IsoDate,
+    to: IsoDate,
+    propertyId: Id.optional(),
+    buildingId: Id.optional(),
+    unitId: Id.optional(),
+    ownerId: Id.optional(),
+    tenantId: Id.optional(),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).max(1_000_000).default(0),
+  })
+  .refine((q) => q.from <= q.to, { message: "Start date must be on or before end date", path: ["to"] });
+export type CollectionsQuery = z.infer<typeof CollectionsQuery>;
+export const CollectionsOverview = z.object({
+  asOf: IsoDate,
+  currency: z.string(),
+  from: IsoDate,
+  to: IsoDate,
+  scopedAllocations: z.boolean(),
+  cohortAllocatedMinor: NonNegativeMinor,
+  cohortCreditedMinor: NonNegativeMinor,
+  collectionRatePct: z.number().nullable(),
+  receiptsMinor: NonNegativeMinor,
+  bankMatchedMinor: NonNegativeMinor,
+  unmatchedMinor: NonNegativeMinor,
+  total: z.number().int(),
+  billedMinor: NonNegativeMinor,
+  outstandingMinor: NonNegativeMinor,
+  overdueMinor: NonNegativeMinor,
+  dueTodayMinor: NonNegativeMinor,
+  tenants: z.object({
+    paid: z.number().int(),
+    partial: z.number().int(),
+    credited: z.number().int(),
+    unpaid: z.number().int(),
+  }),
+  invoiceTotal: z.number().int(),
+  invoices: z.array(
+    z.object({
+      id: Id,
+      number: z.string(),
+      tenantName: z.string(),
+      unitNo: z.string().nullable(),
+      dueDate: IsoDate,
+      amountMinor: NonNegativeMinor,
+      balanceMinor: NonNegativeMinor,
+    }),
+  ),
+  rows: z.array(
+    z.object({
+      id: Id,
+      receiptNumber: z.string(),
+      tenantId: Id,
+      tenantName: z.string(),
+      date: IsoDate,
+      method: z.string(),
+      reference: z.string(),
+      amountMinor: NonNegativeMinor,
+      bankMatched: z.boolean(),
+    }),
+  ),
+});
+export type CollectionsOverview = z.infer<typeof CollectionsOverview>;
+export const collectionsOverview = endpoint({
+  id: "property.reports.collectionsOverview",
+  method: "GET",
+  path: `${Base}/reports/collections-overview`,
+  auth: "user",
+  summary: "Receipt-date cashbook and current invoice balances, with authorised scope filters",
+  params: OrgParams,
+  query: CollectionsQuery,
+  response: CollectionsOverview,
+});

@@ -8,6 +8,9 @@ import type { ReportsService } from "./reports.service.js";
 export function reportsRoutes(access: PmAccess, R: ReportsService) {
   const g = gate(access);
   return [
+    route(api.collectionsOverview, async (req) =>
+      R.collectionsOverview(await g.org(req, "property.reports.read"), req.query),
+    ),
     route(api.dashboard, async (req) => R.dashboard(await g.org(req, "property.reports.read"), req.query)),
     route(api.agedReceivables, async (req) => R.aged(await g.org(req, "property.reports.read"))),
     route(api.rentRoll, async (req) => R.rentRoll(await g.org(req, "property.reports.read"), req.query.propertyId)),

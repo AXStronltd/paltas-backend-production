@@ -884,6 +884,7 @@ export const PROPERTY_API = {
   prepareReconciliation: property.prepareReconciliation,
   listReconciliations: property.listReconciliations,
   approveReconciliation: property.approveReconciliation,
+  collectionsOverview: property.collectionsOverview,
   dashboard: property.dashboard,
   agedReceivables: property.agedReceivables,
   rentRoll: property.rentRoll,
