@@ -30,6 +30,7 @@ async function fixture() {
       },
     },
   });
+  const customer = await S.newOrg();
   const staff = await S.staff(),
     secret = newTotpSecret(),
     email = "owner@reset.test";
@@ -45,6 +46,7 @@ async function fixture() {
   const complete = (token = link, code = totp(secret)) =>
     S.api.identity.completeStaffPasswordReset({ body: { token, newPassword: "New-Password-2026!", code } });
   return {
+    customer,
     staff,
     secret,
     email,
@@ -60,7 +62,7 @@ describe("staff password reset requires mailbox and existing MFA", () => {
     const f = await fixture();
     const a = await S.api.identity.requestStaffPasswordReset({ body: { email: "unknown@reset.test" } });
     expect(f.token).toBe("");
-    const org = await S.newOrg();
+    const org = f.customer;
     const b = await S.api.identity.requestStaffPasswordReset({ body: { email: org.admin.email } });
     expect(f.token).toBe("");
     expect(await f.request()).toEqual(a);

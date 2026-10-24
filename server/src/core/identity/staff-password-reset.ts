@@ -58,12 +58,13 @@ export function staffPasswordResetService(ctx: AppContext) {
           [email],
         );
       });
+      const provider = config.email.provider;
       if (
         !eligible?.active ||
         eligible.staff_role !== "super_admin" ||
         !eligible.mfa_confirmed_at ||
         !eligible.mfa_secret_sealed ||
-        !config.email.provider
+        !provider
       )
         return RECEIVED;
       try {
@@ -85,7 +86,7 @@ export function staffPasswordResetService(ctx: AppContext) {
             [id, u.id, digest(token), u.auth_version, expires],
           );
           const mail = config.email;
-          const sent = await emailAdapter({ ...mail, provider: mail.provider! }, ctx.emailTransport).submit({
+          const sent = await emailAdapter({ ...mail, provider }, ctx.emailTransport).submit({
             id,
             orgId: "platform",
             channel: "email",
@@ -190,10 +191,11 @@ export function staffPasswordResetService(ctx: AppContext) {
       });
       if (!result) throw fail.invalid(INVALID);
       // The password transaction has committed. Notification failure must never make its outcome ambiguous.
-      if (config.email.provider) {
+      const provider = config.email.provider;
+      if (provider) {
         try {
           const mail = config.email;
-          const sent = await emailAdapter({ ...mail, provider: mail.provider! }, ctx.emailTransport).submit({
+          const sent = await emailAdapter({ ...mail, provider }, ctx.emailTransport).submit({
             id: newId("sprn"),
             orgId: "platform",
             channel: "email",
