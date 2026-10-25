@@ -20,6 +20,7 @@ import { formatMoney } from "../../../lib/money.js";
 import { orgCurrency } from "../shared/money.js";
 
 interface RequestRow {
+  version: number;
   id: string;
   number: string;
   property_id: string;
@@ -79,6 +80,7 @@ const REQUEST_SQL = `SELECT r.*, (SELECT w.id FROM pm_work_orders w WHERE w.requ
   ORDER BY w.created_at DESC LIMIT 1) AS work_order_id FROM pm_maintenance_requests r`;
 
 const toRequest = (r: RequestRow): P.MaintenanceRequest => ({
+  version: r.version,
   id: r.id,
   number: r.number,
   propertyId: r.property_id,
@@ -98,8 +100,11 @@ export function maintenanceService(d: PmDeps) {
   const { core } = d;
   const db = core.db;
 
-  async function requestRow(t: Db, orgId: string, id: string): Promise<RequestRow> {
-    const r = await t.row<RequestRow>(`${REQUEST_SQL} WHERE r.org_id = $1 AND r.id = $2`, [orgId, id]);
+  async function requestRow(t: Db, orgId: string, id: string, lock = false): Promise<RequestRow> {
+    const r = await t.row<RequestRow>(
+      `${REQUEST_SQL} WHERE r.org_id = $1 AND r.id = $2${lock ? " FOR UPDATE OF r" : ""}`,
+      [orgId, id],
+    );
     if (!r) throw fail.notFound("Maintenance request not found");
     return r;
   }
@@ -291,6 +296,91 @@ export function maintenanceService(d: PmDeps) {
     toRequest,
     REQUEST_SQL,
 
+    async requestHistory(s: OrgScope, id: string, q: { limit: number; offset: number }) {
+      return db.tx(async (t) => {
+        await t.run("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        const r = await requestRow(t, s.orgId, id);
+        const where = "org_id=$1 AND target IN ($2,$3) AND action LIKE 'Maintenance request %'";
+        const args = [s.orgId, id, r.number];
+        const total = await t.row<{ n: number }>(`SELECT count(*)::int AS n FROM audit_log WHERE ${where}`, args);
+        const entries = await t.rows<{
+          id: string;
+          at: string;
+          action: string;
+          detail: string;
+          actorRole: string | null;
+          before: unknown;
+          after: unknown;
+        }>(
+          `SELECT id::text,at,action,detail,actor_role AS "actorRole",before,after FROM audit_log WHERE ${where} ORDER BY id DESC LIMIT $4 OFFSET $5`,
+          [...args, q.limit, q.offset],
+        );
+        return { entries, total: total?.n ?? 0, limit: q.limit, offset: q.offset };
+      });
+    },
+    async getRequest(s: OrgScope, id: string) {
+      return toRequest(await requestRow(db, s.orgId, id));
+    },
+    async updateRequest(
+      s: OrgScope,
+      id: string,
+      b: {
+        expectedVersion: number;
+        title: string;
+        category: string;
+        priority: P.MaintenanceRequest["priority"];
+        reason: string;
+      },
+    ) {
+      await db.tx(async (t) => {
+        const r = await requestRow(t, s.orgId, id, true);
+        if (r.version !== b.expectedVersion)
+          throw fail.conflict("This request changed. Reopen it to review the latest details before saving.");
+        if (r.status !== "open" && b.priority !== r.priority)
+          throw fail.conflict(
+            "Reopen a closed request to change its priority. For assigned work, review the work order and its agreed schedule.",
+          );
+        await t.run("UPDATE pm_maintenance_requests SET title=$3,category=$4,priority=$5 WHERE org_id=$1 AND id=$2", [
+          s.orgId,
+          id,
+          b.title,
+          b.category,
+          b.priority,
+        ]);
+        await recordAudit(t, {
+          orgId: s.orgId,
+          actor: s.actor,
+          action: "Maintenance request corrected",
+          target: id,
+          detail: b.reason,
+          before: { title: r.title, category: r.category, priority: r.priority, version: r.version },
+          after: { title: b.title, category: b.category, priority: b.priority, version: r.version + 1 },
+        });
+      });
+      return toRequest(await requestRow(db, s.orgId, id));
+    },
+    async reopenRequest(s: OrgScope, id: string, b: { expectedVersion: number; reason: string }) {
+      await db.tx(async (t) => {
+        const r = await requestRow(t, s.orgId, id, true);
+        if (r.version !== b.expectedVersion)
+          throw fail.conflict("This request changed. Reopen its details before continuing.");
+        if (!["closed", "resolved"].includes(r.status)) throw fail.conflict("This request is already open or assigned");
+        await t.run("UPDATE pm_maintenance_requests SET status='open',resolved_at=NULL WHERE org_id=$1 AND id=$2", [
+          s.orgId,
+          id,
+        ]);
+        await recordAudit(t, {
+          orgId: s.orgId,
+          actor: s.actor,
+          action: "Maintenance request reopened",
+          target: id,
+          detail: b.reason,
+          before: { status: r.status, resolvedAt: r.resolved_at, version: r.version },
+          after: { status: "open", resolvedAt: null, version: r.version + 1 },
+        });
+      });
+      return toRequest(await requestRow(db, s.orgId, id));
+    },
     async listRequests(
       s: OrgScope,
       f: { status?: P.MaintenanceRequest["status"] | undefined; propertyId?: string | undefined },
@@ -330,7 +420,7 @@ export function maintenanceService(d: PmDeps) {
 
     async closeRequest(s: OrgScope, id: string, note: string) {
       await db.tx(async (t) => {
-        const r = await requestRow(t, s.orgId, id);
+        const r = await requestRow(t, s.orgId, id, true);
         if (r.status === "closed") throw fail.conflict("This request is already closed");
         const open = await t.row(
           "SELECT 1 FROM pm_work_orders WHERE request_id = $1 AND status NOT IN ('verified', 'billed', 'cancelled')",
@@ -379,8 +469,21 @@ export function maintenanceService(d: PmDeps) {
         let propertyId = b.propertyId;
         let unitId = b.unitId ?? null;
         if (b.requestId) {
-          const r = await requestRow(t, s.orgId, b.requestId);
+          const r = await requestRow(t, s.orgId, b.requestId, true);
+          if (b.propertyId !== r.property_id || (b.unitId && r.unit_id && b.unitId !== r.unit_id))
+            throw fail.invalid("Use the property and unit linked to this maintenance request");
           if (r.status === "closed" || r.status === "resolved") throw fail.conflict("That request is already resolved");
+          const existing = await t.row<WorkOrderRow>(
+            "SELECT * FROM pm_work_orders WHERE org_id=$1 AND request_id=$2 AND status NOT IN ('verified','billed','cancelled') ORDER BY created_at,id LIMIT 1",
+            [s.orgId, r.id],
+          );
+          if (existing) {
+            if (existing.scope !== b.scope || existing.priority !== b.priority)
+              throw fail.conflict(
+                "This request already has an active work order. Open that order before changing the scope or priority.",
+              );
+            return existing.id;
+          }
           propertyId = r.property_id;
           unitId = unitId ?? r.unit_id;
           await t.run("UPDATE pm_maintenance_requests SET status = 'assigned' WHERE id = $1", [r.id]);

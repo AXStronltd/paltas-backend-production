@@ -755,6 +755,10 @@ export const CONTACTS_API = {
 } as const;
 
 export const PROPERTY_API = {
+  maintenanceRequestHistory: property.maintenanceRequestHistory,
+  getMaintenanceRequest: property.getMaintenanceRequest,
+  updateMaintenanceRequest: property.updateMaintenanceRequest,
+  reopenMaintenanceRequest: property.reopenMaintenanceRequest,
   complaintAssignees: property.complaintAssignees,
   listComplaints: property.listComplaints,
   getComplaint: property.getComplaint,

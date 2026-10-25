@@ -540,6 +540,7 @@ export const MaintenanceRequest = z.object({
   source: z.enum(["staff", "tenant_portal", "inspection"]),
   openedAt: IsoDateTime,
   resolvedAt: IsoDateTime.nullable(),
+  version: z.number().int().positive(),
   workOrderId: z.string().nullable(),
 });
 export type MaintenanceRequest = z.infer<typeof MaintenanceRequest>;
@@ -3823,4 +3824,68 @@ export const complaintAssignees = endpoint({
   params: OrgParams.extend({ complaintId: Id }),
   query: z.object({ search: z.string().trim().max(160).default("") }),
   response: z.object({ members: z.array(z.object({ userId: Id, name: z.string() })), more: z.boolean() }),
+});
+
+export const getMaintenanceRequest = endpoint({
+  id: "property.maintenance.get",
+  method: "GET",
+  path: `${Base}/maintenance/:requestId`,
+  auth: "user",
+  summary: "Reopen a saved maintenance request in your authorised property",
+  params: OrgParams.extend({ requestId: Id }),
+  response: MaintenanceRequest,
+});
+export const updateMaintenanceRequest = endpoint({
+  id: "property.maintenance.update",
+  method: "POST",
+  path: `${Base}/maintenance/:requestId`,
+  auth: "user",
+  summary: "Correct a maintenance request with optimistic concurrency and an audit reason",
+  params: OrgParams.extend({ requestId: Id }),
+  body: z.object({
+    expectedVersion: z.number().int().positive(),
+    title: z.string().trim().min(3).max(200),
+    category: z.string().trim().min(1).max(60),
+    priority: Priority,
+    reason: z.string().trim().min(5).max(1000),
+  }),
+  response: MaintenanceRequest,
+});
+export const reopenMaintenanceRequest = endpoint({
+  id: "property.maintenance.reopen",
+  method: "POST",
+  path: `${Base}/maintenance/:requestId/reopen`,
+  auth: "user",
+  summary: "Reopen a resolved/closed request without changing its work orders, bills or history",
+  params: OrgParams.extend({ requestId: Id }),
+  body: z.object({ expectedVersion: z.number().int().positive(), reason: z.string().trim().min(5).max(1000) }),
+  response: MaintenanceRequest,
+});
+export const maintenanceRequestHistory = endpoint({
+  id: "property.maintenance.history",
+  method: "GET",
+  path: `${Base}/maintenance/:requestId/history`,
+  auth: "user",
+  summary: "Immutable change history for one authorised maintenance request",
+  params: OrgParams.extend({ requestId: Id }),
+  query: z.object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).max(1000000).default(0),
+  }),
+  response: z.object({
+    entries: z.array(
+      z.object({
+        id: z.string(),
+        at: z.string(),
+        action: z.string(),
+        detail: z.string(),
+        actorRole: z.string().nullable(),
+        before: z.unknown(),
+        after: z.unknown(),
+      }),
+    ),
+    total: z.number().int(),
+    limit: z.number().int(),
+    offset: z.number().int(),
+  }),
 });

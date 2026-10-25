@@ -73,6 +73,7 @@ describe("migrations", () => {
         "0045_property_utility_meter_lifecycle",
         "0046_property_reconciliation_snapshot",
         "0048_property_complaints",
+        "0049_property_request_versions",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything
