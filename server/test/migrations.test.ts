@@ -71,6 +71,7 @@ describe("migrations", () => {
         "0043_property_collection_reminders",
         "0044_property_partial_deposit_settlements",
         "0045_property_utility_meter_lifecycle",
+        "0046_property_reconciliation_snapshot",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything

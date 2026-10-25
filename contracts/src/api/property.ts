@@ -743,6 +743,7 @@ export const BankLine = z.object({
 export type BankLine = z.infer<typeof BankLine>;
 
 export const Reconciliation = z.object({
+  unmatchedCount: z.number().int().nonnegative().nullable(),
   id: z.string(),
   accountCode: z.string(),
   statementDate: IsoDate,

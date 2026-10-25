@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Bank reconciliation of the client account (1040) against what was RECORDED in PALTAS: no bank is connected, the
@@ -15,7 +16,7 @@ import { newId } from "../../../lib/ids.js";
 import { ACC } from "../accounts.js";
 import type { PmDeps } from "../deps.js";
 import type { PaymentsService } from "../payments/payments.service.js";
-import { pmBalance } from "../shared/posting.js";
+import { PM_JOURNALS_SQL, pmBalance } from "../shared/posting.js";
 import { formatMoney } from "../../../lib/money.js";
 
 interface LineRow {
@@ -32,6 +33,8 @@ interface LineRow {
 }
 
 interface RecRow {
+  source_fingerprint: string | null;
+  unmatched_count: number | null;
   id: string;
   account_code: string;
   statement_date: string;
@@ -60,6 +63,7 @@ const toLine = (r: LineRow): P.BankLine => ({
 });
 
 const toRec = (r: RecRow) => ({
+  unmatchedCount: r.unmatched_count,
   id: r.id,
   accountCode: r.account_code,
   statementDate: r.statement_date,
@@ -143,6 +147,70 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
       if (hits.length === 1) return { kind, id: (hits[0] as { id: string }).id };
     }
     return null;
+  }
+
+  async function snapshot(t: Db, s: OrgScope, D: string, statementBalanceMinor: number) {
+    const ledger = await pmBalance(t, s.orgId, ACC.clientBank, D);
+    // recorded but not on the statement by D (not matched, or matched to a later line)
+    const uncleared = async (kind: Kind) => {
+      const r = await t.row<{ n: number }>(
+        `SELECT COALESCE(sum(x.amount), 0)::bigint AS n FROM (${kind === "payment" ? CANDIDATES[kind].sql.replace("pm_effective_payments", "pm_payments") : CANDIDATES[kind].sql}) x
+           WHERE x.date <= $2 ${kind === "payment" ? "AND NOT EXISTS (SELECT 1 FROM pm_payment_reversals r WHERE r.payment_id=x.id AND r.approved_by IS NOT NULL AND r.date <= $2)" : ""} AND NOT EXISTS (SELECT 1 FROM pm_bank_lines b
+             WHERE b.matched_kind = $3 AND b.matched_id = x.id AND b.date <= $2)`,
+        [s.orgId, D, kind],
+      );
+      return r?.n ?? 0;
+    };
+    const unclearedIn = await uncleared("payment");
+    const unclearedOut =
+      (await uncleared("payout")) + (await uncleared("bill_payment")) + (await uncleared("deposit_refund"));
+    const unmatched = await t.row<{ n: number }>(
+      "SELECT COALESCE(sum(amount_minor), 0)::bigint AS n FROM pm_bank_lines WHERE org_id = $1 AND status <> 'matched' AND date <= $2",
+      [s.orgId, D],
+    );
+    const unmatchedLines = unmatched?.n ?? 0;
+    for (const n of [statementBalanceMinor, unclearedIn, unclearedOut, unmatchedLines, ledger])
+      if (!Number.isSafeInteger(n)) throw fail.invalid("The reconciliation exceeds the supported monetary range");
+    const exactDifference =
+      BigInt(statementBalanceMinor) +
+      BigInt(unclearedIn) -
+      BigInt(unclearedOut) -
+      BigInt(unmatchedLines) -
+      BigInt(ledger);
+    if (exactDifference > BigInt(Number.MAX_SAFE_INTEGER) || exactDifference < -BigInt(Number.MAX_SAFE_INTEGER))
+      throw fail.invalid("The reconciliation difference exceeds the supported monetary range");
+    const difference = Number(exactDifference);
+
+    for (const n of [ledger, unclearedIn, unclearedOut, unmatchedLines, difference])
+      if (!Number.isSafeInteger(n)) throw fail.invalid("The reconciliation exceeds the supported monetary range");
+    const bank = await t.rows<{ status: string }>(
+      "SELECT id,date,amount_minor,status,matched_kind,matched_id FROM pm_bank_lines WHERE org_id=$1 AND date<=$2 ORDER BY id",
+      [s.orgId, D],
+    );
+    const records: Record<string, unknown[]> = {};
+    for (const [kind, c] of Object.entries(CANDIDATES) as [Kind, (typeof CANDIDATES)[Kind]][]) {
+      const sql = kind === "payment" ? c.sql.replace("pm_effective_payments", "pm_payments") : c.sql;
+      records[kind] = await t.rows(
+        `SELECT x.* FROM (${sql}) x WHERE x.date<=$2 ${kind === "payment" ? "AND NOT EXISTS(SELECT 1 FROM pm_payment_reversals r WHERE r.org_id=$1 AND r.payment_id=x.id AND r.approved_by IS NOT NULL AND r.date<=$2)" : ""} ORDER BY x.id`,
+        [s.orgId, D],
+      );
+    }
+    const entries = await t.rows(
+      `SELECT l.entry_id,l.line_no,l.debit_minor,l.credit_minor FROM journal_lines l JOIN journal_entries e ON e.id=l.entry_id WHERE l.org_id=$1 AND l.account_code=$2 AND e.date<=$3 AND e.id IN ${PM_JOURNALS_SQL} ORDER BY l.entry_id,l.line_no`,
+      [s.orgId, ACC.clientBank, D],
+    );
+    const fingerprint = createHash("sha256")
+      .update(JSON.stringify([D, statementBalanceMinor, bank, records, entries]))
+      .digest("hex");
+    return {
+      ledger,
+      unclearedIn,
+      unclearedOut,
+      unmatchedLines,
+      difference,
+      fingerprint,
+      unmatchedCount: bank.filter((x) => x.status === "unmatched").length,
+    };
   }
 
   return {
@@ -277,33 +345,15 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
     async prepare(s: OrgScope, b: { statementDate: string; statementBalanceMinor: number }) {
       const D = b.statementDate;
       if (D > s.today) throw fail.invalid("The statement date is in the future");
-      const ledger = await pmBalance(db, s.orgId, ACC.clientBank, D);
-      // recorded but not on the statement by D (not matched, or matched to a later line)
-      const uncleared = async (kind: Kind) => {
-        const r = await db.row<{ n: number }>(
-          `SELECT COALESCE(sum(x.amount), 0)::bigint AS n FROM (${kind === "payment" ? CANDIDATES[kind].sql.replace("pm_effective_payments", "pm_payments") : CANDIDATES[kind].sql}) x
-           WHERE x.date <= $2 ${kind === "payment" ? "AND NOT EXISTS (SELECT 1 FROM pm_payment_reversals r WHERE r.payment_id=x.id AND r.approved_by IS NOT NULL AND r.date <= $2)" : ""} AND NOT EXISTS (SELECT 1 FROM pm_bank_lines b
-             WHERE b.matched_kind = $3 AND b.matched_id = x.id AND b.date <= $2)`,
-          [s.orgId, D, kind],
-        );
-        return r?.n ?? 0;
-      };
-      const unclearedIn = await uncleared("payment");
-      const unclearedOut =
-        (await uncleared("payout")) + (await uncleared("bill_payment")) + (await uncleared("deposit_refund"));
-      const unmatched = await db.row<{ n: number }>(
-        "SELECT COALESCE(sum(amount_minor), 0)::bigint AS n FROM pm_bank_lines WHERE org_id = $1 AND status <> 'matched' AND date <= $2",
-        [s.orgId, D],
-      );
-      const unmatchedLines = unmatched?.n ?? 0;
-      const difference = b.statementBalanceMinor + unclearedIn - unclearedOut - unmatchedLines - ledger;
-      const id = newId("prc");
-      await financeTransaction(db, s.orgId, async (t) => {
+      return financeTransaction(db, s.orgId, async (t) => {
+        const { ledger, unclearedIn, unclearedOut, unmatchedLines, difference, fingerprint, unmatchedCount } =
+          await snapshot(t, s, D, b.statementBalanceMinor);
+        const id = newId("prc");
         await t.run(
           `INSERT INTO pm_reconciliations (id, org_id, account_code, statement_date, statement_balance_minor,
              ledger_balance_minor, uncleared_in_minor, uncleared_out_minor, unmatched_lines_minor, difference_minor, status,
-             prepared_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'prepared', $11)`,
+             prepared_by,source_fingerprint,unmatched_count)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'prepared', $11,$12,$13)`,
           [
             id,
             s.orgId,
@@ -316,6 +366,8 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
             unmatchedLines,
             difference,
             s.userId,
+            fingerprint,
+            unmatchedCount,
           ],
         );
         await recordAudit(t, {
@@ -325,8 +377,9 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
           target: id,
           detail: `${D} · statement ${b.statementBalanceMinor} · ledger ${ledger} · difference ${difference}`,
         });
+        const saved = await t.row<RecRow>("SELECT * FROM pm_reconciliations WHERE org_id=$1 AND id=$2", [s.orgId, id]);
+        return toRec(saved as RecRow);
       });
-      return toRec((await db.row<RecRow>("SELECT * FROM pm_reconciliations WHERE id = $1", [id])) as RecRow);
     },
 
     async listReconciliations(s: OrgScope) {
@@ -354,6 +407,22 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
         if ((await pmBalance(t, s.orgId, ACC.clientBank, r.statement_date)) !== r.ledger_balance_minor)
           throw fail.conflict(
             "The ledger changed after this reconciliation was prepared. Prepare a fresh reconciliation before approval.",
+          );
+        const current = await snapshot(t, s, r.statement_date, r.statement_balance_minor);
+        if (
+          !r.source_fingerprint ||
+          r.source_fingerprint !== current.fingerprint ||
+          r.uncleared_in_minor !== current.unclearedIn ||
+          r.uncleared_out_minor !== current.unclearedOut ||
+          r.unmatched_lines_minor !== current.unmatchedLines ||
+          current.difference !== 0
+        )
+          throw fail.conflict(
+            "Statement lines, recorded money or matches changed after preparation. Prepare a fresh reconciliation and review it before signing off.",
+          );
+        if (current.unmatchedCount > 0)
+          throw fail.conflict(
+            "Resolve or explicitly classify every unmatched statement line before sign-off. Offsetting unknown amounts are not a reconciled statement.",
           );
         await t.run(
           "UPDATE pm_reconciliations SET status = 'approved', approved_by = $2, approved_at = now() WHERE id = $1",

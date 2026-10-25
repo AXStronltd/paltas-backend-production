@@ -146,3 +146,16 @@ Focused verification initially caught a tariff-serial snapshot regression and a 
 The final meter UI passed 27 responsive browser checks with actor-labelled revision history and the existing design. TypeScript, lint, generated-source comparison and production build passed. The broad run at this checkpoint had 875 passes and one future-date fixture failure (876 total); the fixture was corrected to use November's business date when recording November usage. This is not reported as a fully passing broad run until rerun.
 
 After the future-date fixture correction, all 35 focused meter/tariff/accounting/migration tests passed. The actual-reading guard remains enabled. No production changes were made.
+
+
+## Increment 8: fresh reconciliation sources and unresolved-line safeguards
+
+Confirmed defect: preparation calculated its components before acquiring the shared financial lock, and approval rechecked only the ledger balance. New or differently classified statement lines could leave the same zero aggregate while changing the reviewed evidence. Preparation now computes and stores the reconciliation under the financial transaction lock. A SHA-256 freshness fingerprint binds the dated statement rows, recorded money and PM client-account ledger lines. Approval recomputes it and the financial components; changed sources require a fresh preparation. This is an approval freshness control, not a claim of independently anchored tamper-proof accounting.
+
+Off-setting unmatched lines no longer permit sign-off merely because their sum is zero. The prepared snapshot records the unresolved count; the UI shows it and directs the operator to statement-line review. A preparer cannot approve their own review. Legacy unapproved snapshots require fresh preparation; existing signed history is unchanged. Difference arithmetic uses integer minor-unit calculations with safe-range validation.
+
+Additive migration `0046_property_reconciliation_snapshot.sql` stores the freshness fingerprint and unresolved count. No financial postings, bank executions or existing signed records are altered. This does not yet implement grouped matching, fee allocation, provider settlements or reconciliation amendments; those remain separate acceptance gaps.
+
+Focused verification: 38 tests passed across stale/zero-net sources, changed classification, legacy snapshots, independent approval, organisation isolation, utility lifecycle, tariff snapshots, existing accounting acceptance and migration upgrades. Responsive browser verification and the full regression outcome are recorded after completion. An initial browser assertion expected an in-memory tab choice to survive a full reload; the test was corrected to select the reconciliation tab explicitly.
+
+Reconciliation responsive verification passed 15 checks at 1440/768/390 px: stale zero-net snapshot rejected → direct unresolved-line review → fresh independently approved snapshot. The broad run passed 878 tests with one export-cleanup timing failure (879 total); that failure is documented and addressed in the following shared-export hardening increment, not reported as a passing broad run.

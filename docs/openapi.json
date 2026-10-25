@@ -172831,6 +172831,18 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "unmatchedCount": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -172889,6 +172901,7 @@
                     }
                   },
                   "required": [
+                    "unmatchedCount",
                     "id",
                     "accountCode",
                     "statementDate",
@@ -172951,6 +172964,18 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "unmatchedCount": {
+                            "anyOf": [
+                              {
+                                "type": "integer",
+                                "minimum": 0,
+                                "maximum": 9007199254740991
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
                           "id": {
                             "type": "string"
                           },
@@ -173009,6 +173034,7 @@
                           }
                         },
                         "required": [
+                          "unmatchedCount",
                           "id",
                           "accountCode",
                           "statementDate",
@@ -173083,6 +173109,18 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "unmatchedCount": {
+                      "anyOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 0,
+                          "maximum": 9007199254740991
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -173141,6 +173179,7 @@
                     }
                   },
                   "required": [
+                    "unmatchedCount",
                     "id",
                     "accountCode",
                     "statementDate",
