@@ -6,6 +6,7 @@
 import type { property as P } from "@paltas/contracts";
 import type { OrgScope } from "../../../core/access/org-access.js";
 import type { Db } from "../../../db/database.js";
+import { exportCollections } from "./collections-export.js";
 import { collectionsOverview } from "./collections-overview.js";
 import { rentAnalysis } from "./rent-insights.js";
 import { ACC } from "../accounts.js";
@@ -59,6 +60,7 @@ export function reportsService(d: PmDeps) {
   }
 
   return {
+    exportCollections: (s: OrgScope, q: P.CollectionsExportQuery) => exportCollections(db, s, q),
     collectionsOverview: (s: OrgScope, q: P.CollectionsQuery) => collectionsOverview(db, s, q),
     async dashboard(
       s: OrgScope,

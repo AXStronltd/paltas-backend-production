@@ -3058,6 +3058,30 @@ export const collectionsOverview = endpoint({
   response: CollectionsOverview,
 });
 
+/** Bounded complete export. Pagination controls cannot silently truncate a downloaded report. */
+export const CollectionsExportQuery = z
+  .object(CollectionsQuery.shape)
+  .omit({ limit: true, offset: true, invoiceOffset: true })
+  .extend({ kind: z.enum(["receipts", "invoices"]) })
+  .refine((q) => q.from <= q.to, { message: "Start date must be on or before end date", path: ["to"] });
+export type CollectionsExportQuery = z.infer<typeof CollectionsExportQuery>;
+export const exportCollections = endpoint({
+  id: "property.reports.exportCollections",
+  method: "GET",
+  path: `${Base}/reports/collections-export`,
+  auth: "user",
+  summary: "Complete authorised cashbook or current invoice CSV, maximum 10000 rows",
+  params: OrgParams,
+  query: CollectionsExportQuery,
+  response: z.object({
+    filename: z.string(),
+    content: z.string(),
+    contentType: z.literal("text/csv"),
+    rowCount: z.number().int(),
+    fingerprint: z.string(),
+  }),
+});
+
 export const InvoiceDraftInput = createChargeInvoice.body;
 export type InvoiceDraftInput = z.infer<typeof InvoiceDraftInput>;
 export const InvoiceDraft = z.object({

@@ -913,6 +913,7 @@ export const PROPERTY_API = {
   invoiceDraftAction: property.invoiceDraftAction,
   deleteInvoiceDraft: property.deleteInvoiceDraft,
   collectionsOverview: property.collectionsOverview,
+  exportCollections: property.exportCollections,
   dashboard: property.dashboard,
   agedReceivables: property.agedReceivables,
   rentRoll: property.rentRoll,

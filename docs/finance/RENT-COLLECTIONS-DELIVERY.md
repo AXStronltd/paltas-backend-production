@@ -170,3 +170,16 @@ Six export-hardening tests cover existing isolation/limits, simultaneous request
 Final verification after increments 7–9: **135 suites / 881 backend tests passed**. TypeScript, ESLint, generated browser-client consistency and changed-source formatting passed. Meter lifecycle passed 27 responsive browser checks and reconciliation freshness passed 15 at 1440/768/390 px. These are incremental results, not full enterprise/customer acceptance. No production deployment, customer email, account reset or real payment execution occurred.
 
 The user described the unavailable workbook amounts as “all”; mixed charges, payments and balances must be reviewed as distinct record types. The real workbook has not been supplied in this session and its migration remains unverified. Balances must not be posted again as extra charges or payments.
+
+
+## Increment 10: complete filtered cashbook and invoice-balance CSVs
+
+Added authenticated CSV exports to the existing collections workspace. Each export reads one repeatable-read snapshot and includes all matching records up to 10,000, independently of screen pagination. Oversized or incomplete results are rejected clearly rather than silently truncated. Receipt exports distinguish full receipts (including unallocated credit) from direct asset allocations. Invoice exports label balances as current and retain the selected invoice cohort/filter. Existing overview calculations and permissions are reused; no ledger or schema change is introduced.
+
+Source record IDs, exact minor-unit decimal formatting, currency, dates and scope explanations are retained. Spreadsheet formula prefixes (including leading whitespace/control characters), embedded quotes and line breaks are escaped. An audit entry records actor, filters, row count and SHA-256 content fingerprint before the result is returned. This is an audit fingerprint, not a claim of independently anchored tamper proofing.
+
+Verification: six new tests cover 52 real synthetic receipts beyond one screen page, exact scoped amounts, current invoice balances, source IDs, audit evidence, live grant revocation, foreign organisation/property rejection, date validation, formula escaping and explicit oversized/incomplete export rejection. Full regression passed **137 suites / 887 tests** after the schema-generation and test-name normalisation issues were corrected. TypeScript, ESLint, generated client/source checks and production build passed. Collections passed 24 responsive browser checks including actual CSV downloads; mobile visual review passed.
+
+All eight browser journeys were rerun on this generated frontend: collections 24, saved drafts 15, disputes 18, repayment plans 24, reminders 18, partial deposits 21, meters 27 and reconciliation 15 — **162 checks passed**. The first saved-draft attempt timed out loading sign-in; the unchanged test passed on rerun at all three widths. This is recorded as a failed attempt followed by a passing rerun, not omitted.
+
+Limits remain: these are bounded synchronous CSV exports, not Excel/PDF generation, scheduled reporting or enterprise-volume export jobs. Full enterprise acceptance is still open. No production deployment was performed.
