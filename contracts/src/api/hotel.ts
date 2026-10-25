@@ -4798,6 +4798,7 @@ export const reportHousekeeping = endpoint({
 });
 
 export const MaintenancePlan = z.object({
+  version: z.number().int().positive(),
   id: z.string(),
   title: z.string(),
   assetLabel: z.string(),
@@ -4830,7 +4831,8 @@ export const createMaintenancePlan = endpoint({
     assetLabel: z.string().trim().min(2).max(80),
     roomId: Id.optional(),
     everyDays: z.number().int().min(1).max(3650),
-    firstDue: IsoDate,
+    firstDue: IsoDate.refine((d) => d >= "0001-01-01", "Choose a year from 0001 onward"),
+    active: z.boolean().default(true),
   }),
   response: MaintenancePlan,
   status: 201,
@@ -4891,3 +4893,60 @@ export type RateSuggestionOut = z.infer<typeof RateSuggestion>;
 export type RfpOut = z.infer<typeof Rfp>;
 export type MaintenancePlanOut = z.infer<typeof MaintenancePlan>;
 export type IntegrationStateOut = z.infer<typeof IntegrationState>;
+
+export const updateMaintenancePlan = endpoint({
+  id: "hotel.maintenance.updatePlan",
+  method: "POST",
+  path: `${P}/maintenance/plans/:planId`,
+  auth: "user",
+  summary: "Edit or pause a preventive plan; existing maintenance tickets and costs are retained",
+  params: PropParams.extend({ planId: Id }),
+  body: z.object({
+    expectedVersion: z.number().int().positive(),
+    title: z.string().trim().min(3).max(200),
+    assetLabel: z.string().trim().min(2).max(80),
+    roomId: Id.nullable(),
+    everyDays: z.number().int().min(1).max(3650),
+    nextDue: IsoDate.refine((d) => d >= "0001-01-01", "Choose a year from 0001 onward"),
+    active: z.boolean(),
+    reason: z.string().trim().min(5).max(1000),
+  }),
+  response: MaintenancePlan,
+});
+export const maintenancePlanHistory = endpoint({
+  id: "hotel.maintenance.planHistory",
+  method: "GET",
+  path: `${P}/maintenance/plans/:planId/history`,
+  auth: "user",
+  summary: "Immutable plan change history within the assigned hotel",
+  params: PropParams.extend({ planId: Id }),
+  query: z.object({
+    offset: z.coerce.number().int().min(0).max(1000000).default(0),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+  }),
+  response: z.object({
+    entries: z.array(
+      z.object({
+        id: z.string(),
+        at: z.string(),
+        action: z.string(),
+        detail: z.string(),
+        actorRole: z.string().nullable(),
+        before: z.unknown(),
+        after: z.unknown(),
+      }),
+    ),
+    total: z.number().int(),
+    limit: z.number().int(),
+    offset: z.number().int(),
+  }),
+});
+export const getMaintenancePlan = endpoint({
+  id: "hotel.maintenance.getPlan",
+  method: "GET",
+  path: `${P}/maintenance/plans/:planId`,
+  auth: "user",
+  summary: "Reopen the current preventive schedule without loading all plans",
+  params: PropParams.extend({ planId: Id }),
+  response: MaintenancePlan,
+});

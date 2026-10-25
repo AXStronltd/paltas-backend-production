@@ -530,6 +530,9 @@ export const HOTEL_API = {
   reportHousekeeping: hotel.reportHousekeeping,
   listMaintenancePlans: hotel.listMaintenancePlans,
   createMaintenancePlan: hotel.createMaintenancePlan,
+  updateMaintenancePlan: hotel.updateMaintenancePlan,
+  maintenancePlanHistory: hotel.maintenancePlanHistory,
+  getMaintenancePlan: hotel.getMaintenancePlan,
 } as const;
 
 export const SECURITY_API = {

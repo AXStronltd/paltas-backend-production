@@ -21,6 +21,17 @@ export function guestsRoutes(
     ),
     route(hotel.runAutomation, async (req) => A.run(await g.hotel(req, "hotel.frontdesk", WRITE))),
     route(hotel.listMaintenancePlans, async (req) => A.listPlans(await g.hotel(req, "hotel.read"))),
+    route(hotel.getMaintenancePlan, async (req) => A.getPlan(await g.hotel(req, "hotel.read"), req.params.planId)),
+    route(hotel.maintenancePlanHistory, async (req) =>
+      A.planHistory(await g.hotel(req, "hotel.maintenance"), req.params.planId, req.query),
+    ),
+    route(hotel.updateMaintenancePlan, async (req) =>
+      A.updatePlan(
+        await g.hotel(req, "hotel.maintenance", { write: true, module: "maint" }),
+        req.params.planId,
+        req.body,
+      ),
+    ),
     route(hotel.createMaintenancePlan, async (req) =>
       A.createPlan(await g.hotel(req, "hotel.maintenance", { write: true, module: "maint" }), req.body),
     ),

@@ -14,7 +14,7 @@ import { fail } from "../../../http/errors.js";
 import { newId } from "../../../lib/ids.js";
 import type { HotelDeps, HotelOp } from "../deps.js";
 import type { HotelScope } from "../shared/access.js";
-import { addDays } from "../shared/dates.js";
+import { addDays, daysBetween } from "../shared/dates.js";
 import { messageGuest } from "../shared/outbox.js";
 import { findProperty, fromBp, toBp, type PropertyRow } from "../shared/property.js";
 
@@ -32,6 +32,7 @@ export const toSettings = (p: PropertyRow): hotel.ExtensionSettings => ({
 });
 
 interface PlanRow {
+  version: number;
   id: string;
   title: string;
   asset_label: string;
@@ -42,6 +43,7 @@ interface PlanRow {
 }
 
 const toPlan = (p: PlanRow): hotel.MaintenancePlanOut => ({
+  version: p.version,
   id: p.id,
   title: p.title,
   assetLabel: p.asset_label,
@@ -90,9 +92,23 @@ export function automationService(d: HotelDeps) {
         ],
       );
       tickets += made;
-      let next = p.next_due;
-      while (next <= bd) next = addDays(next, p.every_days);
-      await t.run("UPDATE hotel_maintenance_plans SET next_due = $2 WHERE id = $1", [p.id, next]);
+      // Skip missed intervals arithmetically; one overdue ticket is retained, never an unbounded catch-up loop.
+      const intervals = Math.floor(daysBetween(p.next_due, bd) / p.every_days) + 1;
+      const next = addDays(p.next_due, intervals * p.every_days);
+      const advanced = await t.row<PlanRow>("UPDATE hotel_maintenance_plans SET next_due=$2 WHERE id=$1 RETURNING *", [
+        p.id,
+        next,
+      ]);
+      if (advanced)
+        await recordAudit(t, {
+          orgId: op.orgId,
+          actor: op.actor,
+          action: "Preventive maintenance plan advanced",
+          target: p.id,
+          detail: `Service due ${p.next_due}: ${made ? "maintenance ticket created" : "existing ticket retained"}. Next due ${next}.`,
+          before: toPlan(p),
+          after: toPlan(advanced),
+        });
     }
     return { preArrival, preventiveTickets: tickets };
   }
@@ -169,6 +185,85 @@ export function automationService(d: HotelDeps) {
       return { plans: rows.map(toPlan) };
     },
 
+    async getPlan(s: HotelScope, id: string) {
+      const p = await db.row<PlanRow>(
+        "SELECT * FROM hotel_maintenance_plans WHERE org_id=$1 AND property_id=$2 AND id=$3",
+        [s.orgId, s.property.id, id],
+      );
+      if (!p) throw fail.notFound("Preventive maintenance plan not found");
+      return toPlan(p);
+    },
+    async planHistory(s: HotelScope, id: string, q: { limit: number; offset: number }) {
+      return db.tx(async (t) => {
+        await t.run("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        if (
+          !(await t.row("SELECT 1 FROM hotel_maintenance_plans WHERE org_id=$1 AND property_id=$2 AND id=$3", [
+            s.orgId,
+            s.property.id,
+            id,
+          ]))
+        )
+          throw fail.notFound("Preventive plan not found");
+        const where = "org_id=$1 AND target=$2 AND action LIKE 'Preventive maintenance plan %'";
+        const args = [s.orgId, id];
+        const n = await t.row<{ n: number }>(`SELECT count(*)::int AS n FROM audit_log WHERE ${where}`, args);
+        const entries = await t.rows<{
+          id: string;
+          at: string;
+          action: string;
+          detail: string;
+          actorRole: string | null;
+          before: unknown;
+          after: unknown;
+        }>(
+          `SELECT id::text,at,action,detail,actor_role AS "actorRole",before,after FROM audit_log WHERE ${where} ORDER BY id DESC LIMIT $3 OFFSET $4`,
+          [...args, q.limit, q.offset],
+        );
+        return { entries, total: n?.n ?? 0, limit: q.limit, offset: q.offset };
+      });
+    },
+    async updatePlan(s: HotelScope, id: string, b: z.output<typeof hotel.updateMaintenancePlan.body>) {
+      return db.tx(async (t) => {
+        const before = await t.row<PlanRow>(
+          "SELECT * FROM hotel_maintenance_plans WHERE org_id=$1 AND property_id=$2 AND id=$3 FOR UPDATE",
+          [s.orgId, s.property.id, id],
+        );
+        if (!before) throw fail.notFound("Preventive maintenance plan not found");
+        if (before.version !== b.expectedVersion)
+          throw fail.conflict(
+            "This plan changed or the scheduler advanced its next due date. Reopen it before saving.",
+          );
+        if (
+          b.roomId &&
+          !(await t.row("SELECT 1 FROM hotel_rooms WHERE org_id=$1 AND property_id=$2 AND id=$3", [
+            s.orgId,
+            s.property.id,
+            b.roomId,
+          ]))
+        )
+          throw fail.notFound("Room not found in this hotel");
+        const after = await t.row<PlanRow>(
+          "UPDATE hotel_maintenance_plans SET title=$4,asset_label=$5,room_id=$6,every_days=$7,next_due=$8,active=$9 WHERE org_id=$1 AND property_id=$2 AND id=$3 RETURNING *",
+          [s.orgId, s.property.id, id, b.title, b.assetLabel, b.roomId, b.everyDays, b.nextDue, b.active],
+        );
+        if (!after) throw fail.notFound("Preventive maintenance plan not found");
+        await recordAudit(t, {
+          orgId: s.orgId,
+          actor: s.actor,
+          action:
+            before.active === after.active
+              ? "Preventive maintenance plan updated"
+              : after.active
+                ? "Preventive maintenance plan resumed"
+                : "Preventive maintenance plan paused",
+          target: id,
+          detail: b.reason,
+          before: toPlan(before),
+          after: toPlan(after),
+        });
+        return toPlan(after);
+      });
+    },
     async createPlan(s: HotelScope, b: z.output<typeof hotel.createMaintenancePlan.body>) {
       const id = newId("hmp");
       await db.tx(async (t) => {
@@ -178,9 +273,20 @@ export function automationService(d: HotelDeps) {
         )
           throw fail.notFound("Room not found");
         await t.run(
-          `INSERT INTO hotel_maintenance_plans (id, org_id, property_id, title, asset_label, room_id, every_days, next_due, created_by)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-          [id, s.orgId, s.property.id, b.title, b.assetLabel, b.roomId ?? null, b.everyDays, b.firstDue, s.userId],
+          `INSERT INTO hotel_maintenance_plans (id, org_id, property_id, title, asset_label, room_id, every_days, next_due, created_by,active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+          [
+            id,
+            s.orgId,
+            s.property.id,
+            b.title,
+            b.assetLabel,
+            b.roomId ?? null,
+            b.everyDays,
+            b.firstDue,
+            s.userId,
+            b.active,
+          ],
         );
         await recordAudit(t, {
           actor: s.actor,
