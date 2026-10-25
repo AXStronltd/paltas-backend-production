@@ -1,3 +1,5 @@
+import { preventiveService, PREVENTIVE_JOB } from "./maintenance/preventive.service.js";
+import { preventiveRoutes } from "./maintenance/preventive.routes.js";
 import { complaintRoutes } from "./people/complaints.routes.js";
 import { complaintsService } from "./people/complaints.service.js";
 import { utilityMetersService } from "./utilities/utility-meters.service.js";
@@ -123,6 +125,7 @@ export const property: ProductModule = {
       ...ownersRoutes(access, owners),
       ...billsRoutes(access, bills),
       ...maintenanceRoutes(access, maintenance),
+      ...preventiveRoutes(access, preventiveService(d, maintenance)),
       ...crmRoutes(access, crmService(d, { leases })),
       ...commsRoutes(access, commsService(d)),
       ...bankRoutes(access, bankService(d, { payments })),
@@ -131,7 +134,9 @@ export const property: ProductModule = {
     ];
   },
   scheduledJobs(ctx, core) {
-    const billing = billingService({ ctx, core, access: pmAccess(core) });
+    const pd = { ctx, core, access: pmAccess(core) };
+    const preventive = preventiveService(pd, maintenanceService(pd));
+    const billing = billingService(pd);
     const reminders = collectionRemindersService({ ctx, core, access: pmAccess(core) });
     const SYSTEM = { userId: null, role: "system:scheduler" };
     /** The property, when its subscription can still bill (active, with the finance module) — else why not. */
@@ -147,6 +152,15 @@ export const property: ProductModule = {
       return p ?? "The property no longer exists — nothing done";
     }
     return [
+      {
+        key: PREVENTIVE_JOB,
+        label: "Preventive property servicing",
+        scope: "org",
+        async run(job) {
+          if (!job.orgId || !job.targetId) return { summary: "No property selected" };
+          return preventive.automatic(job.orgId, job.targetId, job.localDate);
+        },
+      },
       {
         key: COLLECTION_REMINDERS_JOB,
         label: "Collection reminders",

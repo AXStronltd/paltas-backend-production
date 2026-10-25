@@ -76,6 +76,7 @@ describe("migrations", () => {
         "0049_property_request_versions",
         "0050_hotel_maintenance_plan_versions",
         "0051_property_work_order_versions",
+        "0052_property_preventive_plans",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything

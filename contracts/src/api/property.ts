@@ -3926,3 +3926,87 @@ export const workOrderHistory = endpoint({
   query: maintenanceRequestHistory.query,
   response: maintenanceRequestHistory.response,
 });
+
+export const PreventivePlanInput = z.object({
+  title: z.string().trim().min(3).max(200),
+  assetLabel: z.string().trim().max(160).default(""),
+  priority: Priority.default("normal"),
+  everyDays: z.number().int().min(1).max(3650),
+  nextDue: IsoDate.refine((d) => !d.startsWith("0000"), "Choose a year from 0001 onwards"),
+  active: z.boolean().default(true),
+});
+export const PreventivePlan = PreventivePlanInput.extend({
+  id: Id,
+  propertyId: Id,
+  unitId: Id.nullable(),
+  version: z.number().int().positive(),
+});
+export type PreventivePlan = z.infer<typeof PreventivePlan>;
+const PreventiveParams = OrgParams.extend({ preventivePlanId: Id });
+export const listPreventivePlans = endpoint({
+  id: "property.maintenance.plans.list",
+  method: "GET",
+  path: `${Base}/maintenance-plans`,
+  auth: "user",
+  summary: "Scoped preventive servicing schedules",
+  params: OrgParams,
+  query: z.object({
+    propertyId: Id,
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  }),
+  response: z.object({
+    plans: z.array(PreventivePlan),
+    total: z.number().int(),
+    limit: z.number().int(),
+    offset: z.number().int(),
+  }),
+});
+export const getPreventivePlan = endpoint({
+  id: "property.maintenance.plans.get",
+  method: "GET",
+  path: `${Base}/maintenance-plans/:preventivePlanId`,
+  auth: "user",
+  summary: "Current preventive plan",
+  params: PreventiveParams,
+  response: PreventivePlan,
+});
+export const createPreventivePlan = endpoint({
+  id: "property.maintenance.plans.create",
+  method: "POST",
+  path: `${Base}/maintenance-plans`,
+  auth: "user",
+  summary: "Create servicing schedule without posting charges or approving work",
+  params: OrgParams,
+  body: PreventivePlanInput.extend({ propertyId: Id, unitId: Id.optional() }),
+  response: PreventivePlan,
+  status: 201,
+});
+export const updatePreventivePlan = endpoint({
+  id: "property.maintenance.plans.update",
+  method: "PUT",
+  path: `${Base}/maintenance-plans/:preventivePlanId`,
+  auth: "user",
+  summary: "Edit, pause or resume schedule with reason",
+  params: PreventiveParams,
+  body: PreventivePlanInput.extend({
+    expectedVersion: z.number().int().positive(),
+    reason: z.string().trim().min(5).max(1000),
+  }),
+  response: PreventivePlan,
+});
+export const preventivePlanHistory = endpoint({
+  id: "property.maintenance.plans.history",
+  method: "GET",
+  path: `${Base}/maintenance-plans/:preventivePlanId/history`,
+  auth: "user",
+  summary: "Servicing work orders and immutable plan events",
+  params: PreventiveParams,
+  query: maintenanceRequestHistory.query,
+  response: z.object({
+    occurrences: z.array(
+      z.object({ dueDate: IsoDate, workOrderId: Id, number: z.string(), status: z.enum(WORK_ORDER_STATUSES) }),
+    ),
+    events: maintenanceRequestHistory.response,
+  }),
+});

@@ -65,6 +65,7 @@ const TABLES: Record<string, string> = {
   ownershipId: "SELECT property_id FROM pm_ownerships WHERE org_id=$1 AND id=$2",
   refundId:
     "SELECT l.property_id FROM pm_deposit_refunds r JOIN pm_leases l ON l.id=r.lease_id AND l.org_id=r.org_id WHERE r.org_id=$1 AND r.id=$2",
+  preventivePlanId: "SELECT property_id FROM pm_preventive_plans WHERE org_id=$1 AND id=$2",
   workOrderId: "SELECT property_id FROM pm_work_orders WHERE org_id=$1 AND id=$2",
   requestId: "SELECT property_id FROM pm_maintenance_requests WHERE org_id=$1 AND id=$2",
   billId: "SELECT property_id FROM pm_bills WHERE org_id=$1 AND id=$2",

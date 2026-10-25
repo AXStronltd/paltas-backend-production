@@ -758,6 +758,11 @@ export const CONTACTS_API = {
 } as const;
 
 export const PROPERTY_API = {
+  listPreventivePlans: property.listPreventivePlans,
+  getPreventivePlan: property.getPreventivePlan,
+  createPreventivePlan: property.createPreventivePlan,
+  updatePreventivePlan: property.updatePreventivePlan,
+  preventivePlanHistory: property.preventivePlanHistory,
   getWorkOrder: property.getWorkOrder,
   updateWorkOrder: property.updateWorkOrder,
   workOrderHistory: property.workOrderHistory,

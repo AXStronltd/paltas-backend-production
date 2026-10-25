@@ -291,7 +291,74 @@ export function maintenanceService(d: PmDeps) {
     };
   }
 
+  async function openWorkOrder(
+    t: Db,
+    s: Pick<OrgScope, "orgId" | "userId" | "actor" | "today">,
+    b: {
+      propertyId: string;
+      unitId?: string | undefined;
+      requestId?: string | undefined;
+      scope: string;
+      priority: P.WorkOrder["priority"];
+    },
+  ): Promise<string> {
+    const sla = (await settingsOf(t, s.orgId)).slaDays;
+    let propertyId = b.propertyId;
+    let unitId = b.unitId ?? null;
+    if (b.requestId) {
+      const r = await requestRow(t, s.orgId, b.requestId, true);
+      if (b.propertyId !== r.property_id || (b.unitId && r.unit_id && b.unitId !== r.unit_id))
+        throw fail.invalid("Use the property and unit linked to this maintenance request");
+      if (r.status === "closed" || r.status === "resolved") throw fail.conflict("That request is already resolved");
+      const existing = await t.row<WorkOrderRow>(
+        "SELECT * FROM pm_work_orders WHERE org_id=$1 AND request_id=$2 AND status NOT IN ('verified','billed','cancelled') ORDER BY created_at,id LIMIT 1",
+        [s.orgId, r.id],
+      );
+      if (existing) {
+        if (existing.scope !== b.scope || existing.priority !== b.priority)
+          throw fail.conflict(
+            "This request already has an active work order. Open that order before changing the scope or priority.",
+          );
+        return existing.id;
+      }
+      propertyId = r.property_id;
+      unitId = unitId ?? r.unit_id;
+      await t.run("UPDATE pm_maintenance_requests SET status = 'assigned' WHERE id = $1", [r.id]);
+    }
+    await R.propertyRow(t, s.orgId, propertyId);
+    if (unitId && (await R.unitRow(t, s.orgId, unitId)).property_id !== propertyId)
+      throw fail.invalid("That unit is not in this property");
+    const id = newId("pwo");
+    const number = await nextNumber(t, numberScope(s.orgId), "WO", 5);
+    await t.run(
+      `INSERT INTO pm_work_orders (id, org_id, number, property_id, unit_id, request_id, scope, priority, status, due_date,
+             created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'requesting_quotes', $9, $10)`,
+      [
+        id,
+        s.orgId,
+        number,
+        propertyId,
+        unitId,
+        b.requestId ?? null,
+        b.scope,
+        b.priority,
+        addDays(s.today, sla[b.priority]),
+        s.userId,
+      ],
+    );
+    await recordAudit(t, {
+      actor: s.actor,
+      orgId: s.orgId,
+      action: "Work order opened",
+      target: number,
+      detail: b.scope,
+    });
+    return id;
+  }
+
   return {
+    openWorkOrder,
     async getWorkOrder(s: OrgScope, id: string) {
       return woView(s.orgId, id, s.today);
     },
@@ -541,61 +608,7 @@ export function maintenanceService(d: PmDeps) {
         priority: P.WorkOrder["priority"];
       },
     ) {
-      const sla = (await settingsOf(db, s.orgId)).slaDays;
-      const id = await db.tx(async (t) => {
-        let propertyId = b.propertyId;
-        let unitId = b.unitId ?? null;
-        if (b.requestId) {
-          const r = await requestRow(t, s.orgId, b.requestId, true);
-          if (b.propertyId !== r.property_id || (b.unitId && r.unit_id && b.unitId !== r.unit_id))
-            throw fail.invalid("Use the property and unit linked to this maintenance request");
-          if (r.status === "closed" || r.status === "resolved") throw fail.conflict("That request is already resolved");
-          const existing = await t.row<WorkOrderRow>(
-            "SELECT * FROM pm_work_orders WHERE org_id=$1 AND request_id=$2 AND status NOT IN ('verified','billed','cancelled') ORDER BY created_at,id LIMIT 1",
-            [s.orgId, r.id],
-          );
-          if (existing) {
-            if (existing.scope !== b.scope || existing.priority !== b.priority)
-              throw fail.conflict(
-                "This request already has an active work order. Open that order before changing the scope or priority.",
-              );
-            return existing.id;
-          }
-          propertyId = r.property_id;
-          unitId = unitId ?? r.unit_id;
-          await t.run("UPDATE pm_maintenance_requests SET status = 'assigned' WHERE id = $1", [r.id]);
-        }
-        await R.propertyRow(t, s.orgId, propertyId);
-        if (unitId && (await R.unitRow(t, s.orgId, unitId)).property_id !== propertyId)
-          throw fail.invalid("That unit is not in this property");
-        const id = newId("pwo");
-        const number = await nextNumber(t, numberScope(s.orgId), "WO", 5);
-        await t.run(
-          `INSERT INTO pm_work_orders (id, org_id, number, property_id, unit_id, request_id, scope, priority, status, due_date,
-             created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'requesting_quotes', $9, $10)`,
-          [
-            id,
-            s.orgId,
-            number,
-            propertyId,
-            unitId,
-            b.requestId ?? null,
-            b.scope,
-            b.priority,
-            addDays(s.today, sla[b.priority]),
-            s.userId,
-          ],
-        );
-        await recordAudit(t, {
-          actor: s.actor,
-          orgId: s.orgId,
-          action: "Work order opened",
-          target: number,
-          detail: b.scope,
-        });
-        return id;
-      });
+      const id = await db.tx((t) => openWorkOrder(t, s, b));
       return woView(s.orgId, id, s.today);
     },
 
