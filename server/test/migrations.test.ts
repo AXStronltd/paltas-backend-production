@@ -69,6 +69,7 @@ describe("migrations", () => {
         "0041_property_billing_disputes",
         "0042_property_collection_plans",
         "0043_property_collection_reminders",
+        "0044_property_partial_deposit_settlements",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything

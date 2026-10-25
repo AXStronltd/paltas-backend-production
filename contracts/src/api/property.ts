@@ -380,6 +380,8 @@ export const PaymentClaim = z.object({
 export type PaymentClaim = z.infer<typeof PaymentClaim>;
 
 export const DepositRefund = z.object({
+  availableHeldMinor: PositiveMinorUnits,
+  retainedMinor: NonNegativeMinor,
   id: z.string(),
   number: z.string(),
   leaseId: z.string(),
@@ -1801,6 +1803,7 @@ export const requestDepositRefund = endpoint({
     "Settle the deposit of an ended lease: apply it to unpaid invoices (optional), keep deductions for the owner with reasons, refund the rest. Someone else approves.",
   params: LeaseParams,
   body: z.object({
+    settlementMinor: PositiveMinorUnits.optional(),
     applyToArrears: z.boolean().default(true),
     deductions: z
       .array(z.object({ amountMinor: PositiveMinorUnits, reason: z.string().trim().min(3).max(200) }))

@@ -40,6 +40,7 @@ interface ClaimRow {
 }
 
 interface RefundRow {
+  available_held_minor: number | null;
   id: string;
   number: string;
   lease_id: string;
@@ -72,6 +73,8 @@ export const toClaim = (r: ClaimRow): P.PaymentClaim => ({
 });
 
 const toRefund = (r: RefundRow): P.DepositRefund => ({
+  availableHeldMinor: r.available_held_minor ?? r.held_minor,
+  retainedMinor: (r.available_held_minor ?? r.held_minor) - r.held_minor,
   id: r.id,
   number: r.number,
   leaseId: r.lease_id,
@@ -619,14 +622,30 @@ export function paymentsService(d: PmDeps) {
     async requestRefund(
       s: OrgScope,
       leaseId: string,
-      b: { applyToArrears: boolean; deductions: { amountMinor: number; reason: string }[]; refundReference: string },
+      b: {
+        settlementMinor?: number;
+        applyToArrears: boolean;
+        deductions: { amountMinor: number; reason: string }[];
+        refundReference: string;
+      },
     ) {
       const id = await financeTransaction(db, s.orgId, async (t) => {
         const l = await R.leaseRow(t, s.orgId, leaseId, true);
         if (l.status !== "ended")
           throw fail.conflict("Settle the deposit once the lease has ended (move-out recorded)");
-        const held = (await R.depositsHeld(t, s.orgId, [leaseId])).get(leaseId) ?? 0;
-        if (held <= 0) throw fail.conflict("No deposit is held for this lease");
+        const availableHeld = (await R.depositsHeld(t, s.orgId, [leaseId])).get(leaseId) ?? 0;
+        if (availableHeld <= 0) throw fail.conflict("No deposit is held for this lease");
+        if (
+          await t.row("SELECT id FROM pm_deposit_refunds WHERE org_id=$1 AND lease_id=$2 AND status='requested'", [
+            s.orgId,
+            leaseId,
+          ])
+        )
+          throw fail.conflict(
+            "A deposit settlement is already awaiting review. Approve or reject it before requesting another.",
+          );
+        const held = b.settlementMinor ?? availableHeld;
+        if (held > availableHeld) throw fail.invalid("The requested settlement exceeds the deposit currently held");
         const open = b.applyToArrears
           ? await openInvoicesForUpdate(t, s.orgId, l.tenant_id, DEPOSIT_TARGETS, [leaseId])
           : [];
@@ -646,8 +665,8 @@ export function paymentsService(d: PmDeps) {
         const number = await nextNumber(t, numberScope(s.orgId), "DR", 5);
         await t.run(
           `INSERT INTO pm_deposit_refunds (id, org_id, number, lease_id, tenant_id, held_minor, arrears_minor, deductions_minor,
-             deductions, refund_minor, refund_reference, status, requested_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'requested', $12)`,
+             deductions, refund_minor, refund_reference, status, requested_by,available_held_minor)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'requested', $12,$13)`,
           [
             id,
             s.orgId,
@@ -661,6 +680,7 @@ export function paymentsService(d: PmDeps) {
             refund,
             b.refundReference,
             s.userId,
+            availableHeld,
           ],
         );
         await recordAudit(t, {
@@ -668,7 +688,7 @@ export function paymentsService(d: PmDeps) {
           orgId: s.orgId,
           action: "Deposit settlement requested",
           target: number,
-          detail: `${l.number} · held ${held} · arrears ${arrears} · deductions ${deductions} · refund ${refund}`,
+          detail: `${l.number} · available ${availableHeld} · release ${held} · retained ${availableHeld - held} · arrears ${arrears} · deductions ${deductions} · refund ${refund}`,
         });
         return id;
       });
@@ -692,9 +712,9 @@ export function paymentsService(d: PmDeps) {
           throw fail.separationOfDuties("You requested this deposit settlement — someone else must approve it");
         const l = await R.leaseRow(t, s.orgId, r.lease_id, true);
         const held = (await R.depositsHeld(t, s.orgId, [l.id])).get(l.id) ?? 0;
-        if (held !== r.held_minor)
+        if (held !== (r.available_held_minor ?? r.held_minor))
           throw fail.conflict(
-            `The deposit held changed (${formatMoney(r.held_minor, s.entitlement.org.currency)} → ${formatMoney(held, s.entitlement.org.currency)}) — reject this and request again`,
+            `The deposit held changed (${formatMoney(r.available_held_minor ?? r.held_minor, s.entitlement.org.currency)} → ${formatMoney(held, s.entitlement.org.currency)}) — reject this and request again`,
           );
         const open = r.arrears_minor
           ? await openInvoicesForUpdate(t, s.orgId, l.tenant_id, DEPOSIT_TARGETS, [l.id])

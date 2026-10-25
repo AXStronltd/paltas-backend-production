@@ -152931,6 +152931,16 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "availableHeldMinor": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "retainedMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
                           "id": {
                             "type": "string"
                           },
@@ -153018,6 +153028,8 @@
                           }
                         },
                         "required": [
+                          "availableHeldMinor",
+                          "retainedMinor",
                           "id",
                           "number",
                           "leaseId",
@@ -161755,6 +161767,11 @@
                 "$schema": "https://json-schema.org/draft/2020-12/schema",
                 "type": "object",
                 "properties": {
+                  "settlementMinor": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
                   "applyToArrears": {
                     "default": true,
                     "type": "boolean"
@@ -161802,6 +161819,16 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "availableHeldMinor": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "retainedMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -161889,6 +161916,8 @@
                     }
                   },
                   "required": [
+                    "availableHeldMinor",
+                    "retainedMinor",
                     "id",
                     "number",
                     "leaseId",
@@ -161970,6 +161999,16 @@
                       "items": {
                         "type": "object",
                         "properties": {
+                          "availableHeldMinor": {
+                            "type": "integer",
+                            "exclusiveMinimum": 0,
+                            "maximum": 9007199254740991
+                          },
+                          "retainedMinor": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
+                          },
                           "id": {
                             "type": "string"
                           },
@@ -162057,6 +162096,8 @@
                           }
                         },
                         "required": [
+                          "availableHeldMinor",
+                          "retainedMinor",
                           "id",
                           "number",
                           "leaseId",
@@ -162134,6 +162175,16 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "availableHeldMinor": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "retainedMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -162221,6 +162272,8 @@
                     }
                   },
                   "required": [
+                    "availableHeldMinor",
+                    "retainedMinor",
                     "id",
                     "number",
                     "leaseId",
@@ -162312,6 +162365,16 @@
                   "$schema": "https://json-schema.org/draft/2020-12/schema",
                   "type": "object",
                   "properties": {
+                    "availableHeldMinor": {
+                      "type": "integer",
+                      "exclusiveMinimum": 0,
+                      "maximum": 9007199254740991
+                    },
+                    "retainedMinor": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 9007199254740991
+                    },
                     "id": {
                       "type": "string"
                     },
@@ -162399,6 +162462,8 @@
                     }
                   },
                   "required": [
+                    "availableHeldMinor",
+                    "retainedMinor",
                     "id",
                     "number",
                     "leaseId",

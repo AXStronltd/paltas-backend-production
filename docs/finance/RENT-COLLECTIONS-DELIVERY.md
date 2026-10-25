@@ -112,3 +112,18 @@ The responsive reminder journey passed 18 browser checks at 1440/768/390 px: sav
 Remaining scope: SMS/WhatsApp configuration-specific journeys, repayment-date reminder policies, communication preference UI coverage, escalation/legal policy adapters, enterprise throughput and failure-recovery acceptance still need verification. Broad enterprise readiness is not implied by this supported email-reminder journey.
 
 Final increment-5 verification: **132 suites / 867 backend tests passed** after all reminder guards and concurrent confirmation tests. TypeScript, lint, generated frontend comparison, production build and 18 responsive reminder browser checks passed. This is not acceptance of the remaining enterprise requirements. No production release was performed.
+
+
+## Increment 6: partial deposit settlements and residual liability
+
+Extended the existing settlement request with an optional `settlementMinor`. Omitting it preserves the existing full-balance workflow. The requested release can include authorised arrears, deductions and a refund; the unreleased amount remains held as a deposit liability. A request snapshots the available balance and approval rechecks it. The original deposit, owner allocation and client-bank posting services are reused; no alternative ledger is introduced.
+
+`0044_property_partial_deposit_settlements.sql` adds an optional balance snapshot and replaces the single-lifetime-settlement index with a one-pending-request index. Existing approved records, journal entries and customer data are not changed. A later request can release the remaining deposit after prior approval. Concurrent pending requests are rejected with an actionable conflict rather than a database error. The same requester cannot approve; existing finance-role restrictions remain enforced.
+
+The manager form shows the current held balance and permits a chosen release amount. Independent approval shows the available, released, retained, deducted and refunded amounts. Settlement history labels retained amounts as historical values after that settlement, not today's current liability. Today's remaining balance still comes from the existing lease/tenant ledger calculations. Older records without snapshots continue returning their original full-release semantics.
+
+This extends manual recorded settlement only. It does not execute a bank/M-Pesa refund, label an unverified transfer completed, implement automated provider refund retries or change existing bank-posting semantics. Provider execution and reconciliation acceptance remain outstanding. Historical leases continue avoiding automatic deposit/rent creation.
+
+Increment-6 focused verification: 31 backend tests passed across partial deposits, the complete existing accounting acceptance journey, receipt reversals and migration/upgrade checks. Twenty-one browser checks passed at 1440/768/390 px: finance request → independent approval → retained liability → return for another release. Tests initially used the organisation administrator for an action reserved to finance; fixtures were corrected to use the existing finance roles. The browser fixture also respected the historical no-automatic-deposit rule by using a pinned local business date. A reload assertion was made to wait for the actual async screen before checking its action. These fixture corrections do not change production permissions or historical billing behaviour.
+
+Final increment-6 backend regression: **133 suites / 871 tests passed** on the final built schema and services. TypeScript, ESLint, focused formatting checks, generated API-client consistency, frontend generated-source verification and production build passed. Production remains unreleased while the full-programme acceptance gate is open.

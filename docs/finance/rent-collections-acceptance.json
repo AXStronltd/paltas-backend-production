@@ -1286,8 +1286,12 @@
         {
           "id": "deposits.10",
           "requirement": "Partial refunds",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.partial-deposit-settlements.test.ts",
+            "frontend/tests/property.partial-deposit-settlements.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 6 and execution limitations"
+          ]
         },
         {
           "id": "deposits.11",
