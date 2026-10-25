@@ -229,34 +229,35 @@ export function billingService(d: PmDeps) {
       if (b.period > addMonths(s.today, 1).slice(0, 7)) throw fail.invalid("Bill at most one month ahead of today");
       const first = `${b.period}-01`;
       const last = lastDay(b.period);
-      const leases = await R.leaseRows(
-        db,
-        s.orgId,
-        "l.property_id = $2 AND l.status = 'active' AND l.start_date <= $3 AND (l.end_date IS NULL OR l.end_date >= $4)",
-        [b.propertyId, last, first],
-      );
       const skipped: { leaseId: string; reason: string }[] = [];
-      // charges: a metered charge on a let unit needs its reading first (nobody is billed without a reading)
-      if (b.kind === "charges") {
-        const missing = await db.rows<{ unit_no: string; code: string }>(
-          `SELECT u.unit_no, ct.code FROM pm_leases l JOIN pm_lease_charges lc ON lc.lease_id = l.id
+      const runId = newId("prn");
+      const created = await financeTransaction(db, s.orgId, async (t) => {
+        // Lease status, billing terms and required readings must be checked after acquiring the financial lock.
+        const leases = await R.leaseRows(
+          t,
+          s.orgId,
+          "l.property_id = $2 AND l.status = 'active' AND l.start_date <= $3 AND (l.end_date IS NULL OR l.end_date >= $4)",
+          [b.propertyId, last, first],
+        );
+        // charges: a metered charge on a let unit needs its reading first (nobody is billed without a reading)
+        if (b.kind === "charges") {
+          const missing = await t.rows<{ unit_no: string; code: string }>(
+            `SELECT u.unit_no, ct.code FROM pm_leases l JOIN pm_lease_charges lc ON lc.lease_id = l.id
            JOIN pm_charge_types ct ON ct.id = lc.charge_type_id AND ct.metered JOIN pm_units u ON u.id = l.unit_id
            WHERE l.id = ANY($1) AND NOT EXISTS (SELECT 1 FROM pm_meter_readings m
              WHERE m.unit_id = l.unit_id AND m.charge_type_id = ct.id AND m.period = $2)
            ORDER BY u.unit_no, ct.code`,
-          [leases.map((l) => l.id), b.period],
-        );
-        if (missing.length)
-          throw fail.conflict(
-            `${missing.length} meter reading(s) missing for ${b.period} (e.g. ${missing
-              .slice(0, 3)
-              .map((m) => `${m.unit_no} ${m.code}`)
-              .join(", ")}) — record them first`,
-            { missing },
+            [leases.map((l) => l.id), b.period],
           );
-      }
-      const runId = newId("prn");
-      const created = await financeTransaction(db, s.orgId, async (t) => {
+          if (missing.length)
+            throw fail.conflict(
+              `${missing.length} meter reading(s) missing for ${b.period} (e.g. ${missing
+                .slice(0, 3)
+                .map((m) => `${m.unit_no} ${m.code}`)
+                .join(", ")}) — record them first`,
+              { missing },
+            );
+        }
         const ids: string[] = [];
         await t.run(
           "INSERT INTO pm_billing_runs (id, org_id, property_id, period, kind, created, skipped, run_by) VALUES ($1, $2, $3, $4, $5, 0, 0, $6)",

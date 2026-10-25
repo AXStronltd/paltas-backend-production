@@ -183,3 +183,10 @@ Verification: six new tests cover 52 real synthetic receipts beyond one screen p
 All eight browser journeys were rerun on this generated frontend: collections 24, saved drafts 15, disputes 18, repayment plans 24, reminders 18, partial deposits 21, meters 27 and reconciliation 15 — **162 checks passed**. The first saved-draft attempt timed out loading sign-in; the unchanged test passed on rerun at all three widths. This is recorded as a failed attempt followed by a passing rerun, not omitted.
 
 Limits remain: these are bounded synchronous CSV exports, not Excel/PDF generation, scheduled reporting or enterprise-volume export jobs. Full enterprise acceptance is still open. No production deployment was performed.
+
+
+## Increment 11: revalidate billing sources after financial lock acquisition
+
+Confirmed race: the billing run loaded eligible leases and checked required meter readings before acquiring the organisation's shared financial lock. A concurrent authorised lifecycle/term change could complete while the run waited, leaving a stale lease snapshot for invoicing. Those reads now occur inside the existing locked financial transaction, before creating the run or invoices. Existing invoice generation, ledger posting and duplicate constraints are reused. No schema change or automatic historical rebilling is introduced.
+
+Two deterministic HTTP/database tests hold the same financial lock, wait for the billing request to queue, commit a simulated lifecycle/term change and release it. The run must skip a newly ended lease and use updated terms/due day. Repeated runs remain duplicate-safe. Test setup initially reused a property name and queried PostgreSQL activity from a transaction-cached statistics snapshot; the fixture now uses unique properties and an independent inspection query. Both tests passed after correction. The final broad regression is recorded after completion. These changes remain local and unreleased.
