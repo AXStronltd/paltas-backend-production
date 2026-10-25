@@ -62,10 +62,46 @@ describe("server limits", () => {
     await sleep(2000);
     expect(first.body.destroyed).toBe(false);
     first.body.destroy(); // the client goes away
-    await sleep(300);
+    await first.finished; // wait for connection cleanup and slot release, not an arbitrary CPU-dependent delay
     const next = await exportOrganisationAs(S.app.ctx, ACTOR, B, "After the stalled one");
     let text = "";
     for await (const c of next.body) text += c;
+    expect(JSON.parse(text).organisation.id).toBe(B);
+  });
+  it("cleans up back-pressure listeners while a large customer export is consumed", async () => {
+    const result = await exportOrganisationAs(S.app.ctx, ACTOR, A, "Slow customer export listener cleanup");
+    let bytes = 0,
+      peak = 0;
+    for await (const chunk of result.body) {
+      bytes += Buffer.byteLength(chunk);
+      peak = Math.max(peak, result.body.listenerCount("close"));
+      await sleep(5);
+    }
+    await result.finished;
+    expect(bytes).toBeGreaterThan(200000);
+    expect(peak).toBeLessThan(6);
+  });
+  it("reserves export slots before awaited work so simultaneous requests cannot bypass limits", async () => {
+    const results = await Promise.allSettled([
+      exportOrganisationAs(S.app.ctx, ACTOR, A, "Concurrent export one"),
+      exportOrganisationAs(S.app.ctx, ACTOR, A, "Concurrent export two"),
+      exportOrganisationAs(S.app.ctx, ACTOR, B, "Concurrent export other organisation"),
+    ]);
+    const successes = results.filter(
+      (x): x is PromiseFulfilledResult<Awaited<ReturnType<typeof exportOrganisationAs>>> => x.status === "fulfilled",
+    );
+    expect(successes).toHaveLength(1);
+    const failures = results.filter((x): x is PromiseRejectedResult => x.status === "rejected");
+    expect(failures).toHaveLength(2);
+    for (const failed of failures) expect(failed.reason.status).toBe(429);
+    for (const x of successes) {
+      x.value.body.destroy();
+      await x.value.finished;
+    }
+    const after = await exportOrganisationAs(S.app.ctx, ACTOR, B, "After concurrent cancellation");
+    let text = "";
+    for await (const c of after.body) text += c;
+    await after.finished;
     expect(JSON.parse(text).organisation.id).toBe(B);
   });
 });

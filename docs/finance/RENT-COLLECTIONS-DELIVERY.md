@@ -159,3 +159,14 @@ Additive migration `0046_property_reconciliation_snapshot.sql` stores the freshn
 Focused verification: 38 tests passed across stale/zero-net sources, changed classification, legacy snapshots, independent approval, organisation isolation, utility lifecycle, tariff snapshots, existing accounting acceptance and migration upgrades. Responsive browser verification and the full regression outcome are recorded after completion. An initial browser assertion expected an in-memory tab choice to survive a full reload; the test was corrected to select the reconciliation tab explicitly.
 
 Reconciliation responsive verification passed 15 checks at 1440/768/390 px: stale zero-net snapshot rejected → direct unresolved-line review → fresh independently approved snapshot. The broad run passed 878 tests with one export-cleanup timing failure (879 total); that failure is documented and addressed in the following shared-export hardening increment, not reported as a passing broad run.
+
+
+## Increment 9: export concurrency and cleanup
+
+Regression exposed a timing-sensitive export cleanup test. Inspection also confirmed a concurrency defect: the export slot was reserved after an awaited audit write, permitting simultaneous requests to pass the same limit check. Slots are now reserved before asynchronous work and released if audit recording fails or the export transaction finishes. Stream backpressure listeners are removed after drain/close/error to avoid accumulating listeners during large exports. An internal completion promise allows deterministic cleanup verification; the HTTP streaming contract is unchanged.
+
+Six export-hardening tests cover existing isolation/limits, simultaneous requests, cancellation and slow consumption. The cleanup test now waits for actual transaction completion rather than an arbitrary delay. No limits or security checks were weakened. No migration is needed.
+
+Final verification after increments 7–9: **135 suites / 881 backend tests passed**. TypeScript, ESLint, generated browser-client consistency and changed-source formatting passed. Meter lifecycle passed 27 responsive browser checks and reconciliation freshness passed 15 at 1440/768/390 px. These are incremental results, not full enterprise/customer acceptance. No production deployment, customer email, account reset or real payment execution occurred.
+
+The user described the unavailable workbook amounts as “all”; mixed charges, payments and balances must be reviewed as distinct record types. The real workbook has not been supplied in this session and its migration remains unverified. Balances must not be posted again as extra charges or payments.
