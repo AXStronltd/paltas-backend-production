@@ -20,13 +20,13 @@
       "id": "OPS-01-02",
       "module": "Maintenance",
       "description": "preventive",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_preventive.js; existing Hotel preventive controls",
+      "backend": "property/maintenance/preventive.service.ts; existing core scheduler and shared maintenance work-order creation",
+      "database": "0052_property_preventive_plans; existing work orders/sched_jobs/audit_log",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": ["server/test/property.preventive.test.ts", "tests/property.preventive.browser.test.js"],
+      "verification": "Property servicing plans, repeated edit/pause/resume, durable scheduled work-order creation, authorisation revocation, 105-plan bounded backlog, no duplicate or financial posting verified locally. Condition telemetry, full calendar/assets/reminders and all-product acceptance remain open. Released on 25 October 2026: backend 99262bc, frontend b545a92. Full regression: 919 backend tests; 178 selected browser checks.",
       "blockers": []
     },
     {
@@ -46,13 +46,13 @@
       "id": "OPS-01-04",
       "module": "Maintenance",
       "description": "recurring and condition-based maintenance",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_preventive.js; existing Hotel preventive controls",
+      "backend": "property/maintenance/preventive.service.ts; existing core scheduler and shared maintenance work-order creation",
+      "database": "0052_property_preventive_plans; existing work orders/sched_jobs/audit_log",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": ["server/test/property.preventive.test.ts", "tests/property.preventive.browser.test.js"],
+      "verification": "Property servicing plans, repeated edit/pause/resume, durable scheduled work-order creation, authorisation revocation, 105-plan bounded backlog, no duplicate or financial posting verified locally. Condition telemetry, full calendar/assets/reminders and all-product acceptance remain open. Released on 25 October 2026: backend 99262bc, frontend b545a92. Full regression: 919 backend tests; 178 selected browser checks.",
       "blockers": []
     },
     {
@@ -72,13 +72,13 @@
       "id": "OPS-01-06",
       "module": "Maintenance",
       "description": "schedules",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_preventive.js; existing Hotel preventive controls",
+      "backend": "property/maintenance/preventive.service.ts; existing core scheduler and shared maintenance work-order creation",
+      "database": "0052_property_preventive_plans; existing work orders/sched_jobs/audit_log",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": ["server/test/property.preventive.test.ts", "tests/property.preventive.browser.test.js"],
+      "verification": "Property servicing plans, repeated edit/pause/resume, durable scheduled work-order creation, authorisation revocation, 105-plan bounded backlog, no duplicate or financial posting verified locally. Condition telemetry, full calendar/assets/reminders and all-product acceptance remain open. Released on 25 October 2026: backend 99262bc, frontend b545a92. Full regression: 919 backend tests; 178 selected browser checks.",
       "blockers": []
     },
     {
@@ -137,26 +137,32 @@
       "id": "OPS-02-03",
       "module": "Work Orders",
       "description": "prioritisation",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_work_order_controls.js; source/pm_server.js",
+      "backend": "property/maintenance/maintenance.service.ts and maintenance.routes.ts",
+      "database": "0051_property_work_order_versions; existing audit_log",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.work-order-controls.test.ts",
+        "tests/property.work-order-controls.browser.test.js"
+      ],
+      "verification": "Repeatable pre-quotation scope correction, unfinished work priority/due-date correction, version conflict, property/organisation/role isolation and retained completion evidence verified locally. Full module acceptance remains open. Released on 25 October 2026: backend 99262bc, frontend b545a92. Full regression: 919 backend tests; 178 selected browser checks.",
       "blockers": []
     },
     {
       "id": "OPS-02-04",
       "module": "Work Orders",
       "description": "scheduling",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_work_order_controls.js; source/pm_server.js",
+      "backend": "property/maintenance/maintenance.service.ts and maintenance.routes.ts",
+      "database": "0051_property_work_order_versions; existing audit_log",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.work-order-controls.test.ts",
+        "tests/property.work-order-controls.browser.test.js"
+      ],
+      "verification": "Repeatable pre-quotation scope correction, unfinished work priority/due-date correction, version conflict, property/organisation/role isolation and retained completion evidence verified locally. Full module acceptance remains open. Released on 25 October 2026: backend 99262bc, frontend b545a92. Full regression: 919 backend tests; 178 selected browser checks.",
       "blockers": []
     },
     {
@@ -228,26 +234,32 @@
       "id": "OPS-02-10",
       "module": "Work Orders",
       "description": "completion evidence",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_work_order_controls.js; source/pm_server.js",
+      "backend": "property/maintenance/maintenance.service.ts and maintenance.routes.ts",
+      "database": "0051_property_work_order_versions; existing audit_log",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.work-order-controls.test.ts",
+        "tests/property.work-order-controls.browser.test.js"
+      ],
+      "verification": "Repeatable pre-quotation scope correction, unfinished work priority/due-date correction, version conflict, property/organisation/role isolation and retained completion evidence verified locally. Full module acceptance remains open. Released on 25 October 2026: backend 99262bc, frontend b545a92. Full regression: 919 backend tests; 178 selected browser checks.",
       "blockers": []
     },
     {
       "id": "OPS-02-11",
       "module": "Work Orders",
       "description": "quality checks",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_work_order_controls.js; source/pm_server.js",
+      "backend": "property/maintenance/maintenance.service.ts and maintenance.routes.ts",
+      "database": "0051_property_work_order_versions; existing audit_log",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.work-order-controls.test.ts",
+        "tests/property.work-order-controls.browser.test.js"
+      ],
+      "verification": "Repeatable pre-quotation scope correction, unfinished work priority/due-date correction, version conflict, property/organisation/role isolation and retained completion evidence verified locally. Full module acceptance remains open. Released on 25 October 2026: backend 99262bc, frontend b545a92. Full regression: 919 backend tests; 178 selected browser checks.",
       "blockers": []
     },
     {
@@ -749,12 +761,12 @@
       "module": "Preventive Maintenance",
       "description": "recurring work orders",
       "status": "IN PROGRESS",
-      "frontend": "source/h_srv_guests_rooms.js; source/h_srv_setup.js",
-      "backend": "server/src/products/hotel/automation/automation.service.ts; existing property/shared/jobs.ts; cross-product extensions pending",
-      "database": "0049 request versions and 0050 hotel plan versions live; existing records retained",
+      "frontend": "source/pm_preventive.js; existing Hotel preventive controls",
+      "backend": "property/maintenance/preventive.service.ts; existing core scheduler and shared maintenance work-order creation",
+      "database": "0052_property_preventive_plans; existing work orders/sched_jobs/audit_log",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": ["server/test/hotel.maintenance-controls.test.ts", "server/test/hotel.automation.test.ts"],
-      "verification": "Verified released subsets: Property request controls (573ffd7/0c6dfaf), Hotel preventive schedules (9663fba/c9fd7fa). Latest regression: 910 backend tests / 141 suites; 131 selected browser checks. Full applicable cross-product/asset/work-order lifecycle acceptance remains open.",
+      "tests": ["server/test/property.preventive.test.ts", "tests/property.preventive.browser.test.js"],
+      "verification": "Property servicing plans, repeated edit/pause/resume, durable scheduled work-order creation, authorisation revocation, 105-plan bounded backlog, no duplicate or financial posting verified locally. Condition telemetry, full calendar/assets/reminders and all-product acceptance remain open. Released on 25 October 2026: backend 99262bc, frontend b545a92. Full regression: 919 backend tests; 178 selected browser checks.",
       "blockers": []
     },
     {
@@ -762,12 +774,12 @@
       "module": "Preventive Maintenance",
       "description": "servicing plans",
       "status": "IN PROGRESS",
-      "frontend": "source/h_srv_guests_rooms.js; source/h_srv_setup.js",
-      "backend": "server/src/products/hotel/automation/automation.service.ts; existing property/shared/jobs.ts; cross-product extensions pending",
-      "database": "0049 request versions and 0050 hotel plan versions live; existing records retained",
+      "frontend": "source/pm_preventive.js; existing Hotel preventive controls",
+      "backend": "property/maintenance/preventive.service.ts; existing core scheduler and shared maintenance work-order creation",
+      "database": "0052_property_preventive_plans; existing work orders/sched_jobs/audit_log",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": ["server/test/hotel.maintenance-controls.test.ts", "server/test/hotel.automation.test.ts"],
-      "verification": "Verified released subsets: Property request controls (573ffd7/0c6dfaf), Hotel preventive schedules (9663fba/c9fd7fa). Latest regression: 910 backend tests / 141 suites; 131 selected browser checks. Full applicable cross-product/asset/work-order lifecycle acceptance remains open.",
+      "tests": ["server/test/property.preventive.test.ts", "tests/property.preventive.browser.test.js"],
+      "verification": "Property servicing plans, repeated edit/pause/resume, durable scheduled work-order creation, authorisation revocation, 105-plan bounded backlog, no duplicate or financial posting verified locally. Condition telemetry, full calendar/assets/reminders and all-product acceptance remain open. Released on 25 October 2026: backend 99262bc, frontend b545a92. Full regression: 919 backend tests; 178 selected browser checks.",
       "blockers": []
     },
     {
@@ -2252,6 +2264,18 @@
       "scope": "Hotel preventive plan creation, repeat editing, pause/resume, current-record reopening and immutable scheduler/history tracking",
       "backend": "9663fba",
       "frontend": "c9fd7fa",
+      "status": "LIVE"
+    },
+    {
+      "scope": "Repeatable work-order correction, current detail/history, quoted-scope safeguards and completion evidence retention",
+      "backend": "99262bc",
+      "frontend": "b545a92",
+      "status": "LIVE"
+    },
+    {
+      "scope": "Property preventive servicing plans with durable scheduled work orders, repeated edit/pause/resume, authority revalidation and bounded backlog processing",
+      "backend": "99262bc",
+      "frontend": "b545a92",
       "status": "LIVE"
     }
   ]
