@@ -372,8 +372,12 @@
         {
           "id": "invoices.19",
           "requirement": "CSV exports",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collections-export.test.ts: complete bounded current invoice-balance CSV and cashbook; not full invoice document/report export coverage",
+            "server/test/property.collections-export-limit.test.ts: explicit rejection of oversized/incomplete exports",
+            "frontend tests/property.collections-overview.browser.test.js: actual CSV downloads at 1440/768/390 px"
+          ]
         },
         {
           "id": "invoices.20",
@@ -1622,7 +1626,8 @@
           "requirement": "Daily cashbook",
           "status": "implemented_subset",
           "evidence": [
-            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open"
+            "RENT-COLLECTIONS-DELIVERY.md: tested increments and limitations; full enterprise acceptance remains open",
+            "server/test/property.collections-export.test.ts: single-snapshot cashbook exports beyond screen pagination; 10000-row bound"
           ]
         },
         {
