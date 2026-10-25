@@ -1,3 +1,5 @@
+import { inspectionControlsService } from "./maintenance/inspection-controls.service.js";
+import { inspectionControlRoutes } from "./maintenance/inspection-controls.routes.js";
 import { preventiveService, PREVENTIVE_JOB } from "./maintenance/preventive.service.js";
 import { preventiveRoutes } from "./maintenance/preventive.routes.js";
 import { complaintRoutes } from "./people/complaints.routes.js";
@@ -125,6 +127,7 @@ export const property: ProductModule = {
       ...ownersRoutes(access, owners),
       ...billsRoutes(access, bills),
       ...maintenanceRoutes(access, maintenance),
+      ...inspectionControlRoutes(access, inspectionControlsService(d, maintenance)),
       ...preventiveRoutes(access, preventiveService(d, maintenance)),
       ...crmRoutes(access, crmService(d, { leases })),
       ...commsRoutes(access, commsService(d)),

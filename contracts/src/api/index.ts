@@ -758,6 +758,14 @@ export const CONTACTS_API = {
 } as const;
 
 export const PROPERTY_API = {
+  inspectionTemplateHistory: property.inspectionTemplateHistory,
+  getInspectionTemplate: property.getInspectionTemplate,
+  listInspectionTemplates: property.listInspectionTemplates,
+  createInspectionTemplate: property.createInspectionTemplate,
+  updateInspectionTemplate: property.updateInspectionTemplate,
+  getInspection: property.getInspection,
+  changeInspectionSchedule: property.changeInspectionSchedule,
+  inspectionHistory: property.inspectionHistory,
   listPreventivePlans: property.listPreventivePlans,
   getPreventivePlan: property.getPreventivePlan,
   createPreventivePlan: property.createPreventivePlan,

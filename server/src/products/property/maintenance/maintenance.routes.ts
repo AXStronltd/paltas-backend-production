@@ -50,7 +50,7 @@ export function maintenanceRoutes(access: PmAccess, M: MaintenanceService) {
     route(api.listInspections, async (req) => M.listInspections(await g.org(req, ANY_PM_READ), req.query.propertyId)),
     route(api.scheduleInspection, async (req) => M.scheduleInspection(await manage(req), req.body)),
     route(api.completeInspection, async (req) =>
-      M.completeInspection(await manage(req), req.params.inspectionId, req.body.items),
+      M.completeInspection(await manage(req), req.params.inspectionId, req.body.items, req.body.expectedVersion),
     ),
   ];
 }

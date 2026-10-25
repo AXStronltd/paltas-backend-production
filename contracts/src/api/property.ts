@@ -604,6 +604,10 @@ export const InspectionItem = z.object({
 export type InspectionItem = z.infer<typeof InspectionItem>;
 
 export const Inspection = z.object({
+  followUpOf: Id.nullable(),
+  version: z.number().int().positive(),
+  templateId: Id.nullable(),
+  checklist: z.array(z.string()),
   id: z.string(),
   number: z.string(),
   propertyId: z.string(),
@@ -611,7 +615,7 @@ export const Inspection = z.object({
   leaseId: z.string().nullable(),
   kind: z.enum(["move_in", "move_out", "routine"]),
   scheduledDate: IsoDate,
-  status: z.enum(["scheduled", "completed"]),
+  status: z.enum(["scheduled", "completed", "cancelled"]),
   items: z.array(InspectionItem),
   completedBy: z.string().nullable(),
   /** Maintenance requests opened from items needing repair. */
@@ -2182,7 +2186,10 @@ export const scheduleInspection = endpoint({
     unitId: Id.optional(),
     leaseId: Id.optional(),
     kind: z.enum(["move_in", "move_out", "routine"]),
-    scheduledDate: IsoDate,
+    scheduledDate: IsoDate.refine((d) => !d.startsWith("0000"), "Choose a year from 0001 onwards"),
+    templateId: Id.optional(),
+    followUpOf: Id.optional(),
+    followUpReason: Reason.optional(),
   }),
   response: Inspection,
   status: 201,
@@ -2195,7 +2202,10 @@ export const completeInspection = endpoint({
   auth: "user",
   summary: "Record the inspection; every area needing repair or damaged opens a maintenance request",
   params: OrgParams.extend({ inspectionId: Id }),
-  body: z.object({ items: z.array(InspectionItem).min(1).max(100) }),
+  body: z.object({
+    items: z.array(InspectionItem).min(1).max(100),
+    expectedVersion: z.number().int().positive().optional(),
+  }),
   response: Inspection,
 });
 
@@ -4009,4 +4019,116 @@ export const preventivePlanHistory = endpoint({
     ),
     events: maintenanceRequestHistory.response,
   }),
+});
+
+const InspectionTemplateInput = z.object({
+  name: z.string().trim().min(2).max(120),
+  areas: z
+    .array(z.string().trim().min(1).max(80))
+    .min(1)
+    .max(100)
+    .refine((a) => new Set(a.map((x) => x.toLowerCase())).size === a.length, "Each checklist area must be unique"),
+  active: z.boolean().default(true),
+});
+export const InspectionTemplate = InspectionTemplateInput.extend({
+  id: Id,
+  propertyId: Id,
+  version: z.number().int().positive(),
+});
+export type InspectionTemplate = z.infer<typeof InspectionTemplate>;
+export const listInspectionTemplates = endpoint({
+  id: "property.inspections.templates.list",
+  method: "GET",
+  path: `${Base}/inspection-templates`,
+  auth: "user",
+  summary: "Property-scoped inspection checklists including archived templates",
+  params: OrgParams,
+  query: z.object({
+    propertyId: Id,
+    q: z.string().trim().max(120).default(""),
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  }),
+  response: z.object({
+    templates: z.array(InspectionTemplate),
+    total: z.number().int(),
+    limit: z.number().int(),
+    offset: z.number().int(),
+  }),
+});
+export const createInspectionTemplate = endpoint({
+  id: "property.inspections.templates.create",
+  method: "POST",
+  path: `${Base}/inspection-templates`,
+  auth: "user",
+  summary: "Create reusable checklist",
+  params: OrgParams,
+  body: InspectionTemplateInput.extend({ propertyId: Id }),
+  response: InspectionTemplate,
+  status: 201,
+});
+export const updateInspectionTemplate = endpoint({
+  id: "property.inspections.templates.update",
+  method: "PUT",
+  path: `${Base}/inspection-templates/:inspectionTemplateId`,
+  auth: "user",
+  summary: "Edit or archive checklist without changing existing inspections",
+  params: OrgParams.extend({ inspectionTemplateId: Id }),
+  body: InspectionTemplateInput.extend({ expectedVersion: z.number().int().positive(), reason: Reason }),
+  response: InspectionTemplate,
+});
+export const getInspection = endpoint({
+  id: "property.inspections.get",
+  method: "GET",
+  path: `${Base}/inspections/:inspectionId`,
+  auth: "user",
+  summary: "Current inspection including saved checklist snapshot",
+  params: OrgParams.extend({ inspectionId: Id }),
+  response: Inspection,
+});
+export const changeInspectionSchedule = endpoint({
+  id: "property.inspections.change",
+  method: "POST",
+  path: `${Base}/inspections/:inspectionId/change`,
+  auth: "user",
+  summary: "Reschedule, cancel or restore unfinished inspection with reason",
+  params: OrgParams.extend({ inspectionId: Id }),
+  body: z.object({
+    expectedVersion: z.number().int().positive(),
+    action: z.enum(["reschedule", "cancel", "restore"]),
+    scheduledDate: IsoDate.refine((d) => !d.startsWith("0000"), "Choose a year from 0001 onwards").optional(),
+    reason: Reason,
+  }),
+  response: Inspection,
+});
+export const inspectionHistory = endpoint({
+  id: "property.inspections.history",
+  method: "GET",
+  path: `${Base}/inspections/:inspectionId/history`,
+  auth: "user",
+  summary: "Immutable schedule and completion findings",
+  params: OrgParams.extend({ inspectionId: Id }),
+  query: maintenanceRequestHistory.query,
+  response: maintenanceRequestHistory.response,
+});
+
+export const getInspectionTemplate = endpoint({
+  id: "property.inspections.templates.get",
+  method: "GET",
+  path: `${Base}/inspection-templates/:inspectionTemplateId`,
+  auth: "user",
+  summary: "Current scoped reusable checklist",
+  params: OrgParams.extend({ inspectionTemplateId: Id }),
+  response: InspectionTemplate,
+});
+
+export const inspectionTemplateHistory = endpoint({
+  id: "property.inspections.templates.history",
+  method: "GET",
+  path: `${Base}/inspection-templates/:inspectionTemplateId/history`,
+  auth: "user",
+  summary: "Immutable checklist changes",
+  params: OrgParams.extend({ inspectionTemplateId: Id }),
+  query: maintenanceRequestHistory.query,
+  response: maintenanceRequestHistory.response,
 });

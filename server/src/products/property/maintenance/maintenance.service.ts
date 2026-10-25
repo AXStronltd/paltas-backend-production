@@ -62,6 +62,10 @@ interface WorkOrderRow {
 }
 
 interface InspectionRow {
+  followup_of: string | null;
+  version: number;
+  template_id: string | null;
+  checklist: string[];
   id: string;
   number: string;
   property_id: string;
@@ -69,7 +73,7 @@ interface InspectionRow {
   lease_id: string | null;
   kind: "move_in" | "move_out" | "routine";
   scheduled_date: string;
-  status: "scheduled" | "completed";
+  status: "scheduled" | "completed" | "cancelled";
   items: { area: string; condition: "good" | "fair" | "needs_repair" | "damaged"; note: string }[];
   completed_by: string | null;
 }
@@ -279,6 +283,10 @@ export function maintenanceService(d: PmDeps) {
     return {
       id: r.id,
       number: r.number,
+      version: r.version,
+      templateId: r.template_id,
+      followUpOf: r.followup_of,
+      checklist: r.checklist,
       propertyId: r.property_id,
       unitId: r.unit_id,
       leaseId: r.lease_id,
@@ -359,6 +367,7 @@ export function maintenanceService(d: PmDeps) {
 
   return {
     openWorkOrder,
+    inspectionView,
     async getWorkOrder(s: OrgScope, id: string) {
       return woView(s.orgId, id, s.today);
     },
@@ -789,10 +798,14 @@ export function maintenanceService(d: PmDeps) {
         leaseId?: string | undefined;
         kind: InspectionRow["kind"];
         scheduledDate: string;
+        templateId?: string | undefined;
+        followUpOf?: string | undefined;
+        followUpReason?: string | undefined;
       },
     ) {
       await R.propertyRow(db, s.orgId, b.propertyId);
       let unitId = b.unitId ?? null;
+      let leaseId = b.leaseId ?? null;
       if (b.leaseId) {
         const l = await R.leaseRow(db, s.orgId, b.leaseId);
         if (l.property_id !== b.propertyId) throw fail.invalid("That lease is not in this property");
@@ -801,21 +814,74 @@ export function maintenanceService(d: PmDeps) {
       }
       if (unitId && (await R.unitRow(db, s.orgId, unitId)).property_id !== b.propertyId)
         throw fail.invalid("That unit is not in this property");
-      if (b.kind !== "routine" && !unitId) throw fail.invalid("A move-in or move-out inspection is of a unit");
+
       const id = newId("pis");
       await db.tx(async (t) => {
+        let checklist: string[] = [];
+        if (b.followUpOf) {
+          if (!b.followUpReason) throw fail.invalid("Record why this follow-up inspection is needed");
+          const previous = await t.row<InspectionRow>(
+            "SELECT * FROM pm_inspections WHERE org_id=$1 AND id=$2 FOR SHARE",
+            [s.orgId, b.followUpOf],
+          );
+          if (!previous || previous.property_id !== b.propertyId)
+            throw fail.notFound("Prior inspection not found in this property");
+          if (previous.status !== "completed")
+            throw fail.conflict("Complete the prior inspection before scheduling its follow-up");
+          if (b.unitId && b.unitId !== previous.unit_id)
+            throw fail.invalid("A follow-up keeps the prior inspection's unit");
+          if (b.leaseId && b.leaseId !== previous.lease_id)
+            throw fail.invalid("A follow-up keeps the prior inspection's lease");
+          if (b.scheduledDate < previous.scheduled_date)
+            throw fail.invalid("The follow-up date cannot precede the prior inspection date");
+          unitId = previous.unit_id;
+          leaseId = previous.lease_id;
+          checklist = previous.checklist;
+          if (unitId && (await R.unitRow(t, s.orgId, unitId)).property_id !== b.propertyId)
+            throw fail.invalid("The prior unit context needs review");
+          if (leaseId && (await R.leaseRow(t, s.orgId, leaseId)).unit_id !== unitId)
+            throw fail.invalid(
+              "The prior inspection's lease and unit context needs review; schedule a correctly linked inspection separately",
+            );
+        }
+        if (b.kind !== "routine" && !unitId) throw fail.invalid("A move-in or move-out inspection is of a unit");
+        if (b.templateId) {
+          const template = await t.row<{ property_id: string; areas: string[]; active: boolean }>(
+            "SELECT property_id,areas,active FROM pm_inspection_templates WHERE org_id=$1 AND id=$2 FOR SHARE",
+            [s.orgId, b.templateId],
+          );
+          if (!template || template.property_id !== b.propertyId)
+            throw fail.invalid("Select a checklist for this property");
+          if (!template.active) throw fail.conflict("This checklist is archived. Choose an active checklist.");
+          checklist = template.areas;
+        }
+
         const number = await nextNumber(t, numberScope(s.orgId), "INS", 5);
         await t.run(
-          `INSERT INTO pm_inspections (id, org_id, number, property_id, unit_id, lease_id, kind, scheduled_date, status, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'scheduled', $9)`,
-          [id, s.orgId, number, b.propertyId, unitId, b.leaseId ?? null, b.kind, b.scheduledDate, s.userId],
+          `INSERT INTO pm_inspections (id, org_id, number, property_id, unit_id, lease_id, kind, scheduled_date, status, created_by,template_id,checklist,followup_of)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'scheduled', $9,$10,$11,$12)`,
+          [
+            id,
+            s.orgId,
+            number,
+            b.propertyId,
+            unitId,
+            leaseId,
+            b.kind,
+            b.scheduledDate,
+            s.userId,
+            b.templateId ?? null,
+            JSON.stringify(checklist),
+            b.followUpOf ?? null,
+          ],
         );
         await recordAudit(t, {
           actor: s.actor,
           orgId: s.orgId,
           action: "Inspection scheduled",
           target: number,
-          detail: b.kind,
+          detail: b.followUpOf ? `${b.kind} · Follow-up: ${b.followUpReason}` : b.kind,
+          after: { propertyId: b.propertyId, unitId, leaseId, checklist, followUpOf: b.followUpOf ?? null },
         });
       });
       return inspectionView(
@@ -828,6 +894,7 @@ export function maintenanceService(d: PmDeps) {
       s: OrgScope,
       id: string,
       items: { area: string; condition: InspectionRow["items"][number]["condition"]; note: string }[],
+      expectedVersion?: number,
     ) {
       await db.tx(async (t) => {
         const r = await t.row<InspectionRow>("SELECT * FROM pm_inspections WHERE org_id = $1 AND id = $2 FOR UPDATE", [
@@ -835,7 +902,14 @@ export function maintenanceService(d: PmDeps) {
           id,
         ]);
         if (!r) throw fail.notFound("Inspection not found");
-        if (r.status === "completed") throw fail.conflict("This inspection is already completed");
+        if (expectedVersion !== undefined && expectedVersion !== r.version)
+          throw fail.conflict("This inspection changed. Reopen its current details before recording results.");
+        if (r.status !== "scheduled")
+          throw fail.conflict("Only a scheduled inspection can be completed. Restore a cancelled inspection first.");
+        if (new Set(items.map((x) => x.area.trim().toLowerCase())).size !== items.length)
+          throw fail.invalid("Each inspection area must be recorded once");
+        if (r.checklist.some((area) => !items.some((x) => x.area === area)))
+          throw fail.invalid("Record a condition for every area in the saved inspection checklist");
         await t.run(
           "UPDATE pm_inspections SET status = 'completed', items = $2, completed_by = $3, completed_at = now() WHERE id = $1",
           [id, JSON.stringify(items), s.userId],
@@ -845,7 +919,7 @@ export function maintenanceService(d: PmDeps) {
           await openRequest(t, s, {
             propertyId: r.property_id,
             unitId: r.unit_id,
-            title: `${x.area}: ${x.note || x.condition.replace("_", " ")} (${r.number})`,
+            title: `${x.area}: ${x.note || x.condition.replace("_", " ")} (${r.number})`.slice(0, 200),
             category: "inspection",
             priority: x.condition === "damaged" ? "high" : "normal",
             source: "inspection",

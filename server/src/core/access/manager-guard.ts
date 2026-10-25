@@ -69,6 +69,7 @@ const TABLES: Record<string, string> = {
   workOrderId: "SELECT property_id FROM pm_work_orders WHERE org_id=$1 AND id=$2",
   requestId: "SELECT property_id FROM pm_maintenance_requests WHERE org_id=$1 AND id=$2",
   billId: "SELECT property_id FROM pm_bills WHERE org_id=$1 AND id=$2",
+  inspectionTemplateId: "SELECT property_id FROM pm_inspection_templates WHERE org_id=$1 AND id=$2",
   inspectionId: "SELECT property_id FROM pm_inspections WHERE org_id=$1 AND id=$2",
 };
 const LISTS: Record<string, [string, string]> = {
