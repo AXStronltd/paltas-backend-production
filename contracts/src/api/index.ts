@@ -758,6 +758,9 @@ export const CONTACTS_API = {
 } as const;
 
 export const PROPERTY_API = {
+  getWorkOrder: property.getWorkOrder,
+  updateWorkOrder: property.updateWorkOrder,
+  workOrderHistory: property.workOrderHistory,
   maintenanceRequestHistory: property.maintenanceRequestHistory,
   getMaintenanceRequest: property.getMaintenanceRequest,
   updateMaintenanceRequest: property.updateMaintenanceRequest,

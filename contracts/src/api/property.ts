@@ -557,6 +557,7 @@ export const WORK_ORDER_STATUSES = [
   "cancelled",
 ] as const;
 export const WorkOrder = z.object({
+  version: z.number().int().positive(),
   id: z.string(),
   number: z.string(),
   propertyId: z.string(),
@@ -3888,4 +3889,40 @@ export const maintenanceRequestHistory = endpoint({
     limit: z.number().int(),
     offset: z.number().int(),
   }),
+});
+
+export const getWorkOrder = endpoint({
+  id: "property.workOrders.get",
+  method: "GET",
+  path: `${Base}/work-orders/:workOrderId`,
+  auth: "user",
+  summary: "Current authorised work order",
+  params: WoParams,
+  response: WorkOrder,
+});
+export const updateWorkOrder = endpoint({
+  id: "property.workOrders.update",
+  method: "PUT",
+  path: `${Base}/work-orders/:workOrderId`,
+  auth: "user",
+  summary: "Correct unquoted scope or reschedule unfinished work with a recorded reason",
+  params: WoParams,
+  body: z.object({
+    expectedVersion: z.number().int().positive(),
+    scope: z.string().trim().min(3).max(1000),
+    priority: Priority,
+    dueDate: IsoDate,
+    reason: z.string().trim().min(5).max(1000),
+  }),
+  response: WorkOrder,
+});
+export const workOrderHistory = endpoint({
+  id: "property.workOrders.history",
+  method: "GET",
+  path: `${Base}/work-orders/:workOrderId/history`,
+  auth: "user",
+  summary: "Immutable work-order history including completion evidence and purchase-order approvals",
+  params: WoParams,
+  query: maintenanceRequestHistory.query,
+  response: maintenanceRequestHistory.response,
 });

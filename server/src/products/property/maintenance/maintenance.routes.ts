@@ -9,6 +9,11 @@ export function maintenanceRoutes(access: PmAccess, M: MaintenanceService) {
   const g = gate(access);
   const manage = (req: Parameters<typeof g.org>[0]) => g.org(req, "property.maintenance.manage", MAINT);
   return [
+    route(api.getWorkOrder, async (req) => M.getWorkOrder(await g.org(req, ANY_PM_READ), req.params.workOrderId)),
+    route(api.updateWorkOrder, async (req) => M.updateWorkOrder(await manage(req), req.params.workOrderId, req.body)),
+    route(api.workOrderHistory, async (req) =>
+      M.workOrderHistory(await manage(req), req.params.workOrderId, req.query),
+    ),
     route(api.maintenanceRequestHistory, async (req) =>
       M.requestHistory(await g.org(req, "property.maintenance.manage"), req.params.requestId, req.query),
     ),

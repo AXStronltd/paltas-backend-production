@@ -37,6 +37,7 @@ interface RequestRow {
 }
 
 interface WorkOrderRow {
+  version: number;
   id: string;
   number: string;
   property_id: string;
@@ -133,6 +134,7 @@ export function maintenanceService(d: PmDeps) {
       [rows.map((r) => r.id)],
     );
     return rows.map((w) => ({
+      version: w.version,
       id: w.id,
       number: w.number,
       propertyId: w.property_id,
@@ -290,6 +292,81 @@ export function maintenanceService(d: PmDeps) {
   }
 
   return {
+    async getWorkOrder(s: OrgScope, id: string) {
+      return woView(s.orgId, id, s.today);
+    },
+    async updateWorkOrder(
+      s: OrgScope,
+      id: string,
+      b: { expectedVersion: number; scope: string; priority: P.WorkOrder["priority"]; dueDate: string; reason: string },
+    ) {
+      await db.tx(async (t) => {
+        const w = await woRow(t, s.orgId, id, true);
+        if (w.version !== b.expectedVersion) throw fail.conflict("This work order changed. Reopen it before saving.");
+        if (["completed", "verified", "billed", "cancelled"].includes(w.status))
+          throw fail.conflict(
+            "Completed or cancelled work retains its agreed terms. Use request reopening for follow-up work.",
+          );
+        if (w.scope !== b.scope && w.status !== "requesting_quotes")
+          throw fail.conflict(
+            "Scope cannot change after supplier quotations. Cancel eligible work and obtain new quotes for a revised scope.",
+          );
+        await t.run("UPDATE pm_work_orders SET scope=$3,priority=$4,due_date=$5 WHERE org_id=$1 AND id=$2", [
+          s.orgId,
+          id,
+          b.scope,
+          b.priority,
+          b.dueDate,
+        ]);
+        await recordAudit(t, {
+          orgId: s.orgId,
+          actor: s.actor,
+          action: "Work order corrected",
+          target: w.number,
+          detail: b.reason,
+          before: { scope: w.scope, priority: w.priority, dueDate: w.due_date, version: w.version },
+          after: { scope: b.scope, priority: b.priority, dueDate: b.dueDate, version: w.version + 1 },
+        });
+      });
+      return woView(s.orgId, id, s.today);
+    },
+    async workOrderHistory(s: OrgScope, id: string, q: { limit: number; offset: number }) {
+      return db.tx(async (t) => {
+        await t.run("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        const w = await woRow(t, s.orgId, id);
+        const where = "org_id=$1 AND target=ANY($2::text[]) AND action=ANY($3::text[])";
+        const args = [
+          s.orgId,
+          [id, w.number, ...(w.po_number ? [w.po_number] : [])],
+          [
+            "Work order opened",
+            "Work order corrected",
+            "Work order cancelled",
+            "Quotation recorded",
+            "Purchase order raised",
+            "Purchase order approved",
+            "Purchase order approved by the owner",
+            "Work completed",
+            "Work checked and accepted",
+            "Work sent back",
+          ],
+        ];
+        const total = await t.row<{ n: number }>(`SELECT count(*)::int AS n FROM audit_log WHERE ${where}`, args);
+        const entries = await t.rows<{
+          id: string;
+          at: string;
+          action: string;
+          detail: string;
+          actorRole: string | null;
+          before: unknown;
+          after: unknown;
+        }>(
+          `SELECT id::text,at,action,detail,actor_role AS "actorRole",before,after FROM audit_log WHERE ${where} ORDER BY id DESC LIMIT $4 OFFSET $5`,
+          [...args, q.limit, q.offset],
+        );
+        return { entries, total: total?.n ?? 0, limit: q.limit, offset: q.offset };
+      });
+    },
     openRequest,
     woViews,
     approvePo,
@@ -610,6 +687,7 @@ export function maintenanceService(d: PmDeps) {
           action: "Work completed",
           target: w.number,
           detail: `${b.evidence.length} piece(s) of evidence`,
+          after: { notes: b.notes, evidence: b.evidence, completedBy: s.userId },
         });
       });
       return woView(s.orgId, id, s.today);
@@ -643,6 +721,14 @@ export function maintenanceService(d: PmDeps) {
           action: b.accepted ? "Work checked and accepted" : "Work sent back",
           target: w.number,
           detail: b.note,
+          before: {
+            status: w.status,
+            completedBy: w.completed_by,
+            completedAt: w.completed_at,
+            notes: w.completion_notes,
+            evidence: w.evidence,
+          },
+          after: { status: b.accepted ? "verified" : "approved" },
         });
       });
       return woView(s.orgId, id, s.today);
