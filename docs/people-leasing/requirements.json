@@ -1971,12 +1971,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Create complaint cases: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J02",
@@ -1984,12 +1984,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Categorise cases: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J03",
@@ -1997,12 +1997,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Assign responsible employees: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J04",
@@ -2010,12 +2010,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Attach evidence: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J05",
@@ -2023,12 +2023,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Track case status: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J06",
@@ -2036,12 +2036,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Escalate unresolved cases: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J07",
@@ -2049,12 +2049,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Record resolutions: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J08",
@@ -2062,12 +2062,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Tenant communication: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J09",
@@ -2075,12 +2075,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Case closure: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J10",
@@ -2088,12 +2088,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Reopening where authorised: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-J11",
@@ -2101,12 +2101,12 @@
       "status": "TESTED",
       "frontend": "source/pm_complaints.js; source/api_pm.js; source/pm_server.js",
       "backend": "server/src/products/property/people/complaints.service.ts; server/src/products/property/people/complaints.routes.ts; server/src/core/access/manager-guard.ts",
-      "migrations": "0048_property_complaints.sql (unreleased)",
+      "migrations": "0048_property_complaints.sql (live; additive)",
       "integration": "billing disputes only; general cases require implementation",
       "tests": ["server/test/property.complaints.test.ts", "frontend tests/property.complaints.browser.test.js"],
       "acceptance": "Complete audit history: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "PASS focused 7 backend scenarios and 35 browser checks at 1440/768/390; full release acceptance and regression pending.",
-      "blockers": ["Not deployed; full People & Leasing acceptance remains gated."]
+      "verification": "PASS focused backend/browser checks and 896-test regression. Operational case batch released 2026-10-25 at backend 80b4c29 / frontend 551d404. Full enterprise acceptance remains open.",
+      "blockers": []
     },
     {
       "id": "PL-K01",
