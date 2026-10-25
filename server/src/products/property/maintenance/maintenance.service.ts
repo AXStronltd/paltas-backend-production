@@ -796,6 +796,7 @@ export function maintenanceService(d: PmDeps) {
       if (b.leaseId) {
         const l = await R.leaseRow(db, s.orgId, b.leaseId);
         if (l.property_id !== b.propertyId) throw fail.invalid("That lease is not in this property");
+        if (unitId && unitId !== l.unit_id) throw fail.invalid("Select the unit covered by this lease");
         unitId = unitId ?? l.unit_id;
       }
       if (unitId && (await R.unitRow(db, s.orgId, unitId)).property_id !== b.propertyId)
@@ -856,6 +857,7 @@ export function maintenanceService(d: PmDeps) {
           action: "Inspection completed",
           target: r.number,
           detail: `${items.length} area(s) · ${bad.length} opened as maintenance`,
+          after: { items, completedBy: s.userId },
         });
       });
       return inspectionView(
