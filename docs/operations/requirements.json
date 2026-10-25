@@ -737,11 +737,11 @@
       "description": "Calendar scheduling",
       "status": "IN PROGRESS",
       "frontend": "source/h_srv_guests_rooms.js; source/h_srv_setup.js",
-      "backend": "server/src/products/hotel/automation/automation.service.ts; property/shared/jobs.ts",
-      "database": "Existing hotel maintenance plans; 0050 concurrency upgrade under verification",
+      "backend": "server/src/products/hotel/automation/automation.service.ts; existing property/shared/jobs.ts; cross-product extensions pending",
+      "database": "0049 request versions and 0050 hotel plan versions live; existing records retained",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
       "tests": ["server/test/hotel.maintenance-controls.test.ts", "server/test/hotel.automation.test.ts"],
-      "verification": "Existing Hotel automation reused and controls added; not complete cross-product preventive work-order / asset lifecycle acceptance.",
+      "verification": "Verified released subsets: Property request controls (573ffd7/0c6dfaf), Hotel preventive schedules (9663fba/c9fd7fa). Latest regression: 910 backend tests / 141 suites; 131 selected browser checks. Full applicable cross-product/asset/work-order lifecycle acceptance remains open.",
       "blockers": []
     },
     {
@@ -750,11 +750,11 @@
       "description": "recurring work orders",
       "status": "IN PROGRESS",
       "frontend": "source/h_srv_guests_rooms.js; source/h_srv_setup.js",
-      "backend": "server/src/products/hotel/automation/automation.service.ts; property/shared/jobs.ts",
-      "database": "Existing hotel maintenance plans; 0050 concurrency upgrade under verification",
+      "backend": "server/src/products/hotel/automation/automation.service.ts; existing property/shared/jobs.ts; cross-product extensions pending",
+      "database": "0049 request versions and 0050 hotel plan versions live; existing records retained",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
       "tests": ["server/test/hotel.maintenance-controls.test.ts", "server/test/hotel.automation.test.ts"],
-      "verification": "Existing Hotel automation reused and controls added; not complete cross-product preventive work-order / asset lifecycle acceptance.",
+      "verification": "Verified released subsets: Property request controls (573ffd7/0c6dfaf), Hotel preventive schedules (9663fba/c9fd7fa). Latest regression: 910 backend tests / 141 suites; 131 selected browser checks. Full applicable cross-product/asset/work-order lifecycle acceptance remains open.",
       "blockers": []
     },
     {
@@ -763,11 +763,11 @@
       "description": "servicing plans",
       "status": "IN PROGRESS",
       "frontend": "source/h_srv_guests_rooms.js; source/h_srv_setup.js",
-      "backend": "server/src/products/hotel/automation/automation.service.ts; property/shared/jobs.ts",
-      "database": "Existing hotel maintenance plans; 0050 concurrency upgrade under verification",
+      "backend": "server/src/products/hotel/automation/automation.service.ts; existing property/shared/jobs.ts; cross-product extensions pending",
+      "database": "0049 request versions and 0050 hotel plan versions live; existing records retained",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
       "tests": ["server/test/hotel.maintenance-controls.test.ts", "server/test/hotel.automation.test.ts"],
-      "verification": "Existing Hotel automation reused and controls added; not complete cross-product preventive work-order / asset lifecycle acceptance.",
+      "verification": "Verified released subsets: Property request controls (573ffd7/0c6dfaf), Hotel preventive schedules (9663fba/c9fd7fa). Latest regression: 910 backend tests / 141 suites; 131 selected browser checks. Full applicable cross-product/asset/work-order lifecycle acceptance remains open.",
       "blockers": []
     },
     {
@@ -776,11 +776,11 @@
       "description": "reminders",
       "status": "IN PROGRESS",
       "frontend": "source/h_srv_guests_rooms.js; source/h_srv_setup.js",
-      "backend": "server/src/products/hotel/automation/automation.service.ts; property/shared/jobs.ts",
-      "database": "Existing hotel maintenance plans; 0050 concurrency upgrade under verification",
+      "backend": "server/src/products/hotel/automation/automation.service.ts; existing property/shared/jobs.ts; cross-product extensions pending",
+      "database": "0049 request versions and 0050 hotel plan versions live; existing records retained",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
       "tests": ["server/test/hotel.maintenance-controls.test.ts", "server/test/hotel.automation.test.ts"],
-      "verification": "Existing Hotel automation reused and controls added; not complete cross-product preventive work-order / asset lifecycle acceptance.",
+      "verification": "Verified released subsets: Property request controls (573ffd7/0c6dfaf), Hotel preventive schedules (9663fba/c9fd7fa). Latest regression: 910 backend tests / 141 suites; 131 selected browser checks. Full applicable cross-product/asset/work-order lifecycle acceptance remains open.",
       "blockers": []
     },
     {
@@ -789,11 +789,11 @@
       "description": "missed-service alerts and asset-linked maintenance histories",
       "status": "IN PROGRESS",
       "frontend": "source/h_srv_guests_rooms.js; source/h_srv_setup.js",
-      "backend": "server/src/products/hotel/automation/automation.service.ts; property/shared/jobs.ts",
-      "database": "Existing hotel maintenance plans; 0050 concurrency upgrade under verification",
+      "backend": "server/src/products/hotel/automation/automation.service.ts; existing property/shared/jobs.ts; cross-product extensions pending",
+      "database": "0049 request versions and 0050 hotel plan versions live; existing records retained",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
       "tests": ["server/test/hotel.maintenance-controls.test.ts", "server/test/hotel.automation.test.ts"],
-      "verification": "Existing Hotel automation reused and controls added; not complete cross-product preventive work-order / asset lifecycle acceptance.",
+      "verification": "Verified released subsets: Property request controls (573ffd7/0c6dfaf), Hotel preventive schedules (9663fba/c9fd7fa). Latest regression: 910 backend tests / 141 suites; 131 selected browser checks. Full applicable cross-product/asset/work-order lifecycle acceptance remains open.",
       "blockers": []
     },
     {
@@ -1750,9 +1750,9 @@
       "module": "Customer controls",
       "description": "Edit relevant records according to lifecycle and permissions",
       "status": "IN PROGRESS",
-      "frontend": "source/pm_request_controls.js (live); source/h_srv_guests_rooms.js (hotel schedule controls under verification)",
+      "frontend": "source/pm_request_controls.js (live); source/h_srv_guests_rooms.js (Hotel schedule controls live)",
       "backend": "property/maintenance/maintenance.service.ts; hotel/automation/automation.service.ts",
-      "database": "0049 live; 0050 under verification",
+      "database": "0049 request versions and 0050 hotel plan versions live; existing records retained",
       "dependencies": ["Authorisation", "Audit history"],
       "tests": [
         "property.request-controls.test.ts",
@@ -1760,7 +1760,7 @@
         "hotel.maintenance-controls.test.ts",
         "hotel.maintenance-controls.browser.test.js"
       ],
-      "verification": "Property request controls live with 902-test regression and 25 browser checks. Hotel schedule changes under verification. Other relevant record lifecycles remain open.",
+      "verification": "Verified released subsets: Property request controls (573ffd7/0c6dfaf), Hotel preventive schedules (9663fba/c9fd7fa). Latest regression: 910 backend tests / 141 suites; 131 selected browser checks. Full applicable cross-product/asset/work-order lifecycle acceptance remains open.",
       "blockers": []
     },
     {
@@ -1872,9 +1872,9 @@
       "module": "Customer controls",
       "description": "Reopen relevant records according to lifecycle and permissions",
       "status": "IN PROGRESS",
-      "frontend": "source/pm_request_controls.js (live); source/h_srv_guests_rooms.js (hotel schedule controls under verification)",
+      "frontend": "source/pm_request_controls.js (live); source/h_srv_guests_rooms.js (Hotel schedule controls live)",
       "backend": "property/maintenance/maintenance.service.ts; hotel/automation/automation.service.ts",
-      "database": "0049 live; 0050 under verification",
+      "database": "0049 request versions and 0050 hotel plan versions live; existing records retained",
       "dependencies": ["Authorisation", "Audit history"],
       "tests": [
         "property.request-controls.test.ts",
@@ -1882,7 +1882,7 @@
         "hotel.maintenance-controls.test.ts",
         "hotel.maintenance-controls.browser.test.js"
       ],
-      "verification": "Property request controls live with 902-test regression and 25 browser checks. Hotel schedule changes under verification. Other relevant record lifecycles remain open.",
+      "verification": "Verified released subsets: Property request controls (573ffd7/0c6dfaf), Hotel preventive schedules (9663fba/c9fd7fa). Latest regression: 910 backend tests / 141 suites; 131 selected browser checks. Full applicable cross-product/asset/work-order lifecycle acceptance remains open.",
       "blockers": []
     },
     {
@@ -2246,6 +2246,12 @@
       "scope": "Repeated maintenance request correction, reopening, history and duplicate active work-order protection",
       "backend": "573ffd7",
       "frontend": "0c6dfaf",
+      "status": "LIVE"
+    },
+    {
+      "scope": "Hotel preventive plan creation, repeat editing, pause/resume, current-record reopening and immutable scheduler/history tracking",
+      "backend": "9663fba",
+      "frontend": "c9fd7fa",
       "status": "LIVE"
     }
   ]

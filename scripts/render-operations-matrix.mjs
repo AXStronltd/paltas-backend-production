@@ -44,7 +44,7 @@ rows.push(
   "- Property maintenance, inspection findings, quotations, purchase-order approvals, supplier bills and owner-ledger postings remain in their existing services.",
   "- Hotel stock valuation, receipts, supplier matching, housekeeping and automation are existing implementations to reuse.",
   "- Developer procurement and supplier controls remain in their existing services.",
-  "- Hotel preventive-plan controls under verification reuse existing automation and Administration → Night audit and messages settings. They do not create a second scheduler or financial engine.",
+  "- Released Hotel preventive-plan controls reuse existing automation and Administration → Night audit and messages settings. They do not create a second scheduler or financial engine.",
   "",
   "## Acceptance and external dependencies",
   "",
