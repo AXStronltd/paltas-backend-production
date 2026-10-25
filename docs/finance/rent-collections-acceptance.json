@@ -1089,20 +1089,32 @@
         {
           "id": "arrears.04",
           "requirement": "Automatic reminders",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-reminders.test.ts",
+            "frontend/tests/property.collection-reminders.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 5 and provider/scale gaps"
+          ]
         },
         {
           "id": "arrears.05",
           "requirement": "Manual reminders",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-reminders.test.ts",
+            "frontend/tests/property.collection-reminders.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 5 and provider/scale gaps"
+          ]
         },
         {
           "id": "arrears.06",
           "requirement": "Bulk reminders",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-reminders.test.ts",
+            "frontend/tests/property.collection-reminders.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 5 and provider/scale gaps"
+          ]
         },
         {
           "id": "arrears.07",
@@ -1159,8 +1171,12 @@
         {
           "id": "arrears.13",
           "requirement": "Communication history",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-reminders.test.ts",
+            "frontend/tests/property.collection-reminders.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 5 and provider/scale gaps"
+          ]
         },
         {
           "id": "arrears.14",
@@ -1177,8 +1193,12 @@
         {
           "id": "arrears.16",
           "requirement": "Reminder schedules",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-reminders.test.ts",
+            "frontend/tests/property.collection-reminders.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 5 and provider/scale gaps"
+          ]
         },
         {
           "id": "arrears.17",
@@ -1838,8 +1858,12 @@
         {
           "id": "tenant_portal.09",
           "requirement": "Reminders",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.collection-reminders.test.ts",
+            "frontend/tests/property.collection-reminders.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 5 and provider/scale gaps"
+          ]
         },
         {
           "id": "tenant_portal.10",

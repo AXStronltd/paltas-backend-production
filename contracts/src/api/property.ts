@@ -3402,3 +3402,128 @@ export const tenantCollectionPlanAction = endpoint({
   body: PlanAction,
   response: CollectionPlan,
 });
+
+export const ReminderPolicyInput = z.object({
+  enabled: z.boolean(),
+  daysAfterDue: z
+    .array(z.number().int().min(-7).max(365))
+    .min(1)
+    .max(12)
+    .refine((x) => new Set(x).size === x.length, "Choose each reminder day once"),
+  subject: z.string().trim().min(5).max(200),
+  body: z.string().trim().min(20).max(4000),
+  skipDisputes: z.boolean().default(true),
+  skipPlans: z.boolean().default(true),
+});
+export type ReminderPolicyInput = z.infer<typeof ReminderPolicyInput>;
+export const ReminderPolicy = z.object({
+  propertyId: Id,
+  version: z.number().int().nonnegative(),
+  input: ReminderPolicyInput,
+  emailConfigured: z.boolean(),
+});
+export type ReminderPolicy = z.infer<typeof ReminderPolicy>;
+const ReminderCandidate = z.object({
+  invoiceId: Id,
+  invoiceNumber: z.string(),
+  tenantName: z.string(),
+  recipient: z.string(),
+  balanceMinor: NonNegativeMinor,
+  dueDate: IsoDate,
+  stageDays: z.number().int().nullable(),
+  subject: z.string(),
+  body: z.string(),
+  canSend: z.boolean(),
+  reason: z.string(),
+  previewKey: z.string(),
+});
+export type ReminderCandidate = z.infer<typeof ReminderCandidate>;
+const ReminderPreview = z.object({
+  policy: ReminderPolicy,
+  candidates: z.array(ReminderCandidate),
+  limit: z.number().int(),
+  offset: z.number().int(),
+  total: z.number().int(),
+});
+export const getReminderPolicy = endpoint({
+  id: "property.reminders.policy.get",
+  method: "GET",
+  path: `${Base}/properties/:propertyId/reminders`,
+  auth: "user",
+  summary: "Reminder policy and actual email configuration",
+  params: OrgParams.extend({ propertyId: Id }),
+  response: ReminderPolicy,
+});
+export const saveReminderPolicy = endpoint({
+  id: "property.reminders.policy.save",
+  method: "PUT",
+  path: `${Base}/properties/:propertyId/reminders`,
+  auth: "user",
+  summary: "Configure explicitly authorised reminder automation",
+  params: OrgParams.extend({ propertyId: Id }),
+  body: z.object({
+    expectedVersion: z.number().int().nonnegative(),
+    input: ReminderPolicyInput,
+    reason: z.string().trim().min(5).max(1000),
+    confirm: z.literal("SAVE_REMINDERS"),
+  }),
+  response: ReminderPolicy,
+});
+export const previewCollectionReminders = endpoint({
+  id: "property.reminders.preview",
+  method: "GET",
+  path: `${Base}/properties/:propertyId/reminders/preview`,
+  auth: "user",
+  summary: "Review current balances, recipients and suppression reasons before sending",
+  params: OrgParams.extend({ propertyId: Id }),
+  query: z.object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).max(1000000).default(0),
+  }),
+  response: ReminderPreview,
+});
+export const sendCollectionReminders = endpoint({
+  id: "property.reminders.send",
+  method: "POST",
+  path: `${Base}/properties/:propertyId/reminders/send`,
+  auth: "user",
+  summary: "Confirm reviewed reminders into the existing outbox; never claims delivery",
+  params: OrgParams.extend({ propertyId: Id }),
+  body: z.object({
+    items: z
+      .array(z.object({ invoiceId: Id, previewKey: z.string().length(64) }))
+      .min(1)
+      .max(100),
+    confirm: z.literal("SEND_REMINDERS"),
+  }),
+  response: z.object({ recorded: z.number().int(), notificationIds: z.array(Id) }),
+});
+export const collectionReminderHistory = endpoint({
+  id: "property.reminders.history",
+  method: "GET",
+  path: `${Base}/properties/:propertyId/reminders/history`,
+  auth: "user",
+  summary: "Reminder history with actual provider acceptance and delivery status",
+  params: OrgParams.extend({ propertyId: Id }),
+  query: z.object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).max(1000000).default(0),
+  }),
+  response: z.object({
+    total: z.number().int(),
+    reminders: z.array(
+      z.object({
+        id: Id,
+        invoiceId: Id,
+        invoiceNumber: z.string(),
+        tenantName: z.string(),
+        recipient: z.string(),
+        date: IsoDate,
+        stageDays: z.number().int(),
+        status: z.string(),
+        statusNote: z.string(),
+        createdAt: z.string(),
+      }),
+    ),
+  }),
+});

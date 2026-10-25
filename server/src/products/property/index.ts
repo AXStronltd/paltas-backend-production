@@ -1,3 +1,5 @@
+import { collectionRemindersService, COLLECTION_REMINDERS_JOB } from "./billing/collection-reminders.service.js";
+import { collectionReminderRoutes } from "./billing/collection-reminders.routes.js";
 import { collectionPlanRoutes } from "./billing/collection-plans.routes.js";
 import { collectionPlansService } from "./billing/collection-plans.service.js";
 import { billingDisputeRoutes } from "./billing/billing-disputes.routes.js";
@@ -110,6 +112,7 @@ export const property: ProductModule = {
       ...billingRoutes(access, billing),
       ...billingDisputeRoutes(access, billingDisputesService(d)),
       ...collectionPlanRoutes(access, collectionPlansService(d)),
+      ...collectionReminderRoutes(access, collectionRemindersService(d)),
       ...paymentsRoutes(access, payments),
       ...ownersRoutes(access, owners),
       ...billsRoutes(access, bills),
@@ -123,6 +126,7 @@ export const property: ProductModule = {
   },
   scheduledJobs(ctx, core) {
     const billing = billingService({ ctx, core, access: pmAccess(core) });
+    const reminders = collectionRemindersService({ ctx, core, access: pmAccess(core) });
     const SYSTEM = { userId: null, role: "system:scheduler" };
     /** The property, when its subscription can still bill (active, with the finance module) — else why not. */
     async function target(orgId: string | null, propertyId: string | null): Promise<PropertyRow | string> {
@@ -137,6 +141,16 @@ export const property: ProductModule = {
       return p ?? "The property no longer exists — nothing done";
     }
     return [
+      {
+        key: COLLECTION_REMINDERS_JOB,
+        label: "Collection reminders",
+        scope: "org",
+        async run(job) {
+          const p = await target(job.orgId, job.targetId);
+          if (typeof p === "string") return { summary: p };
+          return reminders.automatic(p.org_id, p.id, job.localDate);
+        },
+      },
       {
         key: MONTHLY_BILLING_JOB,
         label: "Property Management monthly billing run",
