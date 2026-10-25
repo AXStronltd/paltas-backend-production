@@ -1,3 +1,4 @@
+import { utilityMetersService } from "../utilities/utility-meters.service.js";
 import { financeTransaction } from "../shared/finance-transaction.js";
 /*
  * Leases: draft → active (signed; unit free for the dates; covered by a management agreement; escalation steps
@@ -570,92 +571,9 @@ export function leasesService(d: PmDeps) {
       return one(s, id);
     },
 
-    async recordReadings(
-      s: OrgScope,
-      b: { period: string; readings: { unitId: string; chargeTypeId: string; previous: number; current: number }[] },
-    ) {
-      const ids = await financeTransaction(db, s.orgId, async (t) => {
-        const out: string[] = [];
-        for (const r of b.readings) {
-          await R.unitRow(t, s.orgId, r.unitId);
-          const ct = await chargeTypeRow(t, s.orgId, r.chargeTypeId);
-          if (!ct.metered) throw fail.invalid(`${ct.name} is not metered`);
-          for (const [label, value] of [
-            ["Previous", r.previous],
-            ["Current", r.current],
-          ] as const) {
-            if (!/^\d+(?:\.\d{1,3})?$/.test(String(value)))
-              throw fail.invalid(
-                `${label} reading for ${ct.code} must have at most 3 decimal places — use the meter's recorded precision`,
-              );
-          }
-          if (r.current < r.previous)
-            throw fail.invalid(`The reading for ${ct.code} went down (${r.previous} → ${r.current}) — check the meter`);
-          const billed = await t.row(
-            `SELECT 1 FROM pm_invoices i JOIN pm_leases l ON l.id = i.lease_id
-             WHERE l.unit_id = $1 AND i.kind = 'charge' AND i.recurring AND i.period = $2`,
-            [r.unitId, b.period],
-          );
-          if (billed)
-            throw fail.conflict(`Charges for ${b.period} are already billed on that unit — readings are locked`);
-          const row = await t.row<{ id: string }>(
-            `INSERT INTO pm_meter_readings (id, org_id, unit_id, charge_type_id, period, previous, current, recorded_by)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-             ON CONFLICT (unit_id, charge_type_id, period) DO UPDATE SET previous = EXCLUDED.previous,
-               current = EXCLUDED.current, recorded_by = EXCLUDED.recorded_by, recorded_at = now()
-             RETURNING id`,
-            [newId("pmr"), s.orgId, r.unitId, r.chargeTypeId, b.period, r.previous, r.current, s.userId],
-          );
-          out.push((row as { id: string }).id);
-        }
-        await recordAudit(t, {
-          actor: s.actor,
-          orgId: s.orgId,
-          action: "Meter readings recorded",
-          detail: `${b.period} · ${b.readings.length} reading(s)`,
-        });
-        return out;
-      });
-      return { readings: await readings(db, s.orgId, "m.id = ANY($2)", [ids]) };
-    },
-
-    async listReadings(s: OrgScope, f: { period: string; propertyId?: string | undefined }) {
-      return {
-        readings: await readings(db, s.orgId, "m.period = $2 AND ($3::text IS NULL OR u.property_id = $3)", [
-          f.period,
-          f.propertyId ?? null,
-        ]),
-      };
-    },
+    recordReadings: (s: OrgScope, b: P.MeterReadingInput) => utilityMetersService(d).record(s, b),
+    listReadings: (s: OrgScope, q: { period: string; propertyId?: string }) => utilityMetersService(d).readings(s, q),
   };
-}
-
-async function readings(db: Db, orgId: string, where: string, params: unknown[]): Promise<P.MeterReading[]> {
-  const rows = await db.rows<{
-    id: string;
-    unit_id: string;
-    unit_no: string;
-    charge_type_id: string;
-    code: string;
-    period: string;
-    previous: number;
-    current: number;
-  }>(
-    `SELECT m.*, u.unit_no, ct.code FROM pm_meter_readings m JOIN pm_units u ON u.id = m.unit_id
-     JOIN pm_charge_types ct ON ct.id = m.charge_type_id WHERE m.org_id = $1 AND ${where} ORDER BY u.unit_no, ct.code`,
-    [orgId, ...params],
-  );
-  return rows.map((r) => ({
-    id: r.id,
-    unitId: r.unit_id,
-    unitNo: r.unit_no,
-    chargeTypeId: r.charge_type_id,
-    code: r.code,
-    period: r.period,
-    previous: Number(r.previous),
-    current: Number(r.current),
-    consumption: Number(r.current) - Number(r.previous),
-  }));
 }
 
 export type LeasesService = ReturnType<typeof leasesService>;

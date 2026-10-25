@@ -682,8 +682,12 @@
         {
           "id": "utilities.16",
           "requirement": "Reading history",
-          "status": "pending",
-          "evidence": []
+          "status": "implemented_subset",
+          "evidence": [
+            "server/test/property.utility-meter-lifecycle.test.ts",
+            "frontend/tests/property.utility-meter-lifecycle.browser.test.js",
+            "RENT-COLLECTIONS-DELIVERY.md: increment 7 and monthly boundary limitations"
+          ]
         },
         {
           "id": "utilities.17",

@@ -188,6 +188,7 @@ describe("configurable tariffs and expense categories reuse property accounting"
     await expect(S.sql("UPDATE pm_utility_tariffs SET fixed_minor=0 WHERE org_id=$1", [X.orgId])).rejects.toBeTruthy();
   });
   it("rolls the entire billing run back when usage exceeds a finite tariff", async () => {
+    S.setToday("2026-11-24");
     const a = X.staff.property_manager.api.property;
     await a.createUtilityTariff({
       params: { ...O(), chargeTypeId: water },
@@ -213,6 +214,7 @@ describe("configurable tariffs and expense categories reuse property accounting"
     expect(await S.sql("SELECT id FROM pm_billing_runs WHERE org_id=$1 AND period='2026-11'", [X.orgId])).toHaveLength(
       0,
     );
+    S.setToday("2026-10-24");
   });
   it("supports repeated category edits and deactivation; bills keep snapshots and existing approvals", async () => {
     const a = X.admin.api.property;

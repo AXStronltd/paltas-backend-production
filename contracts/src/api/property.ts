@@ -414,6 +414,12 @@ export const BillingRunResult = z.object({
 export type BillingRunResult = z.infer<typeof BillingRunResult>;
 
 export const MeterReading = z.object({
+  meterId: Id.nullable(),
+  meterSerial: z.string().nullable(),
+  kind: z.enum(["actual", "estimated"]),
+  reason: z.string(),
+  version: z.number().int().positive(),
+  billed: z.boolean(),
   id: z.string(),
   unitId: z.string(),
   unitNo: z.string(),
@@ -1511,6 +1517,10 @@ export const recordMeterReadings = endpoint({
         z.object({
           unitId: Id,
           chargeTypeId: Id,
+          meterId: Id.optional(),
+          kind: z.enum(["actual", "estimated"]).default("actual"),
+          reason: z.string().trim().max(1000).default(""),
+          expectedVersion: z.number().int().positive().optional(),
           previous: z.number().min(0).max(1e9),
           current: z.number().min(0).max(1e9),
         }),
@@ -1542,7 +1552,12 @@ export const runBilling = endpoint({
   summary:
     "Monthly billing run for a property: rent (prorated in the first month) or charges (recurring + metered; refused while a reading is missing). Idempotent per lease and month.",
   params: OrgParams,
-  body: z.object({ propertyId: Id, period: IsoMonth, kind: z.enum(["rent", "charges"]) }),
+  body: z.object({
+    propertyId: Id,
+    period: IsoMonth,
+    kind: z.enum(["rent", "charges"]),
+    allowEstimatedReadings: z.boolean().default(false),
+  }),
   response: BillingRunResult,
   status: 201,
 });
@@ -3530,3 +3545,101 @@ export const collectionReminderHistory = endpoint({
     ),
   }),
 });
+
+const MeterIndexQuery = z.object({
+  propertyId: Id.optional(),
+  unitId: Id.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).max(1000000).default(0),
+});
+export type MeterIndexQuery = z.infer<typeof MeterIndexQuery>;
+export const UtilityMeterInput = z.object({
+  unitId: Id,
+  chargeTypeId: Id,
+  serial: z.string().trim().min(1).max(100),
+  fromPeriod: IsoMonth,
+  opening: z.number().min(0).max(1e9),
+  reason: z.string().trim().min(5).max(1000),
+});
+export type UtilityMeterInput = z.infer<typeof UtilityMeterInput>;
+export const UtilityMeter = z.object({
+  id: Id,
+  unitId: Id,
+  unitNo: z.string(),
+  chargeTypeId: Id,
+  code: z.string(),
+  serial: z.string(),
+  fromPeriod: IsoMonth,
+  opening: z.number(),
+  throughPeriod: IsoMonth.nullable(),
+  closing: z.number().nullable(),
+  version: z.number().int(),
+  reason: z.string(),
+  events: z.array(
+    z.object({
+      id: Id,
+      actorName: z.string(),
+      reason: z.string(),
+      snapshot: z.record(z.string(), z.unknown()),
+      createdAt: z.string(),
+    }),
+  ),
+});
+export type UtilityMeter = z.infer<typeof UtilityMeter>;
+export const listUtilityMeters = endpoint({
+  id: "property.meters.registry.list",
+  method: "GET",
+  path: `${Base}/utility-meters`,
+  auth: "user",
+  summary: "Physical meter registry and lifecycle history in authorised properties",
+  params: OrgParams,
+  query: MeterIndexQuery,
+  response: z.object({ meters: z.array(UtilityMeter), total: z.number().int() }),
+});
+export const registerUtilityMeter = endpoint({
+  id: "property.meters.registry.create",
+  method: "POST",
+  path: `${Base}/utility-meters`,
+  auth: "user",
+  summary: "Register a metered service from an unbilled monthly boundary",
+  params: OrgParams,
+  body: UtilityMeterInput,
+  response: UtilityMeter,
+  status: 201,
+});
+export const retireUtilityMeter = endpoint({
+  id: "property.meters.registry.retire",
+  method: "POST",
+  path: `${Base}/utility-meters/:meterId/retire`,
+  auth: "user",
+  summary: "Close a meter at a recorded monthly reading; retain its identity and history",
+  params: OrgParams.extend({ meterId: Id }),
+  body: z.object({
+    expectedVersion: z.number().int().positive(),
+    throughPeriod: IsoMonth,
+    closing: z.number().min(0).max(1e9),
+    reason: z.string().trim().min(5).max(1000),
+  }),
+  response: UtilityMeter,
+});
+export const meterReadingHistory = endpoint({
+  id: "property.meters.history",
+  method: "GET",
+  path: `${Base}/meter-readings/:readingId/history`,
+  auth: "user",
+  summary: "Immutable reading revisions; existing pre-upgrade readings start history at first correction",
+  params: OrgParams.extend({ readingId: Id }),
+  response: z.object({
+    reading: MeterReading,
+    events: z.array(
+      z.object({
+        id: Id,
+        actorName: z.string(),
+        snapshot: z.record(z.string(), z.unknown()),
+        reason: z.string(),
+        createdAt: z.string(),
+      }),
+    ),
+  }),
+});
+export type MeterReadingInput = z.infer<typeof recordMeterReadings.body>;

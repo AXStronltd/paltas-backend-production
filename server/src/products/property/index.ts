@@ -1,3 +1,5 @@
+import { utilityMetersService } from "./utilities/utility-meters.service.js";
+import { utilityMeterRoutes } from "./utilities/utility-meters.routes.js";
 import { collectionRemindersService, COLLECTION_REMINDERS_JOB } from "./billing/collection-reminders.service.js";
 import { collectionReminderRoutes } from "./billing/collection-reminders.routes.js";
 import { collectionPlanRoutes } from "./billing/collection-plans.routes.js";
@@ -113,6 +115,7 @@ export const property: ProductModule = {
       ...billingDisputeRoutes(access, billingDisputesService(d)),
       ...collectionPlanRoutes(access, collectionPlansService(d)),
       ...collectionReminderRoutes(access, collectionRemindersService(d)),
+      ...utilityMeterRoutes(access, utilityMetersService(d)),
       ...paymentsRoutes(access, payments),
       ...ownersRoutes(access, owners),
       ...billsRoutes(access, bills),

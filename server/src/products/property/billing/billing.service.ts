@@ -221,7 +221,10 @@ export function billingService(d: PmDeps) {
       });
     },
 
-    async runBilling(s: BillingOp, b: { propertyId: string; period: string; kind: "rent" | "charges" }) {
+    async runBilling(
+      s: BillingOp,
+      b: { propertyId: string; period: string; kind: "rent" | "charges"; allowEstimatedReadings?: boolean },
+    ) {
       await R.propertyRow(db, s.orgId, b.propertyId);
       if (b.period > addMonths(s.today, 1).slice(0, 7)) throw fail.invalid("Bill at most one month ahead of today");
       const first = `${b.period}-01`;
@@ -287,12 +290,43 @@ export function billingService(d: PmDeps) {
             );
             for (const c of charges) {
               if (c.metered) {
-                const m = await t.row<{ previous: number; current: number }>(
-                  "SELECT previous, current FROM pm_meter_readings WHERE unit_id = $1 AND charge_type_id = $2 AND period = $3",
+                const m = await t.row<{
+                  id: string;
+                  version: number;
+                  reading_kind: string;
+                  reason: string;
+                  meter_id: string | null;
+                  meter_serial: string | null;
+                  previous: number;
+                  current: number;
+                }>(
+                  "SELECT r.*,m.serial AS meter_serial FROM pm_meter_readings r LEFT JOIN pm_utility_meters m ON m.org_id=r.org_id AND m.id=r.meter_id WHERE r.unit_id = $1 AND r.charge_type_id = $2 AND r.period = $3",
                   [l.unit_id, c.id, b.period],
                 );
                 if (!m)
                   throw fail.conflict(`Missing ${c.name} meter reading for ${b.period} — record it before billing`);
+                if (m.reading_kind === "estimated" && !b.allowEstimatedReadings)
+                  throw fail.conflict(
+                    `${c.name} for ${b.period} uses an estimated reading. Review its evidence and explicitly allow estimates before billing.`,
+                  );
+                const registry = await t.row<{ id: string }>(
+                  "SELECT id FROM pm_utility_meters WHERE org_id=$1 AND unit_id=$2 AND charge_type_id=$3 AND from_period<=$4 AND (through_period IS NULL OR through_period>=$4)",
+                  [s.orgId, l.unit_id, c.id, b.period],
+                );
+                if (
+                  !registry &&
+                  (await t.row(
+                    "SELECT id FROM pm_utility_meters WHERE org_id=$1 AND unit_id=$2 AND charge_type_id=$3 AND from_period<=$4 LIMIT 1",
+                    [s.orgId, l.unit_id, c.id, b.period],
+                  ))
+                )
+                  throw fail.conflict(
+                    `${c.name}: no physical meter covers this period; register its replacement and review the reading before billing`,
+                  );
+                if (registry && registry.id !== m.meter_id)
+                  throw fail.conflict(
+                    `${c.name}: reopen this unbilled reading and confirm its registered physical meter before billing`,
+                  );
                 const { consumption: used } = calculateMeteredAmount(String(m.previous), String(m.current), 0);
                 const tariff = await t.row<TariffRow>(
                   `SELECT * FROM pm_utility_tariffs WHERE org_id=$1 AND charge_type_id=$2
@@ -320,11 +354,24 @@ export function billingService(d: PmDeps) {
                 if (billedAmount > 0)
                   lines.push({
                     code: c.code,
-                    description: `${c.name}: ${Number(m.previous)} → ${Number(m.current)} ${c.unit_name}${priced ? ` · tiered tariff ${priced.snapshot.effectivePeriod}; variable ${formatMoney(priced.snapshot.variableMinor, priced.snapshot.currency)}, fixed ${formatMoney(priced.snapshot.fixedMinor, priced.snapshot.currency)}` : ""}`,
+                    description: `${c.name}: ${Number(m.previous)} → ${Number(m.current)} ${c.unit_name}${m.reading_kind === "estimated" ? " · ESTIMATED (reviewed)" : ""}${m.meter_serial ? ` · meter ${m.meter_serial}` : ""}${priced ? ` · tiered tariff ${priced.snapshot.effectivePeriod}; variable ${formatMoney(priced.snapshot.variableMinor, priced.snapshot.currency)}, fixed ${formatMoney(priced.snapshot.fixedMinor, priced.snapshot.currency)}` : ""}`,
                     quantity: used,
                     rateMinor: tariff ? 0 : c.rate_minor,
                     amountMinor: billedAmount,
-                    ...(priced ? { pricingSnapshot: priced.snapshot } : {}),
+                    pricingSnapshot: {
+                      ...(priced?.snapshot ?? {}),
+                      readingId: m.id,
+                      readingVersion: m.version,
+                      readingKind: m.reading_kind,
+                      readingReason: m.reason,
+                      meterId: m.meter_id,
+                      meterSerial: m.meter_serial ?? priced?.snapshot.meterSerial ?? null,
+                      tariffMeterSerial: priced?.snapshot.meterSerial ?? null,
+                      previous: String(m.previous),
+                      current: String(m.current),
+                      consumption: used,
+                      estimatedApproved: m.reading_kind === "estimated" && b.allowEstimatedReadings === true,
+                    },
                     payee: c.payee,
                     feeApplies: c.fee_applies,
                     vatApplies: c.vat_applies,
