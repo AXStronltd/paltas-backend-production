@@ -3668,3 +3668,159 @@ export const meterReadingHistory = endpoint({
   }),
 });
 export type MeterReadingInput = z.infer<typeof recordMeterReadings.body>;
+
+// General tenancy complaints are operational cases, separate from invoice disputes.
+export const ComplaintStatus = z.enum(["open", "reviewing", "escalated", "resolved", "closed"]);
+export const Complaint = z.object({
+  id: Id,
+  leaseId: Id,
+  leaseNumber: z.string(),
+  propertyId: Id,
+  unitNo: z.string(),
+  tenantId: Id,
+  tenantName: z.string(),
+  title: z.string(),
+  category: z.string(),
+  description: z.string(),
+  status: ComplaintStatus,
+  assignedUserId: Id.nullable(),
+  assignedName: z.string().nullable(),
+  resolution: z.string(),
+  version: z.number().int().positive(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+  evidence: z.array(
+    z.object({
+      documentId: Id,
+      name: z.string(),
+      filename: z.string(),
+      visibility: z.enum(["staff", "tenant"]),
+      fileStored: z.boolean(),
+    }),
+  ),
+  events: z.array(
+    z.object({ id: Id, action: z.string(), reason: z.string(), internal: z.boolean(), createdAt: z.string() }),
+  ),
+});
+export type Complaint = z.infer<typeof Complaint>;
+export const ComplaintInput = z.object({
+  leaseId: Id,
+  title: z.string().trim().min(3).max(160),
+  category: z.string().trim().min(2).max(80),
+  description: z.string().trim().min(5).max(2000),
+});
+export type ComplaintInput = z.infer<typeof ComplaintInput>;
+export const ComplaintAction = z.object({
+  expectedVersion: z.number().int().positive(),
+  action: z.enum(["review", "assign", "categorise", "comment", "evidence", "escalate", "resolve", "close", "reopen"]),
+  reason: z.string().trim().min(5).max(2000),
+  documentId: Id.optional(),
+  assignedUserId: Id.optional(),
+  category: z.string().trim().min(2).max(80).optional(),
+  internal: z.boolean().default(false),
+});
+export type ComplaintAction = z.infer<typeof ComplaintAction>;
+export const ComplaintQuery = z.object({
+  propertyId: Id.optional(),
+  status: ComplaintStatus.optional(),
+  search: z.string().trim().max(160).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  offset: z.coerce.number().int().min(0).max(1000000).default(0),
+});
+export type ComplaintQuery = z.infer<typeof ComplaintQuery>;
+const ComplaintPage = z.object({
+  complaints: z.array(Complaint),
+  total: z.number().int(),
+  limit: z.number().int(),
+  offset: z.number().int(),
+});
+export const listComplaints = endpoint({
+  id: "property.complaints.list",
+  method: "GET",
+  path: `${Base}/complaints`,
+  auth: "user",
+  summary: "Tenancy complaints in assigned properties",
+  params: OrgParams,
+  query: ComplaintQuery,
+  response: ComplaintPage,
+});
+export const getComplaint = endpoint({
+  id: "property.complaints.get",
+  method: "GET",
+  path: `${Base}/complaints/:complaintId`,
+  auth: "user",
+  summary: "Complaint and immutable communication history",
+  params: OrgParams.extend({ complaintId: Id }),
+  response: Complaint,
+});
+export const createComplaint = endpoint({
+  id: "property.complaints.create",
+  method: "POST",
+  path: `${Base}/complaints`,
+  auth: "user",
+  summary: "Record a tenancy complaint without financial changes",
+  params: OrgParams,
+  body: ComplaintInput,
+  response: Complaint,
+  status: 201,
+});
+export const complaintAction = endpoint({
+  id: "property.complaints.action",
+  method: "POST",
+  path: `${Base}/complaints/:complaintId`,
+  auth: "user",
+  summary: "Assign, review, resolve, close or reopen a complaint with a reason",
+  params: OrgParams.extend({ complaintId: Id }),
+  body: ComplaintAction,
+  response: Complaint,
+});
+export const tenantComplaints = endpoint({
+  id: "property.tenant.complaints.list",
+  method: "GET",
+  path: `${Base}/tenant/complaints`,
+  auth: "user",
+  summary: "Your own complaints and shared history",
+  params: OrgParams,
+  query: ComplaintQuery,
+  response: ComplaintPage,
+});
+export const tenantGetComplaint = endpoint({
+  id: "property.tenant.complaints.get",
+  method: "GET",
+  path: `${Base}/tenant/complaints/:complaintId`,
+  auth: "user",
+  summary: "Your own complaint without internal staff notes",
+  params: OrgParams.extend({ complaintId: Id }),
+  response: Complaint,
+});
+export const tenantCreateComplaint = endpoint({
+  id: "property.tenant.complaints.create",
+  method: "POST",
+  path: `${Base}/tenant/complaints`,
+  auth: "user",
+  summary: "Raise a complaint for your own tenancy",
+  params: OrgParams,
+  body: ComplaintInput,
+  response: Complaint,
+  status: 201,
+});
+export const tenantComplaintAction = endpoint({
+  id: "property.tenant.complaints.action",
+  method: "POST",
+  path: `${Base}/tenant/complaints/:complaintId`,
+  auth: "user",
+  summary: "Comment on or reopen your own complaint",
+  params: OrgParams.extend({ complaintId: Id }),
+  body: ComplaintAction,
+  response: Complaint,
+});
+export const complaintAssignees = endpoint({
+  id: "property.complaints.assignees",
+  method: "GET",
+  path: `${Base}/complaints/:complaintId/assignees`,
+  auth: "user",
+  summary: "Search active employees authorised for this case property",
+  params: OrgParams.extend({ complaintId: Id }),
+  query: z.object({ search: z.string().trim().max(160).default("") }),
+  response: z.object({ members: z.array(z.object({ userId: Id, name: z.string() })), more: z.boolean() }),
+});

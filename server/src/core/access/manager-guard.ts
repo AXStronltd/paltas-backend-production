@@ -44,6 +44,8 @@ const FINE: Record<string, Capability> = {
   "property.tenants.statement": "property.tenants.history",
 };
 const TABLES: Record<string, string> = {
+  complaintId:
+    "SELECT l.property_id FROM pm_complaints c JOIN pm_leases l ON l.org_id=c.org_id AND l.id=c.lease_id WHERE c.org_id=$1 AND c.id=$2",
   meterId:
     "SELECT u.property_id FROM pm_utility_meters m JOIN pm_units u ON u.id=m.unit_id AND u.org_id=m.org_id WHERE m.org_id=$1 AND m.id=$2",
   readingId:
@@ -69,6 +71,7 @@ const TABLES: Record<string, string> = {
   inspectionId: "SELECT property_id FROM pm_inspections WHERE org_id=$1 AND id=$2",
 };
 const LISTS: Record<string, [string, string]> = {
+  "property.complaints.list": ["complaints", "complaintId"],
   "property.meters.registry.list": ["meters", "meterId"],
   "property.meters.list": ["readings", "readingId"],
   "property.invoices.plans.list": ["plans", "planId"],
@@ -95,7 +98,7 @@ const SAFE_SHARED = new Set([
   "subscription.entitlements",
 ]);
 const SCOPED =
-  /^(property\.(properties\.(list|get|update)|buildings\.(create|update|delete)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|meters\..+|invoices\..+|reminders\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll|collectionsOverview|exportCollections))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
+  /^(property\.(properties\.(list|get|update)|buildings\.(create|update|delete)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|complaints\..+|meters\..+|invoices\..+|reminders\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll|collectionsOverview|exportCollections))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
 const GLOBAL =
   /^property\.(settings\.update|chargeTypes\.(create|update)|properties\.create|bank\.|reconciliations\.|payouts\.|owners\.|reports\.(clientMoney|aged|dashboard))/;
 export function managerGuard(db: Db) {
@@ -253,6 +256,7 @@ export function managerGuard(db: Db) {
               "total" in data &&
               ![
                 "property.payments.list",
+                "property.complaints.list",
                 "property.invoices.drafts.list",
                 "property.invoices.disputes.list",
                 "property.invoices.plans.list",

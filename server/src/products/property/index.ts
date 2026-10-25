@@ -1,3 +1,5 @@
+import { complaintRoutes } from "./people/complaints.routes.js";
+import { complaintsService } from "./people/complaints.service.js";
 import { utilityMetersService } from "./utilities/utility-meters.service.js";
 import { utilityMeterRoutes } from "./utilities/utility-meters.routes.js";
 import { collectionRemindersService, COLLECTION_REMINDERS_JOB } from "./billing/collection-reminders.service.js";
@@ -108,6 +110,7 @@ export const property: ProductModule = {
           req.body,
         ),
       ),
+      ...complaintRoutes(access, complaintsService(d)),
       ...propertyPayrollRoutes(access, propertyPayrollService(d)),
       ...setupRoutes(access, setup),
       ...leasesRoutes(access, leases, billing, payments),

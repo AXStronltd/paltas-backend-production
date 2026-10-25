@@ -755,6 +755,15 @@ export const CONTACTS_API = {
 } as const;
 
 export const PROPERTY_API = {
+  complaintAssignees: property.complaintAssignees,
+  listComplaints: property.listComplaints,
+  getComplaint: property.getComplaint,
+  createComplaint: property.createComplaint,
+  complaintAction: property.complaintAction,
+  tenantComplaints: property.tenantComplaints,
+  tenantGetComplaint: property.tenantGetComplaint,
+  tenantCreateComplaint: property.tenantCreateComplaint,
+  tenantComplaintAction: property.tenantComplaintAction,
   exportAuditIntegrity: property.exportAuditIntegrity,
   listUtilityTariffs: property.listUtilityTariffs,
   createUtilityTariff: property.createUtilityTariff,
