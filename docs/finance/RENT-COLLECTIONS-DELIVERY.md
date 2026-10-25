@@ -18,30 +18,30 @@ The approved specification is the acceptance standard. This implementation exten
 
 ## Mandatory programme gates — no item declared done merely because a screen exists
 
-| Specification area | State after this increment |
-|---|---|
-| 1 Preserve existing product | Existing services reused; regression verification required for each increment |
-| 2 Rent and billing engine | Partial: monthly terms/runs exist; flexible cycles, concessions, shared tenancies, commercial rules, multi-currency and draft lifecycle still required |
-| 3 Invoices/receipts | Partial: issue/allocate/credit/email exists; full draft/template/attachment/download/archive/export controls remain |
-| 4 Service charges | Partial: configurable customer charge types and tariffs; building assessments, mixed payer/share/exemption rules remain |
-| 5 Utilities | Partial: readings/tariffs/billing; meter lifecycle, estimates, disputes, shared allocation, analytics and supplier reconciliation remain |
-| 6 Payments | Partial: recording/allocation/reversal; unified initiation/status/investigation/provider lifecycle remains |
-| 7 Clearing/reconciliation | Partial: manual import/matching/sign-off; grouped matching, fees and settlement exception workflows remain |
-| 8 Arrears | Partial: ageing/late fees; reminder policies, plans/promises/disputes/escalation remain |
-| 9 Deposits/refunds | Partial: existing settlement; partial residual liability and execution/failure tracking remain |
-| 10 Multi-owner | Partial: existing statements/fees/payouts; ownership shares, execution tracking, scoped profitability/self-service gaps remain |
-| 11 Financial command centre | Implemented first increment; pending alerts, pending-provider amounts, fees, account filter, scheduled reports and export coverage |
-| 12 Customer self-service | Partial: repeat edits/corrections retained; full per-lifecycle control coverage not complete |
-| 13 Tenant portal | Existing records reused; plans/disputes/settlement requests/download/payment capability gaps remain |
-| 14 Owner portal | Existing records reused; full reports, permissions and profitability coverage remain |
-| 15 Migration | Existing approved migration framework; competitor-specific fixtures, supported-domain coverage and reconciled journeys remain |
-| 16 Accounting | Existing shared engine preserved; each added workflow requires balanced posting/reversal tests |
-| 17 Scale | No claim of hundred-thousand-unit readiness; realistic workload/SLO/index/export/job tests remain |
-| 18 Security/reliability | Existing isolation/approval/locking retained; full threat, recovery, monitoring and DR evidence remains |
-| 19 UX | Existing branding/navigation retained; responsive first-increment review is not whole-product acceptance |
-| 20 E2E scenarios | Current supported journeys tested separately; all 14 mandated scenarios must pass before release readiness |
-| 21 Execution | Follow controlled increments; production deployment explicitly withheld |
-| 22 Definition of done | OPEN: customer acceptance, full workflows, scale, integrations, monitoring and recovery gates not closed |
+| Specification area          | State after this increment                                                                                                                             |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1 Preserve existing product | Existing services reused; regression verification required for each increment                                                                          |
+| 2 Rent and billing engine   | Partial: monthly terms/runs exist; flexible cycles, concessions, shared tenancies, commercial rules, multi-currency and draft lifecycle still required |
+| 3 Invoices/receipts         | Partial: issue/allocate/credit/email exists; full draft/template/attachment/download/archive/export controls remain                                    |
+| 4 Service charges           | Partial: configurable customer charge types and tariffs; building assessments, mixed payer/share/exemption rules remain                                |
+| 5 Utilities                 | Partial: readings/tariffs/billing; meter lifecycle, estimates, disputes, shared allocation, analytics and supplier reconciliation remain               |
+| 6 Payments                  | Partial: recording/allocation/reversal; unified initiation/status/investigation/provider lifecycle remains                                             |
+| 7 Clearing/reconciliation   | Partial: manual import/matching/sign-off; grouped matching, fees and settlement exception workflows remain                                             |
+| 8 Arrears                   | Partial: ageing/late fees; reminder policies, plans/promises/disputes/escalation remain                                                                |
+| 9 Deposits/refunds          | Partial: existing settlement; partial residual liability and execution/failure tracking remain                                                         |
+| 10 Multi-owner              | Partial: existing statements/fees/payouts; ownership shares, execution tracking, scoped profitability/self-service gaps remain                         |
+| 11 Financial command centre | Implemented first increment; pending alerts, pending-provider amounts, fees, account filter, scheduled reports and export coverage                     |
+| 12 Customer self-service    | Partial: repeat edits/corrections retained; full per-lifecycle control coverage not complete                                                           |
+| 13 Tenant portal            | Existing records reused; plans/disputes/settlement requests/download/payment capability gaps remain                                                    |
+| 14 Owner portal             | Existing records reused; full reports, permissions and profitability coverage remain                                                                   |
+| 15 Migration                | Existing approved migration framework; competitor-specific fixtures, supported-domain coverage and reconciled journeys remain                          |
+| 16 Accounting               | Existing shared engine preserved; each added workflow requires balanced posting/reversal tests                                                         |
+| 17 Scale                    | No claim of hundred-thousand-unit readiness; realistic workload/SLO/index/export/job tests remain                                                      |
+| 18 Security/reliability     | Existing isolation/approval/locking retained; full threat, recovery, monitoring and DR evidence remains                                                |
+| 19 UX                       | Existing branding/navigation retained; responsive first-increment review is not whole-product acceptance                                               |
+| 20 E2E scenarios            | Current supported journeys tested separately; all 14 mandated scenarios must pass before release readiness                                             |
+| 21 Execution                | Follow controlled increments; production deployment explicitly withheld                                                                                |
+| 22 Definition of done       | OPEN: customer acceptance, full workflows, scale, integrations, monitoring and recovery gates not closed                                               |
 
 Provider-dependent methods stay unavailable until independently configured and verified. SMS/WhatsApp/bank/M-Pesa integrations are not represented as live by this change. No customer financial data is modified for testing. No market-ready claim is justified yet.
 
@@ -81,7 +81,6 @@ Verification: five backend dispute tests; 43 focused backend tests including bil
 
 This completes a supported dispute journey, not the whole utilities/arrears specification. Meter lifecycle, estimates, shared allocation, repayment/reminder automation and other acceptance gaps remain open. No production release performed.
 
-
 ## Increment 4: reviewed repayment plans and promises to pay
 
 Added balanced instalment proposals against one existing unpaid invoice. Tenants can propose, repeatedly edit and withdraw their own unapproved proposals. Authorised managers can review/approve, pause/resume tracking, cancel, complete fully settled arrangements and reopen unpaid closed arrangements as proposals. Company administrators may explicitly approve an operational tracking proposal; delegated managers cannot approve their own creation or last edit. This does not attest legal validity or change a signed contract.
@@ -93,7 +92,6 @@ Additive migration `0042_property_collection_plans.sql` stores plans and immutab
 Verification: 21 browser checks at 1440/768/390 px exercised tenant proposal → repeated edit → manager approval → actual partial receipt → tenant instalment balance/history. The first run correctly rejected a future-dated test receipt; the fixture was corrected and all three viewport journeys passed. Backend coverage includes balancing, credits, reversals, stale edits, own-tenant and assigned-property isolation, independent manager review, immediate grant revocation and retained withdrawal history. Automated reminders, multi-invoice arrangements, legal agreement signing and scheduled communications remain separate open requirements; no whole-programme completion claim is made.
 
 Final increment-4 verification: the broad suite passed 131 files / 859 tests before history snapshot hardening. After snapshot hardening, 26 focused tests passed across collection plans, manager controls and safe migration/upgrade checks. Immutable event snapshots preserve each previous schedule, approval status and version when proposals are edited or closed plans are reopened. Database triggers reject event changes and deletion.
-
 
 ## Increment 5: configurable collection reminders and honest delivery tracking
 
@@ -113,7 +111,6 @@ Remaining scope: SMS/WhatsApp configuration-specific journeys, repayment-date re
 
 Final increment-5 verification: **132 suites / 867 backend tests passed** after all reminder guards and concurrent confirmation tests. TypeScript, lint, generated frontend comparison, production build and 18 responsive reminder browser checks passed. This is not acceptance of the remaining enterprise requirements. No production release was performed.
 
-
 ## Increment 6: partial deposit settlements and residual liability
 
 Extended the existing settlement request with an optional `settlementMinor`. Omitting it preserves the existing full-balance workflow. The requested release can include authorised arrears, deductions and a refund; the unreleased amount remains held as a deposit liability. A request snapshots the available balance and approval rechecks it. The original deposit, owner allocation and client-bank posting services are reused; no alternative ledger is introduced.
@@ -129,7 +126,6 @@ Increment-6 focused verification: 31 backend tests passed across partial deposit
 Final increment-6 backend regression: **133 suites / 871 tests passed** on the final built schema and services. TypeScript, ESLint, focused formatting checks, generated API-client consistency, frontend generated-source verification and production build passed. Production remains unreleased while the full-programme acceptance gate is open.
 
 Final-schema browser regressions passed: collections overview 18, saved invoice drafts 15, billing disputes 18, repayment plans 24, collection reminders 18 and partial deposits 21 — **114 checks total**, each across 1440/768/390 px. Generated production artifacts match the verified sources. The enterprise acceptance gate remains open; no production deployment was performed.
-
 
 ## Increment 7: physical utility meters, reading revisions and estimate controls
 
@@ -147,7 +143,6 @@ The final meter UI passed 27 responsive browser checks with actor-labelled revis
 
 After the future-date fixture correction, all 35 focused meter/tariff/accounting/migration tests passed. The actual-reading guard remains enabled. No production changes were made.
 
-
 ## Increment 8: fresh reconciliation sources and unresolved-line safeguards
 
 Confirmed defect: preparation calculated its components before acquiring the shared financial lock, and approval rechecked only the ledger balance. New or differently classified statement lines could leave the same zero aggregate while changing the reviewed evidence. Preparation now computes and stores the reconciliation under the financial transaction lock. A SHA-256 freshness fingerprint binds the dated statement rows, recorded money and PM client-account ledger lines. Approval recomputes it and the financial components; changed sources require a fresh preparation. This is an approval freshness control, not a claim of independently anchored tamper-proof accounting.
@@ -160,7 +155,6 @@ Focused verification: 38 tests passed across stale/zero-net sources, changed cla
 
 Reconciliation responsive verification passed 15 checks at 1440/768/390 px: stale zero-net snapshot rejected → direct unresolved-line review → fresh independently approved snapshot. The broad run passed 878 tests with one export-cleanup timing failure (879 total); that failure is documented and addressed in the following shared-export hardening increment, not reported as a passing broad run.
 
-
 ## Increment 9: export concurrency and cleanup
 
 Regression exposed a timing-sensitive export cleanup test. Inspection also confirmed a concurrency defect: the export slot was reserved after an awaited audit write, permitting simultaneous requests to pass the same limit check. Slots are now reserved before asynchronous work and released if audit recording fails or the export transaction finishes. Stream backpressure listeners are removed after drain/close/error to avoid accumulating listeners during large exports. An internal completion promise allows deterministic cleanup verification; the HTTP streaming contract is unchanged.
@@ -170,7 +164,6 @@ Six export-hardening tests cover existing isolation/limits, simultaneous request
 Final verification after increments 7–9: **135 suites / 881 backend tests passed**. TypeScript, ESLint, generated browser-client consistency and changed-source formatting passed. Meter lifecycle passed 27 responsive browser checks and reconciliation freshness passed 15 at 1440/768/390 px. These are incremental results, not full enterprise/customer acceptance. No production deployment, customer email, account reset or real payment execution occurred.
 
 The user described the unavailable workbook amounts as “all”; mixed charges, payments and balances must be reviewed as distinct record types. The real workbook has not been supplied in this session and its migration remains unverified. Balances must not be posted again as extra charges or payments.
-
 
 ## Increment 10: complete filtered cashbook and invoice-balance CSVs
 
@@ -184,12 +177,10 @@ All eight browser journeys were rerun on this generated frontend: collections 24
 
 Limits remain: these are bounded synchronous CSV exports, not Excel/PDF generation, scheduled reporting or enterprise-volume export jobs. Full enterprise acceptance is still open. No production deployment was performed.
 
-
 ## Increment 11: revalidate billing sources after financial lock acquisition
 
 Confirmed race: the billing run loaded eligible leases and checked required meter readings before acquiring the organisation's shared financial lock. A concurrent authorised lifecycle/term change could complete while the run waited, leaving a stale lease snapshot for invoicing. Those reads now occur inside the existing locked financial transaction, before creating the run or invoices. Existing invoice generation, ledger posting and duplicate constraints are reused. No schema change or automatic historical rebilling is introduced.
 
 Two deterministic HTTP/database tests hold the same financial lock, wait for the billing request to queue, commit a simulated lifecycle/term change and release it. The run must skip a newly ended lease and use updated terms/due day. Repeated runs remain duplicate-safe. Test setup initially reused a property name and queried PostgreSQL activity from a transaction-cached statistics snapshot; the fixture now uses unique properties and an independent inspection query. Both tests passed after correction. The final broad regression is recorded after completion. These changes remain local and unreleased.
-
 
 Final increment-11 verification: **138 suites / 889 backend tests passed** after the concurrency correction. TypeScript, ESLint and changed-source formatting passed. The affected meter/estimate/invoice browser journey was rerun against this backend and passed **27 checks** at 1440/768/390 px. The existing frontend remains the production-build-verified export version; all eight frontend journeys had passed 162 checks, with affected utility billing subsequently rerun. No production deployment, migration or real customer/financial action occurred. Deployment is authorised after full completion, but enterprise acceptance is not complete.
