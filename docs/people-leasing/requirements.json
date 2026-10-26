@@ -2675,5 +2675,12 @@
     "status": "NOT STARTED",
     "units": 0,
     "evidence": []
-  }
+  },
+  "userDeferrals": [
+    {
+      "date": "2026-10-26",
+      "scope": "Electronic-signature provider integration",
+      "decision": "User explicitly deferred electronic signatures and requested completion of the remaining work. This is not a claim of implementation or legal verification."
+    }
+  ]
 }

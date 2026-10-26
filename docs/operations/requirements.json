@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-25",
+  "updated": "2026-10-26",
   "source": "Approved Complete Enterprise Operations Implementation attachment. These entries preserve supplied module phrases; original specification remains authoritative.",
   "status": "NOT COMPLETE",
   "requirements": [
@@ -279,39 +279,54 @@
       "id": "OPS-03-01",
       "module": "Inspections",
       "description": "Configurable templates",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_inspection_controls.js; source/pm_server.js; existing property maintenance workspace",
+      "backend": "property/maintenance/inspection-controls.service.ts; maintenance.service.ts; existing private comms document service and scoped audit",
+      "database": "0053_property_inspection_controls; existing pm_documents/pm_document_files; no separate photo storage",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.inspection-controls.test.ts",
+        "server/test/property.document-files.test.ts",
+        "tests/property.inspection-controls.browser.test.js",
+        "tests/property.inspection-context.browser.test.js"
+      ],
+      "verification": "Property inspection controls released: backend 01598c5, frontend 339e87d, 53 migrations. Photo integration verified locally and in staging: 70 browser checks, private JPEG/PNG evidence, exact-byte retrieval, invalid-file rejection, resumable metadata upload, sequential duplicate suppression, original findings preserved, scoped delegated access and revocation. Full backend check: 931 tests in 145 suites. Photo integration LIVE: frontend 0864842, backend runtime 01598c5. Live pm/index/account/admin artifacts match the tested build; database up, 53 migrations, none pending. Production customer records were not used as test fixtures. Full cross-product inspection/compliance acceptance remains open.",
       "blockers": []
     },
     {
       "id": "OPS-03-02",
       "module": "Inspections",
       "description": "checklists",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_inspection_controls.js; source/pm_server.js; existing property maintenance workspace",
+      "backend": "property/maintenance/inspection-controls.service.ts; maintenance.service.ts; existing private comms document service and scoped audit",
+      "database": "0053_property_inspection_controls; existing pm_documents/pm_document_files; no separate photo storage",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.inspection-controls.test.ts",
+        "server/test/property.document-files.test.ts",
+        "tests/property.inspection-controls.browser.test.js",
+        "tests/property.inspection-context.browser.test.js"
+      ],
+      "verification": "Property inspection controls released: backend 01598c5, frontend 339e87d, 53 migrations. Photo integration verified locally and in staging: 70 browser checks, private JPEG/PNG evidence, exact-byte retrieval, invalid-file rejection, resumable metadata upload, sequential duplicate suppression, original findings preserved, scoped delegated access and revocation. Full backend check: 931 tests in 145 suites. Photo integration LIVE: frontend 0864842, backend runtime 01598c5. Live pm/index/account/admin artifacts match the tested build; database up, 53 migrations, none pending. Production customer records were not used as test fixtures. Full cross-product inspection/compliance acceptance remains open.",
       "blockers": []
     },
     {
       "id": "OPS-03-03",
       "module": "Inspections",
       "description": "photos",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_inspection_controls.js; source/pm_server.js; existing property maintenance workspace",
+      "backend": "property/maintenance/inspection-controls.service.ts; maintenance.service.ts; existing private comms document service and scoped audit",
+      "database": "0053_property_inspection_controls; existing pm_documents/pm_document_files; no separate photo storage",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.inspection-controls.test.ts",
+        "server/test/property.document-files.test.ts",
+        "tests/property.inspection-controls.browser.test.js",
+        "tests/property.inspection-context.browser.test.js"
+      ],
+      "verification": "Property inspection controls released: backend 01598c5, frontend 339e87d, 53 migrations. Photo integration verified locally and in staging: 70 browser checks, private JPEG/PNG evidence, exact-byte retrieval, invalid-file rejection, resumable metadata upload, sequential duplicate suppression, original findings preserved, scoped delegated access and revocation. Full backend check: 931 tests in 145 suites. Photo integration LIVE: frontend 0864842, backend runtime 01598c5. Live pm/index/account/admin artifacts match the tested build; database up, 53 migrations, none pending. Production customer records were not used as test fixtures. Full cross-product inspection/compliance acceptance remains open.",
       "blockers": []
     },
     {
@@ -331,39 +346,54 @@
       "id": "OPS-03-05",
       "module": "Inspections",
       "description": "findings",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_inspection_controls.js; source/pm_server.js; existing property maintenance workspace",
+      "backend": "property/maintenance/inspection-controls.service.ts; maintenance.service.ts; existing private comms document service and scoped audit",
+      "database": "0053_property_inspection_controls; existing pm_documents/pm_document_files; no separate photo storage",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.inspection-controls.test.ts",
+        "server/test/property.document-files.test.ts",
+        "tests/property.inspection-controls.browser.test.js",
+        "tests/property.inspection-context.browser.test.js"
+      ],
+      "verification": "Property inspection controls released: backend 01598c5, frontend 339e87d, 53 migrations. Photo integration verified locally and in staging: 70 browser checks, private JPEG/PNG evidence, exact-byte retrieval, invalid-file rejection, resumable metadata upload, sequential duplicate suppression, original findings preserved, scoped delegated access and revocation. Full backend check: 931 tests in 145 suites. Photo integration LIVE: frontend 0864842, backend runtime 01598c5. Live pm/index/account/admin artifacts match the tested build; database up, 53 migrations, none pending. Production customer records were not used as test fixtures. Full cross-product inspection/compliance acceptance remains open.",
       "blockers": []
     },
     {
       "id": "OPS-03-06",
       "module": "Inspections",
       "description": "corrective actions",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_inspection_controls.js; source/pm_server.js; existing property maintenance workspace",
+      "backend": "property/maintenance/inspection-controls.service.ts; maintenance.service.ts; existing private comms document service and scoped audit",
+      "database": "0053_property_inspection_controls; existing pm_documents/pm_document_files; no separate photo storage",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.inspection-controls.test.ts",
+        "server/test/property.document-files.test.ts",
+        "tests/property.inspection-controls.browser.test.js",
+        "tests/property.inspection-context.browser.test.js"
+      ],
+      "verification": "Property inspection controls released: backend 01598c5, frontend 339e87d, 53 migrations. Photo integration verified locally and in staging: 70 browser checks, private JPEG/PNG evidence, exact-byte retrieval, invalid-file rejection, resumable metadata upload, sequential duplicate suppression, original findings preserved, scoped delegated access and revocation. Full backend check: 931 tests in 145 suites. Photo integration LIVE: frontend 0864842, backend runtime 01598c5. Live pm/index/account/admin artifacts match the tested build; database up, 53 migrations, none pending. Production customer records were not used as test fixtures. Full cross-product inspection/compliance acceptance remains open.",
       "blockers": []
     },
     {
       "id": "OPS-03-07",
       "module": "Inspections",
       "description": "follow-up inspections and compliance records",
-      "status": "NOT STARTED",
-      "frontend": "Existing source/pm_server.js; relevant hotel, host, developer and security portal components \u2014 mapping pending",
-      "backend": "Existing property/maintenance, bills, utilities, core contacts/ledger/documents/notifications; relevant product services \u2014 mapping pending",
-      "database": "Existing product migrations; safe additive changes only",
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_inspection_controls.js; source/pm_server.js; existing property maintenance workspace",
+      "backend": "property/maintenance/inspection-controls.service.ts; maintenance.service.ts; existing private comms document service and scoped audit",
+      "database": "0053_property_inspection_controls; existing pm_documents/pm_document_files; no separate photo storage",
       "dependencies": ["Properties", "Documents", "Shared Accounting", "Notifications", "Product permissions"],
-      "tests": [],
-      "verification": "Requirement-level acceptance pending; existing related code is not presumed missing or complete.",
+      "tests": [
+        "server/test/property.inspection-controls.test.ts",
+        "server/test/property.document-files.test.ts",
+        "tests/property.inspection-controls.browser.test.js",
+        "tests/property.inspection-context.browser.test.js"
+      ],
+      "verification": "Property inspection controls released: backend 01598c5, frontend 339e87d, 53 migrations. Photo integration verified locally and in staging: 70 browser checks, private JPEG/PNG evidence, exact-byte retrieval, invalid-file rejection, resumable metadata upload, sequential duplicate suppression, original findings preserved, scoped delegated access and revocation. Full backend check: 931 tests in 145 suites. Photo integration LIVE: frontend 0864842, backend runtime 01598c5. Live pm/index/account/admin artifacts match the tested build; database up, 53 migrations, none pending. Production customer records were not used as test fixtures. Full cross-product inspection/compliance acceptance remains open.",
       "blockers": []
     },
     {
@@ -2277,6 +2307,25 @@
       "backend": "99262bc",
       "frontend": "b545a92",
       "status": "LIVE"
+    },
+    {
+      "scope": "Versioned inspection checklists, reschedule/cancel/restore, immutable findings and linked follow-up visits",
+      "backend": "01598c5",
+      "frontend": "339e87d",
+      "status": "LIVE"
+    },
+    {
+      "scope": "Private inspection photo upload, retry and evidence retrieval through existing document storage",
+      "backend": "01598c5 (runtime unchanged)",
+      "frontend": "0864842",
+      "status": "LIVE"
+    }
+  ],
+  "userDeferrals": [
+    {
+      "date": "2026-10-26",
+      "scope": "Electronic-signature provider integration",
+      "decision": "User explicitly deferred electronic signatures and requested completion of the remaining work. This is not a claim of implementation or legal verification."
     }
   ]
 }

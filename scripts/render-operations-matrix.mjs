@@ -7,7 +7,7 @@ const cell = (v) =>
 const rows = [
   "# Operations completion matrix",
   "",
-  "Updated 25 October 2026. **The full Operations programme is not complete.**",
+  "Updated 26 October 2026. **The full Operations programme is not complete.**",
   "",
   "This table is rendered from `operations/requirements.json`. NOT STARTED means requirement-level acceptance is pending; it does not assert that existing functionality is missing. IN PROGRESS may include a released, verified subset. The approved original specification and all 12 acceptance journeys remain authoritative.",
   "",

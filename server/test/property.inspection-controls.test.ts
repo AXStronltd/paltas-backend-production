@@ -278,6 +278,57 @@ it("rejects unsupported dates and keeps full long findings while repair titles r
   });
   expect(request.title.length).toBeLessThanOrEqual(200);
 });
+it("keeps inspection evidence private, immutable and within delegated property scope", async () => {
+  await S.sql(
+    "UPDATE main_manager_grants SET capabilities=array_append(array_append(capabilities,'property.tenants.documents'),'property.read') WHERE org_id=$1 AND user_id=$2",
+    [orgId, manager.userId],
+  );
+  const otherBuilding = await setUpBuilding(orgId, admin, { name: "Evidence out of scope" });
+  const otherInspection = await admin.api.property.scheduleInspection({
+    params: { orgId },
+    body: { propertyId: otherBuilding.propertyId, kind: "routine", scheduledDate: "2026-11-01" },
+  });
+  const bytes = Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+    "base64",
+  );
+  const make = (id: string) => ({
+    name: "Bathroom tap evidence",
+    docType: "inspection_photo",
+    linkEntity: "inspection" as const,
+    linkId: id,
+    filename: "tap.png",
+    visibility: "staff" as const,
+  });
+  const doc = await manager.api.property.addDocument({ params: { orgId }, body: make(inspection.id) });
+  const file = { filename: "tap.png", mediaType: "image/png" as const, contentBase64: bytes.toString("base64") };
+  await manager.api.property.uploadDocumentFile({ params: { orgId, documentId: doc.id }, body: file });
+  expect(
+    (await manager.api.property.downloadDocumentFile({ params: { orgId, documentId: doc.id } })).contentBase64,
+  ).toBe(file.contentBase64);
+  await refused(manager.api.property.uploadDocumentFile({ params: { orgId, documentId: doc.id }, body: file }), 409);
+  const outside = await admin.api.property.addDocument({ params: { orgId }, body: make(otherInspection.id) });
+  await refused(manager.api.property.addDocument({ params: { orgId }, body: make(otherInspection.id) }), 404);
+  await refused(
+    manager.api.property.listDocuments({
+      params: { orgId },
+      query: { linkEntity: "inspection", linkId: otherInspection.id },
+    }),
+    404,
+  );
+  await refused(
+    manager.api.property.uploadDocumentFile({ params: { orgId, documentId: outside.id }, body: file }),
+    404,
+  );
+  await refused(manager.api.property.downloadDocumentFile({ params: { orgId, documentId: outside.id } }), 404);
+  const other = await pmOrg(S);
+  await refused(other.admin.api.property.downloadDocumentFile({ params: { orgId, documentId: doc.id } }), 404);
+  await S.sql(
+    "UPDATE main_manager_grants SET capabilities=array_remove(capabilities,'property.tenants.documents') WHERE org_id=$1 AND user_id=$2",
+    [orgId, manager.userId],
+  );
+  await refused(manager.api.property.downloadDocumentFile({ params: { orgId, documentId: doc.id } }), 403);
+});
 it("isolates organisations, properties and roles, including revoked access", async () => {
   const other = await pmOrg(S),
     viewer = await S.addMember(orgId, admin.api, "viewer"),
