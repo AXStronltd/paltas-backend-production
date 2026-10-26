@@ -458,10 +458,22 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
         const drop = await load(t, s.orgId, mergeId);
         if (keep.user_id && drop.user_id && keep.user_id !== drop.user_id)
           throw fail.conflict("Both contacts are linked to different portal sign-ins — unlink one first");
+        if (
+          await t.row(
+            "SELECT 1 FROM pm_lease_people p JOIN pm_leases l ON l.org_id=p.org_id AND l.id=p.lease_id WHERE p.org_id=$1 AND NOT p.archived AND ((p.contact_id=$2 AND l.tenant_id=$3) OR (p.contact_id=$3 AND l.tenant_id=$2)) LIMIT 1",
+            [s.orgId, mergeId, keepId],
+          )
+        )
+          throw fail.conflict(
+            "This merge would make the primary tenant their own active additional contact. Review and archive the duplicate household relationship first.",
+          );
         const refs = await t.rows<{ tbl: string; col: string }>(
           `SELECT c.conrelid::regclass::text AS tbl, a.attname AS col
-           FROM pg_constraint c JOIN pg_attribute a ON a.attrelid = c.conrelid AND a.attnum = ANY (c.conkey)
-           WHERE c.contype = 'f' AND c.confrelid = 'contacts'::regclass
+           FROM pg_constraint c
+           JOIN LATERAL unnest(c.conkey,c.confkey) AS fk(local_key,foreign_key) ON true
+           JOIN pg_attribute a ON a.attrelid=c.conrelid AND a.attnum=fk.local_key
+           JOIN pg_attribute referenced ON referenced.attrelid=c.confrelid AND referenced.attnum=fk.foreign_key
+           WHERE c.contype = 'f' AND c.confrelid = 'contacts'::regclass AND referenced.attname='id'
            ORDER BY 1, 2`,
         );
         let moved = 0;
@@ -470,7 +482,24 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
           if (!/^[a-z_][a-z0-9_]*$/.test(r.tbl) || !/^[a-z_][a-z0-9_]*$/.test(r.col)) continue;
           await t.run("SAVEPOINT contact_merge");
           try {
+            const household =
+              r.tbl === "pm_lease_people" && r.col === "contact_id"
+                ? await t.rows<{ id: string; lease_id: string; version: number }>(
+                    "SELECT id,lease_id,version FROM pm_lease_people WHERE org_id=$1 AND contact_id=$2 FOR UPDATE",
+                    [s.orgId, mergeId],
+                  )
+                : [];
             moved += await t.run(`UPDATE ${r.tbl} SET ${r.col} = $1 WHERE ${r.col} = $2`, [keepId, mergeId]);
+            for (const person of household)
+              await recordAudit(t, {
+                orgId: s.orgId,
+                actor: s.actor,
+                action: "Lease person identity merged",
+                target: person.lease_id,
+                detail: reason,
+                before: { id: person.id, contactId: mergeId, version: person.version },
+                after: { id: person.id, contactId: keepId, version: person.version + 1 },
+              });
             await t.run("RELEASE SAVEPOINT contact_merge");
           } catch (e) {
             await t.run("ROLLBACK TO SAVEPOINT contact_merge");

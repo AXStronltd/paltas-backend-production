@@ -9,6 +9,11 @@ import { productRole } from "./product-role.js";
 
 type Req = Parameters<Route["handler"]>[0];
 const FINE: Record<string, Capability> = {
+  "property.leases.people.get": "property.tenants.view",
+  "property.leases.people.list": "property.tenants.view",
+  "property.leases.people.history": "property.tenants.view",
+  "property.leases.people.create": "property.tenants.leaseEdit",
+  "property.leases.people.update": "property.tenants.leaseEdit",
   "property.invoices.plans.list": "property.tenants.history",
   "property.invoices.disputes.list": "property.tenants.history",
   "contacts.list": "property.tenants.view",

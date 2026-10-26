@@ -4132,3 +4132,92 @@ export const inspectionTemplateHistory = endpoint({
   query: maintenanceRequestHistory.query,
   response: maintenanceRequestHistory.response,
 });
+
+// Household records do not change the primary contractual tenant, billing or portal access.
+const LeasePersonFields = z.object({
+  kind: z.enum(["occupant", "emergency_contact"]),
+  relationship: z.string().trim().max(120).default(""),
+  note: z.string().trim().max(1000).default(""),
+  startDate: IsoDate.refine((d) => !d.startsWith("0000"), "Choose a year from 0001 onwards")
+    .nullable()
+    .default(null),
+  endDate: IsoDate.refine((d) => !d.startsWith("0000"), "Choose a year from 0001 onwards")
+    .nullable()
+    .default(null),
+});
+export const LeasePerson = LeasePersonFields.extend({
+  id: Id,
+  leaseId: Id,
+  contactId: Id,
+  contactName: z.string(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  contactAccessible: z.boolean(),
+  archived: z.boolean(),
+  version: z.number().int().positive(),
+  createdAt: IsoDateTime,
+});
+export type LeasePerson = z.infer<typeof LeasePerson>;
+export const listLeasePeople = endpoint({
+  id: "property.leases.people.list",
+  method: "GET",
+  path: `${Base}/leases/:leaseId/people`,
+  auth: "user",
+  summary: "Scoped household and emergency contacts; no rent liability or portal grants",
+  params: LeaseParams,
+  query: z.object({
+    status: z.enum(["active", "archived", "all"]).default("active"),
+    limit: z.coerce.number().int().min(1).max(100).default(25),
+    offset: z.coerce.number().int().min(0).default(0),
+  }),
+  response: z.object({
+    people: z.array(LeasePerson),
+    total: z.number().int(),
+    limit: z.number().int(),
+    offset: z.number().int(),
+  }),
+});
+export const createLeasePerson = endpoint({
+  id: "property.leases.people.create",
+  method: "POST",
+  path: `${Base}/leases/:leaseId/people`,
+  auth: "user",
+  summary: "Link an existing contact as an occupant or emergency contact without changing the contract",
+  params: LeaseParams,
+  body: LeasePersonFields.extend({ contactId: Id }),
+  response: LeasePerson,
+  status: 201,
+});
+export const updateLeasePerson = endpoint({
+  id: "property.leases.people.update",
+  method: "PUT",
+  path: `${Base}/leases/:leaseId/people/:leasePersonId`,
+  auth: "user",
+  summary: "Correct, archive or restore a household relationship, preserving its history",
+  params: LeaseParams.extend({ leasePersonId: Id }),
+  body: LeasePersonFields.extend({
+    expectedVersion: z.number().int().positive(),
+    archived: z.boolean(),
+    reason: Reason,
+  }),
+  response: LeasePerson,
+});
+export const leasePeopleHistory = endpoint({
+  id: "property.leases.people.history",
+  method: "GET",
+  path: `${Base}/leases/:leaseId/people-history`,
+  auth: "user",
+  summary: "Audited household relationship changes for this lease",
+  params: LeaseParams,
+  query: maintenanceRequestHistory.query,
+  response: maintenanceRequestHistory.response,
+});
+export const getLeasePerson = endpoint({
+  id: "property.leases.people.get",
+  method: "GET",
+  path: `${Base}/leases/:leaseId/people/:leasePersonId`,
+  auth: "user",
+  summary: "Current household relationship within the authorised lease",
+  params: LeaseParams.extend({ leasePersonId: Id }),
+  response: LeasePerson,
+});

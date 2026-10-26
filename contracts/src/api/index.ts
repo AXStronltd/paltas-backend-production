@@ -760,6 +760,11 @@ export const CONTACTS_API = {
 export const PROPERTY_API = {
   inspectionTemplateHistory: property.inspectionTemplateHistory,
   getInspectionTemplate: property.getInspectionTemplate,
+  getLeasePerson: property.getLeasePerson,
+  listLeasePeople: property.listLeasePeople,
+  createLeasePerson: property.createLeasePerson,
+  updateLeasePerson: property.updateLeasePerson,
+  leasePeopleHistory: property.leasePeopleHistory,
   listInspectionTemplates: property.listInspectionTemplates,
   createInspectionTemplate: property.createInspectionTemplate,
   updateInspectionTemplate: property.updateInspectionTemplate,
