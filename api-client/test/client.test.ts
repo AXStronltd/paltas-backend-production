@@ -134,6 +134,7 @@ describe("API client", () => {
       "organisations",
       "subscriptions",
       "payments",
+      "rentCollection",
       "ledger",
       "admin",
       "migration",

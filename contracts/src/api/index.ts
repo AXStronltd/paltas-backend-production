@@ -13,6 +13,7 @@ import * as ops from "./ops.js";
 import * as organisations from "./organisations.js";
 import * as paymentProviders from "./payment-providers.js";
 import * as payments from "./payments.js";
+import * as rentCollection from "./rent-collection.js";
 import * as property from "./property.js";
 import * as security from "./security.js";
 import * as signup from "./signup.js";
@@ -191,6 +192,12 @@ export const SUBSCRIPTIONS_API = {
   stripeCheckout: subscriptions.stripeCheckout,
   stripePortal: subscriptions.stripePortal,
   stripeWebhook: subscriptions.stripeWebhook,
+} as const;
+
+export const RENT_COLLECTION_API = {
+  merchantStatus: rentCollection.merchantStatus,
+  onboardMerchant: rentCollection.onboardMerchant,
+  refreshMerchant: rentCollection.refreshMerchant,
 } as const;
 
 export const PAYMENTS_API = {
@@ -968,6 +975,7 @@ export const API: {
   organisations: typeof ORGANISATIONS_API;
   subscriptions: typeof SUBSCRIPTIONS_API;
   payments: typeof PAYMENTS_API;
+  rentCollection: typeof RENT_COLLECTION_API;
   ledger: typeof LEDGER_API;
   admin: typeof ADMIN_API;
   migration: typeof MIGRATION_API;
@@ -988,6 +996,7 @@ export const API: {
   organisations: ORGANISATIONS_API,
   subscriptions: SUBSCRIPTIONS_API,
   payments: PAYMENTS_API,
+  rentCollection: RENT_COLLECTION_API,
   ledger: LEDGER_API,
   admin: ADMIN_API,
   migration: MIGRATION_API,
@@ -1025,6 +1034,7 @@ export {
   organisations,
   paymentProviders,
   payments,
+  rentCollection,
   property,
   security,
   signup,

@@ -1,6 +1,7 @@
 // All settings come from environment variables, checked once at start-up. Nothing else reads process.env.
 // See server/.env.example for every setting with an explanation.
 import { Product, z } from "@paltas/contracts";
+import { validateRentStripeConfig, type RentStripeSettings } from "./core/payments/rent/stripe-isolation.js";
 
 const Bool = z.enum(["true", "false", "1", "0"]).transform((v) => v === "true" || v === "1");
 /** A yes/no setting whose default depends on NODE_ENV: unset or empty means "use the default". */
@@ -24,6 +25,10 @@ const EnvSchema = z.object({
   /** "provider": purchases wait for a signed payment event (always in production). "simulated": local demo only. */
   BILLING_MODE: z.enum(["provider", "simulated"]).default("provider"),
   STRIPE_ENABLED: Bool.default(false),
+  STRIPE_RENT_ENABLED: Bool.default(false),
+  STRIPE_RENT_ONBOARDING_ENABLED: Bool.default(false),
+  STRIPE_RENT_WEBHOOK_SECRET: z.string().default(""),
+  STRIPE_RENT_LIVE_APPROVED: Bool.default(false),
   STRIPE_SECRET_KEY: z.string().default(""),
   STRIPE_WEBHOOK_SECRET: z.string().default(""),
   STRIPE_PORTAL_CONFIGURATION_ID: z
@@ -198,6 +203,7 @@ export interface Config {
     webhookSecret: string;
     prices: { planId: string; currency: string; priceId: string }[];
   };
+  stripeRent?: RentStripeSettings;
   sessionMinutes: number;
   corsOrigins: string[];
   secretsKey: string;
@@ -380,7 +386,25 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
       !stripePrices.length)
   )
     throw new Error("Stripe requires an account ID, secret key, webhook secret and approved price mappings");
+  const stripeRent = {
+    enabled: e.STRIPE_RENT_ENABLED,
+    onboardingEnabled: e.STRIPE_RENT_ONBOARDING_ENABLED,
+    webhookSecret: e.STRIPE_RENT_WEBHOOK_SECRET,
+    liveApproved: e.STRIPE_RENT_LIVE_APPROVED,
+  };
+  validateRentStripeConfig(
+    {
+      enabled: e.STRIPE_ENABLED,
+      accountId: e.STRIPE_ACCOUNT_ID,
+      secretKey: e.STRIPE_SECRET_KEY,
+      webhookSecret: e.STRIPE_WEBHOOK_SECRET,
+      prices: stripePrices,
+    },
+    stripeRent,
+    e.APP_BASE_URL,
+  );
   return {
+    stripeRent,
     stripe: {
       enabled: e.STRIPE_ENABLED,
       accountId: e.STRIPE_ACCOUNT_ID,

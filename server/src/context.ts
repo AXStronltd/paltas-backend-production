@@ -3,6 +3,7 @@
  * so any module can be read, tested or replaced on its own.
  */
 import type { FastifyBaseLogger } from "fastify";
+import type Stripe from "stripe";
 import type { Config } from "./config.js";
 import type { EmailTransport } from "./core/notifications/email-providers.js";
 import type { Database } from "./db/database.js";
@@ -12,6 +13,8 @@ import type { SupportAssistant } from "./core/support/assistant.js";
 import type { ProductRegistry } from "./products/registry.js";
 
 export interface AppContext {
+  /** Dependency injection for isolated provider tests, never configured by an HTTP request or environment URL. */
+  rentStripeClient?: Stripe;
   config: Config;
   db: Database;
   clock: Clock;

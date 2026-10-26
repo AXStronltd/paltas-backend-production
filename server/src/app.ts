@@ -28,6 +28,7 @@ import { paymentsRoutes } from "./core/payments/payments.routes.js";
 import { providersRoutes } from "./core/payments/providers.routes.js";
 import { signupRoutes } from "./core/signup/signup.routes.js";
 import { stripeRoutes } from "./core/subscriptions/stripe.routes.js";
+import { rentMerchantRoutes } from "./core/payments/rent/merchant.routes.js";
 import { subscriptionsRoutes } from "./core/subscriptions/subscriptions.routes.js";
 import { connect, type Database } from "./db/database.js";
 import { migrate } from "./db/migrate.js";
@@ -50,6 +51,7 @@ export interface App {
 }
 
 export interface AppOptions {
+  rentStripeClient?: AppContext["rentStripeClient"];
   /** Use an existing database connection (tests). */
   db?: Database;
   /** Products to run (default: all in products/index.ts). */
@@ -80,6 +82,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
   const clock = systemClock(config.fixedToday);
   const ctx: AppContext = {
     config,
+    ...(options.rentStripeClient ? { rentStripeClient: options.rentStripeClient } : {}),
     db,
     clock,
     log: server.log,
@@ -158,6 +161,7 @@ export async function buildApp(config: Config, options: AppOptions = {}): Promis
     ...organisationsRoutes(core),
     ...subscriptionsRoutes(core),
     ...stripeRoutes(ctx, core),
+    ...rentMerchantRoutes(ctx, core),
     ...paymentsRoutes(core.payments),
     ...ledgerRoutes(core),
     ...adminRoutes(core),

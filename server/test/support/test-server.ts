@@ -70,6 +70,7 @@ export async function startServer(
     products?: ProductModule[];
     config?: Partial<Config>;
     emailTransport?: AppOptions["emailTransport"];
+    rentStripeClient?: AppOptions["rentStripeClient"];
     supportAssistant?: AppOptions["supportAssistant"];
   } = {},
 ): Promise<TestServer> {
@@ -96,6 +97,7 @@ export async function startServer(
     products: o.products ?? [],
     migrate: false,
     ...(o.emailTransport ? { emailTransport: o.emailTransport } : {}),
+    ...(o.rentStripeClient ? { rentStripeClient: o.rentStripeClient } : {}),
     // no test reaches the real AI provider: without an assistant of its own, a test server has none
     supportAssistant: o.supportAssistant === undefined ? null : o.supportAssistant,
   });

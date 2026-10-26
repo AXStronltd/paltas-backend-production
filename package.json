@@ -28,7 +28,8 @@
     "browser:check": "node scripts/build-browser-files.mjs --check",
     "openapi": "npm run build && node scripts/write-openapi.mjs",
     "release:rent-collections:check": "node scripts/check-rent-collections-release.mjs",
-    "release:people-leasing:check": "node scripts/check-people-leasing-release.mjs"
+    "release:people-leasing:check": "node scripts/check-people-leasing-release.mjs",
+    "stripe:rent:audit": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/stripe-rent-audit.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
