@@ -2,6 +2,7 @@ import { afterAll, beforeAll, it, expect } from "vitest";
 import { newTenant, pmOrg, setUpBuilding, startPropertyServer } from "./support/property-fixture.js";
 import { refused, type TestServer, type Person } from "./support/test-server.js";
 import type { property as P } from "@paltas/contracts";
+let activeUnitId: string;
 let S: TestServer,
   orgId: string,
   admin: Person,
@@ -23,6 +24,7 @@ beforeAll(async () => {
   ({ orgId, admin } = await pmOrg(S));
   const b = await setUpBuilding(orgId, admin);
   propertyId = b.propertyId;
+  activeUnitId = b.units["A-102"]!;
   tenantId = await newTenant(admin, orgId, "Primary Resident");
   leaseId = (
     await admin.api.property.createLease({
@@ -237,6 +239,10 @@ it("isolates companies, delegated properties and contact profile details", async
   expect(masked?.contactAccessible).toBe(false);
   expect(masked?.phone).toBeNull();
   expect(masked?.contactName).toBe("Contact access restricted");
+  const tenantPortal = await S.addMember(orgId, admin.api, "tenant");
+  const ownerPortal = await S.addMember(orgId, admin.api, "owner");
+  await refused(tenantPortal.api.property.listLeasePeople({ params: { orgId, leaseId } }), 403);
+  await refused(ownerPortal.api.property.leasePeopleHistory({ params: { orgId, leaseId } }), 403);
   const viewer = await S.addMember(orgId, admin.api, "viewer");
   await refused(
     viewer.api.property.createLeasePerson({ params: { orgId, leaseId }, body: { ...fields, contactId } }),
@@ -247,6 +253,124 @@ it("isolates companies, delegated properties and contact profile details", async
     manager.userId,
   ]);
   await refused(manager.api.property.listLeasePeople({ params: { orgId, leaseId } }), 403);
+});
+it("maintains additional people on an active historical lease without billing changes", async () => {
+  S.setToday("2026-10-26");
+  const primary = await newTenant(admin, orgId, "Active Household Primary");
+  const draft = await admin.api.property.createLease({
+    params: { orgId },
+    body: { unitId: activeUnitId, tenantId: primary, startDate: "2026-10-01", rentMinor: 150000 },
+  });
+  const active = await admin.api.property.activateLease({
+    params: { orgId, leaseId: draft.id },
+    body: { signedOn: "2026-10-01", billingMode: "historical", billFirstRent: false, billDeposit: false },
+  });
+  expect(active.lease.status).toBe("active");
+  const c = (
+    await admin.api.contacts.createContact({
+      params: { orgId },
+      body: { name: "Active Lease Roommate", types: ["other"] },
+    })
+  ).contact;
+  const linked = await admin.api.property.createLeasePerson({
+    params: { orgId, leaseId: draft.id },
+    body: { ...fields, contactId: c.id },
+  });
+  const corrected = await admin.api.property.updateLeasePerson({
+    params: { orgId, leaseId: draft.id, leasePersonId: linked.id },
+    body: {
+      ...fields,
+      note: "Operational correction on an active lease",
+      expectedVersion: linked.version,
+      archived: false,
+      reason: "Manager confirmed the current household details",
+    },
+  });
+  expect(corrected.note).toContain("active lease");
+  expect((await admin.api.property.getLease({ params: { orgId, leaseId: draft.id } })).lease.tenantId).toBe(primary);
+  expect((await S.sql("SELECT count(*)::int n FROM pm_invoices WHERE org_id=$1", [orgId]))[0]?.n).toBe(0);
+  expect((await S.sql("SELECT count(*)::int n FROM journal_entries WHERE org_id=$1", [orgId]))[0]?.n).toBe(0);
+});
+it("merges reviewed duplicate household contacts while retaining archived history", async () => {
+  const keep = (
+    await admin.api.contacts.createContact({
+      params: { orgId },
+      body: { name: "Canonical Household Identity", types: ["other"] },
+    })
+  ).contact;
+  const drop = (
+    await admin.api.contacts.createContact({
+      params: { orgId },
+      body: { name: "Duplicate Household Identity", types: ["other"] },
+    })
+  ).contact;
+  const a = await admin.api.property.createLeasePerson({
+    params: { orgId, leaseId },
+    body: { ...fields, contactId: keep.id },
+  });
+  let b = await admin.api.property.createLeasePerson({
+    params: { orgId, leaseId },
+    body: { ...fields, contactId: drop.id },
+  });
+  await refused(
+    admin.api.contacts.mergeContacts({
+      params: { orgId, contactId: keep.id },
+      body: { mergeId: drop.id, reason: "Verified duplicate household identity" },
+    }),
+    409,
+  );
+  b = await admin.api.property.updateLeasePerson({
+    params: { orgId, leaseId, leasePersonId: b.id },
+    body: {
+      ...fields,
+      expectedVersion: b.version,
+      archived: true,
+      reason: "Review confirms this is the duplicate household relationship",
+    },
+  });
+  await admin.api.contacts.mergeContacts({
+    params: { orgId, contactId: keep.id },
+    body: { mergeId: drop.id, reason: "Duplicate relationship archived; retain all history" },
+  });
+  const merged = await admin.api.property.getLeasePerson({ params: { orgId, leaseId, leasePersonId: b.id } });
+  expect(merged.archived).toBe(true);
+  expect(merged.contactId).toBe(keep.id);
+  await refused(
+    admin.api.property.updateLeasePerson({
+      params: { orgId, leaseId, leasePersonId: merged.id },
+      body: {
+        ...fields,
+        expectedVersion: merged.version,
+        archived: false,
+        reason: "Cannot restore while the canonical relationship is active",
+      },
+    }),
+    409,
+  );
+  const old = await admin.api.property.updateLeasePerson({
+    params: { orgId, leaseId, leasePersonId: a.id },
+    body: {
+      ...fields,
+      expectedVersion: a.version,
+      archived: true,
+      reason: "Archive previous canonical relationship after review",
+    },
+  });
+  const restored = await admin.api.property.updateLeasePerson({
+    params: { orgId, leaseId, leasePersonId: merged.id },
+    body: {
+      ...fields,
+      expectedVersion: merged.version,
+      archived: false,
+      reason: "Restore reviewed relationship while preserving archived history",
+    },
+  });
+  expect(restored.archived).toBe(false);
+  expect(old.archived).toBe(true);
+  expect(
+    (await S.sql("SELECT count(*)::int n FROM pm_lease_people WHERE org_id=$1 AND contact_id=$2", [orgId, keep.id]))[0]
+      ?.n,
+  ).toBe(2);
 });
 it("rejects new people on closed leases and retains existing records", async () => {
   await admin.api.property.cancelLease({
@@ -265,5 +389,5 @@ it("rejects new people on closed leases and retains existing records", async () 
   );
   expect(
     (await admin.api.property.listLeasePeople({ params: { orgId, leaseId }, query: { status: "all" } })).total,
-  ).toBe(2);
+  ).toBe(4);
 });

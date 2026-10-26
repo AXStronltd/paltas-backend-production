@@ -503,6 +503,10 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
             await t.run("RELEASE SAVEPOINT contact_merge");
           } catch (e) {
             await t.run("ROLLBACK TO SAVEPOINT contact_merge");
+            if (r.tbl === "pm_lease_people" && (e as { code?: string }).code === "23505")
+              throw fail.conflict(
+                "Both contacts have the same active household relationship. Open the lease, archive the duplicate relationship and retry the merge. Its history will be retained.",
+              );
             if ((e as { code?: string }).code === "23505" || (e as { code?: string }).code === "23P01")
               throw fail.conflict(
                 `Both contacts have a record in ${r.tbl} that can exist only once — resolve it before merging`,

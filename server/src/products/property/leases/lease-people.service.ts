@@ -59,24 +59,34 @@ export function leasePeopleService(d: PmDeps) {
     );
     if (!c) throw fail.invalid("Select a current individual contact in this company");
   }
-  async function view(t: Db, s: OrgScope, id: string): Promise<P.LeasePerson> {
+  async function views(t: Db, s: OrgScope, ids: string[]): Promise<P.LeasePerson[]> {
+    if (!ids.length) return [];
     const allowed = contactScopeSql("c", "$3", "$4");
-    const r = await t.row<
+    const rows = await t.rows<
       Row & { contact_name: string; email: string | null; phone: string | null; accessible: boolean }
     >(
-      `SELECT p.*,CASE WHEN ${allowed} THEN c.name ELSE 'Contact access restricted' END contact_name,CASE WHEN ${allowed} THEN c.email ELSE NULL END email,CASE WHEN ${allowed} THEN c.phone ELSE NULL END phone,${allowed} accessible FROM pm_lease_people p JOIN contacts c ON c.org_id=p.org_id AND c.id=p.contact_id WHERE p.org_id=$1 AND p.id=$2`,
-      [s.orgId, id, s.propertyIds ?? null, s.userId],
+      `SELECT p.*,CASE WHEN ${allowed} THEN c.name ELSE 'Contact access restricted' END contact_name,CASE WHEN ${allowed} THEN c.email ELSE NULL END email,CASE WHEN ${allowed} THEN c.phone ELSE NULL END phone,${allowed} accessible FROM pm_lease_people p JOIN contacts c ON c.org_id=p.org_id AND c.id=p.contact_id WHERE p.org_id=$1 AND p.id=ANY($2::text[])`,
+      [s.orgId, ids, s.propertyIds ?? null, s.userId],
     );
+    const byId = new Map(rows.map((r) => [r.id, r]));
+    return ids.map((id) => {
+      const r = byId.get(id);
+      if (!r) throw fail.notFound("Lease person not found");
+      return {
+        ...snapshot(r),
+        leaseId: r.lease_id,
+        contactName: r.contact_name,
+        email: r.email,
+        phone: r.phone,
+        contactAccessible: r.accessible,
+        createdAt: r.created_at,
+      };
+    });
+  }
+  async function view(t: Db, s: OrgScope, id: string): Promise<P.LeasePerson> {
+    const r = (await views(t, s, [id]))[0];
     if (!r) throw fail.notFound("Lease person not found");
-    return {
-      ...snapshot(r),
-      leaseId: r.lease_id,
-      contactName: r.contact_name,
-      email: r.email,
-      phone: r.phone,
-      contactAccessible: r.accessible,
-      createdAt: r.created_at,
-    };
+    return r;
   }
   async function duplicate(
     t: Db,
@@ -85,11 +95,12 @@ export function leasePeopleService(d: PmDeps) {
     contactId: string,
     kind: Fields["kind"],
     except: string | null = null,
+    activeOnly = false,
   ) {
     if (
       await t.row(
-        "SELECT 1 FROM pm_lease_people WHERE org_id=$1 AND lease_id=$2 AND contact_id=$3 AND kind=$4 AND ($5::text IS NULL OR id<>$5)",
-        [s.orgId, leaseId, contactId, kind, except],
+        "SELECT 1 FROM pm_lease_people WHERE org_id=$1 AND lease_id=$2 AND contact_id=$3 AND kind=$4 AND ($5::text IS NULL OR id<>$5) AND (NOT $6::boolean OR NOT archived)",
+        [s.orgId, leaseId, contactId, kind, except, activeOnly],
       )
     )
       throw fail.conflict(
@@ -125,7 +136,11 @@ export function leasePeopleService(d: PmDeps) {
           [...args, q.limit, q.offset],
         );
         return {
-          people: await Promise.all(ids.map((x) => view(t, s, x.id))),
+          people: await views(
+            t,
+            s,
+            ids.map((x) => x.id),
+          ),
           total: count?.n ?? 0,
           limit: q.limit,
           offset: q.offset,
@@ -135,12 +150,12 @@ export function leasePeopleService(d: PmDeps) {
     async create(s: OrgScope, leaseId: string, b: Fields & { contactId: string }) {
       return db.tx(async (t) => {
         dates(b);
+        await contact(t, s, b.contactId);
         const l = await lease(t, s, leaseId, true);
         if (!["draft", "active"].includes(l.status))
           throw fail.conflict("Add people only to a draft or active lease. Closed lease history is retained.");
         if (l.tenant_id === b.contactId)
           throw fail.invalid("The primary tenant is already linked to this lease. Select an additional person.");
-        await contact(t, s, b.contactId);
         await duplicate(t, s, leaseId, b.contactId, b.kind);
         const n = await t.row<{ n: number }>(
           "SELECT count(*)::int n FROM pm_lease_people WHERE org_id=$1 AND lease_id=$2 AND NOT archived",
@@ -174,18 +189,26 @@ export function leasePeopleService(d: PmDeps) {
     ) {
       return db.tx(async (t) => {
         dates(b);
+        await lease(t, s, leaseId);
+        const original = await t.row<{ contact_id: string }>(
+          "SELECT contact_id FROM pm_lease_people WHERE org_id=$1 AND lease_id=$2 AND id=$3",
+          [s.orgId, leaseId, id],
+        );
+        if (!original) throw fail.notFound("Lease person not found");
+        if (!b.archived) await contact(t, s, original.contact_id);
         const l = await lease(t, s, leaseId, true);
         const before = await t.row<Row>(
           "SELECT * FROM pm_lease_people WHERE org_id=$1 AND lease_id=$2 AND id=$3 FOR UPDATE",
           [s.orgId, leaseId, id],
         );
         if (!before) throw fail.notFound("Lease person not found");
+        if (before.contact_id !== original.contact_id)
+          throw fail.conflict("This contact identity changed. Reopen the relationship before saving.");
         if (before.version !== b.expectedVersion)
           throw fail.conflict("This relationship changed. Reopen it before saving.");
         if (before.archived && !b.archived && !["draft", "active"].includes(l.status))
           throw fail.conflict("Restore people only on a draft or active lease");
-        if (!b.archived) await contact(t, s, before.contact_id);
-        await duplicate(t, s, leaseId, before.contact_id, b.kind, id);
+        if (!b.archived) await duplicate(t, s, leaseId, before.contact_id, b.kind, id, true);
         if (before.archived && !b.archived) {
           const n = await t.row<{ n: number }>(
             "SELECT count(*)::int n FROM pm_lease_people WHERE org_id=$1 AND lease_id=$2 AND NOT archived",
