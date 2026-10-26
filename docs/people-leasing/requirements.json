@@ -1,5 +1,5 @@
 {
-  "updated": "2026-10-25",
+  "updated": "2026-10-26",
   "scope": "People & Leasing specification A\u2013L. Pending evidence is not proof that existing functionality is missing.",
   "releaseStatus": "BLOCKED \u2014 full acceptance has not passed",
   "requirements": [
@@ -84,14 +84,14 @@
     {
       "id": "PL-A07",
       "description": "Occupants and roommates",
-      "status": "NOT STARTED",
-      "frontend": "source/pm_server.js",
-      "backend": "server/src/core/contacts; server/src/products/property/setup/ownership.service.ts",
-      "migrations": "0001; 0007; ownership migrations",
-      "integration": "contacts, ownership, permissions",
-      "tests": [],
+      "status": "TESTED",
+      "frontend": "source/pm_lease_people.js; existing lease workspace and shared contacts",
+      "backend": "property/leases/lease-people.service.ts; shared contacts merge; property-contact-scope; scoped routes",
+      "migrations": "0054_property_lease_people; 0055_property_lease_people_merge_history; shared contacts and audit_log",
+      "integration": "shared contacts, lease context, scoped Main Manager grants, existing audit trail",
+      "tests": ["server/test/property.lease-people.test.ts", "tests/property.lease-people.browser.test.js"],
       "acceptance": "Occupants and roommates: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "Not independently verified against this requirement. Existing related code is a candidate for reuse, not completion evidence.",
+      "verification": "PASS focused household/emergency workflows: register/link; reopen after refresh; repeated corrections; archive/restore; reasons/history; failure recovery; duplicate prevention; concurrency; property/company isolation; reviewed duplicate-contact merging retaining archived history, and revocation. 33 browser checks at 1440/768/390 px; full backend 940 tests/146 suites. No invoice, ledger, primary tenant or portal-grant mutation. Existing tenant-profile emergency tags remain unchanged; this is lease-specific operational coverage, not co-tenant or guarantor liability. LIVE: backend 830eac4, frontend 7a3b3d0; migrations 0054/0055 applied, none pending. Broader requirement acceptance remains separate.",
       "blockers": []
     },
     {
@@ -105,7 +105,8 @@
       "tests": [],
       "acceptance": "Co-tenants: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
       "verification": "Not independently verified against this requirement. Existing related code is a candidate for reuse, not completion evidence.",
-      "blockers": []
+      "blockers": [],
+      "scopeDecision": "EXCLUDED by direct user instruction on 26 October 2026: single tenant only; no co-tenant/shared-lease functionality. This is not an implementation claim."
     },
     {
       "id": "PL-A09",
@@ -123,14 +124,14 @@
     {
       "id": "PL-A10",
       "description": "Emergency contacts",
-      "status": "NOT STARTED",
-      "frontend": "source/pm_server.js",
-      "backend": "server/src/core/contacts; server/src/products/property/setup/ownership.service.ts",
-      "migrations": "0001; 0007; ownership migrations",
-      "integration": "contacts, ownership, permissions",
-      "tests": [],
+      "status": "TESTED",
+      "frontend": "source/pm_lease_people.js; existing lease workspace and shared contacts",
+      "backend": "property/leases/lease-people.service.ts; shared contacts merge; property-contact-scope; scoped routes",
+      "migrations": "0054_property_lease_people; 0055_property_lease_people_merge_history; shared contacts and audit_log",
+      "integration": "shared contacts, lease context, scoped Main Manager grants, existing audit trail",
+      "tests": ["server/test/property.lease-people.test.ts", "tests/property.lease-people.browser.test.js"],
       "acceptance": "Emergency contacts: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "Not independently verified against this requirement. Existing related code is a candidate for reuse, not completion evidence.",
+      "verification": "PASS focused household/emergency workflows: register/link; reopen after refresh; repeated corrections; archive/restore; reasons/history; failure recovery; duplicate prevention; concurrency; property/company isolation; reviewed duplicate-contact merging retaining archived history, and revocation. 33 browser checks at 1440/768/390 px; full backend 940 tests/146 suites. No invoice, ledger, primary tenant or portal-grant mutation. Existing tenant-profile emergency tags remain unchanged; this is lease-specific operational coverage, not co-tenant or guarantor liability. LIVE: backend 830eac4, frontend 7a3b3d0; migrations 0054/0055 applied, none pending. Broader requirement acceptance remains separate.",
       "blockers": []
     },
     {
@@ -175,27 +176,27 @@
     {
       "id": "PL-A14",
       "description": "Notes and communication history",
-      "status": "NOT STARTED",
-      "frontend": "source/pm_server.js",
-      "backend": "server/src/core/contacts; server/src/products/property/setup/ownership.service.ts",
-      "migrations": "0001; 0007; ownership migrations",
-      "integration": "contacts, ownership, permissions",
-      "tests": [],
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_lease_people.js; existing lease workspace and shared contacts",
+      "backend": "property/leases/lease-people.service.ts; shared contacts merge; property-contact-scope; scoped routes",
+      "migrations": "0054_property_lease_people; 0055_property_lease_people_merge_history; shared contacts and audit_log",
+      "integration": "shared contacts, lease context, scoped Main Manager grants, existing audit trail",
+      "tests": ["server/test/property.lease-people.test.ts", "tests/property.lease-people.browser.test.js"],
       "acceptance": "Notes and communication history: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "Not independently verified against this requirement. Existing related code is a candidate for reuse, not completion evidence.",
+      "verification": "PASS focused household/emergency workflows: register/link; reopen after refresh; repeated corrections; archive/restore; reasons/history; failure recovery; duplicate prevention; concurrency; property/company isolation; reviewed duplicate-contact merging retaining archived history, and revocation. 33 browser checks at 1440/768/390 px; full backend 940 tests/146 suites. No invoice, ledger, primary tenant or portal-grant mutation. Existing tenant-profile emergency tags remain unchanged; this is lease-specific operational coverage, not co-tenant or guarantor liability. LIVE: backend 830eac4, frontend 7a3b3d0; migrations 0054/0055 applied, none pending. Broader requirement acceptance remains separate.",
       "blockers": []
     },
     {
       "id": "PL-A15",
       "description": "Duplicate detection",
-      "status": "NOT STARTED",
-      "frontend": "source/pm_server.js",
-      "backend": "server/src/core/contacts; server/src/products/property/setup/ownership.service.ts",
-      "migrations": "0001; 0007; ownership migrations",
-      "integration": "contacts, ownership, permissions",
-      "tests": [],
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_lease_people.js; existing lease workspace and shared contacts",
+      "backend": "property/leases/lease-people.service.ts; shared contacts merge; property-contact-scope; scoped routes",
+      "migrations": "0054_property_lease_people; 0055_property_lease_people_merge_history; shared contacts and audit_log",
+      "integration": "shared contacts, lease context, scoped Main Manager grants, existing audit trail",
+      "tests": ["server/test/property.lease-people.test.ts", "tests/property.lease-people.browser.test.js"],
       "acceptance": "Duplicate detection: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "Not independently verified against this requirement. Existing related code is a candidate for reuse, not completion evidence.",
+      "verification": "PASS focused household/emergency workflows: register/link; reopen after refresh; repeated corrections; archive/restore; reasons/history; failure recovery; duplicate prevention; concurrency; property/company isolation; reviewed duplicate-contact merging retaining archived history, and revocation. 33 browser checks at 1440/768/390 px; full backend 940 tests/146 suites. No invoice, ledger, primary tenant or portal-grant mutation. Existing tenant-profile emergency tags remain unchanged; this is lease-specific operational coverage, not co-tenant or guarantor liability. LIVE: backend 830eac4, frontend 7a3b3d0; migrations 0054/0055 applied, none pending. Broader requirement acceptance remains separate.",
       "blockers": []
     },
     {
@@ -214,14 +215,14 @@
     {
       "id": "PL-A17",
       "description": "Create, edit, archive and restore where appropriate",
-      "status": "NOT STARTED",
-      "frontend": "source/pm_server.js",
-      "backend": "server/src/core/contacts; server/src/products/property/setup/ownership.service.ts",
-      "migrations": "0001; 0007; ownership migrations",
-      "integration": "contacts, ownership, permissions",
-      "tests": [],
+      "status": "IN PROGRESS",
+      "frontend": "source/pm_lease_people.js; existing lease workspace and shared contacts",
+      "backend": "property/leases/lease-people.service.ts; shared contacts merge; property-contact-scope; scoped routes",
+      "migrations": "0054_property_lease_people; 0055_property_lease_people_merge_history; shared contacts and audit_log",
+      "integration": "shared contacts, lease context, scoped Main Manager grants, existing audit trail",
+      "tests": ["server/test/property.lease-people.test.ts", "tests/property.lease-people.browser.test.js"],
       "acceptance": "Create, edit, archive and restore where appropriate: demonstrate authorised persisted end-to-end workflow, failure handling and isolation; preserve financial history.",
-      "verification": "Not independently verified against this requirement. Existing related code is a candidate for reuse, not completion evidence.",
+      "verification": "PASS focused household/emergency workflows: register/link; reopen after refresh; repeated corrections; archive/restore; reasons/history; failure recovery; duplicate prevention; concurrency; property/company isolation; reviewed duplicate-contact merging retaining archived history, and revocation. 33 browser checks at 1440/768/390 px; full backend 940 tests/146 suites. No invoice, ledger, primary tenant or portal-grant mutation. Existing tenant-profile emergency tags remain unchanged; this is lease-specific operational coverage, not co-tenant or guarantor liability. LIVE: backend 830eac4, frontend 7a3b3d0; migrations 0054/0055 applied, none pending. Broader requirement acceptance remains separate.",
       "blockers": []
     },
     {
@@ -2681,6 +2682,12 @@
       "date": "2026-10-26",
       "scope": "Electronic-signature provider integration",
       "decision": "User explicitly deferred electronic signatures and requested completion of the remaining work. This is not a claim of implementation or legal verification."
+    },
+    {
+      "date": "2026-10-26",
+      "scope": "Co-tenant and shared-lease functionality",
+      "requirementIds": ["PL-A08"],
+      "decision": "User explicitly requested single tenant only. Preserve one primary contractual tenant; emergency/household contacts are non-tenant records without rent liability, invoices or portal grants."
     }
   ]
 }
