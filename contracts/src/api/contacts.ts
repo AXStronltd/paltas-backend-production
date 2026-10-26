@@ -190,6 +190,10 @@ export const updateContact = endpoint({
   body: ContactFields.omit({ partyType: true, types: true, tags: true })
     .partial()
     .extend({
+      email: Email.nullable().optional(),
+      phone: Phone.nullable().optional(),
+      taxId: z.string().trim().max(60).nullable().optional(),
+      address: Text.nullable().optional(),
       partyType: z.enum(["individual", "company"]).optional(),
       types: z.array(ContactType).max(6).optional(),
       tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
