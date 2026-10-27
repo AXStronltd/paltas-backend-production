@@ -2,7 +2,7 @@ import type Stripe from "stripe";
 import { z } from "zod";
 import { PALTAS_STRIPE_ACCOUNT, PALTAS_STRIPE_SANDBOX } from "../payments/rent/stripe-isolation.js";
 
-const OfferSchema = z.object({
+export const OfferSchema = z.object({
   version: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   seller: z.string().min(3),
   sellerCountry: z.literal("GB"),

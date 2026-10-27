@@ -1,3 +1,4 @@
+import { subscriptionPrice } from "../subscriptions/subscription-price.js";
 /*
  * Self-service upgrade: a trial (running, in grace or expired) or a lapsed subscription becomes paid.
  *
@@ -58,7 +59,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
             p.id === s.entitlement.ent.planId),
       )
       .map((p) => {
-        const price = entitlements.priceIn(p.base, org.currency);
+        const price = subscriptionPrice(p, org.currency);
         const isolatedTest =
           new URL(ctx.config.signup.appBaseUrl).hostname !== "paltas.io" &&
           /^(sk|rk)_test_/.test(ctx.config.stripe?.secretKey ?? "");
@@ -164,6 +165,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
             what: `${choice.name} — first ${price.per}`,
             amountMinor: price.amountMinor,
             planId: choice.id,
+            currency: price.currency,
             taxPct: choice.plan.taxPct ?? 0,
             note: "Self-service upgrade",
             requirePayment: true,

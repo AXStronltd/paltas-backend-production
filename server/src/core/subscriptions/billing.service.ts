@@ -1,3 +1,4 @@
+import { subscriptionPrice } from "./subscription-price.js";
 /*
  * PALTAS subscription billing: invoices, orders (purchases) and applying payments.
  *
@@ -99,7 +100,8 @@ export const toPurchase = (p: PurchaseRow) => ({
 
 /** The rules' monthly charge, in minor units. total = net + tax exactly. */
 export function monthlyChargeMinor(en: EntitlementContext, today: string) {
-  const c = entitlements.charges(en.catalogue, en.view, today);
+  const price = subscriptionPrice(en.ent.plan, en.org.currency);
+  const c = entitlements.charges(en.catalogue, en.view, today, price?.ccy ?? en.org.currency);
   const m = (x: number) => toMinor(x, c.ccy);
   const netMinor = m(c.net);
   const taxMinor = m(c.tax);
@@ -263,13 +265,21 @@ export function billingService(ctx: AppContext) {
         amountMinor: number;
         moduleKey?: string | null;
         planId?: string | null;
+        /** Server-selected subscription quote currency, never the property accounting currency. */
+        currency?: string;
         taxPct?: number | null;
         note: string;
         /** Always wait for a real payment, even in BILLING_MODE=simulated (self-service upgrades). */
         requirePayment?: boolean;
       },
     ) {
-      const currency = s.en.org.currency;
+      const currency = o.currency ?? s.en.org.currency;
+      if (currency !== s.en.org.currency) {
+        const plan = s.en.catalogue.plans.find((p) => p.id === o.planId);
+        const quote = plan && subscriptionPrice(plan, s.en.org.currency);
+        if (o.kind !== "plan" || !quote || quote.ccy !== currency || toMinor(quote.amount, currency) !== o.amountMinor)
+          throw new Error("A different subscription currency requires an exact approved plan quote");
+      }
       const simulated = config.billingMode === "simulated" && !o.requirePayment;
       let invoice: BillingInvoice | null = null;
       let status: string;
