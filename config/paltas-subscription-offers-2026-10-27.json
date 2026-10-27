@@ -1,0 +1,15 @@
+{
+  "version": "2026-10-27",
+  "seller": "Axstron Holdings Ltd",
+  "sellerCountry": "GB",
+  "vatRegistered": true,
+  "currency": "USD",
+  "interval": "month",
+  "taxBehavior": "inclusive",
+  "products": ["property", "agency", "developer", "hotel", "security"],
+  "tiers": [
+    { "tier": "Standard", "amountMinor": 4900 },
+    { "tier": "Pro", "amountMinor": 6900 },
+    { "tier": "Enterprise", "amountMinor": 9900 }
+  ]
+}

@@ -151,6 +151,22 @@ describe("Stripe subscription checkout safety", () => {
     service = stripeService(S.app.ctx, S.app.core.payments, fake);
   });
   afterAll(async () => S?.close());
+  it("advertises card checkout only for a currently eligible mapped plan", async () => {
+    const params = { orgId: a.orgId };
+    const before = await a.api.subscriptions.upgradeOptions({ params, query: {} });
+    expect(before.cardCheckout?.available).toBe(false);
+    expect(before.paymentMethods.find((x) => x.method === "provider")?.available).toBe(false);
+    const plan = (await S.sql("SELECT tax_pct FROM catalogue_plans WHERE id='PM-STARTER'"))[0];
+    try {
+      await S.sql("UPDATE catalogue_plans SET tax_pct=0 WHERE id='PM-STARTER'");
+      const ready = await a.api.subscriptions.upgradeOptions({ params, query: {} });
+      expect(ready.cardCheckout?.available).toBe(true);
+      expect(ready.cardCheckout?.planIds).toEqual(["PM-STARTER"]);
+      expect(ready.paymentMethods.find((x) => x.method === "provider")?.available).toBe(true);
+    } finally {
+      await S.sql("UPDATE catalogue_plans SET tax_pct=$1 WHERE id='PM-STARTER'", [plan.tax_pct]);
+    }
+  });
   it("refuses a wrong-account key before creating a session or records", async () => {
     providerAccount = "acct_unrelatedfixture";
     try {

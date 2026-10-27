@@ -29,7 +29,8 @@
     "openapi": "npm run build && node scripts/write-openapi.mjs",
     "release:rent-collections:check": "node scripts/check-rent-collections-release.mjs",
     "release:people-leasing:check": "node scripts/check-people-leasing-release.mjs",
-    "stripe:rent:audit": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/stripe-rent-audit.js"
+    "stripe:rent:audit": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/stripe-rent-audit.js",
+    "stripe:offers:prepare": "npm run build && node --env-file-if-exists=server/.env server/dist/scripts/stripe-provision-offers.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.0",
