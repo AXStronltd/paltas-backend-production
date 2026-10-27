@@ -3,6 +3,7 @@ import type Stripe from "stripe";
 import { loadConfig } from "../dist/config.js";
 import {
   PALTAS_STRIPE_ACCOUNT,
+  PALTAS_STRIPE_SANDBOX,
   rentEventContext,
   rentMetadata,
   validateRentStripeConfig,
@@ -31,6 +32,31 @@ describe("Existing PALTAS Stripe rent isolation", () => {
     const fake = { accounts: { retrieve: async () => ({ id: PALTAS_STRIPE_ACCOUNT }) } } as unknown as Stripe;
     expect((await verifiedRentStripe(stripe, onboarding, base.APP_BASE_URL, fake, "onboarding")).mode).toBe("test");
     await expect(verifiedRentStripe(stripe, onboarding, base.APP_BASE_URL, fake)).rejects.toThrow(/not enabled/);
+  });
+  it("accepts only the independently verified PALTAS sandbox in test mode", async () => {
+    const sandbox = { ...stripe, accountId: PALTAS_STRIPE_SANDBOX };
+    const fake = { accounts: { retrieve: vi.fn(async () => ({ id: PALTAS_STRIPE_SANDBOX })) } } as unknown as Stripe;
+    expect((await verifiedRentStripe(sandbox, rent, base.APP_BASE_URL, fake)).platformAccountId).toBe(
+      PALTAS_STRIPE_SANDBOX,
+    );
+    expect(() =>
+      validateRentStripeConfig(
+        { ...sandbox, secretKey: "rk_live_fixture" },
+        { ...rent, liveApproved: true },
+        "https://paltas.io",
+      ),
+    ).toThrow(/sandbox cannot use live/);
+    await expect(verifiedRentStripe(stripe, rent, base.APP_BASE_URL, fake)).rejects.toThrow(/verification failed/);
+    expect(
+      rentMetadata({
+        orgId: "org_test",
+        obligationId: "ob_test",
+        invoiceId: "inv_test",
+        merchantAccountId: "acct_merchant",
+        mode: "test",
+        platformAccountId: PALTAS_STRIPE_SANDBOX,
+      }).paltasAccountId,
+    ).toBe(PALTAS_STRIPE_SANDBOX);
   });
   it("keeps both switches off without changing stored subscription configuration", () => {
     const c = loadConfig({ ...base, STRIPE_SECRET_KEY: key, STRIPE_ACCOUNT_ID: PALTAS_STRIPE_ACCOUNT });

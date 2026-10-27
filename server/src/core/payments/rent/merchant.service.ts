@@ -6,7 +6,7 @@ import type { OrgScope } from "../../access/org-access.js";
 import { recordAudit } from "../../audit/audit.service.js";
 import { fail } from "../../../http/errors.js";
 import { newId } from "../../../lib/ids.js";
-import { PALTAS_STRIPE_ACCOUNT, RENT_APPLICATION, verifiedRentStripe } from "./stripe-isolation.js";
+import { RENT_APPLICATION, verifiedRentStripe } from "./stripe-isolation.js";
 
 type Input = z.infer<typeof api.onboardMerchant.body>;
 interface MerchantRow {
@@ -51,13 +51,13 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
   });
   const metadata = (r: MerchantRow) => ({
     paltasApplication: RENT_APPLICATION,
-    paltasAccountId: PALTAS_STRIPE_ACCOUNT,
+    paltasAccountId: r.platform_account_id,
     paltasOrgId: r.org_id,
     paltasMerchantId: r.id,
     paltasMode: r.mode,
   });
   async function verifyMerchant(stripe: Stripe, r: MerchantRow) {
-    if (!r.account_id || r.account_id === PALTAS_STRIPE_ACCOUNT)
+    if (!r.account_id || r.account_id === r.platform_account_id)
       throw fail.conflict("Company Stripe account verification is incomplete");
     let a: Stripe.Account;
     try {
@@ -108,14 +108,15 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
     async refresh(s: OrgScope) {
       const r = await row(s.orgId);
       if (!r?.account_id) return this.status(s);
-      const { stripe, mode } = await client();
-      if (mode !== r.mode) throw fail.conflict("This merchant belongs to a different Stripe environment");
+      const { stripe, mode, platformAccountId } = await client();
+      if (mode !== r.mode || platformAccountId !== r.platform_account_id)
+        throw fail.conflict("This merchant belongs to a different Stripe environment");
       await update(s, r, await verifyMerchant(stripe, r));
       return this.status(s);
     },
     async onboard(s: OrgScope, b: Input) {
       if (!s.userId) throw fail.forbidden("An authorised company owner must start onboarding");
-      const { stripe, mode } = await client();
+      const { stripe, mode, platformAccountId } = await client();
       const r = await db.tx(async (t) => {
         await t.run("SELECT pg_advisory_xact_lock(hashtextextended('rent-merchant:'||$1,0))", [s.orgId]);
         let m = await t.row<MerchantRow>("SELECT * FROM rent_stripe_merchants WHERE org_id=$1 FOR UPDATE", [s.orgId]);
@@ -124,7 +125,7 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
           (m.country !== b.country ||
             m.model !== b.model ||
             m.mode !== mode ||
-            m.platform_account_id !== PALTAS_STRIPE_ACCOUNT)
+            m.platform_account_id !== platformAccountId)
         )
           throw fail.conflict(
             "The existing company collection setup uses a different country, model or environment. Contact PALTAS for a reviewed change; no second account was created.",
@@ -132,7 +133,7 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
         if (!m) {
           m = await t.row<MerchantRow>(
             "INSERT INTO rent_stripe_merchants(org_id,id,platform_account_id,country,model,mode,created_by) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *",
-            [s.orgId, newId("rma"), PALTAS_STRIPE_ACCOUNT, b.country, b.model, mode, s.userId],
+            [s.orgId, newId("rma"), platformAccountId, b.country, b.model, mode, s.userId],
           );
           if (!m) throw new Error("Merchant setup not saved");
           await recordAudit(t, {
@@ -171,7 +172,7 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
             "Stripe could not start company onboarding. Check that this legal company country and Connect configuration are eligible, then retry or contact PALTAS. No payment was initiated.",
           );
         }
-        if (a.id === PALTAS_STRIPE_ACCOUNT || !/^acct_[A-Za-z0-9]+$/.test(a.id) || a.country !== r.country)
+        if (a.id === platformAccountId || !/^acct_[A-Za-z0-9]+$/.test(a.id) || a.country !== r.country)
           throw fail.conflict("Stripe did not return the expected company account");
         await db.run(
           "UPDATE rent_stripe_merchants SET account_id=COALESCE(account_id,$2),status='onboarding' WHERE org_id=$1 AND (account_id IS NULL OR account_id=$2)",

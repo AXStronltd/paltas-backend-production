@@ -1,10 +1,15 @@
 /** Read-only PALTAS account diagnostic. Does not activate collection, create accounts or print credentials/PII. */
 import Stripe from "stripe";
 import { loadConfig } from "../config.js";
-import { PALTAS_STRIPE_ACCOUNT } from "../core/payments/rent/stripe-isolation.js";
+import { PALTAS_STRIPE_ACCOUNT, PALTAS_STRIPE_SANDBOX } from "../core/payments/rent/stripe-isolation.js";
 
 const c = loadConfig(process.env);
-if (c.stripe?.accountId !== PALTAS_STRIPE_ACCOUNT || !/^(sk|rk)_(test|live)_/.test(c.stripe.secretKey)) {
+if (
+  !c.stripe ||
+  ![PALTAS_STRIPE_ACCOUNT, PALTAS_STRIPE_SANDBOX].includes(c.stripe.accountId ?? "") ||
+  !/^(sk|rk)_(test|live)_/.test(c.stripe.secretKey) ||
+  (c.stripe.accountId === PALTAS_STRIPE_SANDBOX && /^(sk|rk)_live_/.test(c.stripe.secretKey))
+) {
   console.log(
     JSON.stringify({
       verified: false,
@@ -16,7 +21,7 @@ if (c.stripe?.accountId !== PALTAS_STRIPE_ACCOUNT || !/^(sk|rk)_(test|live)_/.te
   const client = new Stripe(c.stripe.secretKey, { timeout: 10000, maxNetworkRetries: 0 });
   try {
     const a = await client.accounts.retrieve(null);
-    if (a.id !== PALTAS_STRIPE_ACCOUNT) {
+    if (a.id !== c.stripe.accountId) {
       console.log(JSON.stringify({ verified: false, reason: "Key account mismatch; no further request made" }));
       process.exitCode = 1;
     } else {
