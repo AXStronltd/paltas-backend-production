@@ -85,14 +85,26 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
     async options(s: OrgScope) {
       const ent = s.entitlement.ent;
       const verified = (await deps.signup.verificationOf([s.orgId]))(s.orgId) !== "required";
+      const plans = plansFor(s);
+      const cardPlans = ctx.config.stripe?.enabled
+        ? plans.filter(
+            (p) =>
+              p.price &&
+              !p.contactSales &&
+              !p.taxReview &&
+              !p.plan.taxPct &&
+              !s.entitlement.ent.terms.discountPct &&
+              ctx.config.stripe?.prices.some((x) => x.planId === p.id && x.currency === p.price?.currency),
+          )
+        : [];
       return {
         product: s.product,
         status: ent.status,
         trial: entitlements.trialState(s.entitlement.view.ent, s.today),
         emailVerified: verified,
-        plans: plansFor(s).map(({ plan: _p, taxReview: _review, ...rest }) => rest),
+        plans: plans.map(({ plan: _p, taxReview: _review, ...rest }) => rest),
         cardCheckout: {
-          available: !!ctx.config.stripe?.enabled,
+          available: cardPlans.length > 0,
           portalAvailable: !!(
             verified &&
             ctx.config.stripe?.enabled &&
@@ -103,21 +115,10 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
             ))
           ),
           testMode: /^(sk|rk)_test_/.test(ctx.config.stripe?.secretKey ?? ""),
-          planIds: ctx.config.stripe?.enabled
-            ? plansFor(s)
-                .filter(
-                  (p) =>
-                    p.price &&
-                    !p.taxReview &&
-                    !p.plan.taxPct &&
-                    !s.entitlement.ent.terms.discountPct &&
-                    ctx.config.stripe?.prices.some((x) => x.planId === p.id && x.currency === p.price?.currency),
-                )
-                .map((p) => p.id)
-            : [],
+          planIds: cardPlans.map((p) => p.id),
         },
         paymentMethods: [
-          { method: "provider" as const, available: true, note: providerNote() },
+          { method: "provider" as const, available: cardPlans.length > 0, note: providerNote() },
           { method: "bank_transfer" as const, available: true, note: BANK_NOTE },
         ],
       };
