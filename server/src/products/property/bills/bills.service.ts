@@ -1,5 +1,6 @@
 import { billCategory } from "../setup/finance-config.service.js";
 import { financeTransaction } from "../shared/finance-transaction.js";
+import { requireSettledProviderFunds } from "../shared/provider-funds.js";
 /*
  * Supplier bills: entered by one person, approved by another, paid (recorded) by a third.
  *
@@ -481,6 +482,7 @@ export function billsService(d: PmDeps) {
         );
         if (used) throw fail.conflict(`Reference ${p.reference} is already used for ${used.number}`);
         const fromClient = b.recover_from === "owner";
+        if (fromClient) await requireSettledProviderFunds(t, s.orgId, { ownerId: b.owner_id });
         const journalId = await post(t, core, {
           orgId: s.orgId,
           date: p.paidDate,

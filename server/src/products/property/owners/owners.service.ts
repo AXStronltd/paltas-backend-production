@@ -16,6 +16,7 @@ import { ACC } from "../accounts.js";
 import type { PmDeps } from "../deps.js";
 import { numberScope } from "../shared/money.js";
 import { ownerFunds } from "../shared/owner-funds.js";
+import { requireSettledProviderFunds } from "../shared/provider-funds.js";
 import { cr, dr, post } from "../shared/posting.js";
 import { sum } from "../shared/util.js";
 import { formatMoney } from "../../../lib/money.js";
@@ -193,6 +194,7 @@ export function ownersService(d: PmDeps) {
           [ownerId],
         );
         if (open) throw fail.conflict(`Payout ${open.number} for this owner is already in progress`);
+        await requireSettledProviderFunds(t, s.orgId, { ownerId });
         const balance = (await ownerFunds(t, s.orgId, s.today, ownerId)).get(ownerId) ?? 0;
         const amount = balance - prof.reserve_minor;
         if (amount <= 0)
@@ -244,6 +246,7 @@ export function ownersService(d: PmDeps) {
         );
         if (!profile?.bank_verified_at)
           throw fail.conflict("The owner's payout account needs to be checked again before release");
+        await requireSettledProviderFunds(t, s.orgId, { ownerId: p.owner_id });
         const funds = (await ownerFunds(t, s.orgId, s.today, p.owner_id)).get(p.owner_id) ?? 0;
         if (funds - profile.reserve_minor < p.amount_minor)
           throw fail.conflict(

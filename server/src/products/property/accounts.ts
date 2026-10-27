@@ -38,6 +38,8 @@ export const PM_ACCOUNTS: AccountSeed[] = [
   { code: "2675", name: "Property other payroll deductions payable", type: "liability", system: true },
 
   { code: "1040", name: "Client account (owners' and tenants' money)", type: "asset", system: true },
+  { code: "1045", name: "Stripe rent collection clearing", type: "asset", system: true },
+  { code: "5680", name: "Payment processing charges", type: "expense", system: true },
   { code: "1120", name: "Tenant receivables", type: "asset", system: true },
   { code: "2150", name: "Owner rent and charges billed, not yet collected", type: "liability", system: true },
   { code: "2160", name: "Deposits billed, not yet collected", type: "liability", system: true },
@@ -54,6 +56,8 @@ export const PM_ACCOUNTS: AccountSeed[] = [
 export const ACC = {
   operatingBank: "1000",
   clientBank: "1040",
+  providerClearing: "1045",
+  providerFees: "5680",
   receivables: "1120",
   payables: "2000",
   vat: "2100",

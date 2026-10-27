@@ -1,6 +1,6 @@
 # PALTAS automated rent collection — evidence matrix
 
-Updated: 26 October 2026. Status: company onboarding deployed with explicit user approval; **automated rent collection is incomplete and not operational**.
+Updated: 27 October 2026. Status: company onboarding deployed with explicit user approval; **automated rent collection is incomplete and not operational**.
 
 ## Verified existing integration and boundaries
 
@@ -116,3 +116,41 @@ User explicitly requested live deployment. This is a scoped company-onboarding r
 - Tests: 18 affected backend checks passed after exact sandbox/live platform pinning; 18 mocked-provider browser checks passed at desktop/tablet/mobile widths. Production build/type/lint/format passed. Earlier full regression: 953 passed, one timed out and passed alone. Actual Stripe sandbox payment acceptance remains unverified; no live payment was attempted.
 - Remaining missing work is unchanged: tenant mandate/AutoPay lifecycle, payment initiation and signed events, provider clearing/settlements/fees/refunds/disputes/payout execution, property merchant assignment, and actual provider reconciliation acceptance. Do not market complete automatic rent collection based on this onboarding release.
 - Rollback: publish prior frontend `6adfd0ca011d3787dffa66de`; redeploy backend `e300bfbec49ad7a71929ae9c30ae9cd18b7a1057` if needed. Keep additive table/history; disable onboarding flag if provider issues occur. No rollback executed.
+
+## Local payment-lifecycle implementation — 27 October 2026
+
+This development checkpoint is **not deployed**. Production remains the company-onboarding release described above. No actual Stripe test-mode or live rent transaction has passed acceptance, and no new live money movement has been enabled.
+
+### Implemented in the existing backend
+
+- `payment-methods.ts`: capability-, country-, currency-, provider-configuration- and amount-aware card/ACH/Bacs/SEPA/ACSS eligibility. These are eligibility rules, not a claim that a method is enabled for a real merchant.
+- `checkout.service.ts`: tenant invoice and current management-authority checks; explicit property-to-company collection routing; actual connected-account and default payment-configuration verification; direct connected-account hosted checkout using a durable idempotency key. No separate rent subscription schedule is created.
+- `attempts.service.ts` and additive migration `0057_rent_collection_attempts.sql`: immutable organisation/customer/invoice/account/environment identity, one unresolved outgoing collection per invoice, retained uncertain requests, safe retry expiry and immutable attempt/event history. The migration has not been applied remotely.
+- `events.service.ts`: separate raw Connect signature; account/environment/metadata validation; independent retrieval of the actual connected-account PaymentIntent and Checkout; received amount validation; event deduplication and conflicting event identity refusal; out-of-order protection; inbound confirmations remain processable after new collections are disabled. Returns are retained for review rather than silently rewriting payment history.
+- Existing `payments.service.ts`: verified successful events can post exactly once through the shared allocation/receipt/owner-fee engine. Debit account 1045 is provider clearing, **not bank cash**. Provider overpayments remain tenant credit; they are not automatically applied to unrelated invoices.
+- `provider-funds.ts`, owners, bills and payment services: unsettled provider receipts block owner payouts, owner-funded supplier payments, deposit refunds and tenant-credit reuse. Provider receipts cannot use the manual reversal path; they need an actual provider refund/dispute workflow. Closed accounting periods roll back receipt creation without losing signed provider evidence.
+- A later bank return can enter review even when a subsequent partial-payment attempt is pending. It marks the earlier clearing state disputed without erasing the receipt or changing the ledger silently.
+
+### Verification and remaining implementation
+
+An initial 53 tests across five suites passed, followed by 18 checkout/event/clearing tests after ledger balance, concurrent posting, closed-period rollback and payout guards were added. Type checks passed. Subsequent review added the late-return concurrency regression and resolved lint findings; the full regression run is in progress at this checkpoint. These tests use **mock Stripe responses with real PostgreSQL and real Stripe signature checks**, not actual provider acceptance.
+
+The new services are deliberately internal: no public tenant checkout endpoint, webhook route or payment UI has been registered. Still required: property collection-authority configuration UI/API; provider settlement/fee/payout ingestion and bank reconciliation; reviewed returns/refunds/disputes; tenant authorisation/mandate lifecycle and AutoPay; worker orchestration and actual provider/browser acceptance. Existing subscription charging is still disabled in production; this phase does not claim to activate it.
+
+### Live dashboard observation
+
+The PALTAS live default Connect payment configuration showed three unsaved pending changes for Canadian PAD, SEPA and ACH. Bacs was additionally selected as requested, but Stripe's Review changes opened a loading view and the selections subsequently reverted to off without a confirmed save. A controlled single-ACH retry also remained at Loading. **No successful live-method configuration save is claimed.** Evidence: `outputs/stripe-rent-integration/live-method-review-loading.png` in the task workspace. No Appra or other product account was accessed.
+
+### Subscription readiness diagnostic — production, read-only
+
+The existing PALTAS key was authenticated again to the pinned production account. `STRIPE_ENABLED=false` and `STRIPE_PRICE_MAP=[]` were confirmed. Stripe returned one active recurring price, USD 49.00 monthly, with no plan metadata and no further page. The production catalogue contains ten priced monthly plans denominated in KES and two unpriced Enterprise plans. Therefore the USD price cannot be silently mapped to those KES plans or used to declare subscription checkout ready. No prices, catalogue rows, subscriptions, keys or enablement settings were modified. Proper catalogue-to-Stripe mapping and checkout acceptance remain required.
+
+A read-only retrieval of the live Connect parent payment configuration returned Stripe's explicit error: "Platform parent configurations can only be managed via the dashboard." No API update was attempted. The dashboard review failure is a real configuration blocker; it is separate from the remaining payment implementation work.
+
+### Final local verification for this checkpoint
+
+- Type checking, lint, formatting, generated browser-client consistency and `git diff --check` passed.
+- Targeted checkout/event/clearing suite: 19/19 passed, using mocked Stripe and real PostgreSQL/signatures.
+- First full regression: 1,006 passed and one assertion failed because the test incorrectly expected a previous return hold to disappear after recovered success. The assertion now explicitly requires that review hold to remain; no production safety check was weakened.
+- Second full regression: 999 passed, one notification-isolation test timed out and seven product-routing tests were skipped after their setup timed out. Those two suites were rerun alone with one worker: 16/16 passed. This is **not** a single fully green full-suite run.
+- No current changes, migration 0057 or tenant collection endpoints were deployed. No actual Stripe sandbox or live transaction was made. Production remains company onboarding only; the automated collection, settlement, refund/dispute, AutoPay and subscription configuration gaps above remain open.

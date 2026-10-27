@@ -24,6 +24,7 @@ import * as R from "../shared/records.js";
 import { sum } from "../shared/util.js";
 import { ownerFunds } from "../shared/owner-funds.js";
 import { formatMoney } from "../../../lib/money.js";
+import { requireSettledProviderFunds } from "../shared/provider-funds.js";
 
 interface ClaimRow {
   id: string;
@@ -133,6 +134,7 @@ export function paymentsService(d: PmDeps) {
       claimId?: string | undefined;
       bankLineId?: string | null;
     },
+    funding: "bank" | "provider" = "bank",
   ): Promise<string> {
     if (b.date > s.today) throw fail.invalid("A payment cannot be dated in the future");
     // one payment at a time per tenant: allocations never race
@@ -144,9 +146,9 @@ export function paymentsService(d: PmDeps) {
     if (dup) throw fail.conflict(`Reference ${b.reference} is already recorded as ${dup.number}`);
     const open = await openInvoicesForUpdate(t, s.orgId, b.tenantId);
     let plan: [R.InvoiceRow, number][];
-    if (b.allocations?.length) {
+    if (funding === "provider" ? b.allocations !== undefined : b.allocations?.length) {
       plan = [];
-      for (const a of b.allocations) {
+      for (const a of b.allocations ?? []) {
         const inv = open.find((i) => i.id === a.invoiceId);
         if (!inv) throw fail.invalid(`Invoice ${a.invoiceId} is not an open invoice of this tenant`);
         if (a.amountMinor > R.balanceOf(inv))
@@ -194,11 +196,11 @@ export function paymentsService(d: PmDeps) {
       orgId: s.orgId,
       date: b.date,
       kind: "receipt",
-      memo: `${number} · receipt ${receipt} · ${tenant.name} · ${b.method} ${b.reference} (recorded, not processed by PALTAS)`,
+      memo: `${number} · receipt ${receipt} · ${tenant.name} · ${b.method} ${b.reference} (${funding === "provider" ? "Stripe confirmed; provider clearing, not bank cash" : "recorded, not processed by PALTAS"})`,
       ref: `payment:${id}`,
       link: { tenantId: b.tenantId },
       lines: [
-        dr(ACC.clientBank, b.amountMinor, `${b.method} ${b.reference}`),
+        dr(funding === "provider" ? ACC.providerClearing : ACC.clientBank, b.amountMinor, `${b.method} ${b.reference}`),
         cr(ACC.receivables, allocated, "Allocated to invoices"),
         cr(ACC.tenantCredits, b.amountMinor - allocated, "Held as the tenant's credit"),
       ],
@@ -232,6 +234,71 @@ export function paymentsService(d: PmDeps) {
   return {
     recordIn,
     paymentView,
+    /** Shared payment/receipt/allocation posting, funded by verified provider clearing rather than bank cash. */
+    async recordProvider(s: OrgScope, attemptId: string) {
+      return financeTransaction(db, s.orgId, async (t) => {
+        const a = await t.row<{
+          id: string;
+          tenant_id: string;
+          property_id: string;
+          invoice_id: string;
+          amount_minor: number;
+          currency: string;
+          method: string;
+          status: string;
+          verified_success_at: string | null;
+          last_provider_state: string | null;
+          provider_intent_id: string | null;
+          payment_id: string | null;
+        }>("SELECT * FROM rent_collection_attempts WHERE id=$1 AND org_id=$2 FOR UPDATE", [attemptId, s.orgId]);
+        if (!a || (s.propertyIds && !s.propertyIds.includes(a.property_id)))
+          throw fail.notFound("Collection attempt not found");
+        if (a.payment_id) return a.payment_id;
+        if (
+          !a.verified_success_at ||
+          a.last_provider_state !== "succeeded" ||
+          !a.provider_intent_id ||
+          a.currency !== s.entitlement.org.currency
+        )
+          throw fail.conflict("A verified successful provider payment is required before posting a receipt");
+        const proof = await t.row<{ date: string }>(
+          "SELECT to_char(to_timestamp(provider_created) AT TIME ZONE 'UTC','YYYY-MM-DD') AS date FROM rent_collection_provider_events WHERE attempt_id=$1 AND org_id=$2 AND event_type='payment_intent.succeeded' ORDER BY provider_created LIMIT 1",
+          [a.id, s.orgId],
+        );
+        if (!proof) throw fail.conflict("The signed successful-payment event is required before posting");
+        const account = await t.row(
+          "SELECT code FROM ledger_accounts WHERE org_id=$1 AND code=$2 AND system AND active AND type='asset'",
+          [s.orgId, ACC.providerClearing],
+        );
+        if (!account) throw fail.conflict("Provider clearing accounting must be configured before posting");
+        const inv = await R.invoiceRow(t, s.orgId, a.invoice_id);
+        if (inv.tenant_id !== a.tenant_id) throw fail.conflict("Collection payer does not match the invoice");
+        const allocated = Math.max(0, Math.min(a.amount_minor, R.balanceOf(inv)));
+        const id = await recordIn(
+          t,
+          s,
+          {
+            tenantId: a.tenant_id,
+            date: proof.date,
+            amountMinor: a.amount_minor,
+            method: a.method === "card" ? "card" : "other",
+            reference: "STRIPE:" + a.provider_intent_id,
+            note: "Stripe " + a.method + " confirmed; bank settlement pending",
+            allocations: allocated ? [{ invoiceId: a.invoice_id, amountMinor: allocated }] : [],
+          },
+          "provider",
+        );
+        await t.run(
+          "UPDATE rent_collection_attempts SET payment_id=$2,status='succeeded',updated_at=now() WHERE id=$1",
+          [a.id, id],
+        );
+        await t.run(
+          "INSERT INTO rent_collection_attempt_events(attempt_id,org_id,from_status,to_status,reason) VALUES($1,$2,$3,'succeeded','Verified payment posted once to provider clearing and existing tenant ledger')",
+          [a.id, s.orgId, a.status],
+        );
+        return id;
+      });
+    },
 
     async record(s: OrgScope, b: Parameters<typeof recordIn>[2]) {
       const id = await financeTransaction(db, s.orgId, (t) => recordIn(t, s, b));
@@ -245,6 +312,10 @@ export function paymentsService(d: PmDeps) {
           id,
         ]);
         if (!p) throw fail.notFound("Payment not found");
+        if (await t.row("SELECT id FROM rent_collection_attempts WHERE org_id=$1 AND payment_id=$2", [s.orgId, id]))
+          throw fail.conflict(
+            "This is a provider payment. Use the authorised provider refund or dispute workflow; a manual reversal would not return the money.",
+          );
         if (p.bank_line_id)
           throw fail.conflict(
             "This receipt is matched to the bank. Resolve the bank reconciliation before requesting a correction.",
@@ -299,6 +370,8 @@ export function paymentsService(d: PmDeps) {
         // No source receipt, allocation or journal is deleted or overwritten.
         const p = await t.row<R.PaymentRow>("SELECT * FROM pm_payments WHERE org_id=$1 AND id=$2", [s.orgId, id]);
         if (!p) throw fail.notFound("Payment not found");
+        if (await t.row("SELECT id FROM rent_collection_attempts WHERE org_id=$1 AND payment_id=$2", [s.orgId, id]))
+          throw fail.conflict("Provider receipts require the authorised provider refund or dispute workflow");
         const r = await t.row<{
           requested_by: string;
           approved_by: string | null;
@@ -453,6 +526,7 @@ export function paymentsService(d: PmDeps) {
     async applyCredit(s: OrgScope, tenantId: string) {
       const ids = await financeTransaction(db, s.orgId, async (t) => {
         await core.contacts.live(t, s.orgId, tenantId, true);
+        await requireSettledProviderFunds(t, s.orgId, { tenantId });
         const credit = await R.tenantCredit(t, s.orgId, tenantId);
         if (credit <= 0) throw fail.conflict("This tenant has no credit to apply");
         const open = await openInvoicesForUpdate(t, s.orgId, tenantId);
@@ -711,6 +785,7 @@ export function paymentsService(d: PmDeps) {
         if (r.requested_by === s.userId)
           throw fail.separationOfDuties("You requested this deposit settlement — someone else must approve it");
         const l = await R.leaseRow(t, s.orgId, r.lease_id, true);
+        await requireSettledProviderFunds(t, s.orgId, { tenantId: l.tenant_id });
         const held = (await R.depositsHeld(t, s.orgId, [l.id])).get(l.id) ?? 0;
         if (held !== (r.available_held_minor ?? r.held_minor))
           throw fail.conflict(

@@ -30,13 +30,13 @@ const note =
 export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
   const { db } = ctx;
   const enabled = () => !!ctx.config.stripeRent?.onboardingEnabled;
-  const client = () =>
+  const client = (purpose: "collection" | "onboarding" = "onboarding") =>
     verifiedRentStripe(
       ctx.config.stripe,
       ctx.config.stripeRent ?? defaultRent,
       ctx.config.signup.appBaseUrl,
       supplied,
-      "onboarding",
+      purpose,
     );
   const row = (orgId: string) => db.row<MerchantRow>("SELECT * FROM rent_stripe_merchants WHERE org_id=$1", [orgId]);
   const dto = (r: MerchantRow) => ({
@@ -95,6 +95,26 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
     });
   }
   return {
+    /** Internal direct-charge boundary. Callers receive only a provider-verified account from this workspace. */
+    async collectionAccount(s: OrgScope) {
+      const r = await row(s.orgId);
+      if (!r?.account_id) throw fail.conflict("The company has not connected its collection account");
+      const verified = await client("collection");
+      if (verified.mode !== r.mode || verified.platformAccountId !== r.platform_account_id)
+        throw fail.conflict("This company collection account belongs to another Stripe environment");
+      const account = await verifyMerchant(verified.stripe, r);
+      await update(s, r, account);
+      if (
+        !account.charges_enabled ||
+        !account.payouts_enabled ||
+        !account.details_submitted ||
+        account.requirements?.disabled_reason ||
+        account.requirements?.currently_due?.length ||
+        account.requirements?.past_due?.length
+      )
+        throw fail.conflict("Stripe company verification must be completed before collecting rent");
+      return { ...verified, merchant: r, account };
+    },
     async status(s: OrgScope) {
       const r = await row(s.orgId);
       return {
