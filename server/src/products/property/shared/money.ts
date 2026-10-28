@@ -141,6 +141,14 @@ export async function issueInvoice(t: Db, core: CoreServices, inv: NewInvoice): 
     lines: [dr(ACC.receivables, amount, "Tenant receivable"), ...[...byAccount].map(([a, v]) => cr(a, v))],
   });
   await t.run("UPDATE pm_invoices SET journal_id = $2 WHERE id = $1", [id, journalId]);
+  await core.contacts.productActivity(t, {
+    orgId: inv.orgId,
+    contactId: inv.lease.tenant_id,
+    eventType: "property.invoice.issued",
+    recordId: id,
+    text: `Invoice ${number} issued: ${formatMoney(amount, await orgCurrency(t, inv.orgId))} · ${inv.kind} · due ${inv.dueDate}`,
+    by: inv.createdBy,
+  });
   return id;
 }
 
