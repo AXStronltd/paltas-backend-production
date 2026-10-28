@@ -1115,6 +1115,16 @@ export const updateBuilding = endpoint({
   body: z.object({ name: z.string().trim().min(1).max(160), floors: z.number().int().min(0).max(300).optional() }),
   response: Building,
 });
+export const restoreBuilding = endpoint({
+  id: "property.buildings.restore",
+  method: "POST",
+  path: `${Base}/buildings/:buildingId/restore`,
+  auth: "user",
+  summary: "Restore an archived block and its existing units without recreating records or posting charges",
+  params: BuildingParams,
+  body: z.object({ confirmName: z.string().trim().min(1).max(160), reason: z.string().trim().min(6).max(1000) }),
+  response: Building,
+});
 export const deleteBuilding = endpoint({
   id: "property.buildings.delete",
   method: "DELETE",

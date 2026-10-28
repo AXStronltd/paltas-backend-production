@@ -105,7 +105,7 @@ const SAFE_SHARED = new Set([
   "subscription.entitlements",
 ]);
 const SCOPED =
-  /^(property\.(properties\.(list|get|update)|buildings\.(create|update|delete)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|complaints\..+|meters\..+|invoices\..+|reminders\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll|collectionsOverview|exportCollections))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
+  /^(property\.(properties\.(list|get|update)|buildings\.(create|update|delete|restore)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|complaints\..+|meters\..+|invoices\..+|reminders\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll|collectionsOverview|exportCollections))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
 const GLOBAL =
   /^property\.(settings\.update|chargeTypes\.(create|update)|properties\.create|bank\.|reconciliations\.|payouts\.|owners\.|reports\.(clientMoney|aged|dashboard))/;
 export function managerGuard(db: Db) {

@@ -462,6 +462,34 @@ export function setupService(d: PmDeps) {
       return building;
     },
 
+    async restoreBuilding(s: OrgScope, id: string, b: { confirmName: string; reason: string }) {
+      const propertyId = await db.tx(async (t) => {
+        const block = await t.row<{ name: string; property_id: string; is_archived: boolean }>(
+          "SELECT name,property_id,is_archived FROM pm_buildings WHERE org_id=$1 AND id=$2 FOR UPDATE",
+          [s.orgId, id],
+        );
+        if (!block) throw fail.notFound("Block not found");
+        if (b.confirmName !== block.name) throw fail.invalid("Type the exact block name to confirm restoration");
+        if (block.is_archived) {
+          await t.run("UPDATE pm_buildings SET is_archived=false WHERE org_id=$1 AND id=$2", [s.orgId, id]);
+          await recordAudit(t, {
+            actor: s.actor,
+            orgId: s.orgId,
+            action: "Block restored",
+            target: id,
+            detail: b.reason,
+            before: { isArchived: true },
+            after: { isArchived: false },
+          });
+        }
+        return block.property_id;
+      });
+      const p = await propertyView(s.orgId, await R.propertyRow(db, s.orgId, propertyId), s.today);
+      const block = p.buildings.find((x) => x.id === id);
+      if (!block) throw fail.notFound("Block not found");
+      return block;
+    },
+
     async deleteBuilding(s: OrgScope, id: string): Promise<{ id: string; action: "deleted" | "archived" }> {
       return db.tx(async (t) => {
         const before = await t.row<{ name: string; is_archived: boolean }>(

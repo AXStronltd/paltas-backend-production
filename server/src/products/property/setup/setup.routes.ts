@@ -44,6 +44,9 @@ export function setupRoutes(access: PmAccess, S: SetupService) {
     route(api.updateBuilding, async (req) =>
       S.updateBuilding(await g.org(req, "property.setup", WRITE), req.params.buildingId, req.body),
     ),
+    route(api.restoreBuilding, async (req) =>
+      S.restoreBuilding(await g.org(req, "property.setup", WRITE), req.params.buildingId, req.body),
+    ),
     route(api.deleteBuilding, async (req) =>
       S.deleteBuilding(await g.org(req, "property.setup", WRITE), req.params.buildingId),
     ),
