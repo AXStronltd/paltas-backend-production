@@ -36,20 +36,43 @@ import { formatMoney } from "../../../lib/money.js";
 /** Who runs billing: a member (their scope) or the PALTAS scheduler (no user). */
 export type BillingOp = Pick<OrgScope, "orgId" | "actor" | "today"> & { userId: string | null };
 
-/** Rent for a month: the rent in force at the start of the lease's month, prorated by day in the first month. */
+/** Calendar-month rent, limited to the agreed lease dates and effective rent steps.
+ * Round the weighted month once in integer minor units; never mutate previously issued invoices.
+ */
 export async function rentLine(t: Db, l: R.LeaseRow, period: string): Promise<{ line: NewInvoiceLine; note: string }> {
-  const first = `${period}-01`;
-  const last = lastDay(period);
+  const first = `${period}-01`,
+    last = lastDay(period);
   const from = l.start_date > first ? l.start_date : first;
-  const rent = await R.rentOn(t, l, from);
-  let amount = rent;
-  let note = "";
-  if (l.start_date > first) {
-    const days = daysBetween(l.start_date, last) + 1;
-    const dim = daysBetween(first, last) + 1;
-    amount = Math.round((rent * days) / dim);
-    note = `Prorated ${days} of ${dim} days`;
+  const through = l.end_date && l.end_date < last ? l.end_date : last;
+  if (from > through) throw fail.invalid("The selected rent period is outside this lease");
+  const initialRent = await R.rentOn(t, l, from);
+  const steps = await t.rows<{ effective_from: string; rent_minor: number }>(
+    "SELECT effective_from,rent_minor FROM pm_rent_steps WHERE lease_id=$1 AND effective_from>$2 AND effective_from<=$3 ORDER BY effective_from",
+    [l.id, from, through],
+  );
+  const segments: { from: string; through: string; days: number; monthlyRentMinor: number }[] = [];
+  let cursor = from,
+    rent = initialRent,
+    weighted = 0n;
+  for (const step of [...steps, { effective_from: addDays(through, 1), rent_minor: 0 }]) {
+    const days = daysBetween(cursor, step.effective_from);
+    if (!Number.isSafeInteger(rent) || rent <= 0)
+      throw fail.invalid("The agreed rent must be a positive safe minor-unit amount");
+    weighted += BigInt(rent) * BigInt(days);
+    segments.push({ from: cursor, through: addDays(step.effective_from, -1), days, monthlyRentMinor: rent });
+    cursor = step.effective_from;
+    rent = step.rent_minor;
   }
+  const dim = daysBetween(first, last) + 1,
+    billedDays = daysBetween(from, through) + 1;
+  const amount = Number((weighted + BigInt(Math.floor(dim / 2))) / BigInt(dim));
+  if (!Number.isSafeInteger(amount) || amount <= 0)
+    throw fail.invalid("The prorated rent must be at least one supported minor currency unit");
+  const notes = [
+    billedDays < dim ? `Prorated ${billedDays} of ${dim} days` : "",
+    steps.length ? "Effective rent changes applied" : "",
+  ].filter(Boolean);
+  const note = notes.join("; ");
   return {
     line: {
       code: "RENT",
@@ -60,6 +83,7 @@ export async function rentLine(t: Db, l: R.LeaseRow, period: string): Promise<{ 
       payee: "owner",
       feeApplies: true,
       vatApplies: false,
+      pricingSnapshot: { method: "calendar_month_actual_days", period, from, through, daysInMonth: dim, segments },
     },
     note,
   };
