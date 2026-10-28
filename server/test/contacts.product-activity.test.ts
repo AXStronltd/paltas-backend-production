@@ -27,7 +27,7 @@ describe("shared product activity provenance, not autonomous access decisions", 
     leaseId = l.id;
     await X.staff.property_manager.api.property.activateLease({
       params: { ...O(), leaseId },
-      body: { signedOn: "2026-10-01" },
+      body: { signedOn: "2026-10-01", billFirstRent: true },
     });
   });
   afterAll(async () => {
@@ -76,7 +76,7 @@ describe("shared product activity provenance, not autonomous access decisions", 
     });
     await X.staff.property_manager.api.property.previewLeaseActivation({
       params: { ...O(), leaseId: draft.id },
-      body: { signedOn: "2026-10-01" },
+      body: { signedOn: "2026-10-01", billFirstRent: true },
     });
     expect(
       await S.sql("SELECT id FROM contact_activities WHERE org_id=$1 AND event_key=$2", [
@@ -84,6 +84,65 @@ describe("shared product activity provenance, not autonomous access decisions", 
         "property.lease.activated:" + draft.id,
       ]),
     ).toHaveLength(0);
+    expect(
+      await S.sql(
+        "SELECT id FROM contact_activities WHERE org_id=$1 AND contact_id=$2 AND event_type='property.invoice.issued'",
+        [X.orgId, id],
+      ),
+    ).toHaveLength(0);
+    expect(await S.sql("SELECT id FROM pm_invoices WHERE lease_id=$1", [draft.id])).toHaveLength(0);
+    expect(
+      (await X.staff.property_manager.api.property.getLease({ params: { ...O(), leaseId: draft.id } })).lease.status,
+    ).toBe("draft");
+  });
+  it("projects issued invoices once with ledger provenance and rejects foreign source claims", async () => {
+    const detail = await X.admin.api.contacts.getContact({ params: { ...O(), contactId: tenantId } });
+    const original = detail.activities.find((a) => a.eventType === "property.invoice.issued")!;
+    expect(original).toMatchObject({ sourceProduct: "property", refType: "invoice", kind: "system" });
+    expect(original.text).toContain("KES");
+    const input = { ...event(), eventType: "property.invoice.issued" as const, recordId: original.refId! };
+    const repeated = await Promise.all(
+      Array.from({ length: 5 }, () => S.app.ctx.db.tx((t) => S.app.core.contacts.productActivity(t, input))),
+    );
+    expect(repeated.every((a) => a.id === original.id && a.text === original.text)).toBe(true);
+    await X.admin.api.property.runBilling({
+      params: O(),
+      body: { propertyId: B.propertyId, period: "2026-10", kind: "rent" },
+    });
+    expect(
+      await S.sql("SELECT id FROM contact_activities WHERE org_id=$1 AND event_key=$2", [X.orgId, original.eventKey]),
+    ).toHaveLength(1);
+    const other = await pmOrg(S);
+    await expect(
+      S.app.ctx.db.tx((t) => S.app.core.contacts.productActivity(t, { ...input, orgId: other.orgId })),
+    ).rejects.toBeTruthy();
+    const stranger = await newTenant(X.staff.property_manager, X.orgId, "Invoice activity stranger");
+    await expect(
+      S.app.ctx.db.tx((t) => S.app.core.contacts.productActivity(t, { ...input, contactId: stranger })),
+    ).rejects.toBeTruthy();
+  });
+  it("failed activation rolls back invoice, journals and invoice activity together", async () => {
+    const person = await newTenant(X.staff.property_manager, X.orgId, "Rollback resident");
+    const draft = await X.staff.property_manager.api.property.createLease({
+      params: O(),
+      body: { unitId: B.units["A-103"]!, tenantId: person, startDate: "2026-10-01", rentMinor: 90000, depositMinor: 0 },
+    });
+    const before = await S.sql("SELECT id FROM journal_entries WHERE org_id=$1", [X.orgId]);
+    await refused(
+      X.staff.property_manager.api.property.activateLease({
+        params: { ...O(), leaseId: draft.id },
+        body: { signedOn: "2026-10-01", billFirstRent: true, expectedRentMinor: 1 },
+      }),
+      409,
+    );
+    expect(await S.sql("SELECT id FROM pm_invoices WHERE lease_id=$1", [draft.id])).toHaveLength(0);
+    expect(
+      await S.sql(
+        "SELECT id FROM contact_activities WHERE org_id=$1 AND contact_id=$2 AND event_type='property.invoice.issued'",
+        [X.orgId, person],
+      ),
+    ).toHaveLength(0);
+    expect(await S.sql("SELECT id FROM journal_entries WHERE org_id=$1", [X.orgId])).toHaveLength(before.length);
     expect(
       (await X.staff.property_manager.api.property.getLease({ params: { ...O(), leaseId: draft.id } })).lease.status,
     ).toBe("draft");
@@ -123,6 +182,25 @@ describe("shared product activity provenance, not autonomous access decisions", 
     const r = await manager.api.contacts.getContact({ params: { ...O(), contactId: tenantId } });
     expect(r.activities.some((a) => a.eventType === "property.lease.activated")).toBe(true);
     expect(r.activities.some((a) => a.eventType === "property.payment.recorded")).toBe(false);
+    expect(r.activities.some((a) => a.eventType === "property.invoice.issued")).toBe(false);
+    await S.sql(
+      "UPDATE main_manager_grants SET capabilities=array_append(capabilities,'property.tenants.history') WHERE org_id=$1 AND user_id=$2",
+      [X.orgId, manager.userId],
+    );
+    expect(
+      (await manager.api.contacts.getContact({ params: { ...O(), contactId: tenantId } })).activities.some(
+        (a) => a.eventType === "property.invoice.issued",
+      ),
+    ).toBe(true);
+    await S.sql(
+      "UPDATE main_manager_grants SET capabilities=array_remove(capabilities,'property.tenants.history') WHERE org_id=$1 AND user_id=$2",
+      [X.orgId, manager.userId],
+    );
+    expect(
+      (await manager.api.contacts.getContact({ params: { ...O(), contactId: tenantId } })).activities.some(
+        (a) => a.eventType === "property.invoice.issued",
+      ),
+    ).toBe(false);
     const outsider = await pmOrg(S);
     await refused(
       outsider.admin.api.contacts.getContact({ params: { orgId: outsider.orgId, contactId: tenantId } }),

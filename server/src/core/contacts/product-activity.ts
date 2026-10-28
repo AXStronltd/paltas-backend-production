@@ -5,6 +5,12 @@ import { fail } from "../../http/errors.js";
 import { newId } from "../../lib/ids.js";
 import { toActivity, type ActivityRow } from "./contacts.repo.js";
 const SOURCES = {
+  "property.invoice.issued": {
+    product: "property",
+    kind: "system",
+    refType: "invoice",
+    sql: "SELECT tenant_id AS contact_id FROM pm_invoices WHERE org_id=$1 AND id=$2 AND journal_id IS NOT NULL",
+  },
   "property.lease.activated": {
     product: "property",
     kind: "lease",

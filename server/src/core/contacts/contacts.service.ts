@@ -589,14 +589,22 @@ export function contactsService(ctx: AppContext, deps: { notifications: Notifica
           )
             visible.push(product);
         }
+      const propertyRole = viewer ? await memberProductRole(db, orgId, viewer.userId, "property") : null;
+      const propertyFinancialHistory = !!(
+        viewer &&
+        propertyRole &&
+        (await memberCan(db, orgId, viewer.userId, propertyRole, "property", "property.tenants.history"))
+      );
       const c = await load(db, orgId, id);
       const activities = await db.rows<repo.ActivityRow>(
         `SELECT * FROM contact_activities WHERE org_id = $1 AND contact_id = $2 AND ($3::text[] IS NULL OR source_product IS NULL OR source_product=ANY($3))
          AND ($4::text[] IS NULL OR source_product IS NULL OR
           (source_product='property' AND event_type='property.lease.activated' AND EXISTS
-           (SELECT 1 FROM pm_leases l WHERE l.org_id=contact_activities.org_id AND l.id=contact_activities.ref_id AND l.property_id=ANY($4))))
+           (SELECT 1 FROM pm_leases l WHERE l.org_id=contact_activities.org_id AND l.id=contact_activities.ref_id AND l.property_id=ANY($4))) OR
+          ($5 AND source_product='property' AND event_type='property.invoice.issued' AND EXISTS
+           (SELECT 1 FROM pm_invoices i WHERE i.org_id=contact_activities.org_id AND i.id=contact_activities.ref_id AND i.property_id=ANY($4))))
          ORDER BY at DESC, id DESC LIMIT 500`,
-        [orgId, id, viewer ? visible : null, viewer?.propertyIds ?? null],
+        [orgId, id, viewer ? visible : null, viewer?.propertyIds ?? null, propertyFinancialHistory],
       );
       const messages = await db.rows<repo.MessageRow>(
         "SELECT * FROM contact_messages WHERE org_id = $1 AND contact_id = $2 ORDER BY at DESC, id DESC LIMIT 500",
