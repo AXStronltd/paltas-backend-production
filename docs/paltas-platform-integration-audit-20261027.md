@@ -87,6 +87,10 @@ Files changed:
 
 No schema migration, new public endpoint, notification transport or financial posting rule is introduced.
 
+## Additional browser findings
+
+The real contact-profile Documents section still describes metadata-only filing and asks the user to retain the original file elsewhere. The contact Messages section also explicitly says general contact messages are recorded only; invoice email is a separate action. These are observed workflow limitations, not proof that all document storage or email services are absent: lease-document storage and invoice email have separate existing implementations. Reuse those services when completing contact-level upload/delivery, with record authorisation and configured delivery status, rather than creating another document store or silently promising delivery.
+
 ## Prioritised controlled implementation sequence
 
 1. **Release blockers:** finish the tenant payment/merchant/mandate/attempt/provider-event/settlement lifecycle in isolated test mode; confirm PALTAS-only account, source signatures and approved funds flow. Keep live collection disabled until verified.
