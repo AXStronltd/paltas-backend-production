@@ -80,3 +80,14 @@ export const refreshMerchant = endpoint({
   body: z.object({}),
   response: merchantStatus.response,
 });
+
+/** Signature is verified against the dedicated Connect secret using the unmodified request bytes. */
+export const merchantWebhook = endpoint({
+  id: "rentCollection.merchantWebhook",
+  method: "POST",
+  path: "/api/v1/rent-collection/merchant/webhook",
+  auth: "public",
+  summary: "Verified Connect account lifecycle notifications; never posts payments",
+  body: z.unknown(),
+  response: z.object({ received: z.literal(true), duplicate: z.boolean(), ignored: z.boolean() }),
+});

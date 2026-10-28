@@ -196,6 +196,7 @@ export const SUBSCRIPTIONS_API = {
 
 export const RENT_COLLECTION_API = {
   merchantStatus: rentCollection.merchantStatus,
+  merchantWebhook: rentCollection.merchantWebhook,
   onboardMerchant: rentCollection.onboardMerchant,
   refreshMerchant: rentCollection.refreshMerchant,
 } as const;

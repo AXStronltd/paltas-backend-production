@@ -1,4 +1,7 @@
-import type Stripe from "stripe";
+import Stripe from "stripe";
+import type { Db } from "../../../db/database.js";
+import type { Actor } from "../../audit/audit.service.js";
+import { SYSTEM } from "../../audit/audit.service.js";
 import { rentCollection as api } from "@paltas/contracts";
 import type { z } from "@paltas/contracts";
 import type { AppContext } from "../../../context.js";
@@ -23,6 +26,7 @@ interface MerchantRow {
   requirements: string[];
   created_at: string;
   checked_at: string | null;
+  deauthorized_at: string | null;
 }
 const defaultRent = { enabled: false, webhookSecret: "", liveApproved: false };
 const note =
@@ -72,29 +76,104 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
       throw fail.conflict("Company Stripe account identity does not match this workspace");
     return a;
   }
-  async function update(s: OrgScope, r: MerchantRow, a: Stripe.Account) {
+  async function update(t: Db, actor: Actor, r: MerchantRow, a: Stripe.Account) {
+    if (r.deauthorized_at)
+      throw fail.conflict(
+        "Company Stripe access was disconnected. A reviewed reconnection is required; no payment was initiated.",
+      );
     const requirements = [...new Set([...(a.requirements?.currently_due ?? []), ...(a.requirements?.past_due ?? [])])];
     const status = a.requirements?.disabled_reason
       ? "restricted"
       : a.charges_enabled && a.payouts_enabled && a.details_submitted && requirements.length === 0
         ? "verified"
         : "onboarding";
+    await t.run(
+      "UPDATE rent_stripe_merchants SET status=$2,charges_enabled=$3,payouts_enabled=$4,requirements=$5,checked_at=now() WHERE org_id=$1 AND account_id=$6",
+      [r.org_id, status, a.charges_enabled, a.payouts_enabled, JSON.stringify(requirements), r.account_id],
+    );
+    if (status !== r.status || a.charges_enabled !== r.charges_enabled || a.payouts_enabled !== r.payouts_enabled)
+      await recordAudit(t, {
+        actor,
+        orgId: r.org_id,
+        action: "Stripe merchant capabilities checked",
+        target: r.id,
+        detail: status,
+      });
+  }
+  async function refreshLocked(s: OrgScope, stripe: Stripe) {
     await db.tx(async (t) => {
-      await t.run(
-        "UPDATE rent_stripe_merchants SET status=$2,charges_enabled=$3,payouts_enabled=$4,requirements=$5,checked_at=now() WHERE org_id=$1 AND account_id=$6",
-        [s.orgId, status, a.charges_enabled, a.payouts_enabled, JSON.stringify(requirements), r.account_id],
-      );
-      if (status !== r.status || a.charges_enabled !== r.charges_enabled || a.payouts_enabled !== r.payouts_enabled)
-        await recordAudit(t, {
-          actor: s.actor,
-          orgId: s.orgId,
-          action: "Stripe merchant capabilities checked",
-          target: r.id,
-          detail: status,
-        });
+      const r = await t.row<MerchantRow>("SELECT * FROM rent_stripe_merchants WHERE org_id=$1 FOR UPDATE", [s.orgId]);
+      if (!r?.account_id) return;
+      if (r.deauthorized_at)
+        throw fail.conflict(
+          "Company Stripe access was disconnected. A reviewed reconnection is required; no payment was initiated.",
+        );
+      await update(t, s.actor, r, await verifyMerchant(stripe, r));
     });
   }
   return {
+    async webhook(raw: Buffer, signature: string | undefined) {
+      const secret = ctx.config.stripeRent?.webhookSecret ?? "";
+      if (!secret.startsWith("whsec_") || secret === ctx.config.stripe?.webhookSecret)
+        throw fail.conflict("A separate Connect webhook signing secret is required");
+      if (!signature) throw fail.invalid("Stripe signature is required");
+      let event: Stripe.Event;
+      try {
+        event = new Stripe("sk_test_signature_verification").webhooks.constructEvent(raw, signature, secret, 300);
+      } catch {
+        throw fail.invalid("Stripe signature could not be verified");
+      }
+      const { stripe, mode, platformAccountId } = await verifiedRentStripe(
+        ctx.config.stripe,
+        ctx.config.stripeRent ?? defaultRent,
+        ctx.config.signup.appBaseUrl,
+        supplied,
+        ctx.config.stripeRent?.onboardingEnabled ? "onboarding" : "collection",
+      );
+      if (event.livemode !== (mode === "live")) throw fail.invalid("Stripe event environment does not match");
+      if (!event.account || !["account.updated", "account.application.deauthorized"].includes(event.type))
+        return { received: true as const, duplicate: false, ignored: true };
+      if (event.type === "account.updated" && event.data.object.id !== event.account)
+        throw fail.invalid("Stripe account event identity does not match");
+      return db.tx(async (t) => {
+        const r = await t.row<MerchantRow>(
+          "SELECT * FROM rent_stripe_merchants WHERE account_id=$1 AND platform_account_id=$2 AND mode=$3 FOR UPDATE",
+          [event.account, platformAccountId, mode],
+        );
+        if (!r) return { received: true as const, duplicate: false, ignored: true };
+        const previous = await t.row<{ account_id: string; event_type: string }>(
+          "SELECT account_id,event_type FROM rent_stripe_merchant_events WHERE platform_account_id=$1 AND mode=$2 AND event_id=$3",
+          [platformAccountId, mode, event.id],
+        );
+        if (previous) {
+          if (previous.account_id !== event.account || previous.event_type !== event.type)
+            throw fail.invalid("Stripe event identity was reused");
+          return { received: true as const, duplicate: true, ignored: false };
+        }
+        if (event.type === "account.application.deauthorized") {
+          await t.run(
+            "UPDATE rent_stripe_merchants SET status='restricted',charges_enabled=false,payouts_enabled=false,requirements=$2,deauthorized_at=COALESCE(deauthorized_at,now()),checked_at=now() WHERE org_id=$1",
+            [r.org_id, JSON.stringify(["Company Stripe access disconnected; reviewed reconnection required"])],
+          );
+          if (!r.deauthorized_at)
+            await recordAudit(t, {
+              actor: SYSTEM,
+              orgId: r.org_id,
+              action: "Company Stripe access disconnected",
+              target: r.id,
+              detail: "Verified Connect notification; collection and payout capabilities disabled",
+            });
+        } else if (!r.deauthorized_at) {
+          // Read current provider state rather than trusting an old or out-of-order event snapshot.
+          await update(t, SYSTEM, r, await verifyMerchant(stripe, r));
+        }
+        await t.run(
+          "INSERT INTO rent_stripe_merchant_events(platform_account_id,mode,event_id,account_id,event_type,org_id) VALUES($1,$2,$3,$4,$5,$6)",
+          [platformAccountId, mode, event.id, event.account, event.type, r.org_id],
+        );
+        return { received: true as const, duplicate: false, ignored: false };
+      });
+    },
     async status(s: OrgScope) {
       const r = await row(s.orgId);
       return {
@@ -111,7 +190,7 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
       const { stripe, mode, platformAccountId } = await client();
       if (mode !== r.mode || platformAccountId !== r.platform_account_id)
         throw fail.conflict("This merchant belongs to a different Stripe environment");
-      await update(s, r, await verifyMerchant(stripe, r));
+      await refreshLocked(s, stripe);
       return this.status(s);
     },
     async onboard(s: OrgScope, b: Input) {
@@ -129,6 +208,10 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
         )
           throw fail.conflict(
             "The existing company collection setup uses a different country, model or environment. Contact PALTAS for a reviewed change; no second account was created.",
+          );
+        if (m?.deauthorized_at)
+          throw fail.conflict(
+            "Company Stripe access was disconnected. A reviewed reconnection is required; no second account was created.",
           );
         if (!m) {
           m = await t.row<MerchantRow>(
@@ -180,8 +263,7 @@ export function rentMerchantService(ctx: AppContext, supplied?: Stripe) {
         );
         r.account_id = a.id;
       }
-      const a = await verifyMerchant(stripe, r);
-      await update(s, r, a);
+      await refreshLocked(s, stripe);
       const back = ctx.config.signup.appBaseUrl + "/account.html?org=" + encodeURIComponent(s.orgId);
       let link: Stripe.AccountLink;
       try {

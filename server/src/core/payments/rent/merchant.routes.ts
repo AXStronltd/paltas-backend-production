@@ -8,6 +8,9 @@ export function rentMerchantRoutes(ctx: AppContext, core: CoreServices) {
   const scope = (user: Parameters<typeof core.access.scope>[0], orgId: string) =>
     core.access.scope(user, orgId, { capability: "subscription.own" });
   return [
+    route(api.merchantWebhook, async (r) =>
+      service.webhook(r.rawBody ?? Buffer.alloc(0), r.header("stripe-signature")),
+    ),
     route(api.merchantStatus, async (r) => service.status(await scope(r.user, r.params.orgId))),
     route(api.onboardMerchant, async (r) => {
       const s = await core.access.scope(r.user, r.params.orgId, { capability: "subscription.own", write: true });

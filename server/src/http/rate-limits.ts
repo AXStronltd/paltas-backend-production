@@ -42,6 +42,8 @@ const SENSITIVE_IDS = new Set([
   "subscription.upgrade",
   "subscription.stripeCheckout",
   "subscription.export",
+  "rentCollection.onboardMerchant",
+  "rentCollection.refreshMerchant",
 ]);
 
 /** Per person when signed in (a hash of the session token, never the token), else per address. */
@@ -68,7 +70,13 @@ export function rateLimitFor(e: Pick<EndpointDefinition, "id" | "auth" | "method
   if (e.id === "support.start" || e.id === "support.send")
     return { max: 12, timeWindow: minute, keyGenerator: personOrAddress };
   if (e.id === "auth.login") return { max: limits.login, timeWindow: minute };
-  if (e.auth === "signed-webhook" || e.id === "webhooks.email" || e.id === "webhooks.stripe")
+  if (
+    e.auth === "signed-webhook" ||
+    e.id === "webhooks.email" ||
+    e.id === "webhooks.stripe" ||
+    e.id === "subscription.stripeWebhook" ||
+    e.id === "rentCollection.merchantWebhook"
+  )
     return { max: limits.webhook, timeWindow: minute };
   if (PUBLIC_READ_IDS.has(e.id)) return { max: limits.publicRead, timeWindow: minute };
   if (SENSITIVE_IDS.has(e.id) || (e.auth === "staff" && e.method !== "GET"))
