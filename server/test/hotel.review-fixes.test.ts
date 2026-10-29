@@ -52,6 +52,10 @@ describe("hotel review findings stay fixed", () => {
   /** Wait until `n` sessions of this database wait on a row lock. */
   async function lockWaiters(c: pg.Client, n: number) {
     for (let i = 0; i < 200; i++) {
+      // This observer deliberately holds a transaction/row lock. PostgreSQL caches
+      // pg_stat_activity within that transaction, so refresh it before observing new waiters.
+      // Keep the same two-payment outcome assertions; never weaken the financial guard.
+      await c.query("SELECT pg_stat_clear_snapshot()");
       const r = await c.query(
         "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
       );
