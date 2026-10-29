@@ -303,6 +303,8 @@ export const Allocation = z.object({
 export type Allocation = z.infer<typeof Allocation>;
 
 export const Invoice = z.object({
+  rentFrom: IsoDate.nullable().optional(),
+  rentThrough: IsoDate.nullable().optional(),
   id: z.string(),
   number: z.string(),
   kind: InvoiceKind,
@@ -1567,7 +1569,7 @@ export const runBilling = endpoint({
   path: `${Base}/billing-runs`,
   auth: "user",
   summary:
-    "Monthly billing run for a property: rent (prorated in the first month) or charges (recurring + metered; refused while a reading is missing). Idempotent per lease and month.",
+    "Monthly billing run for a property: rent (prorated in the first month) or charges (recurring + metered; refused while a reading is missing). Idempotent per lease and month; leases with flexible rent schedules are listed as skipped.",
   params: OrgParams,
   body: z.object({
     propertyId: Id,
@@ -4230,4 +4232,116 @@ export const getLeasePerson = endpoint({
   summary: "Current household relationship within the authorised lease",
   params: LeaseParams.extend({ leasePersonId: Id }),
   response: LeasePerson,
+});
+
+// ---- Flexible rent invoicing: agreed monthly rent, billed over explicit intervals.
+export const RentCadence = z.enum(["weekly", "monthly", "quarterly", "annual", "custom_days"]);
+export const RentScheduleInput = z
+  .object({
+    cadence: RentCadence,
+    everyDays: z.number().int().min(1).max(365).nullable().default(null),
+    startDate: IsoDate,
+    dueDays: z.number().int().min(0).max(28).default(0),
+    expectedVersion: z.number().int().min(0),
+    reason: z.string().trim().min(6).max(1000),
+  })
+  .refine(
+    (b) => (b.cadence === "custom_days") === (b.everyDays !== null),
+    "Custom-day schedules require an interval; other schedules must not specify one",
+  );
+export type RentScheduleInput = z.infer<typeof RentScheduleInput>;
+export const RentSchedule = z.object({
+  id: Id,
+  leaseId: Id,
+  propertyId: Id,
+  cadence: RentCadence,
+  everyDays: z.number().int().nullable(),
+  startsOn: IsoDate,
+  anchorDate: IsoDate,
+  nextDate: IsoDate,
+  dueDays: z.number().int(),
+  status: z.enum(["active", "paused", "completed"]),
+  version: z.number().int(),
+  lastError: z.string().nullable(),
+});
+export type RentSchedule = z.infer<typeof RentSchedule>;
+export const RentCyclePreview = z.object({
+  from: IsoDate,
+  through: IsoDate,
+  nextDate: IsoDate,
+  amountMinor: NonNegativeMinor,
+  dueDate: IsoDate,
+  due: z.boolean(),
+  description: z.string(),
+  calculation: z.record(z.string(), z.unknown()),
+  previewKey: z.string(),
+  version: z.number().int(),
+});
+export type RentCyclePreview = z.infer<typeof RentCyclePreview>;
+export const getRentSchedule = endpoint({
+  id: "property.leases.rentSchedule.get",
+  method: "GET",
+  path: `${Base}/leases/:leaseId/rent-schedule`,
+  auth: "user",
+  summary: "Manage explicit recurring rent intervals using the existing lease and invoice ledger",
+  params: LeaseParams,
+  response: z.object({ schedule: RentSchedule.nullable() }),
+});
+export const previewRentSchedule = endpoint({
+  id: "property.leases.rentSchedule.preview",
+  method: "POST",
+  path: `${Base}/leases/:leaseId/rent-schedule/preview`,
+  auth: "user",
+  summary: "Manage explicit recurring rent intervals using the existing lease and invoice ledger",
+  params: LeaseParams,
+  body: RentScheduleInput,
+  response: RentCyclePreview,
+});
+export const saveRentSchedule = endpoint({
+  id: "property.leases.rentSchedule.save",
+  method: "PUT",
+  path: `${Base}/leases/:leaseId/rent-schedule`,
+  auth: "user",
+  summary: "Manage explicit recurring rent intervals using the existing lease and invoice ledger",
+  params: LeaseParams,
+  body: z.object({
+    input: RentScheduleInput,
+    previewKey: z.string().length(64),
+    confirm: z.literal("ENABLE_RENT_SCHEDULE"),
+  }),
+  response: RentSchedule,
+});
+export const setRentScheduleStatus = endpoint({
+  id: "property.leases.rentSchedule.status",
+  method: "POST",
+  path: `${Base}/leases/:leaseId/rent-schedule/status`,
+  auth: "user",
+  summary: "Manage explicit recurring rent intervals using the existing lease and invoice ledger",
+  params: LeaseParams,
+  body: z.object({
+    action: z.enum(["pause", "resume"]),
+    expectedVersion: z.number().int().positive(),
+    reason: z.string().trim().min(6).max(1000),
+    confirm: z.literal("CHANGE_RENT_SCHEDULE"),
+  }),
+  response: RentSchedule,
+});
+export const previewRentScheduleRun = endpoint({
+  id: "property.leases.rentSchedule.runPreview",
+  method: "POST",
+  path: `${Base}/leases/:leaseId/rent-schedule/run-preview`,
+  auth: "user",
+  summary: "Manage explicit recurring rent intervals using the existing lease and invoice ledger",
+  params: LeaseParams,
+  response: RentCyclePreview,
+});
+export const runRentSchedule = endpoint({
+  id: "property.leases.rentSchedule.run",
+  method: "POST",
+  path: `${Base}/leases/:leaseId/rent-schedule/run`,
+  auth: "user",
+  summary: "Manage explicit recurring rent intervals using the existing lease and invoice ledger",
+  params: LeaseParams,
+  body: z.object({ previewKey: z.string().length(64), confirm: z.literal("ISSUE_RENT_INVOICE") }),
+  response: z.object({ invoice: Invoice.nullable(), schedule: RentSchedule }),
 });

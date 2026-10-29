@@ -1,3 +1,5 @@
+import { FLEXIBLE_RENT_JOB, rentSchedulesService } from "./billing/rent-schedules.service.js";
+import { rentScheduleRoutes } from "./billing/rent-schedules.routes.js";
 import { inspectionControlsService } from "./maintenance/inspection-controls.service.js";
 import { inspectionControlRoutes } from "./maintenance/inspection-controls.routes.js";
 import { preventiveService, PREVENTIVE_JOB } from "./maintenance/preventive.service.js";
@@ -122,6 +124,7 @@ export const property: ProductModule = {
       ...leasesRoutes(access, leases, billing, payments),
       ...leasePeopleRoutes(access, leasePeopleService(d)),
       ...billingRoutes(access, billing),
+      ...rentScheduleRoutes(access, rentSchedulesService(d)),
       ...billingDisputeRoutes(access, billingDisputesService(d)),
       ...collectionPlanRoutes(access, collectionPlansService(d)),
       ...collectionReminderRoutes(access, collectionRemindersService(d)),
@@ -158,6 +161,19 @@ export const property: ProductModule = {
       return p ?? "The property no longer exists — nothing done";
     }
     return [
+      {
+        key: FLEXIBLE_RENT_JOB,
+        label: "Flexible lease rent billing",
+        scope: "org",
+        async run(job) {
+          const p = await target(job.orgId, job.targetId);
+          if (typeof p === "string") return { summary: p };
+          return rentSchedulesService(pd).automatic(
+            { orgId: p.org_id, userId: null, actor: SYSTEM, today: job.localDate },
+            p.id,
+          );
+        },
+      },
       {
         key: PREVENTIVE_JOB,
         label: "Preventive property servicing",

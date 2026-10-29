@@ -47,6 +47,18 @@ export interface LeaseTerms {
   charges: { chargeTypeId: string; amountMinor: number | null }[];
 }
 
+/** Posted rent intervals cannot be silently repriced by a review or renewal. */
+async function requireUnbilledRentDate(t: Db, leaseId: string, date: string) {
+  const billed = await t.row<{ through: string }>(
+    "SELECT COALESCE(rent_through,((period || '-01')::date + interval '1 month - 1 day')::date)::text AS through FROM pm_invoices WHERE lease_id=$1 AND kind='rent' AND COALESCE(rent_through,((period || '-01')::date + interval '1 month - 1 day')::date)>=$2::date ORDER BY 1 DESC LIMIT 1",
+    [leaseId, date],
+  );
+  if (billed)
+    throw fail.conflict(
+      `Rent is already billed through ${billed.through}. Use an audited invoice correction or choose an unbilled effective date`,
+    );
+}
+
 export function leasesService(d: PmDeps) {
   const { core } = d;
   const db = core.db;
@@ -440,6 +452,7 @@ export function leasesService(d: PmDeps) {
             throw fail.conflict("Another lease starts on this unit before the new end date");
           throw e;
         }
+        await requireUnbilledRentDate(t, id, b.effectiveFrom);
         // later automatic escalations are replaced by the renewal's rent
         await t.run("DELETE FROM pm_rent_steps WHERE lease_id = $1 AND effective_from >= $2", [id, b.effectiveFrom]);
         await t.run(
@@ -463,12 +476,7 @@ export function leasesService(d: PmDeps) {
         if (l.status !== "active") throw fail.conflict("Only an active lease's rent can be reviewed");
         if (b.effectiveFrom < l.start_date || (l.end_date && b.effectiveFrom > l.end_date))
           throw fail.invalid("The new rent must start within the lease");
-        const billed = await t.row<{ period: string }>(
-          "SELECT period FROM pm_invoices WHERE lease_id = $1 AND kind = 'rent' AND period >= $2 ORDER BY period LIMIT 1",
-          [id, b.effectiveFrom.slice(0, 7)],
-        );
-        if (billed && b.effectiveFrom <= `${billed.period}-01`)
-          throw fail.conflict(`Rent for ${billed.period} is already billed — the review can start after it`);
+        await requireUnbilledRentDate(t, id, b.effectiveFrom);
         await t.run(
           `INSERT INTO pm_rent_steps (lease_id, org_id, effective_from, rent_minor, reason, created_by)
            VALUES ($1, $2, $3, $4, 'review', $5)

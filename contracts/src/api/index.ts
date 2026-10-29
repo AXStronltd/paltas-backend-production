@@ -766,6 +766,12 @@ export const CONTACTS_API = {
 } as const;
 
 export const PROPERTY_API = {
+  getRentSchedule: property.getRentSchedule,
+  previewRentSchedule: property.previewRentSchedule,
+  saveRentSchedule: property.saveRentSchedule,
+  setRentScheduleStatus: property.setRentScheduleStatus,
+  previewRentScheduleRun: property.previewRentScheduleRun,
+  runRentSchedule: property.runRentSchedule,
   inspectionTemplateHistory: property.inspectionTemplateHistory,
   getInspectionTemplate: property.getInspectionTemplate,
   getLeasePerson: property.getLeasePerson,

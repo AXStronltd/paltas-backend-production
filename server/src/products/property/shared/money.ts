@@ -2,7 +2,7 @@
  * The two money movements every PM workflow is built from, each posting to the ONE ledger:
  *
  *   issueInvoice  an invoice and its lines; Dr 1120 tenant receivables, Cr 2150 / 2170 / 2160 by payee.
- *                 Idempotent: rent once per lease and month, recurring charges once per lease and month, one deposit
+ *                 Idempotent: rent by nonoverlapping interval (or legacy lease/month), recurring charges once per lease and month, one deposit
  *                 invoice per lease, one late fee per overdue invoice (unique indexes; the lease is locked first).
  *   allocate      money applied to an invoice (from a payment, the tenant's credit or the deposit) and its collection
  *                 posting, split over the invoice's lines in proportion: the owner's share Dr 2150 / Cr 2250 less the
@@ -21,7 +21,7 @@ import { ACC, BILLED_ACCOUNT } from "../accounts.js";
 import { settingsOf } from "../setup/setup.service.js";
 import { cr, dr, post } from "./posting.js";
 import * as R from "./records.js";
-import { applyBp, splitProportionally, sum, toBp } from "./util.js";
+import { applyBp, lastDay, splitProportionally, sum, toBp } from "./util.js";
 import { formatMoney } from "../../../lib/money.js";
 
 export interface NewInvoiceLine {
@@ -45,6 +45,10 @@ export interface NewInvoice {
   dueDate: string;
   note: string;
   recurring?: boolean;
+  billingKey?: string;
+  authorityDate?: string;
+  rentFrom?: string;
+  rentThrough?: string;
   sourceInvoiceId?: string | null;
   runId?: string | null;
   createdBy: string | null;
@@ -59,16 +63,18 @@ export async function issueInvoice(t: Db, core: CoreServices, inv: NewInvoice): 
   if (!lines.length) throw fail.invalid("An invoice needs at least one line above zero");
   // one at a time per lease: the existence check and the insert cannot interleave (no gaps in invoice numbers)
   await t.run("SELECT pg_advisory_xact_lock(hashtext('pm-lease:' || $1))", [inv.lease.id]);
+  const rentFrom = inv.kind === "rent" ? (inv.rentFrom ?? `${inv.period}-01`) : null;
+  const rentThrough = inv.kind === "rent" ? (inv.rentThrough ?? lastDay(inv.period as string)) : null;
   const exists = await t.row<{ id: string }>(
     `SELECT id FROM pm_invoices WHERE lease_id = $1 AND (
-       (kind = 'rent' AND $2 = 'rent' AND period = $3) OR
+       (kind = 'rent' AND $2 = 'rent' AND COALESCE(rent_from,(period || '-01')::date) <= $7::date AND COALESCE(rent_through,((period || '-01')::date + interval '1 month - 1 day')::date) >= $6::date) OR
        (kind = 'charge' AND $2 = 'charge' AND recurring AND $4 AND period = $3) OR
        (kind = 'deposit' AND $2 = 'deposit') OR
        (kind = 'late_fee' AND $2 = 'late_fee' AND source_invoice_id = $5))`,
-    [inv.lease.id, inv.kind, inv.period, !!inv.recurring, inv.sourceInvoiceId ?? null],
+    [inv.lease.id, inv.kind, inv.period, !!inv.recurring, inv.sourceInvoiceId ?? null, rentFrom, rentThrough],
   );
   if (exists) return null;
-  const ag = await R.agreementForUnit(t, inv.orgId, inv.lease.unit_id, inv.issueDate);
+  const ag = await R.agreementForUnit(t, inv.orgId, inv.lease.unit_id, inv.authorityDate ?? inv.issueDate);
   if (!ag)
     throw fail.conflict(
       `No active management agreement covers unit ${inv.lease.unit_no} — record the owner's agreement first`,
@@ -78,8 +84,8 @@ export async function issueInvoice(t: Db, core: CoreServices, inv: NewInvoice): 
   const amount = sum(lines, (l) => l.amountMinor);
   await t.run(
     `INSERT INTO pm_invoices (id, org_id, number, kind, lease_id, tenant_id, unit_id, property_id, owner_id, agreement_id,
-       period, issue_date, due_date, amount_minor, note, recurring, source_invoice_id, run_id, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)`,
+       period, issue_date, due_date, amount_minor, note, recurring, source_invoice_id, run_id, created_by, billing_key, rent_from, rent_through)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)`,
     [
       id,
       inv.orgId,
@@ -100,6 +106,9 @@ export async function issueInvoice(t: Db, core: CoreServices, inv: NewInvoice): 
       inv.sourceInvoiceId ?? null,
       inv.runId ?? null,
       inv.createdBy,
+      inv.billingKey ?? null,
+      rentFrom,
+      rentThrough,
     ],
   );
   let n = 0;

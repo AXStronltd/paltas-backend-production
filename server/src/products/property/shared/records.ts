@@ -90,6 +90,8 @@ export interface LeaseRow {
 }
 
 export interface InvoiceRow {
+  rent_from?: string | null;
+  rent_through?: string | null;
   id: string;
   org_id: string;
   number: string;
@@ -379,6 +381,8 @@ export async function invoiceViews(db: Db, rows: InvoiceRow[], today: string): P
       id: i.id,
       number: i.number,
       kind: i.kind,
+      rentFrom: i.rent_from ?? null,
+      rentThrough: i.rent_through ?? null,
       leaseId: i.lease_id,
       tenantId: i.tenant_id,
       tenantName: i.tenant_name,

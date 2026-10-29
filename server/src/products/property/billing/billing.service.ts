@@ -39,7 +39,12 @@ export type BillingOp = Pick<OrgScope, "orgId" | "actor" | "today"> & { userId: 
 /** Calendar-month rent, limited to the agreed lease dates and effective rent steps.
  * Round the weighted month once in integer minor units; never mutate previously issued invoices.
  */
-export async function rentLine(t: Db, l: R.LeaseRow, period: string): Promise<{ line: NewInvoiceLine; note: string }> {
+export async function rentLine(
+  t: Db,
+  l: R.LeaseRow,
+  period: string,
+  allowZero = false,
+): Promise<{ line: NewInvoiceLine; note: string }> {
   const first = `${period}-01`,
     last = lastDay(period);
   const from = l.start_date > first ? l.start_date : first;
@@ -66,7 +71,7 @@ export async function rentLine(t: Db, l: R.LeaseRow, period: string): Promise<{ 
   const dim = daysBetween(first, last) + 1,
     billedDays = daysBetween(from, through) + 1;
   const amount = Number((weighted + BigInt(Math.floor(dim / 2))) / BigInt(dim));
-  if (!Number.isSafeInteger(amount) || amount <= 0)
+  if (!Number.isSafeInteger(amount) || amount < 0 || (!allowZero && amount === 0))
     throw fail.invalid("The prorated rent must be at least one supported minor currency unit");
   const notes = [
     billedDays < dim ? `Prorated ${billedDays} of ${dim} days` : "",
@@ -287,7 +292,25 @@ export function billingService(d: PmDeps) {
           "INSERT INTO pm_billing_runs (id, org_id, property_id, period, kind, created, skipped, run_by) VALUES ($1, $2, $3, $4, $5, 0, 0, $6)",
           [runId, s.orgId, b.propertyId, b.period, b.kind, s.userId],
         );
+        const flexible =
+          b.kind === "rent"
+            ? new Set(
+                (
+                  await t.rows<{ lease_id: string }>(
+                    "SELECT lease_id FROM pm_rent_schedules WHERE org_id=$1 AND property_id=$2 AND starts_on <= $3",
+                    [s.orgId, b.propertyId, last],
+                  )
+                ).map((r) => r.lease_id),
+              )
+            : new Set<string>();
         for (const l of leases) {
+          if (flexible.has(l.id)) {
+            skipped.push({
+              leaseId: l.id,
+              reason: "Uses a flexible rent schedule; review or bill the next interval from the lease",
+            });
+            continue;
+          }
           const issueDate = l.start_date > first ? l.start_date : first;
           const dueDate = l.start_date > first ? l.start_date : dueDateIn(b.period, l.due_day);
           let lines: NewInvoiceLine[] = [];
