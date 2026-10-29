@@ -200,7 +200,11 @@ export const receivingAccount = endpoint({
   path: "/api/v1/orgs/:orgId/property/receiving-account",
   auth: "user",
   params: OrgParams,
-  response: z.object({ account: ReceivingAccount.nullable(), automaticSettlementEnabled: z.literal(false) }),
+  response: z.object({
+    account: ReceivingAccount.nullable(),
+    automaticSettlementEnabled: z.literal(false),
+    manualInstructionsEnabled: z.boolean().default(false),
+  }),
 });
 export const saveReceivingAccount = endpoint({
   id: "rentCollection.saveReceivingAccount",

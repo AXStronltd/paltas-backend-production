@@ -1,3 +1,5 @@
+import { paymentLinks } from "./payment-links.js";
+import { rentPaymentLinks as linksApi } from "@paltas/contracts";
 import { receivingAccounts } from "./receiving-accounts.js";
 import { kulmiSettlements } from "./settlements.js";
 import { kulmiPay as api } from "@paltas/contracts";
@@ -5,7 +7,8 @@ import { route } from "../../../http/route.js";
 import type { PmDeps } from "../../../products/property/deps.js";
 import { kulmiPayService } from "./service.js";
 export function kulmiPayRoutes(d: PmDeps) {
-  const receiving = receivingAccounts(d);
+  const receiving = receivingAccounts(d),
+    links = paymentLinks(d);
   const p = kulmiPayService(d),
     settlements = kulmiSettlements(d);
   const owner = (u: Parameters<typeof d.access.org>[0], id: string, write = false) =>
@@ -15,6 +18,19 @@ export function kulmiPayRoutes(d: PmDeps) {
   const bank = (u: Parameters<typeof d.access.org>[0], id: string, write = false) =>
     d.access.org(u, id, "property.bank.reconcile", { write, module: "finance" });
   return [
+    route(linksApi.list, async (r) => links.list(await finance(r.user, r.params.orgId), r.params.invoiceId)),
+    route(linksApi.confirmInstructions, async (r) =>
+      links.confirmInstructions(await owner(r.user, r.params.orgId, true), r.body),
+    ),
+    route(linksApi.create, async (r) =>
+      links.create(await finance(r.user, r.params.orgId, true), r.params.invoiceId, r.body),
+    ),
+    route(linksApi.revoke, async (r) =>
+      links.revoke(await finance(r.user, r.params.orgId, true), r.params.linkId, r.body.reason),
+    ),
+    route(linksApi.preview, async (r) => links.preview(r.body.token)),
+    route(linksApi.collect, async (r) => links.collect(r.body)),
+    route(linksApi.refresh, async (r) => links.refresh(r.body.token)),
     route(api.receivingAccount, async (r) => receiving.get(await owner(r.user, r.params.orgId))),
     route(api.saveReceivingAccount, async (r) => receiving.save(await owner(r.user, r.params.orgId, true), r.body)),
     route(api.pauseReceivingAccount, async (r) => receiving.pause(await owner(r.user, r.params.orgId, true), r.body)),

@@ -109,6 +109,7 @@ export function registerRoutes(
       config: rateLimit ? { rateLimit } : {},
       handler: async (request: FastifyRequest, reply) => {
         if (
+          endpoint.id.startsWith("rentPaymentLinks.") ||
           endpoint.id.startsWith("auth.staffEnrollment.") ||
           endpoint.id.startsWith("auth.staffPasswordReset.") ||
           endpoint.id === "auth.staffBackup.login"

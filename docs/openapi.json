@@ -7430,6 +7430,817 @@
         }
       }
     },
+    "/api/v1/orgs/{orgId}/property/invoices/{invoiceId}/payment-links": {
+      "get": {
+        "operationId": "rentPaymentLinks.list",
+        "summary": "Invoice payment link metadata; tokens are never returned again",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "links": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "expiresAt": {
+                            "type": "string"
+                          },
+                          "revokedAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "createdAt",
+                          "expiresAt",
+                          "revokedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "links"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "rentPaymentLinks.create",
+        "summary": "rentPaymentLinks create",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "invoiceId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "expiresDays": {
+                    "default": 3,
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 14
+                  },
+                  "includeManualInstructions": {
+                    "default": true,
+                    "type": "boolean"
+                  },
+                  "confirmShare": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": [
+                  "confirmShare"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "url": {
+                      "type": "string",
+                      "format": "uri"
+                    },
+                    "expiresAt": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "url",
+                    "expiresAt"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/payment-links/{linkId}/revoke": {
+      "post": {
+        "operationId": "rentPaymentLinks.revoke",
+        "summary": "rentPaymentLinks revoke",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "linkId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 6,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "revoked": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "revoked"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public/rent-payment-links/preview": {
+      "post": {
+        "operationId": "rentPaymentLinks.public.preview",
+        "summary": "rentPaymentLinks public preview",
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "business": {
+                      "type": "string"
+                    },
+                    "invoiceNumber": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "balanceMinor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "dueDate": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "string"
+                    },
+                    "manualInstructions": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "bank",
+                                "mpesa_mobile",
+                                "mpesa_paybill",
+                                "mpesa_till"
+                              ]
+                            },
+                            "accountHolder": {
+                              "type": "string"
+                            },
+                            "accountNumber": {
+                              "type": "string"
+                            },
+                            "bankCode": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "accountReference": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "accountHolder",
+                            "accountNumber",
+                            "bankCode",
+                            "accountReference"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "mpesaAvailable": {
+                      "type": "boolean"
+                    },
+                    "paymentState": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receiptRecorded": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "business",
+                    "invoiceNumber",
+                    "currency",
+                    "balanceMinor",
+                    "dueDate",
+                    "expiresAt",
+                    "manualInstructions",
+                    "mpesaAvailable",
+                    "paymentState",
+                    "receiptRecorded"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public/rent-payment-links/collect": {
+      "post": {
+        "operationId": "rentPaymentLinks.public.collect",
+        "summary": "rentPaymentLinks public collect",
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  },
+                  "phone": {
+                    "type": "string",
+                    "pattern": "^254[17]\\d{8}$"
+                  },
+                  "expectedAmountMinor": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "confirm": {
+                    "type": "boolean",
+                    "const": true
+                  }
+                },
+                "required": [
+                  "token",
+                  "phone",
+                  "expectedAmountMinor",
+                  "confirm"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "business": {
+                      "type": "string"
+                    },
+                    "invoiceNumber": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "balanceMinor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "dueDate": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "string"
+                    },
+                    "manualInstructions": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "bank",
+                                "mpesa_mobile",
+                                "mpesa_paybill",
+                                "mpesa_till"
+                              ]
+                            },
+                            "accountHolder": {
+                              "type": "string"
+                            },
+                            "accountNumber": {
+                              "type": "string"
+                            },
+                            "bankCode": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "accountReference": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "accountHolder",
+                            "accountNumber",
+                            "bankCode",
+                            "accountReference"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "mpesaAvailable": {
+                      "type": "boolean"
+                    },
+                    "paymentState": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receiptRecorded": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "business",
+                    "invoiceNumber",
+                    "currency",
+                    "balanceMinor",
+                    "dueDate",
+                    "expiresAt",
+                    "manualInstructions",
+                    "mpesaAvailable",
+                    "paymentState",
+                    "receiptRecorded"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/public/rent-payment-links/refresh": {
+      "post": {
+        "operationId": "rentPaymentLinks.public.refresh",
+        "summary": "rentPaymentLinks public refresh",
+        "security": [],
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "token": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z0-9_-]{43}$"
+                  }
+                },
+                "required": [
+                  "token"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "business": {
+                      "type": "string"
+                    },
+                    "invoiceNumber": {
+                      "type": "string"
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "balanceMinor": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "dueDate": {
+                      "type": "string"
+                    },
+                    "expiresAt": {
+                      "type": "string"
+                    },
+                    "manualInstructions": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "bank",
+                                "mpesa_mobile",
+                                "mpesa_paybill",
+                                "mpesa_till"
+                              ]
+                            },
+                            "accountHolder": {
+                              "type": "string"
+                            },
+                            "accountNumber": {
+                              "type": "string"
+                            },
+                            "bankCode": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "accountReference": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "accountHolder",
+                            "accountNumber",
+                            "bankCode",
+                            "accountReference"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "mpesaAvailable": {
+                      "type": "boolean"
+                    },
+                    "paymentState": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "receiptRecorded": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "business",
+                    "invoiceNumber",
+                    "currency",
+                    "balanceMinor",
+                    "dueDate",
+                    "expiresAt",
+                    "manualInstructions",
+                    "mpesaAvailable",
+                    "paymentState",
+                    "receiptRecorded"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/receiving-account/manual-instructions": {
+      "post": {
+        "operationId": "rentPaymentLinks.confirmInstructions",
+        "summary": "rentPaymentLinks confirmInstructions",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "expectedRevision": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "confirmAuthority": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "confirmShare": {
+                    "type": "boolean",
+                    "const": true
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 6,
+                    "maxLength": 500
+                  }
+                },
+                "required": [
+                  "expectedRevision",
+                  "confirmAuthority",
+                  "confirmShare",
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "manualInstructionsEnabled": {
+                      "type": "boolean",
+                      "const": true
+                    }
+                  },
+                  "required": [
+                    "manualInstructionsEnabled"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/orgs/{orgId}/property/kulmipay/settlements": {
       "get": {
         "operationId": "kulmiPay.settlements.list",
@@ -8083,11 +8894,16 @@
                     "automaticSettlementEnabled": {
                       "type": "boolean",
                       "const": false
+                    },
+                    "manualInstructionsEnabled": {
+                      "default": false,
+                      "type": "boolean"
                     }
                   },
                   "required": [
                     "account",
-                    "automaticSettlementEnabled"
+                    "automaticSettlementEnabled",
+                    "manualInstructionsEnabled"
                   ],
                   "additionalProperties": false
                 }

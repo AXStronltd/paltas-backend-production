@@ -22,6 +22,7 @@ it("requires owner authority and isolates company receiving details", async () =
   expect(await o.admin.api.rentCollection.receivingAccount({ params: params() })).toEqual({
     account: null,
     automaticSettlementEnabled: false,
+    manualInstructionsEnabled: false,
   });
   await refused(o.staff.viewer.api.rentCollection.saveReceivingAccount({ params: params(), body: input }), 403);
   const other = await pmOrg(S);

@@ -48,7 +48,18 @@ export function receivingAccounts(d: PmDeps) {
   return {
     async get(s: OrgScope) {
       const r = await latest(ctx.db, s.orgId);
-      return { account: r ? dto(r) : null, automaticSettlementEnabled: false as const };
+      const confirmed =
+        r && r.status !== "paused"
+          ? await ctx.db.row(
+              "SELECT receiving_version_id FROM pm_receiving_instruction_confirmations WHERE org_id=$1 AND receiving_version_id=$2",
+              [s.orgId, r.id],
+            )
+          : null;
+      return {
+        account: r ? dto(r) : null,
+        automaticSettlementEnabled: false as const,
+        manualInstructionsEnabled: !!confirmed,
+      };
     },
     async save(s: OrgScope, b: Input) {
       return financeTransaction(ctx.db, s.orgId, async (t) => {

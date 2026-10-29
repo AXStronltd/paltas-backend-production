@@ -1,3 +1,4 @@
+import * as rentPaymentLinks from "./rent-payment-links.js";
 import * as kulmiPay from "./kulmipay.js";
 // Every API endpoint, grouped by area. The server registers handlers for each; the client exposes each as a method.
 import * as admin from "./admin.js";
@@ -196,6 +197,13 @@ export const SUBSCRIPTIONS_API = {
 } as const;
 
 export const RENT_COLLECTION_API = {
+  listPaymentLinks: rentPaymentLinks.list,
+  createPaymentLink: rentPaymentLinks.create,
+  revokePaymentLink: rentPaymentLinks.revoke,
+  previewPaymentLink: rentPaymentLinks.preview,
+  collectPaymentLink: rentPaymentLinks.collect,
+  refreshPaymentLink: rentPaymentLinks.refresh,
+  confirmReceivingInstructions: rentPaymentLinks.confirmInstructions,
   kulmiSettlements: kulmiPay.listSettlements,
   kulmiPrepareSettlement: kulmiPay.prepareSettlement,
   kulmiApproveSettlement: kulmiPay.approveSettlement,
@@ -1043,6 +1051,7 @@ export function allEndpoints(): EndpointDefinition[] {
 }
 
 export {
+  rentPaymentLinks,
   kulmiPay,
   admin,
   agency,

@@ -24,6 +24,9 @@ export interface RateLimits {
 export const PUBLIC_READ_IDS = new Set(["signup.options"]);
 
 const SENSITIVE_IDS = new Set([
+  "rentPaymentLinks.create",
+  "rentPaymentLinks.revoke",
+  "rentPaymentLinks.confirmInstructions",
   "rentCollection.saveReceivingAccount",
   "rentCollection.pauseReceivingAccount",
   "kulmiPay.settlements.prepare",
@@ -63,6 +66,8 @@ export function personOrAddress(req: FastifyRequest): string {
 
 export function rateLimitFor(e: Pick<EndpointDefinition, "id" | "auth" | "method">, limits: RateLimits) {
   const minute = "1 minute";
+  if (e.id.startsWith("rentPaymentLinks.public."))
+    return { max: e.id.endsWith("collect") ? 3 : 15, timeWindow: minute, keyGenerator: personOrAddress };
   if (e.id === "developer.publicProject") return { max: limits.publicRead, timeWindow: minute };
   if (e.id === "developer.projectEnquiry") return { max: 5, timeWindow: minute };
   if (e.id === "agency.listings.uploadPhoto") return { max: 10, timeWindow: minute, keyGenerator: personOrAddress };
