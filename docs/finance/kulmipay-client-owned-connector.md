@@ -1,6 +1,6 @@
 # KulmiPay client-owned collections — 29 October 2026
 
-**Status: local release candidate. No production deployment or real-provider acceptance is claimed.**
+**Status: code deployed to production on 29 October 2026. Live collection remains gated; real-provider acceptance is not yet verified.**
 
 ## Approved funds model
 
@@ -26,7 +26,7 @@ Target: tenant → client's KulmiPay merchant/wallet → client's bank, under th
 
 ## Safeguards and activation
 
-`KULMIPAY_ENABLED=false` and `KULMIPAY_LIVE_APPROVED=false` by default. Live collection requires explicit production configuration after real provider/merchant acceptance. Sandbox confirmations cannot create financial records in a real production workspace; use a dedicated demo/acceptance organisation.
+`KULMIPAY_ENABLED=false` and `KULMIPAY_LIVE_APPROVED=false` by default. Production account setup was enabled with `KULMIPAY_ENABLED=true`; live approval was not enabled. Live collection requires explicit production configuration after real provider/merchant acceptance. Sandbox confirmations cannot create financial records in a real production workspace; use a dedicated demo/acceptance organisation.
 
 Clients privately enter their own credentials in the authenticated workspace. Webhook URL:
 `https://paltas.io/api/v1/orgs/<organisation-id>/property/kulmipay/webhook`
@@ -60,3 +60,11 @@ The earlier full run had two stale migration-version expectations, which were co
 - https://developers.kulmipay.com/webhooks/payment-collection-events
 - https://developers.kulmipay.com/wallets/introduction
 - https://developers.kulmipay.com/send-money/bank-payouts
+
+## Production release evidence
+
+- Backend commit `5bf7c9035a6bc8d5bb5fee41c2e1fb08dbc7204a`, Render deployment `dep-dbhp0q88v5cc7392927g`: live. Service restart after saving the setup flag succeeded.
+- Frontend commit `5e0ffb5a484b78569cdeffebecd1fa0c9632dc9b`, Netlify deployment `6ae390c8b5a7605d063e3e28`: published and locked.
+- Production health and readiness returned HTTP 200, database up, 60 migrations applied, none pending. Production `pm.html` SHA-256 matched the tested production bundle.
+- Anonymous access to the connector endpoint returned HTTP 401. No production customer/payment test records were created.
+- Provider verification remains simulated. Client-owned credentials, webhook setup, actual provider acceptance and the external payout arrangement remain necessary before live collection. PesaLink customer checkout, provider refund/return execution and automated bank payout remain unavailable.
