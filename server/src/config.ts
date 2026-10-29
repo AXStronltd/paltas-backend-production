@@ -24,6 +24,8 @@ const EnvSchema = z.object({
   EXPORT_MAX_CONCURRENT: z.coerce.number().int().min(1).max(20).default(2),
   /** "provider": purchases wait for a signed payment event (always in production). "simulated": local demo only. */
   BILLING_MODE: z.enum(["provider", "simulated"]).default("provider"),
+  KULMIPAY_ENABLED: Bool.default(false),
+  KULMIPAY_LIVE_APPROVED: Bool.default(false),
   STRIPE_ENABLED: Bool.default(false),
   STRIPE_RENT_ENABLED: Bool.default(false),
   STRIPE_RENT_ONBOARDING_ENABLED: Bool.default(false),
@@ -203,6 +205,7 @@ export interface Config {
     webhookSecret: string;
     prices: { planId: string; currency: string; priceId: string }[];
   };
+  kulmiPay?: { enabled: boolean; liveApproved?: boolean };
   stripeRent?: RentStripeSettings;
   sessionMinutes: number;
   corsOrigins: string[];
@@ -404,6 +407,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env, overrides: Part
     e.APP_BASE_URL,
   );
   return {
+    kulmiPay: { enabled: e.KULMIPAY_ENABLED, liveApproved: e.KULMIPAY_LIVE_APPROVED },
     stripeRent,
     stripe: {
       enabled: e.STRIPE_ENABLED,

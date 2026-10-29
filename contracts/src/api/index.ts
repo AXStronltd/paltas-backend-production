@@ -1,3 +1,4 @@
+import * as kulmiPay from "./kulmipay.js";
 // Every API endpoint, grouped by area. The server registers handlers for each; the client exposes each as a method.
 import * as admin from "./admin.js";
 import * as agency from "./agency.js";
@@ -195,6 +196,17 @@ export const SUBSCRIPTIONS_API = {
 } as const;
 
 export const RENT_COLLECTION_API = {
+  kulmiSettlements: kulmiPay.listSettlements,
+  kulmiPrepareSettlement: kulmiPay.prepareSettlement,
+  kulmiApproveSettlement: kulmiPay.approveSettlement,
+  kulmiRejectSettlement: kulmiPay.rejectSettlement,
+  kulmiConnection: kulmiPay.connection,
+  kulmiConnect: kulmiPay.connect,
+  kulmiPause: kulmiPay.pause,
+  kulmiRequest: kulmiPay.request,
+  kulmiRefresh: kulmiPay.refresh,
+  kulmiList: kulmiPay.list,
+  kulmiWebhook: kulmiPay.webhook,
   merchantStatus: rentCollection.merchantStatus,
   merchantWebhook: rentCollection.merchantWebhook,
   onboardMerchant: rentCollection.onboardMerchant,
@@ -1028,6 +1040,7 @@ export function allEndpoints(): EndpointDefinition[] {
 }
 
 export {
+  kulmiPay,
   admin,
   agency,
   contacts,

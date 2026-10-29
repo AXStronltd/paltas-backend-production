@@ -1,3 +1,4 @@
+import { kulmiPayRoutes } from "../../core/payments/kulmipay/routes.js";
 import { FLEXIBLE_RENT_JOB, rentSchedulesService } from "./billing/rent-schedules.service.js";
 import { rentScheduleRoutes } from "./billing/rent-schedules.routes.js";
 import { inspectionControlsService } from "./maintenance/inspection-controls.service.js";
@@ -99,6 +100,7 @@ export const property: ProductModule = {
     const bills = billsService(d);
     const maintenance = maintenanceService(d);
     return [
+      ...kulmiPayRoutes(d),
       route(propertyApi.getTenantControl, async (req) =>
         controls.get(await access.org(req.user, req.params.orgId, "property.tenants.view"), req.params.tenantId),
       ),

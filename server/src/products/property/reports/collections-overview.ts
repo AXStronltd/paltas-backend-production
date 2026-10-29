@@ -44,7 +44,7 @@ export async function collectionsOverview(db: Db, s: OrgScope, q: P.CollectionsQ
           : "p.amount_minor"
       }::bigint AS "amountMinor",
       EXISTS(SELECT 1 FROM pm_bank_lines b WHERE b.org_id=$1 AND b.matched_kind='payment'
-        AND b.matched_id=p.id AND b.status='matched') AS "bankMatched"
+        AND b.matched_id=p.id AND b.status='matched') OR EXISTS(SELECT 1 FROM pm_kulmipay_requests k JOIN pm_kulmipay_settlements s ON s.org_id=k.org_id AND s.id=k.settlement_id WHERE k.org_id=$1 AND k.ledger_payment_id=p.id AND s.status='approved') AS "bankMatched"
     FROM pm_effective_payments p JOIN contacts c ON c.id=p.tenant_id AND c.org_id=p.org_id
     WHERE p.org_id=$1 AND p.date BETWEEN $2::date AND $3::date AND ($8::text IS NULL OR p.tenant_id=$8)
   ), visible AS (SELECT * FROM cash WHERE "amountMinor">0)`;

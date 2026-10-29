@@ -195,6 +195,51 @@ describe("payment provider callbacks", () => {
     expect(await S.sql("SELECT 1 FROM payment_events WHERE id = 'cardpsp:evt_6'")).toEqual([]);
   });
 
+  it("pending callbacks never settle references; later confirmed events are idempotent", async () => {
+    await reference("READY-PENDING", 120000);
+    const pending = await card(
+      cardWebhook("ready_pending", "payment.processing", {
+        amount: 120000,
+        currency: "KES",
+        reference: "READY-PENDING",
+      }),
+    );
+    expect(pending.body.outcome.result).toBe("Ignored — status pending");
+    expect(await refStatus("READY-PENDING")).toBe("open");
+    expect(await S.sql("SELECT 1 FROM billing_receipts WHERE event_id = $1", ["cardpsp:ready_pending"])).toEqual([]);
+    const confirmed = cardWebhook("ready_confirmed", "payment.succeeded", {
+      amount: 120000,
+      currency: "KES",
+      reference: "READY-PENDING",
+    });
+    expect((await card(confirmed)).body.outcome.duplicate).toBe(false);
+    expect((await card(confirmed)).body.outcome.duplicate).toBe(true);
+    expect(await refStatus("READY-PENDING")).toBe("settled");
+  });
+
+  it("cancelled references and zero-value confirmations are held without posting", async () => {
+    await reference("READY-CANCELLED", 120000);
+    await S.sql("UPDATE payment_references SET status='cancelled' WHERE org_id=$1 AND reference=$2", [
+      orgId,
+      "READY-CANCELLED",
+    ]);
+    const cancelled = await card(
+      cardWebhook("ready_cancelled", "payment.succeeded", {
+        amount: 120000,
+        currency: "KES",
+        reference: "READY-CANCELLED",
+      }),
+    );
+    expect(cancelled.body.outcome).toBeNull();
+    expect(cancelled.body.note).toMatch(/reference is cancelled/);
+    const zero = await mpesa(c2bConfirmation("READY-ZERO", "READY-CANCELLED", "0"));
+    expect(zero.body.outcome).toBeNull();
+    expect(
+      await S.sql("SELECT 1 FROM payment_events WHERE id IN ('cardpsp:ready_cancelled','mpesa:READY-ZERO')"),
+    ).toEqual([]);
+    expect(await refStatus("READY-CANCELLED")).toBe("cancelled");
+  });
+
   it("staff see every adapter's state: none connected; secrets are named, never shown", async () => {
     const sa = await S.staff();
     const { adapters } = await sa.api.paymentProviders.adapters();

@@ -82,10 +82,14 @@ type Kind = NonNullable<P.BankLine["matchedKind"]>;
 
 /** What was recorded as moving money through the client account (line = the statement line it is matched to). */
 const CANDIDATES: Record<Kind, { sql: string; sign: 1 | -1 }> = {
+  provider_settlement: {
+    sign: 1,
+    sql: `SELECT s.id,b.reference AS ref,s.amount_minor AS amount,b.date,s.bank_line_id AS line FROM pm_kulmipay_settlements s JOIN pm_bank_lines b ON b.org_id=s.org_id AND b.id=s.bank_line_id WHERE s.org_id=$1 AND s.status='approved'`,
+  },
   payment: {
     sign: 1,
     sql: `SELECT id, reference AS ref, amount_minor AS amount, date, bank_line_id AS line FROM pm_effective_payments
-          WHERE org_id = $1`,
+          WHERE org_id = $1 AND NOT EXISTS (SELECT 1 FROM pm_kulmipay_requests k WHERE k.org_id=$1 AND k.ledger_payment_id=pm_effective_payments.id)`,
   },
   payout: {
     sign: -1,
@@ -106,6 +110,7 @@ const CANDIDATES: Record<Kind, { sql: string; sign: 1 | -1 }> = {
 };
 
 const TABLE: Record<Kind, string> = {
+  provider_settlement: "pm_kulmipay_settlements",
   payment: "pm_payments",
   payout: "pm_payouts",
   bill_payment: "pm_bills",
@@ -154,14 +159,14 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
     // recorded but not on the statement by D (not matched, or matched to a later line)
     const uncleared = async (kind: Kind) => {
       const r = await t.row<{ n: number }>(
-        `SELECT COALESCE(sum(x.amount), 0)::bigint AS n FROM (${kind === "payment" ? CANDIDATES[kind].sql.replace("pm_effective_payments", "pm_payments") : CANDIDATES[kind].sql}) x
+        `SELECT COALESCE(sum(x.amount), 0)::bigint AS n FROM (${kind === "payment" ? CANDIDATES[kind].sql.replaceAll("pm_effective_payments", "pm_payments") : CANDIDATES[kind].sql}) x
            WHERE x.date <= $2 ${kind === "payment" ? "AND NOT EXISTS (SELECT 1 FROM pm_payment_reversals r WHERE r.payment_id=x.id AND r.approved_by IS NOT NULL AND r.date <= $2)" : ""} AND NOT EXISTS (SELECT 1 FROM pm_bank_lines b
              WHERE b.matched_kind = $3 AND b.matched_id = x.id AND b.date <= $2)`,
         [s.orgId, D, kind],
       );
       return r?.n ?? 0;
     };
-    const unclearedIn = await uncleared("payment");
+    const unclearedIn = (await uncleared("payment")) + (await uncleared("provider_settlement"));
     const unclearedOut =
       (await uncleared("payout")) + (await uncleared("bill_payment")) + (await uncleared("deposit_refund"));
     const unmatched = await t.row<{ n: number }>(
@@ -189,7 +194,7 @@ export function bankService(d: PmDeps, deps: { payments: PaymentsService }) {
     );
     const records: Record<string, unknown[]> = {};
     for (const [kind, c] of Object.entries(CANDIDATES) as [Kind, (typeof CANDIDATES)[Kind]][]) {
-      const sql = kind === "payment" ? c.sql.replace("pm_effective_payments", "pm_payments") : c.sql;
+      const sql = kind === "payment" ? c.sql.replaceAll("pm_effective_payments", "pm_payments") : c.sql;
       records[kind] = await t.rows(
         `SELECT x.* FROM (${sql}) x WHERE x.date<=$2 ${kind === "payment" ? "AND NOT EXISTS(SELECT 1 FROM pm_payment_reversals r WHERE r.org_id=$1 AND r.payment_id=x.id AND r.approved_by IS NOT NULL AND r.date<=$2)" : ""} ORDER BY x.id`,
         [s.orgId, D],

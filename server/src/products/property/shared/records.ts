@@ -432,6 +432,17 @@ export async function paymentViews(db: Db, rows: PaymentRow[]): Promise<P.Paymen
      WHERE a.payment_id = ANY($1) ORDER BY a.created_at, a.id`,
     [rows.map((r) => r.id)],
   );
+  const providerRows = await db.rows<{
+    ledger_payment_id: string;
+    id: string;
+    fee_minor: number | null;
+    net_minor: number | null;
+    settled: boolean;
+  }>(
+    "SELECT k.ledger_payment_id,k.id,k.fee_minor,k.net_minor,(s.status='approved') IS TRUE AS settled FROM pm_kulmipay_requests k LEFT JOIN pm_kulmipay_settlements s ON s.org_id=k.org_id AND s.id=k.settlement_id WHERE k.ledger_payment_id=ANY($1)",
+    [rows.map((r) => r.id)],
+  );
+  const providerByPayment = new Map(providerRows.map((r) => [r.ledger_payment_id, r]));
   const byPayment = new Map<string, AllocationRow[]>();
   for (const a of allocs) {
     const id = a.payment_id;
@@ -443,6 +454,7 @@ export async function paymentViews(db: Db, rows: PaymentRow[]): Promise<P.Paymen
   return rows.map((p) => {
     const own = byPayment.get(p.id) || [];
     const allocated = sum(own, (a) => a.amount_minor);
+    const provider = providerByPayment.get(p.id);
     return {
       id: p.id,
       number: p.number,
@@ -458,7 +470,18 @@ export async function paymentViews(db: Db, rows: PaymentRow[]): Promise<P.Paymen
       unallocatedMinor: p.reversal?.approvedBy ? 0 : p.amount_minor - allocated,
       reversal: p.reversal ?? null,
       allocations: own.map(allocationOut),
-      bankMatched: !!p.bank_line_id,
+      bankMatched: !!p.bank_line_id || !!provider?.settled,
+      ...(provider
+        ? {
+            providerCollection: {
+              requestId: provider.id,
+              provider: "kulmipay" as const,
+              feeMinor: provider.fee_minor,
+              netMinor: provider.net_minor,
+              settled: provider.settled,
+            },
+          }
+        : {}),
       recordedBy: p.recorded_by,
       journalId: p.journal_id,
     };

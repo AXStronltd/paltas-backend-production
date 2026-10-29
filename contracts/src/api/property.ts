@@ -351,6 +351,15 @@ export const Payment = z.object({
   allocations: z.array(Allocation),
   /** Matched to a bank statement line. A recorded payment is never "processed" by PALTAS. */
   bankMatched: z.boolean(),
+  providerCollection: z
+    .object({
+      requestId: z.string(),
+      provider: z.literal("kulmipay"),
+      feeMinor: z.number().nullable(),
+      netMinor: z.number().nullable(),
+      settled: z.boolean(),
+    })
+    .optional(),
   recordedBy: z.string(),
   journalId: z.string().nullable(),
   reversal: z
@@ -744,7 +753,7 @@ export const BankLine = z.object({
   reference: z.string(),
   description: z.string(),
   status: z.enum(["unmatched", "matched", "ignored"]),
-  matchedKind: z.enum(["payment", "payout", "bill_payment", "deposit_refund"]).nullable(),
+  matchedKind: z.enum(["payment", "payout", "bill_payment", "deposit_refund", "provider_settlement"]).nullable(),
   matchedId: z.string().nullable(),
   note: z.string(),
 });
@@ -913,6 +922,8 @@ export const ClientMoney = z.object({
   asOf: IsoDate,
   /** Client account 1040 in the ledger. */
   clientCashMinor: MinorUnits,
+  /** Net funds recorded as held by providers; excluded from bank cash coverage. */
+  providerClearingMinor: MinorUnits.optional(),
   ownerFundsMinor: MinorUnits,
   depositsHeldMinor: MinorUnits,
   tenantCreditsMinor: MinorUnits,
@@ -2545,7 +2556,7 @@ export const matchBankLine = endpoint({
   params: OrgParams.extend({ lineId: Id }),
   body: z.discriminatedUnion("to", [
     z.object({
-      to: z.enum(["payment", "payout", "bill_payment", "deposit_refund"]),
+      to: z.enum(["payment", "payout", "bill_payment", "deposit_refund", "provider_settlement"]),
       id: Id,
     }),
     z.object({ to: z.literal("new_payment"), tenantId: Id, method: PaymentMethod.default("bank_transfer") }),

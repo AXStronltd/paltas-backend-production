@@ -28,6 +28,8 @@
 import type { AccountSeed } from "../../core/ledger/default-chart.js";
 
 export const PM_ACCOUNTS: AccountSeed[] = [
+  { code: "1186", name: "Client funds held by payment providers", type: "asset", system: true },
+  { code: "5686", name: "Payment processing fees borne by company", type: "expense", system: true },
   { code: "5670", name: "Property payroll wages", type: "expense", system: true },
   { code: "5671", name: "Property employer payroll contributions", type: "expense", system: true },
   { code: "2670", name: "Property net wages payable", type: "liability", system: true },
@@ -52,6 +54,8 @@ export const PM_ACCOUNTS: AccountSeed[] = [
 ];
 
 export const ACC = {
+  providerClearing: "1186",
+  providerFees: "5686",
   operatingBank: "1000",
   clientBank: "1040",
   receivables: "1120",

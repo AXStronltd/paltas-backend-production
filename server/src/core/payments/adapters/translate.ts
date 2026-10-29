@@ -89,6 +89,8 @@ export function translateMpesa(body: Stk | C2b): Translated {
 
 const CARD_STATUS: Record<string, PaymentEvent["status"]> = {
   "payment.succeeded": "succeeded",
+  "payment.pending": "pending",
+  "payment.processing": "pending",
   "payment.failed": "failed",
   "refund.succeeded": "refunded",
 };
@@ -104,4 +106,20 @@ export function translateCard(ev: Card): Translated {
     ref: ev.data.id,
     ...(ev.data.failure_reason ? { reason: ev.data.failure_reason } : {}),
   };
+}
+
+/** Validate adapter facts before reference resolution. Authentication remains the route's responsibility. */
+export function translatedProblem(event: Translated): string | null {
+  if (event.problem) return event.problem;
+  if (event.status === "ignored") return null;
+  if (!event.externalId.trim() || !event.ref.trim()) return "The callback has no transaction identifier";
+  if (!/^[A-Z]{3}$/.test(event.currency)) return "The callback has no valid currency";
+  if (event.amountMinor !== null && (!Number.isSafeInteger(event.amountMinor) || event.amountMinor < 0))
+    return "The callback has no exact non-negative amount";
+  if (
+    (event.status === "succeeded" || event.status === "refunded") &&
+    (event.amountMinor === null || event.amountMinor <= 0)
+  )
+    return "The confirmed callback must state a positive amount";
+  return null;
 }

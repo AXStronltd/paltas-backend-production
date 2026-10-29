@@ -9,6 +9,7 @@ import type { NewLine } from "../../../core/ledger/ledger.repo.js";
 import type { Db } from "../../../db/database.js";
 
 export type PostingKind =
+  | "provider_settlement"
   | "payroll"
   | "payroll_payment"
   | "payroll_remittance"

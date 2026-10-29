@@ -121,7 +121,7 @@ export function paymentsService(d: PmDeps) {
    */
   async function recordIn(
     t: Db,
-    s: OrgScope,
+    s: Pick<OrgScope, "orgId" | "userId" | "today" | "actor" | "entitlement">,
     b: {
       tenantId: string;
       date: string;
@@ -133,8 +133,15 @@ export function paymentsService(d: PmDeps) {
       claimId?: string | undefined;
       bankLineId?: string | null;
     },
+    /** Internal, server-verified provider path only; never accepted by an HTTP payment-recording contract. */
+    funding?: { provider: "kulmipay"; feeMinor: number },
   ): Promise<string> {
     if (b.date > s.today) throw fail.invalid("A payment cannot be dated in the future");
+    if (
+      funding &&
+      (!Number.isSafeInteger(funding.feeMinor) || funding.feeMinor < 0 || funding.feeMinor > b.amountMinor)
+    )
+      throw fail.invalid("Provider processing fees are invalid");
     // one payment at a time per tenant: allocations never race
     const tenant = await core.contacts.live(t, s.orgId, b.tenantId, true);
     const dup = await t.row<{ number: string }>(
@@ -144,7 +151,7 @@ export function paymentsService(d: PmDeps) {
     if (dup) throw fail.conflict(`Reference ${b.reference} is already recorded as ${dup.number}`);
     const open = await openInvoicesForUpdate(t, s.orgId, b.tenantId);
     let plan: [R.InvoiceRow, number][];
-    if (b.allocations?.length) {
+    if (b.allocations !== undefined) {
       plan = [];
       for (const a of b.allocations) {
         const inv = open.find((i) => i.id === a.invoiceId);
@@ -194,11 +201,16 @@ export function paymentsService(d: PmDeps) {
       orgId: s.orgId,
       date: b.date,
       kind: "receipt",
-      memo: `${number} · receipt ${receipt} · ${tenant.name} · ${b.method} ${b.reference} (recorded, not processed by PALTAS)`,
+      memo: `${number} · receipt ${receipt} · ${tenant.name} · ${b.method} ${b.reference} ${funding ? "(verified KulmiPay collection; funds held by provider, not bank settlement)" : "(recorded, not processed by PALTAS)"}`,
       ref: `payment:${id}`,
       link: { tenantId: b.tenantId },
       lines: [
-        dr(ACC.clientBank, b.amountMinor, `${b.method} ${b.reference}`),
+        ...(funding
+          ? [
+              dr(ACC.providerClearing, b.amountMinor - funding.feeMinor, "Net client funds held by KulmiPay"),
+              dr(ACC.providerFees, funding.feeMinor, "Processing fee borne by the management company"),
+            ]
+          : [dr(ACC.clientBank, b.amountMinor, `${b.method} ${b.reference}`)]),
         cr(ACC.receivables, allocated, "Allocated to invoices"),
         cr(ACC.tenantCredits, b.amountMinor - allocated, "Held as the tenant's credit"),
       ],
@@ -245,6 +257,10 @@ export function paymentsService(d: PmDeps) {
           id,
         ]);
         if (!p) throw fail.notFound("Payment not found");
+        if (await t.row("SELECT id FROM pm_kulmipay_requests WHERE org_id=$1 AND ledger_payment_id=$2", [s.orgId, id]))
+          throw fail.conflict(
+            "This is a verified provider collection. Use a provider-linked refund or return review; a manual receipt reversal cannot undo the payment",
+          );
         if (p.bank_line_id)
           throw fail.conflict(
             "This receipt is matched to the bank. Resolve the bank reconciliation before requesting a correction.",
@@ -299,6 +315,10 @@ export function paymentsService(d: PmDeps) {
         // No source receipt, allocation or journal is deleted or overwritten.
         const p = await t.row<R.PaymentRow>("SELECT * FROM pm_payments WHERE org_id=$1 AND id=$2", [s.orgId, id]);
         if (!p) throw fail.notFound("Payment not found");
+        if (await t.row("SELECT id FROM pm_kulmipay_requests WHERE org_id=$1 AND ledger_payment_id=$2", [s.orgId, id]))
+          throw fail.conflict(
+            "This is a verified provider collection. Use a provider-linked refund or return review; a manual receipt reversal cannot undo the payment",
+          );
         const r = await t.row<{
           requested_by: string;
           approved_by: string | null;

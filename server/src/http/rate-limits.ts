@@ -24,6 +24,13 @@ export interface RateLimits {
 export const PUBLIC_READ_IDS = new Set(["signup.options"]);
 
 const SENSITIVE_IDS = new Set([
+  "kulmiPay.settlements.prepare",
+  "kulmiPay.settlements.approve",
+  "kulmiPay.settlements.reject",
+  "kulmiPay.connect",
+  "kulmiPay.pause",
+  "kulmiPay.request",
+  "kulmiPay.refresh",
   "me.changePassword",
   "me.mfa.start",
   "me.mfa.confirm",
@@ -72,6 +79,7 @@ export function rateLimitFor(e: Pick<EndpointDefinition, "id" | "auth" | "method
   if (e.id === "auth.login") return { max: limits.login, timeWindow: minute };
   if (
     e.auth === "signed-webhook" ||
+    e.id === "kulmiPay.webhook" ||
     e.id === "webhooks.email" ||
     e.id === "webhooks.stripe" ||
     e.id === "subscription.stripeWebhook" ||

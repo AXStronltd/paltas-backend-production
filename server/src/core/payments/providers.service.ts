@@ -17,7 +17,7 @@ import { fail } from "../../http/errors.js";
 import { newId } from "../../lib/ids.js";
 import type { PaymentHandler } from "../../products/registry.js";
 import { recordAudit, type Actor } from "../audit/audit.service.js";
-import { translateCard, translateMpesa, type Translated } from "./adapters/translate.js";
+import { translateCard, translateMpesa, translatedProblem, type Translated } from "./adapters/translate.js";
 import { parseStatement, suggest, type Candidate, type Suggestion } from "./bank/statement.js";
 import type { PaymentsService } from "./payments.service.js";
 
@@ -127,10 +127,11 @@ export function providersService(ctx: AppContext, deps: { payments: PaymentsServ
     if (!lookup.value) return null;
     const ref =
       lookup.by === "mpesaCheckout"
-        ? await t.row<ReferenceRow>("SELECT * FROM payment_references WHERE data->>'mpesaCheckoutRequestId' = $1", [
-            lookup.value,
-          ])
-        : await t.row<ReferenceRow>("SELECT * FROM payment_references WHERE lower(reference) = lower($1)", [
+        ? await t.row<ReferenceRow>(
+            "SELECT * FROM payment_references WHERE data->>'mpesaCheckoutRequestId' = $1 FOR UPDATE",
+            [lookup.value],
+          )
+        : await t.row<ReferenceRow>("SELECT * FROM payment_references WHERE lower(reference) = lower($1) FOR UPDATE", [
             lookup.value,
           ]);
     if (ref) return { kind: "reference", row: ref };
@@ -187,11 +188,17 @@ export function providersService(ctx: AppContext, deps: { payments: PaymentsServ
         await keep("Ignored — event type not used", null);
         return { outcome: null, note: "Ignored — event type not used" };
       }
-      if (tr.problem) {
-        await keep(`Held for review — ${tr.problem}`, null);
-        return { outcome: null, note: `Held for review — ${tr.problem}` };
+      const problem = translatedProblem(tr);
+      if (problem) {
+        await keep(`Held for review — ${problem}`, null);
+        return { outcome: null, note: `Held for review — ${problem}` };
       }
       const target = await resolve(t, tr.lookup);
+      if (target?.kind === "reference" && target.row.status === "cancelled") {
+        const note = "Held for review — payment reference is cancelled";
+        await keep(note, null);
+        return { outcome: null, note };
+      }
       const event = eventFor(tr, target);
       const outcome = await deps.payments.receive(provider, event, {}, t);
       if (!outcome.duplicate) await settleIfApplied(t, target, outcome.result);

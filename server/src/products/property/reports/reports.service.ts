@@ -243,6 +243,7 @@ export function reportsService(d: PmDeps) {
       return {
         asOf: s.today,
         clientCashMinor: cash,
+        providerClearingMinor: await pmBalance(db, s.orgId, ACC.providerClearing, end),
         ownerFundsMinor: owners,
         depositsHeldMinor: deposits,
         tenantCreditsMinor: credits,
