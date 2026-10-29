@@ -181,3 +181,56 @@ export const rejectSettlement = endpoint({
   body: z.object({ reason: z.string().min(6).max(500) }),
   response: Settlement,
 });
+
+// Receiving details are registration records, never proof of merchant onboarding or payout approval.
+const ReceivingAccount = z.object({
+  revision: z.number().int().positive(),
+  kind: z.enum(["bank", "mpesa_mobile", "mpesa_paybill", "mpesa_till"]),
+  accountHolder: z.string(),
+  accountMasked: z.string(),
+  bankCode: z.string().nullable(),
+  accountReferenceMasked: z.string().nullable(),
+  status: z.enum(["verification_pending", "paused"]),
+  savedAt: z.string(),
+});
+export const receivingAccount = endpoint({
+  id: "rentCollection.receivingAccount",
+  summary: "Company receiving account registration",
+  method: "GET",
+  path: "/api/v1/orgs/:orgId/property/receiving-account",
+  auth: "user",
+  params: OrgParams,
+  response: z.object({ account: ReceivingAccount.nullable(), automaticSettlementEnabled: z.literal(false) }),
+});
+export const saveReceivingAccount = endpoint({
+  id: "rentCollection.saveReceivingAccount",
+  summary: "Save encrypted receiving details for verification",
+  method: "PUT",
+  path: "/api/v1/orgs/:orgId/property/receiving-account",
+  auth: "user",
+  params: OrgParams,
+  body: z.object({
+    expectedRevision: z.number().int().nonnegative(),
+    kind: z.enum(["bank", "mpesa_mobile", "mpesa_paybill", "mpesa_till"]),
+    accountHolder: z.string().trim().min(2).max(160),
+    accountNumber: z.string().trim().min(5).max(24).optional(),
+    bankCode: z
+      .string()
+      .regex(/^\d{1,3}$/)
+      .optional(),
+    accountReference: z.string().trim().min(1).max(20).optional(),
+    reason: z.string().trim().min(6).max(500),
+    confirmAuthority: z.literal(true),
+  }),
+  response: z.object({ account: ReceivingAccount, automaticSettlementEnabled: z.literal(false) }),
+});
+export const pauseReceivingAccount = endpoint({
+  id: "rentCollection.pauseReceivingAccount",
+  summary: "Pause a registered receiving destination",
+  method: "POST",
+  path: "/api/v1/orgs/:orgId/property/receiving-account/pause",
+  auth: "user",
+  params: OrgParams,
+  body: z.object({ expectedRevision: z.number().int().positive(), reason: z.string().trim().min(6).max(500) }),
+  response: z.object({ account: ReceivingAccount, automaticSettlementEnabled: z.literal(false) }),
+});

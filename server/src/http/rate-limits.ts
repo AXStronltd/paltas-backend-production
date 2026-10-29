@@ -24,6 +24,8 @@ export interface RateLimits {
 export const PUBLIC_READ_IDS = new Set(["signup.options"]);
 
 const SENSITIVE_IDS = new Set([
+  "rentCollection.saveReceivingAccount",
+  "rentCollection.pauseReceivingAccount",
   "kulmiPay.settlements.prepare",
   "kulmiPay.settlements.approve",
   "kulmiPay.settlements.reject",

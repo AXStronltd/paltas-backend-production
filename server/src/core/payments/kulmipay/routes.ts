@@ -1,9 +1,11 @@
+import { receivingAccounts } from "./receiving-accounts.js";
 import { kulmiSettlements } from "./settlements.js";
 import { kulmiPay as api } from "@paltas/contracts";
 import { route } from "../../../http/route.js";
 import type { PmDeps } from "../../../products/property/deps.js";
 import { kulmiPayService } from "./service.js";
 export function kulmiPayRoutes(d: PmDeps) {
+  const receiving = receivingAccounts(d);
   const p = kulmiPayService(d),
     settlements = kulmiSettlements(d);
   const owner = (u: Parameters<typeof d.access.org>[0], id: string, write = false) =>
@@ -13,6 +15,9 @@ export function kulmiPayRoutes(d: PmDeps) {
   const bank = (u: Parameters<typeof d.access.org>[0], id: string, write = false) =>
     d.access.org(u, id, "property.bank.reconcile", { write, module: "finance" });
   return [
+    route(api.receivingAccount, async (r) => receiving.get(await owner(r.user, r.params.orgId))),
+    route(api.saveReceivingAccount, async (r) => receiving.save(await owner(r.user, r.params.orgId, true), r.body)),
+    route(api.pauseReceivingAccount, async (r) => receiving.pause(await owner(r.user, r.params.orgId, true), r.body)),
     route(api.listSettlements, async (r) => settlements.list(await bank(r.user, r.params.orgId))),
     route(api.prepareSettlement, async (r) => settlements.prepare(await bank(r.user, r.params.orgId, true), r.body)),
     route(api.approveSettlement, async (r) =>
