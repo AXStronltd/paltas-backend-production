@@ -68,3 +68,7 @@ The earlier full run had two stale migration-version expectations, which were co
 - Production health and readiness returned HTTP 200, database up, 60 migrations applied, none pending. Production `pm.html` SHA-256 matched the tested production bundle.
 - Anonymous access to the connector endpoint returned HTTP 401. No production customer/payment test records were created.
 - Provider verification remains simulated. Client-owned credentials, webhook setup, actual provider acceptance and the external payout arrangement remain necessary before live collection. PesaLink customer checkout, provider refund/return execution and automated bank payout remain unavailable.
+
+### Runtime activation follow-up
+
+The first service restart did not apply the saved setup environment flag. A specific-commit redeploy `dep-dbhpu1cs728c73daqofg` completed live on 29 October 2026 at 19:33 UTC. A read-only check in the new running instance verified `KULMIPAY_ENABLED=true` and `KULMIPAY_LIVE_APPROVED=false`. A production aggregate check found zero client merchant connections. No client funds can be collected until private merchant setup and provider acceptance are completed.
