@@ -3097,7 +3097,7 @@ export const collectionsOverview = endpoint({
 export const CollectionsExportQuery = z
   .object(CollectionsQuery.shape)
   .omit({ limit: true, offset: true, invoiceOffset: true })
-  .extend({ kind: z.enum(["receipts", "invoices"]) })
+  .extend({ kind: z.enum(["receipts", "invoices"]), format: z.enum(["csv", "xlsx", "print"]).optional() })
   .refine((q) => q.from <= q.to, { message: "Start date must be on or before end date", path: ["to"] });
 export type CollectionsExportQuery = z.infer<typeof CollectionsExportQuery>;
 export const exportCollections = endpoint({
@@ -3105,13 +3105,14 @@ export const exportCollections = endpoint({
   method: "GET",
   path: `${Base}/reports/collections-export`,
   auth: "user",
-  summary: "Complete authorised cashbook or current invoice CSV, maximum 10000 rows",
+  summary: "Complete authorised cashbook or invoice CSV, Excel or printable report, maximum 10000 rows",
   params: OrgParams,
   query: CollectionsExportQuery,
   response: z.object({
     filename: z.string(),
     content: z.string(),
-    contentType: z.literal("text/csv"),
+    contentType: z.enum(["text/csv", "text/html", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]),
+    encoding: z.enum(["utf8", "base64"]),
     rowCount: z.number().int(),
     fingerprint: z.string(),
   }),

@@ -94,3 +94,67 @@ it("rejects invalid/future dates and neutralises formulas including whitespace p
   for (const text of ["=1+1", " +SUM(A1)", "\t@SUM(A1)", "\r-12"]) expect(collectionCsvCell(text)).toContain("'");
   expect(collectionCsvCell('safe,"text"\nnext')).toBe('"safe,""text""\nnext"');
 });
+
+it("exports genuine Excel values without executable formulas and prints escaped complete source records", async () => {
+  const { readZip } = await import("../dist/core/migration/files/zip.js");
+  const x = await admin.api.property.exportCollections({ params: { orgId }, query: { ...query, format: "xlsx" } });
+  expect(x.encoding).toBe("base64");
+  expect(x.filename).toMatch(/\.xlsx$/);
+  const entries = readZip(Buffer.from(x.content, "base64"), { maxEntries: 20, maxUncompressedBytes: 10_000_000 });
+  const sheet = entries.find((e) => e.name === "xl/worksheets/sheet1.xml")!.data.toString();
+  expect(sheet).toContain('t="inlineStr"');
+  expect(sheet).toContain("=HYPERLINK");
+  expect(sheet).not.toContain("<f>");
+  expect(sheet).toContain("<v>25.00</v>");
+  expect(sheet.match(/<row r=/g)).toHaveLength(53);
+  const print = await admin.api.property.exportCollections({ params: { orgId }, query: { ...query, format: "print" } });
+  expect(print.contentType).toBe("text/html");
+  expect(print.content).toContain("Save as PDF");
+  expect(print.content).toContain("ROW-51");
+  expect(print.content).not.toContain("<script");
+  expect(print.rowCount).toBe(x.rowCount);
+});
+it("uses the organisation currency minor units instead of assuming cents", async () => {
+  const { collectionDecimal } = await import("../dist/products/property/reports/collections-export.js");
+  expect(collectionDecimal(1250, "UGX")).toBe("1250");
+  expect(collectionDecimal(1250, "KES")).toBe("12.50");
+  expect(collectionDecimal(0, "JPY")).toBe("0");
+  expect(collectionDecimal(Number.MAX_SAFE_INTEGER, "UGX")).toBe("9007199254740991");
+  expect(() => collectionDecimal(-1, "KES")).toThrow();
+  expect(() => collectionDecimal(Number.NaN, "KES")).toThrow();
+  const other = await pmOrg(S);
+  await S.sql("UPDATE organisations SET currency='UGX' WHERE id=$1", [other.orgId]);
+  const tenant = await newTenant(other.admin, other.orgId, "UGX tenant");
+  await other.admin.api.property.recordPayment({
+    params: { orgId: other.orgId },
+    body: { tenantId: tenant, date: "2026-10-24", amountMinor: 1250, method: "cash", reference: "UGX cash collection" },
+  });
+  const csv = await other.admin.api.property.exportCollections({ params: { orgId: other.orgId }, query });
+  expect(csv.content).toContain('"UGX","1250"');
+  expect(csv.content).not.toContain('"12.50"');
+});
+
+it("enforces current organisation and role permissions for every export format", async () => {
+  const other = await pmOrg(S);
+  const tech = await S.addMember(orgId, admin.api, "technician");
+  for (const format of ["csv", "xlsx", "print"] as const) {
+    await refused(other.admin.api.property.exportCollections({ params: { orgId }, query: { ...query, format } }), 404);
+    await refused(tech.api.property.exportCollections({ params: { orgId }, query: { ...query, format } }), 403);
+  }
+});
+
+it("exports invoice amounts and balances in Excel and readable print columns", async () => {
+  const { readZip } = await import("../dist/core/migration/files/zip.js");
+  const q = { ...query, kind: "invoices" as const, invoiceStatus: "billed" as const };
+  const x = await admin.api.property.exportCollections({ params: { orgId }, query: { ...q, format: "xlsx" } });
+  const sheet = readZip(Buffer.from(x.content, "base64"), { maxEntries: 20, maxUncompressedBytes: 1000000 })
+    .find((e) => e.name === "xl/worksheets/sheet1.xml")!
+    .data.toString();
+  expect(sheet).toContain("Current outstanding");
+  expect(sheet).toContain("<v>1000.00</v>");
+  expect(x.rowCount).toBe(1);
+  const print = await admin.api.property.exportCollections({ params: { orgId }, query: { ...q, format: "print" } });
+  expect(print.content).toContain("Current outstanding");
+  expect(print.content).not.toContain('scope="col">Invoice ID');
+  expect(print.content).toContain("Current balances as of");
+});

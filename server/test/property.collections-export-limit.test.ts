@@ -4,7 +4,7 @@ import type { OrgScope } from "../dist/core/access/org-access.js";
 vi.mock("../dist/products/property/reports/collections-overview.js", () => ({ collectionsOverview: vi.fn() }));
 import { collectionsOverview } from "../dist/products/property/reports/collections-overview.js";
 import { exportCollections } from "../dist/products/property/reports/collections-export.js";
-it("refuses oversized exports rather than returning a truncated screen page", async () => {
+it.each(["csv", "xlsx", "print"] as const)("refuses oversized %s exports instead of truncating", async (format) => {
   vi.mocked(collectionsOverview).mockResolvedValue({ total: 10001 } as Awaited<ReturnType<typeof collectionsOverview>>);
   const run = vi.fn();
   await expect(
@@ -13,6 +13,7 @@ it("refuses oversized exports rather than returning a truncated screen page", as
       to: "2026-10-25",
       invoiceStatus: "open",
       kind: "receipts",
+      format,
     }),
   ).rejects.toThrow("Narrow the date, property or tenant filters");
   expect(run).not.toHaveBeenCalled();

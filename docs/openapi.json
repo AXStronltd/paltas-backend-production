@@ -195129,7 +195129,7 @@
     "/api/v1/orgs/{orgId}/property/reports/collections-export": {
       "get": {
         "operationId": "property.reports.exportCollections",
-        "summary": "Complete authorised cashbook or current invoice CSV, maximum 10000 rows",
+        "summary": "Complete authorised cashbook or invoice CSV, Excel or printable report, maximum 10000 rows",
         "security": [
           {
             "bearer": []
@@ -195247,6 +195247,20 @@
                 "invoices"
               ]
             }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "enum": [
+                "csv",
+                "xlsx",
+                "print"
+              ]
+            }
           }
         ],
         "responses": {
@@ -195266,7 +195280,18 @@
                     },
                     "contentType": {
                       "type": "string",
-                      "const": "text/csv"
+                      "enum": [
+                        "text/csv",
+                        "text/html",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      ]
+                    },
+                    "encoding": {
+                      "type": "string",
+                      "enum": [
+                        "utf8",
+                        "base64"
+                      ]
                     },
                     "rowCount": {
                       "type": "integer",
@@ -195281,6 +195306,7 @@
                     "filename",
                     "content",
                     "contentType",
+                    "encoding",
                     "rowCount",
                     "fingerprint"
                   ],
