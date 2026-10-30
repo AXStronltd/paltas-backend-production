@@ -1,3 +1,5 @@
+import { reportSchedulesService, COLLECTION_REPORT_JOB } from "./reports/report-schedules.service.js";
+import { reportScheduleRoutes } from "./reports/report-schedules.routes.js";
 import { kulmiPayRoutes } from "../../core/payments/kulmipay/routes.js";
 import { FLEXIBLE_RENT_JOB, rentSchedulesService } from "./billing/rent-schedules.service.js";
 import { rentScheduleRoutes } from "./billing/rent-schedules.routes.js";
@@ -142,6 +144,7 @@ export const property: ProductModule = {
       ...commsRoutes(access, commsService(d)),
       ...bankRoutes(access, bankService(d, { payments })),
       ...reportsRoutes(access, reportsService(d)),
+      ...reportScheduleRoutes(access, reportSchedulesService(d)),
       ...portalRoutes(access, portalService(d, { setup, maintenance, bills, owners })),
     ];
   },
@@ -164,6 +167,15 @@ export const property: ProductModule = {
       return p ?? "The property no longer exists — nothing done";
     }
     return [
+      {
+        key: COLLECTION_REPORT_JOB,
+        label: "Collection report preparation",
+        scope: "org",
+        async run(job) {
+          if (!job.orgId || !job.targetId) return { summary: "No report schedule selected" };
+          return reportSchedulesService(pd).automatic(job.orgId, job.targetId, job.localDate);
+        },
+      },
       {
         key: FLEXIBLE_RENT_JOB,
         label: "Flexible lease rent billing",

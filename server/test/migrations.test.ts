@@ -87,7 +87,8 @@ describe("migrations", () => {
         "0060_property_kulmipay_posting",
         "0061_property_receiving_accounts",
         "0062_property_payment_links",
-    "0063_property_crm_work",
+        "0063_property_crm_work",
+        "0064_collection_report_schedules",
       ]);
       expect(await migrate(db)).toEqual([]);
       // two servers starting at once: both succeed, only one applies anything

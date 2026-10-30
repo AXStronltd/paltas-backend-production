@@ -9,6 +9,13 @@ import { productRole } from "./product-role.js";
 
 type Req = Parameters<Route["handler"]>[0];
 const FINE: Record<string, Capability> = {
+  "property.reports.schedules.list": "property.tenants.history",
+  "property.reports.schedules.create": "property.tenants.history",
+  "property.reports.schedules.update": "property.tenants.history",
+  "property.reports.schedules.run": "property.tenants.history",
+  "property.reports.schedules.runs": "property.tenants.history",
+  "property.reports.schedules.download": "property.tenants.history",
+
   "property.leases.people.get": "property.tenants.view",
   "property.leases.people.list": "property.tenants.view",
   "property.leases.people.history": "property.tenants.view",
@@ -49,6 +56,8 @@ const FINE: Record<string, Capability> = {
   "property.tenants.statement": "property.tenants.history",
 };
 const TABLES: Record<string, string> = {
+  reportScheduleId: "SELECT property_id FROM pm_collection_report_schedules WHERE org_id=$1 AND id=$2",
+  reportRunId: "SELECT property_id FROM pm_collection_report_runs WHERE org_id=$1 AND id=$2",
   viewingId:
     "SELECT u.property_id FROM pm_viewings v JOIN pm_units u ON u.org_id=v.org_id AND u.id=v.unit_id WHERE v.org_id=$1 AND v.id=$2",
   applicationId:
@@ -116,7 +125,7 @@ const SAFE_SHARED = new Set([
   "subscription.entitlements",
 ]);
 const SCOPED =
-  /^(property\.(crm\..+|properties\.(list|get|update)|buildings\.(create|update|delete|restore)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|complaints\..+|meters\..+|invoices\..+|reminders\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll|collectionsOverview|exportCollections))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
+  /^(property\.(crm\..+|properties\.(list|get|update)|buildings\.(create|update|delete|restore)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|complaints\..+|meters\..+|invoices\..+|reminders\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(schedules\..+|dashboard|rentRoll|collectionsOverview|exportCollections))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
 const GLOBAL =
   /^property\.(settings\.update|chargeTypes\.(create|update)|properties\.create|bank\.|reconciliations\.|payouts\.|owners\.|reports\.(clientMoney|aged|dashboard))/;
 export function managerGuard(db: Db) {

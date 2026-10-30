@@ -195126,6 +195126,1118 @@
         }
       }
     },
+    "/api/v1/orgs/{orgId}/property/reports/schedules": {
+      "get": {
+        "operationId": "property.reports.schedules.list",
+        "summary": "Property-scoped collection report schedules",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          {
+            "name": "propertyId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 80
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "schedules": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "minLength": 2,
+                            "maxLength": 120
+                          },
+                          "kind": {
+                            "type": "string",
+                            "enum": [
+                              "receipts",
+                              "invoices"
+                            ]
+                          },
+                          "format": {
+                            "type": "string",
+                            "enum": [
+                              "csv",
+                              "xlsx",
+                              "print"
+                            ]
+                          },
+                          "frequency": {
+                            "type": "string",
+                            "enum": [
+                              "daily",
+                              "weekly",
+                              "monthly"
+                            ]
+                          },
+                          "hour": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 23
+                          },
+                          "minute": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 59
+                          },
+                          "status": {
+                            "type": "string",
+                            "enum": [
+                              "active",
+                              "paused",
+                              "archived"
+                            ]
+                          },
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "propertyId": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "timezone": {
+                            "type": "string"
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "jobStatus": {
+                            "anyOf": [
+                              {
+                                "type": "string",
+                                "enum": [
+                                  "active",
+                                  "paused"
+                                ]
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "nextRunAt": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "lastStatus": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "lastError": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "lastSummary": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "kind",
+                          "format",
+                          "frequency",
+                          "hour",
+                          "minute",
+                          "status",
+                          "id",
+                          "propertyId",
+                          "timezone",
+                          "version",
+                          "jobStatus",
+                          "nextRunAt",
+                          "lastStatus",
+                          "lastError",
+                          "lastSummary"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "schedules",
+                    "total",
+                    "limit",
+                    "offset"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "property.reports.schedules.create",
+        "summary": "Create a reviewed in-workspace report schedule",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "receipts",
+                      "invoices"
+                    ]
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "csv",
+                      "xlsx",
+                      "print"
+                    ]
+                  },
+                  "frequency": {
+                    "type": "string",
+                    "enum": [
+                      "daily",
+                      "weekly",
+                      "monthly"
+                    ]
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "paused",
+                      "archived"
+                    ]
+                  },
+                  "propertyId": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 80
+                  },
+                  "requestKey": {
+                    "type": "string",
+                    "minLength": 16,
+                    "maxLength": 100
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind",
+                  "format",
+                  "frequency",
+                  "hour",
+                  "minute",
+                  "status",
+                  "propertyId",
+                  "requestKey"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 2,
+                      "maxLength": 120
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "receipts",
+                        "invoices"
+                      ]
+                    },
+                    "format": {
+                      "type": "string",
+                      "enum": [
+                        "csv",
+                        "xlsx",
+                        "print"
+                      ]
+                    },
+                    "frequency": {
+                      "type": "string",
+                      "enum": [
+                        "daily",
+                        "weekly",
+                        "monthly"
+                      ]
+                    },
+                    "hour": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 23
+                    },
+                    "minute": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 59
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "active",
+                        "paused",
+                        "archived"
+                      ]
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "propertyId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "timezone": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "jobStatus": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "nextRunAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastStatus": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastError": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastSummary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "kind",
+                    "format",
+                    "frequency",
+                    "hour",
+                    "minute",
+                    "status",
+                    "id",
+                    "propertyId",
+                    "timezone",
+                    "version",
+                    "jobStatus",
+                    "nextRunAt",
+                    "lastStatus",
+                    "lastError",
+                    "lastSummary"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/reports/schedules/{reportScheduleId}": {
+      "put": {
+        "operationId": "property.reports.schedules.update",
+        "summary": "Edit pause archive or restore an authorised report schedule",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reportScheduleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 2,
+                    "maxLength": 120
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "receipts",
+                      "invoices"
+                    ]
+                  },
+                  "format": {
+                    "type": "string",
+                    "enum": [
+                      "csv",
+                      "xlsx",
+                      "print"
+                    ]
+                  },
+                  "frequency": {
+                    "type": "string",
+                    "enum": [
+                      "daily",
+                      "weekly",
+                      "monthly"
+                    ]
+                  },
+                  "hour": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 23
+                  },
+                  "minute": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 59
+                  },
+                  "status": {
+                    "type": "string",
+                    "enum": [
+                      "active",
+                      "paused",
+                      "archived"
+                    ]
+                  },
+                  "expectedVersion": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  },
+                  "reason": {
+                    "type": "string",
+                    "minLength": 5,
+                    "maxLength": 1000
+                  }
+                },
+                "required": [
+                  "name",
+                  "kind",
+                  "format",
+                  "frequency",
+                  "hour",
+                  "minute",
+                  "status",
+                  "expectedVersion",
+                  "reason"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "minLength": 2,
+                      "maxLength": 120
+                    },
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "receipts",
+                        "invoices"
+                      ]
+                    },
+                    "format": {
+                      "type": "string",
+                      "enum": [
+                        "csv",
+                        "xlsx",
+                        "print"
+                      ]
+                    },
+                    "frequency": {
+                      "type": "string",
+                      "enum": [
+                        "daily",
+                        "weekly",
+                        "monthly"
+                      ]
+                    },
+                    "hour": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 23
+                    },
+                    "minute": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 59
+                    },
+                    "status": {
+                      "type": "string",
+                      "enum": [
+                        "active",
+                        "paused",
+                        "archived"
+                      ]
+                    },
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "propertyId": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "timezone": {
+                      "type": "string"
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "jobStatus": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "enum": [
+                            "active",
+                            "paused"
+                          ]
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "nextRunAt": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastStatus": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastError": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "lastSummary": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "kind",
+                    "format",
+                    "frequency",
+                    "hour",
+                    "minute",
+                    "status",
+                    "id",
+                    "propertyId",
+                    "timezone",
+                    "version",
+                    "jobStatus",
+                    "nextRunAt",
+                    "lastStatus",
+                    "lastError",
+                    "lastSummary"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/reports/schedules/{reportScheduleId}/run": {
+      "post": {
+        "operationId": "property.reports.schedules.run",
+        "summary": "Prepare the last complete period, once per schedule version and period",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reportScheduleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$schema": "https://json-schema.org/draft/2020-12/schema",
+                "type": "object",
+                "properties": {
+                  "confirm": {
+                    "type": "string",
+                    "const": "GENERATE"
+                  }
+                },
+                "required": [
+                  "confirm"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 80
+                    },
+                    "version": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "from": {
+                      "type": "string"
+                    },
+                    "to": {
+                      "type": "string"
+                    },
+                    "asOf": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "filename": {
+                      "type": "string"
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "fingerprint": {
+                      "type": "string"
+                    },
+                    "trigger": {
+                      "type": "string",
+                      "enum": [
+                        "manual",
+                        "schedule"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "version",
+                    "from",
+                    "to",
+                    "asOf",
+                    "createdAt",
+                    "filename",
+                    "rowCount",
+                    "fingerprint",
+                    "trigger"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/reports/schedules/{reportScheduleId}/runs": {
+      "get": {
+        "operationId": "property.reports.schedules.runs",
+        "summary": "Saved report runs with source window and fingerprints",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reportScheduleId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 20,
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$schema": "https://json-schema.org/draft/2020-12/schema",
+              "default": 0,
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "reports": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 80
+                          },
+                          "version": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "from": {
+                            "type": "string"
+                          },
+                          "to": {
+                            "type": "string"
+                          },
+                          "asOf": {
+                            "type": "string"
+                          },
+                          "createdAt": {
+                            "type": "string"
+                          },
+                          "filename": {
+                            "type": "string"
+                          },
+                          "rowCount": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          "fingerprint": {
+                            "type": "string"
+                          },
+                          "trigger": {
+                            "type": "string",
+                            "enum": [
+                              "manual",
+                              "schedule"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "version",
+                          "from",
+                          "to",
+                          "asOf",
+                          "createdAt",
+                          "filename",
+                          "rowCount",
+                          "fingerprint",
+                          "trigger"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "limit": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "offset": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    }
+                  },
+                  "required": [
+                    "reports",
+                    "total",
+                    "limit",
+                    "offset"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/orgs/{orgId}/property/reports/schedules/runs/{reportRunId}/download": {
+      "get": {
+        "operationId": "property.reports.schedules.download",
+        "summary": "Download a retained report after current scope authorisation",
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "orgId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "reportRunId",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$schema": "https://json-schema.org/draft/2020-12/schema",
+                  "type": "object",
+                  "properties": {
+                    "filename": {
+                      "type": "string"
+                    },
+                    "content": {
+                      "type": "string"
+                    },
+                    "encoding": {
+                      "type": "string",
+                      "enum": [
+                        "utf8",
+                        "base64"
+                      ]
+                    },
+                    "contentType": {
+                      "type": "string",
+                      "enum": [
+                        "text/csv",
+                        "text/html",
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                      ]
+                    },
+                    "rowCount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "fingerprint": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "filename",
+                    "content",
+                    "encoding",
+                    "contentType",
+                    "rowCount",
+                    "fingerprint"
+                  ],
+                  "additionalProperties": false
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/orgs/{orgId}/property/reports/collections-export": {
       "get": {
         "operationId": "property.reports.exportCollections",

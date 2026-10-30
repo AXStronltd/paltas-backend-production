@@ -25,7 +25,12 @@ export const collectionDecimal = (minor: number, currency: string) => {
   return digits ? `${n / scale}.${String(n % scale).padStart(digits, "0")}` : String(n);
 };
 
-export async function exportCollections(db: Db, s: OrgScope, q: P.CollectionsExportQuery) {
+export async function exportCollections(
+  db: Db,
+  s: OrgScope,
+  q: P.CollectionsExportQuery,
+  context?: { propertyName: string; reportName: string },
+) {
   // One repeatable-read snapshot, not repeated pagination over changing records.
   const r = await collectionsOverview(db, s, { ...q, limit: MAX_ROWS, offset: 0, invoiceOffset: 0 });
   const total = q.kind === "receipts" ? r.total : r.invoiceTotal;
@@ -100,21 +105,37 @@ export async function exportCollections(db: Db, s: OrgScope, q: P.CollectionsExp
           r.asOf,
         ]);
   if (rows.length !== total) throw fail.conflict("The complete report could not be read. Try a narrower selection.");
+  if (context) {
+    headers.push("Property", "Scheduled report");
+    for (const row of rows) row.push(context.propertyName, context.reportName);
+  }
   const format = q.format ?? "csv";
   const csvCell = (x: ReportCell) => collectionCsvCell(typeof x === "string" ? x : x.decimal);
   // Print keeps human document references; repeated period metadata belongs in the page heading.
   // Internal source IDs remain in the Excel/CSV extracts for reconciliation.
   const printColumns = headers
     .map((name, i) => ({ name, i }))
-    .filter((x) => !["Receipt ID", "Tenant ID", "Invoice ID", "From", "To", "Balances as of"].includes(x.name));
+    .filter(
+      (x) =>
+        ![
+          "Receipt ID",
+          "Tenant ID",
+          "Invoice ID",
+          "From",
+          "To",
+          "Balances as of",
+          "Property",
+          "Scheduled report",
+        ].includes(x.name),
+    );
   const bytes =
     format === "xlsx"
       ? reportXlsx(headers, rows)
       : Buffer.from(
           format === "print"
             ? reportPrint(
-                `PALTAS ${q.kind === "receipts" ? "Collections cashbook" : "Invoice balances"}`,
-                `${r.currency} · ${r.from} to ${r.to} · Current balances as of ${r.asOf} · ${rows.length} records. Bank matching is not settlement confirmation.`,
+                `PALTAS ${q.kind === "receipts" ? "Collections cashbook" : "Invoice balances"}${context ? " — " + context.reportName : ""}`,
+                `${context ? "Property: " + context.propertyName + " · " : ""}${r.currency} · ${r.from} to ${r.to} · Current balances as of ${r.asOf} · ${rows.length} records. Bank matching is not settlement confirmation.`,
                 printColumns.map((x) => x.name),
                 rows.map((row) => printColumns.map((x) => row[x.i] ?? "")),
               )
