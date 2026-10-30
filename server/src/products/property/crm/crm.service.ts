@@ -5,6 +5,7 @@
  * → draft lease → lease activated = lead won. Lost leads keep their reason. Every step is an activity on the contact.
  */
 import { roleCan, type contacts as C, type property as P } from "@paltas/contracts";
+import { contactWithinScope } from "../../../core/access/property-contact-scope.js";
 import { memberProductRole } from "../../../core/access/product-role.js";
 import type { OrgScope } from "../../../core/access/org-access.js";
 import { recordAudit } from "../../../core/audit/audit.service.js";
@@ -213,9 +214,23 @@ export function crmService(d: PmDeps, deps: { leases: LeasesService }) {
             "SELECT id FROM pm_leads WHERE org_id = $1 AND idempotency_key = $2",
             [s.orgId, b.idempotencyKey],
           );
-          if (seen) return { lead: toLead(await leadRow(t, s.orgId, seen.id)), contactReused: true, leadReused: true };
+          if (seen) {
+            const lead = await leadRow(t, s.orgId, seen.id);
+            if (s.propertyIds) {
+              if (!(await contactWithinScope(t, s.orgId, lead.contact_id, s.propertyIds, s.userId)))
+                throw fail.notFound("Lead not found");
+              if (lead.unit_id) {
+                const u = await R.unitRow(t, s.orgId, lead.unit_id);
+                if (!s.propertyIds.includes(u.property_id)) throw fail.notFound("Lead not found");
+              }
+            }
+            return { lead: toLead(lead), contactReused: true, leadReused: true };
+          }
         }
-        if (b.unitId) await R.unitRow(t, s.orgId, b.unitId);
+        if (b.unitId) {
+          const u = await R.unitRow(t, s.orgId, b.unitId);
+          if (s.propertyIds && !s.propertyIds.includes(u.property_id)) throw fail.notFound("Unit not found");
+        }
         const { contact, reused } = await core.contacts.findOrCreate(
           t,
           s.orgId,
@@ -235,6 +250,8 @@ export function crmService(d: PmDeps, deps: { leases: LeasesService }) {
           },
           s.actor,
         );
+        if (s.propertyIds && !(await contactWithinScope(t, s.orgId, contact.id, s.propertyIds, s.userId)))
+          throw fail.notFound("Contact not found");
         const open = await t.row<{ id: string }>(
           `SELECT id FROM pm_leads WHERE org_id = $1 AND contact_id = $2 AND stage NOT IN ('won', 'lost')
              AND unit_id IS NOT DISTINCT FROM $3 ORDER BY created_at LIMIT 1`,

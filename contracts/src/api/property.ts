@@ -4356,3 +4356,12 @@ export const runRentSchedule = endpoint({
   body: z.object({ previewKey: z.string().length(64), confirm: z.literal("ISSUE_RENT_INVOICE") }),
   response: z.object({ invoice: Invoice.nullable(), schedule: RentSchedule }),
 });
+
+export {
+  listCrmWork,
+  createCrmWork,
+  updateCrmWork,
+  crmWorkHistory,
+  crmAssignees,
+  crmMessageLog,
+} from "./property-crm-work.js";

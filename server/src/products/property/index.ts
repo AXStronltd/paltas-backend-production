@@ -57,6 +57,7 @@ import { billsRoutes } from "./bills/bills.routes.js";
 import { billsService } from "./bills/bills.service.js";
 import { commsRoutes } from "./comms/comms.routes.js";
 import { commsService } from "./comms/comms.service.js";
+import { crmWorkService } from "./crm/work.service.js";
 import { crmRoutes } from "./crm/crm.routes.js";
 import { crmService } from "./crm/crm.service.js";
 import type { PmDeps } from "./deps.js";
@@ -137,7 +138,7 @@ export const property: ProductModule = {
       ...maintenanceRoutes(access, maintenance),
       ...inspectionControlRoutes(access, inspectionControlsService(d, maintenance)),
       ...preventiveRoutes(access, preventiveService(d, maintenance)),
-      ...crmRoutes(access, crmService(d, { leases })),
+      ...crmRoutes(access, crmService(d, { leases }), crmWorkService(d)),
       ...commsRoutes(access, commsService(d)),
       ...bankRoutes(access, bankService(d, { payments })),
       ...reportsRoutes(access, reportsService(d)),

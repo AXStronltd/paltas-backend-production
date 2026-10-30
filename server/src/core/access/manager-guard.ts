@@ -49,6 +49,11 @@ const FINE: Record<string, Capability> = {
   "property.tenants.statement": "property.tenants.history",
 };
 const TABLES: Record<string, string> = {
+  viewingId:
+    "SELECT u.property_id FROM pm_viewings v JOIN pm_units u ON u.org_id=v.org_id AND u.id=v.unit_id WHERE v.org_id=$1 AND v.id=$2",
+  applicationId:
+    "SELECT u.property_id FROM pm_applications a JOIN pm_units u ON u.org_id=a.org_id AND u.id=a.unit_id WHERE a.org_id=$1 AND a.id=$2",
+  taskId: "SELECT property_id FROM pm_crm_work WHERE org_id=$1 AND id=$2",
   complaintId:
     "SELECT l.property_id FROM pm_complaints c JOIN pm_leases l ON l.org_id=c.org_id AND l.id=c.lease_id WHERE c.org_id=$1 AND c.id=$2",
   meterId:
@@ -78,6 +83,9 @@ const TABLES: Record<string, string> = {
   inspectionId: "SELECT property_id FROM pm_inspections WHERE org_id=$1 AND id=$2",
 };
 const LISTS: Record<string, [string, string]> = {
+  "property.crm.leads": ["leads", "leadId"],
+  "property.crm.viewings": ["viewings", "viewingId"],
+  "property.crm.applications": ["applications", "applicationId"],
   "property.complaints.list": ["complaints", "complaintId"],
   "property.meters.registry.list": ["meters", "meterId"],
   "property.meters.list": ["readings", "readingId"],
@@ -97,6 +105,9 @@ const LISTS: Record<string, [string, string]> = {
   "property.bills.list": ["bills", "billId"],
 };
 const SAFE_SHARED = new Set([
+  "property.crm.enquiry", // service checks new/reused contact and idempotent replay against current scope
+  "property.crm.work.list", // handler filters every row by current property scope
+  "property.crm.messages.list", // handler applies the shared contact/property scope
   "property.settings.get",
   "property.chargeTypes.list",
   "property.tariffs.list", // service filters unit overrides to assigned properties; shared tariff is configuration only
@@ -105,7 +116,7 @@ const SAFE_SHARED = new Set([
   "subscription.entitlements",
 ]);
 const SCOPED =
-  /^(property\.(properties\.(list|get|update)|buildings\.(create|update|delete|restore)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|complaints\..+|meters\..+|invoices\..+|reminders\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll|collectionsOverview|exportCollections))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
+  /^(property\.(crm\..+|properties\.(list|get|update)|buildings\.(create|update|delete|restore)|units\.(create|update)|tariffs\.create|ownerships\.(list|create|update|verify)|agreements\.(list|create|update|activate|end)|leases\..+|complaints\..+|meters\..+|invoices\..+|reminders\..+|payments\..+|tenants\..+|deposits\..+|maintenance\..+|workOrders\..+|inspections\..+|bills\..+|documents\..+|reports\.(dashboard|rentRoll|collectionsOverview|exportCollections))|contacts\.(list|get|create|update|activities\.add|messages\.record))$/;
 const GLOBAL =
   /^property\.(settings\.update|chargeTypes\.(create|update)|properties\.create|bank\.|reconciliations\.|payouts\.|owners\.|reports\.(clientMoney|aged|dashboard))/;
 export function managerGuard(db: Db) {
@@ -184,6 +195,15 @@ export function managerGuard(db: Db) {
             );
             return !!doc && linkedAllowed(doc.link_entity, doc.link_id);
           }
+          if (key === "leadId") {
+            const lead = await db.row<{ property_id: string | null; contact_id: string }>(
+              "SELECT u.property_id,l.contact_id FROM pm_leads l LEFT JOIN pm_units u ON u.org_id=l.org_id AND u.id=l.unit_id WHERE l.org_id=$1 AND l.id=$2",
+              [orgId, id],
+            );
+            return (
+              !!lead && (!lead.property_id || ids.has(lead.property_id)) && (await contactAllowed(lead.contact_id))
+            );
+          }
           const q = TABLES[key];
           if (!q) return false;
           const p = await db.row<{ property_id: string }>(q, [orgId, id]);
@@ -214,7 +234,9 @@ export function managerGuard(db: Db) {
           for (const [k, v] of Object.entries(value)) {
             if (k === "orgId") continue;
             if (
-              (TABLES[k] || ["tenantId", "contactId", "ownerId", "paymentId", "documentId"].includes(k)) &&
+              (TABLES[k] ||
+                k === "leadId" ||
+                ["tenantId", "contactId", "ownerId", "paymentId", "documentId"].includes(k)) &&
               typeof v === "string"
             ) {
               bound = true;
