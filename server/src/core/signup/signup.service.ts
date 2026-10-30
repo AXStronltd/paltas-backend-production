@@ -1,3 +1,4 @@
+import { approvedOffer } from "../subscriptions/published-offers.js";
 /*
  * Self-service sign-up and e-mail verification.
  *
@@ -212,7 +213,7 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
         orgId,
         JSON.stringify(profile),
       ]);
-      if (profile.requestedTier === "Enterprise") {
+      if (profile.requestedTier === "Enterprise" && !approvedOffer(r.plan_id)) {
         const enquiryId = newId("ent");
         await t.run("INSERT INTO enterprise_enquiries(id,org_id,note,created_by) VALUES($1,$2,$3,$4)", [
           enquiryId,
@@ -306,7 +307,13 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
             const product = (p.products[0] === "agents" ? "agency" : p.products[0]) as Product;
             if (!settings.allowedProducts.includes(product)) return [];
             if (settings.allowedPlanIds?.length && !settings.allowedPlanIds.includes(p.id)) return [];
-            if (p.tier === "Enterprise" || base?.amount == null || !base.ccy) return [];
+            if (
+              (ctx.config.env === "production" ? !approvedOffer(p.id) : !!approvedOffer(p.id)) ||
+              (p.tier === "Enterprise" && !approvedOffer(p.id)) ||
+              base?.amount == null ||
+              !base.ccy
+            )
+              return [];
             return [
               {
                 id: p.id,
@@ -361,10 +368,11 @@ export function signupService(ctx: AppContext, deps: { notifications: Notificati
       if (
         !plan ||
         plan.product !== b.product ||
+        (ctx.config.env === "production" && !approvedOffer(plan.id)) ||
         (settings.allowedPlanIds?.length && !settings.allowedPlanIds.includes(plan.id))
       )
         throw fail.invalid(`Pick a ${entitlements.PRODUCT_NAME[b.product]} plan from the PALTAS catalogue`);
-      if (plan.tier === "Enterprise" || plan.base_minor == null || !plan.currency)
+      if ((plan.tier === "Enterprise" && !approvedOffer(plan.id)) || plan.base_minor == null || !plan.currency)
         throw fail.invalid("This plan is agreed with PALTAS — send an Enterprise enquiry instead", {
           contactSales: true,
         });

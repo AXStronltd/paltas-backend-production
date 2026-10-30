@@ -1,3 +1,4 @@
+import { approvedOffer } from "./published-offers.js";
 /* Optional hosted subscription collection. All money still passes through PALTAS billing receipts.
  * A browser redirect never activates access. Stripe prices must exactly match an approved PALTAS invoice.
  */
@@ -63,7 +64,23 @@ export function stripeService(ctx: AppContext, payments: PaymentsService, suppli
       if (!invoice) throw fail.notFound("Plan invoice not found");
       if (!["Open", "Payment failed"].includes(invoice.status))
         throw fail.conflict("This invoice is no longer awaiting payment");
-      const mapping = settings.prices.find((p) => p.planId === invoice.plan_id && p.currency === invoice.currency);
+      let mapping = settings.prices.find((p) => p.planId === invoice.plan_id && p.currency === invoice.currency);
+      const offer = approvedOffer(invoice.plan_id);
+      if (!mapping && offer && invoice.currency === "USD" && invoice.total_minor === offer.amountMinor) {
+        const matches = await stripe.prices.list({ lookup_keys: [offer.lookupKey], limit: 2 });
+        const candidate = matches.data[0];
+        if (
+          matches.has_more ||
+          matches.data.length !== 1 ||
+          !candidate ||
+          candidate.tax_behavior !== "inclusive" ||
+          candidate.metadata.paltasAccountId !== settings.accountId ||
+          candidate.metadata.paltasProduct !== product ||
+          candidate.metadata.paltasTier !== offer.tier
+        )
+          throw fail.conflict("The published PALTAS offer needs payment configuration review");
+        mapping = { planId: invoice.plan_id, currency: "USD", priceId: candidate.id };
+      }
       if (!mapping)
         throw fail.conflict(
           "Card checkout is not configured for this plan and currency. Contact PALTAS or use bank transfer.",

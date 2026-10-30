@@ -80,7 +80,7 @@ describe("production: no demo or sample organisations", () => {
   });
 
   it("production refuses registration without a connected email provider even when enabled", async () => {
-    const b = signupBody("property");
+    const b = signupBody("property", { plan: "PALTAS-20261027-property-Standard" });
     expect((await postSignup(S, b)).status).toBe(403);
     expect(await S.sql("SELECT 1 FROM users WHERE email = $1", [b.email])).toEqual([]);
     const options = await S.raw("GET", "/api/v1/public/signup-options");
@@ -124,7 +124,7 @@ describe("production: no demo or sample organisations", () => {
     // nothing is dispatched here (no scheduler): the configured provider only opens the production gate
     const P = await signupServer({ termsUrl: "https://paltas.example/terms" }, { env: "production", email });
     try {
-      const b = signupBody("security");
+      const b = signupBody("security", { plan: "PALTAS-20261027-security-Standard" });
       expect((await postSignup(P, b)).status).toBe(201);
       const rows = await P.sql<{ demo: boolean; status: string; staff_role: string | null }>(
         `SELECT o.demo, s.status, u.staff_role FROM organisations o JOIN subscriptions s ON s.org_id = o.id

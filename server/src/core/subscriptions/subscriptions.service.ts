@@ -1,3 +1,4 @@
+import { approvedOffer } from "./published-offers.js";
 /*
  * A customer's self-service on their own subscriptions, using the shared entitlement rules for every decision:
  * what they may use, what a change costs, what they can buy, and when changes take effect.
@@ -82,8 +83,14 @@ export function subscriptionsService(ctx: AppContext) {
           priced: monthly.priced,
         },
         outstandingMinor: invoices
-          .filter((i) => i.status !== "Paid" && i.status !== "Void")
+          .filter((i) => i.status !== "Paid" && i.status !== "Void" && i.currency === monthly.charge.currency)
           .reduce((a, i) => a + i.total_minor, 0),
+        outstandingByCurrency: [...new Set(invoices.map((i) => i.currency))].map((currency) => ({
+          currency,
+          amountMinor: invoices
+            .filter((i) => i.currency === currency && i.status !== "Paid" && i.status !== "Void")
+            .reduce((sum, i) => sum + i.total_minor, 0),
+        })),
         billingMode: config.billingMode,
         invoices: invoices.map(toInvoice),
         receipts: receipts.map((r) => ({
@@ -120,10 +127,11 @@ export function subscriptionsService(ctx: AppContext) {
                     (p) =>
                       p.products[0] === k &&
                       p.tier &&
+                      (config.env === "production" ? !!approvedOffer(p.id) : !approvedOffer(p.id)) &&
                       (!config.signup.allowedPlanIds?.length || config.signup.allowedPlanIds.includes(p.id)),
                   )
                   .map((p) => {
-                    const price = entitlements.priceIn(p.base, org.currency);
+                    const price = entitlements.priceIn(p.base, approvedOffer(p.id) ? "USD" : org.currency);
                     return {
                       id: p.id,
                       tier: p.tier,
@@ -155,11 +163,11 @@ export function subscriptionsService(ctx: AppContext) {
         (config.signup.allowedPlanIds?.length && !config.signup.allowedPlanIds.includes(pl.id))
       )
         throw fail.invalid(`Pick a ${entitlements.PRODUCT_NAME[product]} plan`);
-      const price = entitlements.priceIn(pl.base, s.entitlement.org.currency);
-      if (pl.tier === "Enterprise" || !price)
+      const price = entitlements.priceIn(pl.base, approvedOffer(pl.id) ? "USD" : s.entitlement.org.currency);
+      if ((pl.tier === "Enterprise" && !approvedOffer(pl.id)) || !price)
         throw fail.invalid("This plan is agreed with PALTAS — send an Enterprise enquiry", { contactSales: true });
       const today = clock.today();
-      const simulated = config.billingMode === "simulated";
+      const simulated = config.billingMode === "simulated" && !approvedOffer(pl.id);
       return db.tx(async (t) => {
         const trial = await furtherProductTrial(t);
         const opened = await openSubscription(t, {
@@ -182,6 +190,8 @@ export function subscriptionsService(ctx: AppContext) {
               kind: "product",
               what: `${pl.name} — first ${pl.frequency ?? "month"}`,
               amountMinor: toMinor(price.amount, price.ccy),
+              currency: price.ccy,
+              requirePayment: !!approvedOffer(pl.id),
               planId: pl.id,
               taxPct: pl.taxPct ?? 0,
               note: "New product",
@@ -277,7 +287,12 @@ export function subscriptionsService(ctx: AppContext) {
         planId !== s.entitlement.ent.planId
       )
         throw fail.invalid("Choose a currently offered plan or contact PALTAS");
-      const q = entitlements.canChangePlan(s.entitlement.catalogue, s.entitlement.view, planId, clock.today());
+      const q = entitlements.canChangePlan(
+        s.entitlement.catalogue,
+        approvedOffer(planId) ? { ...s.entitlement.view, currency: "USD" } : s.entitlement.view,
+        planId,
+        clock.today(),
+      );
       if (!q.ok) throw fail.invalid(q.why, { contactSales: !!q.contactSales });
       if (!q.upgrade) {
         await db.tx(async (t) => {
@@ -304,6 +319,8 @@ export function subscriptionsService(ctx: AppContext) {
           kind: "plan",
           what: `${q.plan.name} — first ${q.plan.frequency ?? "month"}`,
           amountMinor: toMinor(q.price.amount, q.price.ccy),
+          currency: q.price.ccy,
+          requirePayment: !!approvedOffer(q.plan.id),
           planId: q.plan.id,
           taxPct: q.plan.taxPct ?? 0,
           note: "Plan change",

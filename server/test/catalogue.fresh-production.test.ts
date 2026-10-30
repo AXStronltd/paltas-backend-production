@@ -15,7 +15,11 @@ import { migrate } from "../dist/db/migrate.js";
 import { adminUrl, dbUrl } from "./support/global-setup.js";
 import { SALE } from "./support/agency-fixture.js";
 import { TAX } from "./support/hotel-fixture.js";
-import { signupBody, STANDARD } from "./support/signup-fixture.js";
+import { signupBody } from "./support/signup-fixture.js";
+
+const STANDARD: Record<Product, string> = Object.fromEntries(
+  ["property", "developer", "hotel", "security", "agency"].map((p) => [p, `PALTAS-20261027-${p}-Standard`]),
+) as Record<Product, string>;
 
 const KEY = randomBytes(32).toString("base64");
 const PUBLIC_LIMIT = 60;
@@ -129,15 +133,18 @@ describe("a fresh production database sells every product (migration 0015)", () 
     const dev = all.plans.filter((p) => p.product === "developer");
     // Enterprise plans are agreed with PALTAS and are not offered for self-service
     expect(dev.map((p) => [p.id, p.tier, p.price.amount, p.price.currency, p.price.frequency])).toEqual([
-      ["DEV-STD", "Standard", 80_000, "KES", "monthly"],
-      ["DEV-PRO", "Pro", 150_000, "KES", "monthly"],
+      ["PALTAS-20261027-developer-Standard", "Standard", 49, "USD", "monthly"],
+      ["PALTAS-20261027-developer-Pro", "Pro", 69, "USD", "monthly"],
+      ["PALTAS-20261027-developer-Enterprise", "Enterprise", 99, "USD", "monthly"],
     ]);
     expect(dev[0]!.modules.map((m) => m.key)).toEqual(["crm", "finance", "payments", "procurement"]);
     expect(dev[0]!.modules[0]!.name).toBe("Advanced CRM and Marketing");
     // a Super Admin's later price change is what the page shows (prices are rows, not code)
-    await db.run("UPDATE catalogue_plans SET base_minor = 9_000_000 WHERE id = 'DEV-STD'");
-    expect((await api.signup.options()).plans.find((p) => p.id === "DEV-STD")!.price.amount).toBe(90_000);
-    await db.run("UPDATE catalogue_plans SET base_minor = 8_000_000 WHERE id = 'DEV-STD'");
+    await db.run("UPDATE catalogue_plans SET base_minor = 9_000_000 WHERE id = 'PALTAS-20261027-developer-Standard'");
+    expect(
+      (await api.signup.options()).plans.find((p) => p.id === "PALTAS-20261027-developer-Standard")!.price.amount,
+    ).toBe(90_000);
+    await db.run("UPDATE catalogue_plans SET base_minor = 4900 WHERE id = 'PALTAS-20261027-developer-Standard'");
     // the trial length follows the ONE platform policy
     await db.run("UPDATE trial_policy SET trial_days = 21 WHERE id = 1");
     expect((await api.signup.options()).trialDays).toBe(21);
@@ -169,7 +176,7 @@ describe("a fresh production database sells every product (migration 0015)", () 
   it.each(["property", "developer", "hotel", "security", "agency"] as Product[])(
     "sign-up for %s on the Standard plan, then the first write in its main module succeeds",
     async (product) => {
-      const body = signupBody(product);
+      const body = signupBody(product, { plan: STANDARD[product] });
       const r = await fetch(base + "/api/v1/public/signup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

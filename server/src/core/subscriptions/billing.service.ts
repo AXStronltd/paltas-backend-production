@@ -1,3 +1,4 @@
+import { approvedOffer } from "./published-offers.js";
 /*
  * PALTAS subscription billing: invoices, orders (purchases) and applying payments.
  *
@@ -99,7 +100,7 @@ export const toPurchase = (p: PurchaseRow) => ({
 
 /** The rules' monthly charge, in minor units. total = net + tax exactly. */
 export function monthlyChargeMinor(en: EntitlementContext, today: string) {
-  const c = entitlements.charges(en.catalogue, en.view, today);
+  const c = entitlements.charges(en.catalogue, en.view, today, approvedOffer(en.ent.planId) ? "USD" : en.org.currency);
   const m = (x: number) => toMinor(x, c.ccy);
   const netMinor = m(c.net);
   const taxMinor = m(c.tax);
@@ -261,6 +262,8 @@ export function billingService(ctx: AppContext) {
         kind: PurchaseRow["kind"];
         what: string;
         amountMinor: number;
+        /** Explicit plan price currency; must never relabel the operating currency. */
+        currency?: string;
         moduleKey?: string | null;
         planId?: string | null;
         taxPct?: number | null;
@@ -269,7 +272,7 @@ export function billingService(ctx: AppContext) {
         requirePayment?: boolean;
       },
     ) {
-      const currency = s.en.org.currency;
+      const currency = o.currency ?? s.en.org.currency;
       const simulated = config.billingMode === "simulated" && !o.requirePayment;
       let invoice: BillingInvoice | null = null;
       let status: string;

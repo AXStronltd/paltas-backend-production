@@ -27,6 +27,8 @@ import { toInvoice } from "../subscriptions/billing.service.js";
 import { loadPolicy } from "./policy.js";
 import type { SignupService } from "./signup.service.js";
 
+import { approvedOffer } from "../subscriptions/published-offers.js";
+
 type Frequency = "monthly" | "quarterly" | "yearly";
 type Method = "provider" | "bank_transfer";
 
@@ -53,12 +55,13 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
         (p) =>
           p.products[0] === s.product &&
           p.tier &&
+          (ctx.config.env === "production" ? !!approvedOffer(p.id) : !approvedOffer(p.id)) &&
           (!ctx.config.signup.allowedPlanIds?.length ||
             ctx.config.signup.allowedPlanIds.includes(p.id) ||
             p.id === s.entitlement.ent.planId),
       )
       .map((p) => {
-        const price = entitlements.priceIn(p.base, org.currency);
+        const price = entitlements.priceIn(p.base, approvedOffer(p.id) ? "USD" : org.currency);
         const isolatedTest =
           new URL(ctx.config.signup.appBaseUrl).hostname !== "paltas.io" &&
           /^(sk|rk)_test_/.test(ctx.config.stripe?.secretKey ?? "");
@@ -75,8 +78,10 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
           frequencies: [p.frequency] as Frequency[],
           price: price ? { amountMinor: toMinor(price.amount, price.ccy), currency: price.ccy, per: price.per } : null,
           taxReview,
-          contactSales: p.tier === "Enterprise" || !price || taxReview,
+          contactSales: (p.tier === "Enterprise" && !approvedOffer(p.id)) || !price || taxReview,
           current: p.id === ent.planId,
+          includedModules: p.modules.map((key) => catalogue.modules.find((m) => m.key === key)?.name ?? key),
+          propertiesIncluded: p.buildingsIncluded,
         };
       });
   }
@@ -94,7 +99,8 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
               !p.taxReview &&
               !p.plan.taxPct &&
               !s.entitlement.ent.terms.discountPct &&
-              ctx.config.stripe?.prices.some((x) => x.planId === p.id && x.currency === p.price?.currency),
+              (approvedOffer(p.id)?.amountMinor === p.price?.amountMinor ||
+                ctx.config.stripe?.prices.some((x) => x.planId === p.id && x.currency === p.price?.currency)),
           )
         : [];
       return {
@@ -163,6 +169,7 @@ export function upgradeService(ctx: AppContext, deps: { billing: BillingService;
             kind: "plan",
             what: `${choice.name} — first ${price.per}`,
             amountMinor: price.amountMinor,
+            currency: price.currency,
             planId: choice.id,
             taxPct: choice.plan.taxPct ?? 0,
             note: "Self-service upgrade",

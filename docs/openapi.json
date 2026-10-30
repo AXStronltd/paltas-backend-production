@@ -4425,6 +4425,28 @@
                       "minimum": -9007199254740991,
                       "maximum": 9007199254740991
                     },
+                    "outstandingByCurrency": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "currency": {
+                            "type": "string",
+                            "pattern": "^[A-Z]{3}$"
+                          },
+                          "amountMinor": {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          }
+                        },
+                        "required": [
+                          "currency",
+                          "amountMinor"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
                     "billingMode": {
                       "type": "string",
                       "enum": [
@@ -6514,6 +6536,17 @@
                           },
                           "contactSales": {
                             "type": "boolean"
+                          },
+                          "includedModules": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "propertiesIncluded": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 9007199254740991
                           },
                           "current": {
                             "type": "boolean"

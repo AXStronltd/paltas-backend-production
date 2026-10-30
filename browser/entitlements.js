@@ -484,7 +484,7 @@ var __paltasBundle = (() => {
       return { ok: false, why: "You are already on " + to.name };
     if ((to.products || [])[0] !== (en.plan.products || [])[0] && en.planId !== "CORE")
       return { ok: false, why: to.name + " is for a different product" };
-    if (to.tier === "Enterprise" || !to.base)
+    if (to.tier === "Enterprise" && !/^PALTAS-20261027-(property|agency|developer|hotel|security)-Enterprise$/.test(to.id) || !to.base)
       return {
         ok: false,
         contactSales: true,
