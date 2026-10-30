@@ -254,3 +254,45 @@ it("lets scoped Main Managers run their pipeline while preserving property and c
   expect((await manager.api.property.listViewings({ params: O(), query: {} })).viewings).toEqual([]);
   expect((await manager.api.property.listApplications({ params: O() })).applications).toEqual([]);
 });
+
+it("pages retained revisions without gaps and rejects invalid page bounds", async () => {
+  const params = { ...O(), taskId: id };
+  const all = await o.admin.api.property.crmWorkHistory({ params });
+  expect(all.total).toBeGreaterThan(1);
+  const seen: number[] = [];
+  for (let offset = 0; offset < all.total; offset += 2) {
+    const page = await o.admin.api.property.crmWorkHistory({ params, query: { limit: 2, offset } });
+    expect(page.total).toBe(all.total);
+    expect(page.limit).toBe(2);
+    expect(page.offset).toBe(offset);
+    seen.push(...page.events.map((x) => x.version));
+  }
+  expect(seen).toEqual(all.events.map((x) => x.version));
+  expect((await o.admin.api.property.crmWorkHistory({ params, query: { offset: all.total } })).events).toEqual([]);
+  await refused(o.admin.api.property.crmWorkHistory({ params, query: { limit: 101 } }), 400);
+  await refused(tenant.api.property.crmWorkHistory({ params, query: { offset: 1 } }), 403);
+});
+
+it("makes revisions older than the previous 100-row cutoff retrievable", async () => {
+  let task = await o.admin.api.property.createCrmWork({
+    params: O(),
+    body: { ...input(), requestKey: "history-cutoff-regression-0001" },
+  });
+  for (let n = 0; n < 101; n++) {
+    task = await o.admin.api.property.updateCrmWork({
+      params: { ...O(), taskId: task.id },
+      body: {
+        ...input(),
+        title: `Historical correction ${n}`,
+        expectedVersion: task.version,
+        status: "open",
+        reason: "Repeated authorised historical correction",
+      },
+    });
+  }
+  const params = { ...O(), taskId: task.id };
+  const oldest = await o.admin.api.property.crmWorkHistory({ params, query: { offset: 100, limit: 50 } });
+  expect(oldest.total).toBe(102);
+  expect(oldest.events.map((x) => x.version)).toEqual([2, 1]);
+  expect(oldest.events[1]?.snapshot.title).toBe(input().title);
+});

@@ -14,7 +14,7 @@ export function crmRoutes(access: PmAccess, C: CrmService, W: ReturnType<typeof 
     route(api.listCrmWork, async (r) => W.list(await g.org(r, "property.crm"), r.query)),
     route(api.createCrmWork, async (r) => W.create(await work(r), r.body)),
     route(api.updateCrmWork, async (r) => W.update(await work(r), r.params.taskId, r.body)),
-    route(api.crmWorkHistory, async (r) => W.history(await g.org(r, "property.crm"), r.params.taskId)),
+    route(api.crmWorkHistory, async (r) => W.history(await g.org(r, "property.crm"), r.params.taskId, r.query)),
     route(api.crmAssignees, async (r) => W.assignees(await g.org(r, "property.crm"), r.query.propertyId)),
     route(api.crmMessageLog, async (r) => W.messages(await g.org(r, "property.crm"), r.query)),
     route(api.createEnquiry, async (req) => C.enquiry(await work(req), req.body)),

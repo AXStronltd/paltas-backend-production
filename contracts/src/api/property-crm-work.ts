@@ -86,7 +86,14 @@ export const crmWorkHistory = endpoint({
   auth: "user",
   summary: "Immutable CRM work revision history",
   params: Params,
+  query: z.object({
+    limit: z.coerce.number().int().min(1).max(100).default(50),
+    offset: z.coerce.number().int().min(0).default(0),
+  }),
   response: z.object({
+    total: z.number().int().nonnegative(),
+    limit: z.number().int(),
+    offset: z.number().int(),
     events: z.array(
       z.object({ version: z.number().int(), at: z.string(), actor: z.string(), reason: z.string(), snapshot: CrmWork }),
     ),

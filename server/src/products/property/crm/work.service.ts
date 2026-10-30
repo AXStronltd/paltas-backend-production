@@ -176,14 +176,24 @@ export function crmWorkService(d: PmDeps) {
         return item;
       });
     },
-    async history(s: OrgScope, id: string) {
+    async history(s: OrgScope, id: string, q: { limit: number; offset: number }) {
       await get(s, id);
-      return {
-        events: await db.rows<{ version: number; at: string; actor: string; reason: string; snapshot: Item }>(
-          "SELECT h.version,h.at,u.name AS actor,h.reason,h.snapshot FROM pm_crm_work_history h JOIN users u ON u.id=h.actor WHERE h.task_id=$1 ORDER BY h.version DESC LIMIT 100",
+      return db.tx(async (t) => {
+        await t.run("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ");
+        const count = await t.row<{ n: number }>(
+          "SELECT count(*)::int AS n FROM pm_crm_work_history WHERE task_id=$1",
           [id],
-        ),
-      };
+        );
+        return {
+          total: count?.n ?? 0,
+          limit: q.limit,
+          offset: q.offset,
+          events: await t.rows<{ version: number; at: string; actor: string; reason: string; snapshot: Item }>(
+            "SELECT h.version,h.at,u.name AS actor,h.reason,h.snapshot FROM pm_crm_work_history h JOIN users u ON u.id=h.actor WHERE h.task_id=$1 ORDER BY h.version DESC LIMIT $2 OFFSET $3",
+            [id, q.limit, q.offset],
+          ),
+        };
+      });
     },
     async assignees(s: OrgScope, p: string) {
       scope(s, p);
