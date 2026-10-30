@@ -631,6 +631,18 @@ export function maintenanceService(d: PmDeps) {
         if (w.status !== "requesting_quotes" && w.status !== "quoted")
           throw fail.conflict("Quotes are closed for this work order");
         const supplier = await core.contacts.live(t, s.orgId, b.supplierId);
+        const previousQuote = await t.row<{
+          amountMinor: number;
+          days: number | null;
+          fileName: string;
+          recordedBy: string;
+          recordedAt: string;
+        }>(
+          `SELECT amount_minor AS "amountMinor", days, file_name AS "fileName",
+             recorded_by AS "recordedBy", recorded_at AS "recordedAt"
+           FROM pm_wo_quotes WHERE org_id=$1 AND work_order_id=$2 AND supplier_id=$3`,
+          [s.orgId, id, b.supplierId],
+        );
         await core.contacts.addTypes(t, s.orgId, b.supplierId, ["supplier"]);
         await t.run(
           `INSERT INTO pm_wo_quotes (work_order_id, supplier_id, org_id, amount_minor, days, file_name, recorded_by)
@@ -646,6 +658,14 @@ export function maintenanceService(d: PmDeps) {
           action: "Quotation recorded",
           target: w.number,
           detail: `${supplier.name} · ${b.amountMinor}`,
+          before: previousQuote ? { supplierId: b.supplierId, ...previousQuote } : null,
+          after: {
+            supplierId: b.supplierId,
+            amountMinor: b.amountMinor,
+            days: b.days ?? null,
+            fileName: b.fileName,
+            recordedBy: s.userId,
+          },
         });
       });
       return woView(s.orgId, id, s.today);

@@ -139,3 +139,37 @@ it("enforces property, organisation and role access, including prompt revocation
   await refused(manager.api.property.getWorkOrder({ params: { orgId, workOrderId: w.id } }), 404);
   await refused(manager.api.property.workOrderHistory({ params: { orgId, workOrderId: w.id } }), 404);
 });
+
+it("retains quotation correction amounts and terms in scoped work history", async () => {
+  const w = await create();
+  const supplier = (
+    await admin.api.contacts.createContact({
+      params: { orgId },
+      body: { name: "Quotation history supplier", types: ["supplier"] },
+    })
+  ).contact;
+  const params = { orgId, workOrderId: w.id };
+  await admin.api.property.addQuote({
+    params,
+    body: { supplierId: supplier.id, amountMinor: 120000, days: 3, fileName: "Original quotation.pdf" },
+  });
+  await admin.api.property.addQuote({
+    params,
+    body: { supplierId: supplier.id, amountMinor: 12000, days: 5, fileName: "Corrected quotation.pdf" },
+  });
+  const current = await admin.api.property.getWorkOrder({ params });
+  expect(current.quotes).toHaveLength(1);
+  expect(current.quotes[0]?.amountMinor).toBe(12000);
+  const history = await admin.api.property.workOrderHistory({ params });
+  const changes = history.entries.filter((x) => x.action === "Quotation recorded");
+  expect(changes).toHaveLength(2);
+  expect(changes[0]?.before).toMatchObject({
+    supplierId: supplier.id,
+    amountMinor: 120000,
+    days: 3,
+    fileName: "Original quotation.pdf",
+  });
+  expect(changes[0]?.after).toMatchObject({ amountMinor: 12000, days: 5, fileName: "Corrected quotation.pdf" });
+  expect(changes[1]?.before).toBeNull();
+  expect((await S.sql("SELECT count(*)::int AS n FROM journal_entries WHERE org_id=$1", [orgId]))[0]?.n).toBe(0);
+});
